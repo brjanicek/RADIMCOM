@@ -6561,7 +6561,8 @@ $("medTable").addEventListener("click", (e) => {
   if (e.target.closest("[data-edit]")) { medOpenForm(m); return; }
   // a click selects the row (Ctrl/Cmd+click adds it to the selection or removes it); the table is not
   // redrawn here, so a double click still lands on the same row
-  if ((e.ctrlKey || e.metaKey) && !medEditId) { if (medSel.has(m.id)) medSel.delete(m.id); else medSel.add(m.id); }
+  if (medEditId) { medOpenForm(m); return; }   // the form is open: a click moves it to the clicked channel
+  if (e.ctrlKey || e.metaKey) { if (medSel.has(m.id)) medSel.delete(m.id); else medSel.add(m.id); }
   else { medSel.clear(); medSel.add(m.id); }
   medSyncSel();
 });
