@@ -1692,3 +1692,4 @@ html[data-ink="dark"] .r-top, html[data-ink="dark"] .r-keys { border-bottom-colo
 .med-table .med-pen:hover { color: var(--yellow); border-color: var(--line2); }
 .med-table tr.med-ch { user-select: none; }
 .med-table.multi .med-pen { visibility: hidden; pointer-events: none; }
+.med-table.form-open [data-pick], .med-table.form-open [data-selall] { visibility: hidden; pointer-events: none; }

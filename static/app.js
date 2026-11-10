@@ -6561,7 +6561,7 @@ $("medTable").addEventListener("click", (e) => {
   if (e.target.closest("[data-edit]")) { medOpenForm(m); return; }
   // a click selects the row (Ctrl/Cmd+click adds it to the selection or removes it); the table is not
   // redrawn here, so a double click still lands on the same row
-  if (e.ctrlKey || e.metaKey) { if (medSel.has(m.id)) medSel.delete(m.id); else medSel.add(m.id); }
+  if ((e.ctrlKey || e.metaKey) && !medEditId) { if (medSel.has(m.id)) medSel.delete(m.id); else medSel.add(m.id); }
   else { medSel.clear(); medSel.add(m.id); }
   medSyncSel();
 });
@@ -6637,7 +6637,8 @@ function medOpenForm(m, template) {
   f.hidden = false;
   // only the marks of the rows change: drawing the table again would break a double click (recall) on a row
   for (const tr of $("medTable").querySelectorAll("tr[data-id]")) tr.classList.toggle("editing", tr.dataset.id === medEditId);
-  medRenderBulk();
+  medSel.clear();   // the form takes one channel: no multi-selection while it is open
+  medSyncSel();
   renderMedForm();
   if (!m) f.elements.name.focus();
 }
@@ -6646,6 +6647,7 @@ function renderMedForm() {
   const f = $("medForm");
   if (medEditId && medEditId !== "new" && !mems.some((m) => m.id === medEditId)) medEditId = null;
   f.hidden = !medEditId;
+  $("medTable").classList.toggle("form-open", !!medEditId);   // tick boxes hidden while the form is open
   if (!medEditId) return;
   const names = [...new Set([...memAllGroups(), ...medFormGroups])].sort((a, b) => a.localeCompare(b, "en", { sensitivity: "base" }));
   $("medFormGroups").innerHTML = names.length ? names.map((g) => `<label class="chip-check"><input type="checkbox" value="${escHtml(g)}"` +
