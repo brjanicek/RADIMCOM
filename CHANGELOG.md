@@ -13,6 +13,7 @@ Changes since 0.113beta1 (GitHub branch `0.113beta1`).
 
 ### Minor Fixes
 
+- **MEMORIES tab without the LIST page** (Brano, brjanicek): CHANNELS takes its place: a click on a row recalls the channel and opens it in the form, the tuned channel is highlighted and scrolled into view, **★ only** shows the starred channels, and **＋ SAVE CURRENT** is beside ＋ NEW. The tab opens on CHANNELS.
 - **A damaged VFO settings file no longer stops the VFO.** A power cut right after saving could leave `config_X.json` full of zero bytes and the VFO receiver ended at start with `JSONDecodeError`. Saving now flushes the file to disk (`fsync`) and keeps the previous version as `config_X.json.bak`; at start the launcher keeps a damaged file as `.broken` and restores `.bak`, or creates new settings from `config.json` + `init` in `vfos.json`.
 - **AD window has a fixed height** (as with RDS), so an error message, the rotor AZ / EL or RDS no longer make it higher or lower.
 - **Memory editor: the channel form in three columns** (fields | decoder, record, star, tag | groups), so it fits the height of the MEMORIES tab without scrolling; thinner scroll bars in the tab (Brano, brjanicek).

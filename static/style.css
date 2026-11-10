@@ -1683,3 +1683,7 @@ html[data-ink="dark"] .r-top, html[data-ink="dark"] .r-keys { border-bottom-colo
 #memPane ::-webkit-scrollbar-track { background: transparent; }
 #memPane ::-webkit-scrollbar-button { display: none; }
 .med-form .med-color .key { width: auto; min-width: 30px; }
+/* the channel the VFO is tuned to (CHANNELS is also the list to recall from) */
+.med-table tr.med-ch.active { background: rgba(126, 224, 168, .12); box-shadow: inset 3px 0 0 var(--green); }
+.med-table tr.med-ch.active td.name { color: var(--yellow); }
+.med-table tr.med-ch.active.editing { box-shadow: inset 3px 0 0 var(--yellow); }

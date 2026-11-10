@@ -99,6 +99,8 @@ Main Features
 - Waterfall keeps the history of the whole SDR band: after zooming out or dragging the section, the parts
   hidden before are shown at once (coarser), not an empty background.
 Minor Fixes
+- MEMORIES tab: the LIST page is gone, CHANNELS recalls a channel by a click and highlights the tuned one;
+  ★ only filter and + SAVE CURRENT there.
 - Damaged VFO settings (config_X.json full of zeros after a power cut) no longer stop the VFO: saving flushes
   to disk and keeps a .bak, the launcher restores it (or creates new settings), the damaged file stays as .broken
 - AD window has a fixed height: an error, the rotor AZ / EL or RDS no longer change it
