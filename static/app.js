@@ -6417,6 +6417,29 @@ function medFilterSelect(sel, withAll) {
   sel.value = [...sel.options].some((o) => o.value === cur) ? cur : sel.options[0]?.value || "";
 }
 
+// the group for the bar above the table: a list of the groups, or "＋ new group…" with a name field
+const medBulkIsNew = () => !!$("medBulkGroupSel").selectedOptions[0]?.dataset.new;
+function medBulkGroupSelect() {
+  const sel = $("medBulkGroupSel"), cur = sel.value;
+  sel.innerHTML = `<option value="">Group…</option>` + memAllGroups().map((g) => `<option value="${escHtml(g)}">${escHtml(g)}</option>`).join("") +
+    `<option data-new="1">＋ new group…</option>`;
+  const wasNew = $("medBulkGroup").hidden === false;
+  if (wasNew) sel.value = "＋ new group…";
+  else sel.value = [...sel.options].some((o) => o.value === cur && !o.dataset.new) ? cur : "";
+  $("medBulkGroup").hidden = !medBulkIsNew();
+}
+$("medBulkGroupSel").addEventListener("change", () => {
+  const isNew = medBulkIsNew();
+  $("medBulkGroup").hidden = !isNew;
+  if (isNew) { $("medBulkGroup").value = ""; $("medBulkGroup").focus(); }
+});
+$("medBulkGroup").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); $("medBulk").querySelector("[data-bulk=add]").click(); }
+});
+function medBulkGroupName() {
+  return medBulkIsNew() ? $("medBulkGroup").value.trim() : $("medBulkGroupSel").value;
+}
+
 function medVisible() {
   const q = $("medSearch").value.trim().toLowerCase();
   const qf = q.replace(/\s/g, "");
@@ -6455,6 +6478,7 @@ if (!MED_COLS.some(([k]) => k === medSortKey)) medSortKey = "groups";
 
 function renderMedChannels() {
   medFilterSelect($("medGroup"), true);
+  medBulkGroupSelect();
   const sort = medSortKey, dir = medSortDir;
   const group = $("medGroup").value;
   const dups = memDuplicates();
@@ -6593,8 +6617,13 @@ $("medBulk").addEventListener("click", async (e) => {
   const ids = medBulkIds();
   if (!b || !ids.length) return;
   const act = b.dataset.bulk;
-  const group = $("medBulkGroup").value.trim();
-  if (["add", "remove", "move"].includes(act) && !group) { $("medBulkGroup").focus(); medMsg("Enter a group name first.", true); return; }
+  const group = medBulkGroupName();
+  if (["add", "remove", "move"].includes(act) && !group) {
+    ($("medBulkGroup").hidden ? $("medBulkGroupSel") : $("medBulkGroup")).focus();
+    medMsg($("medBulkGroup").hidden ? "Choose a group first." : "Enter the name of the new group first.", true);
+    return;
+  }
+  if (act === "remove" && !memAllGroups().includes(group)) { medMsg(`There is no group ${group}.`, true); return; }
   if (act === "export") { medExportAdd(mems.filter((m) => ids.includes(m.id))); showMedTab("export"); return; }
   if (act === "delete" && !confirm(`Delete ${ids.length} selected channel${ids.length === 1 ? "" : "s"}?`)) return;
   const changes = { add: { groups_add: [group] }, remove: { groups_remove: [group] }, move: { groups: [group] },
@@ -6604,6 +6633,11 @@ $("medBulk").addEventListener("click", async (e) => {
   if (!r.ok) { medMsg(r.error, true); return; }
   if (act === "delete") { medSel.clear(); if (ids.includes(medEditId)) medEditId = null; }
   medMsg(act === "delete" ? `Deleted ${r.data.deleted}.` : `Changed ${r.data.changed.length}.`);
+  if (["add", "move"].includes(act) && medBulkIsNew()) {
+    // the new group now exists: pick it in the list (filled again by memChanged) instead of the name field
+    const o = document.createElement("option"); o.value = group; $("medBulkGroupSel").append(o); $("medBulkGroupSel").value = group;
+    $("medBulkGroup").hidden = true;
+  }
   await memChanged();
 });
 

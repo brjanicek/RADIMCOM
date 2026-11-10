@@ -209,7 +209,7 @@ The memory editor was written by **Brano ([brjanicek](https://github.com/brjanic
   the channel (another frequency, mode or channel); one switched on by hand, or a key pressed by hand meanwhile, stays), DAB channel, the **groups** (a list, one per line, scrolls when long: tick any number, or type a new one and press Enter),
   a **note**, the **tag in the spectrum** (shown or hidden, default shown) with its **colour** (↺ = the default green) and
   the star. It warns when another channel is on the same frequency and mode. **＋ NEW** fills it from the tuner.
-  Select or tick channels for the bar above the table (with none selected, it acts on the channel open in the form): add them to a group (**＋ TO GROUP**, they stay in their other groups),
+  Select or tick channels for the bar above the table (with none selected, it acts on the channel open in the form): pick a group in the list (or **＋ new group…** and type its name) and add them to it (**＋ TO GROUP**, they stay in their other groups),
   remove them from it, **MOVE** them to one group only, star or unstar them, show or hide their tags, set or reset their
   colour (**SET** / **DEFAULT**), put them on the export list (**⇩ TO EXPORT**) or delete them.
 - **GROUPS**: every group with the number of its channels and its **note** (saved when you leave the field). **＋ ADD GROUP**
