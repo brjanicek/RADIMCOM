@@ -6518,6 +6518,7 @@ function medBulkIds() {
   return medEditId && mems.some((m) => m.id === medEditId) ? [medEditId] : [];
 }
 function medRenderBulk() {
+  $("medTable").classList.toggle("multi", medSel.size > 1);   // several rows selected: no ✎ (the editor takes one channel)
   const open = !medSel.size && medBulkIds().length ? mems.find((m) => m.id === medEditId) : null;
   $("medSelCount").textContent = open ? "open channel" : `${medSel.size} selected`;
   $("medSelCount").title = open ? `No channel ticked: the keys act on the channel open in the form (${open.name})` : "";

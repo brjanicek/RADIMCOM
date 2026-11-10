@@ -1691,3 +1691,4 @@ html[data-ink="dark"] .r-top, html[data-ink="dark"] .r-keys { border-bottom-colo
 .med-table .med-pen { background: none; border: 1px solid transparent; border-radius: 4px; color: var(--muted, #8a96a8); cursor: pointer; font-size: 15px; line-height: 1; padding: 1px 4px; }
 .med-table .med-pen:hover { color: var(--yellow); border-color: var(--line2); }
 .med-table tr.med-ch { user-select: none; }
+.med-table.multi .med-pen { visibility: hidden; pointer-events: none; }
