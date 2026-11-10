@@ -6475,9 +6475,9 @@ function renderMedChannels() {
     sections = [[null, list, ""]];
   }
   const allSel = list.length && list.every((m) => medSel.has(m.id));
-  const n = MED_COLS.length + 1;
-  let html = `<colgroup><col class="c-chk">${MED_COLS.map(([, , c]) => `<col class="${c.split(" ")[0]}">`).join("")}</colgroup>` +
-    `<thead><tr><th><input type="checkbox" data-selall ${allSel ? "checked" : ""} title="Select all in the list"></th>` +
+  const n = MED_COLS.length + 2;
+  let html = `<colgroup><col class="c-chk"><col class="c-edit">${MED_COLS.map(([, , c]) => `<col class="${c.split(" ")[0]}">`).join("")}</colgroup>` +
+    `<thead><tr><th><input type="checkbox" data-selall ${allSel ? "checked" : ""} title="Select all in the list"></th><th class="c-edit"></th>` +
     MED_COLS.map(([k, label, c]) => `<th class="sortable ${c}${k === sort ? " sorted" : ""}" data-sort="${k}" title="Sort by ${k === "fav" ? "star" : label.toLowerCase()}">` +
       `${label}${k === sort ? `<i class="sort-dir">${dir > 0 ? "▲" : "▼"}</i>` : ""}</th>`).join("") + `</tr></thead><tbody>`;
   for (const [title, rows, note] of sections) {
@@ -6492,6 +6492,7 @@ function renderMedChannels() {
       const rec = RECORD_NAMES[m.record || "off"] || m.record;
       html += `<tr class="med-ch${medSel.has(m.id) ? " sel" : ""}${m.id === medEditId ? " editing" : ""}" data-id="${m.id}">` +
         `<td><input type="checkbox" data-pick ${medSel.has(m.id) ? "checked" : ""}></td>` +
+        `<td><button class="med-pen" data-edit title="Edit this channel">✎</button></td>` +
         `<td><button class="star${m.fav ? " on" : ""}" data-star>${m.fav ? "★" : "☆"}</button></td>` +
         `<td class="name" title="${escHtml(m.name)}">${dup ? `<i class="dup" title="Same frequency and mode as: ${escHtml(dup.join(", "))}">⧉</i> ` : ""}${escHtml(m.name)}</td>` +
         `<td class="num mono">${fmtMemFreq(m.freq_hz)}</td>` +
@@ -6556,10 +6557,33 @@ $("medTable").addEventListener("click", (e) => {
     memApi(`/api/memories/${m.id}`, { fav: !m.fav }, "PATCH").then((r) => r.ok ? memChanged(mems.map((x) => (x.id === m.id ? r.data : x))) : medMsg(r.error, true));
     return;
   }
-  // a click on a row recalls the channel (as the LIST page did) and opens it in the form
-  medOpenForm(m);
-  if (st) recallMem(m);
+  if (e.target.closest("[data-edit]")) { medOpenForm(m); return; }
+  // a click selects the row (Ctrl/Cmd+click adds it to the selection or removes it); the table is not
+  // redrawn here, so a double click still lands on the same row
+  if (e.ctrlKey || e.metaKey) { if (medSel.has(m.id)) medSel.delete(m.id); else medSel.add(m.id); }
+  else { medSel.clear(); medSel.add(m.id); }
+  medSyncSel();
 });
+// a double click on a row tunes to the channel (recall, as the old LIST page did)
+$("medTable").addEventListener("dblclick", (e) => {
+  if (e.target.closest("th, input, button")) return;
+  const row = e.target.closest("tr[data-id]");
+  const m = row && mems.find((x) => x.id === row.dataset.id);
+  if (m && st) recallMem(m);
+});
+/** Shows medSel on the drawn table (row colour, tick boxes) without redrawing it. */
+function medSyncSel() {
+  for (const tr of $("medTable").querySelectorAll("tr[data-id]")) {
+    const on = medSel.has(tr.dataset.id);
+    tr.classList.toggle("sel", on);
+    const cb = tr.querySelector("[data-pick]");
+    if (cb) cb.checked = on;
+  }
+  const all = $("medTable").querySelector("[data-selall]");
+  const list = medVisible();
+  if (all) all.checked = !!list.length && list.every((m) => medSel.has(m.id));
+  medRenderBulk();
+}
 
 // bulk actions on the ticked channels
 $("medBulk").addEventListener("click", async (e) => {
