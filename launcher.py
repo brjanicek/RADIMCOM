@@ -8,17 +8,28 @@ VFO settings (config_X.json) are created at the first start from config.json and
 import copy
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
 
 from flask import Flask, jsonify, request, send_from_directory
 
+import rotor
 import sysload
 import update_check
 from paths import BASE, data
 
 VFOS_PATH = data("vfos.json")
+
+
+def _valid_json(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            json.load(f)
+        return True
+    except (OSError, ValueError):
+        return False
 
 
 def ensure_configs(vfos):
@@ -29,7 +40,15 @@ def ensure_configs(vfos):
     for v in vfos:
         path = data(v["config"])
         if os.path.exists(path):
-            continue
+            if _valid_json(path):
+                continue
+            # damaged (e.g. zero bytes after a power cut): keep it as .broken, restore .bak or create a new one
+            os.replace(path, path + ".broken")
+            if _valid_json(path + ".bak"):
+                shutil.copyfile(path + ".bak", path)
+                print(f"VFO {v['name']}: {v['config']} was damaged, restored from {v['config']}.bak")
+                continue
+            print(f"VFO {v['name']}: {v['config']} was damaged (kept as .broken), creating a new one")
         c = copy.deepcopy(template)
         c.update(v.get("init", {}))
         c["device"] = 0
@@ -43,6 +62,10 @@ def main():
         setup = json.load(f)
     vfos = setup["vfos"]
     ensure_configs(vfos)
+    # one rotor for the station: its settings move from the VFO configs (up to 0.114beta1) to rotor.json
+    src = rotor.migrate(data("rotor.json"), [data(v["config"]) for v in vfos])
+    if src:
+        print(f"Rotor: settings moved from {src} to rotor.json (the rotor is now run by VFO {vfos[0]['name']})")
 
     procs = []
     # VFOs with their own dongle first, chained VFOs (sharing a dongle, "chain": "A") after them.
@@ -65,7 +88,9 @@ def main():
 
     @app.route("/api/vfos")
     def api_vfos():
-        return jsonify([{k: v.get(k) for k in ("name", "port", "serial", "note", "chain")} for v in vfos])
+        # "rotor": the VFO whose process holds the rotor (the first one, as in app.py ROTOR_HERE)
+        return jsonify([dict({k: v.get(k) for k in ("name", "port", "serial", "note", "chain")}, rotor=i == 0)
+                        for i, v in enumerate(vfos)])
 
     def shutdown():
         """For the upgrade: the VFO receivers end as with the launcher closed (their input closes), then the launcher."""
