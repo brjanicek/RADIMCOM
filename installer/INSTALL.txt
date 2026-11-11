@@ -19,7 +19,8 @@ Features
 - CUE: keep listening to other VFOs at a separate CUE level while one VFO is selected;
   MAIN and CUE volume faders, stereo level meter, MUTE.
 - REC and REC SQ: record the audio of the selected VFO to MP3 files in data\recordings:
-  everything, or only while the squelch is open.
+  everything, or only while the squelch is open. RECS: the RECORDINGS tab lists the files and
+  plays them in the browser.
 - Decoders: FT8, WEFAX (radio fax), CW (Morse), RTTY (auto shift/speed), SSTV (14 modes),
   PACKET (AX.25 1200 / 9600 Bd, APRS with a station list and map), ACARS (aircraft data link, VHF airband), CPDLC (controller-pilot messages in ACARS);
   optional daily log for each.
@@ -87,6 +88,121 @@ More details: README.md.
 Change log
 ----------
 (also in CHANGELOG.md)
+
+Ver. 0.114beta1
+(test beta, GitHub branch 0.114beta1)
+Main Features
+- Station location moved from SATELLITES -> SETUP to SETTINGS -> GENERAL -> LOCATION (locator or lat / lon,
+  CHOOSE ON MAP, altitude); used by the satellites, packet decoder (APRS), HFDL and AIS. data\location.json,
+  default 0.0 / 0.0 on a new installation, an older installation keeps its station.
+- SETTINGS split into GENERAL (SKINS, S-METER, TOUCHPAD, LOCATION, ROTOR, RECORDINGS: the whole station) and VFO (keys VFO-A..D on the left,
+  the lit one joined to its card: SDR DONGLE, ADVANCED, AUDIO, TX). S9 calibration moved to VFO -> ADVANCED.
+- One rotor for the whole station: settings in data\rotor.json (moved from config_X.json at the first start),
+  run by the receiver of the first VFO whichever VFO is active; MONITOR is one switch for all VFOs.
+- ROTOR CONTROL tab (new key RCTRL in the key group TRACKING, formerly SAT): a click on the map, on a channel point
+  or on a list row turns the station rotor (from any VFO) to that azimuth from the QTH (elevation 0); dashed line =
+  wanted azimuth to the target, green sector (BEAM width) = antenna now, turning with the rotor. The points are the
+  MEMORIES channels with a location (LAT / LON); GROUPS beside the map: a checkbox per group (ALL / NONE).
+- Folder of the MP3 recordings selectable: SETTINGS -> GENERAL -> RECORDINGS (full path, created if missing,
+  DEFAULT = data\recordings); one folder for all VFOs, used by REC / REC SQ and the RECORDINGS tab. data\recordings.json.
+- Tone squelch in FM: keys TSQ-C (CTCSS, 50 tones) and TSQ-D (DCS, 104 codes, N / I) in the AUDIO group, in addition
+  to the SQL bar or ASQ. Tone / code in SETTINGS -> VFO -> AUDIO or with the mouse wheel over the key; shown in the
+  VFO window under the frequency (grey = off, orange = on, glowing = received). The tone is filtered out of the audio.
+- ACARS / VDL2: MESSAGES / AIRCRAFT / MAP views like HFDL. AIRCRAFT = newest data of each aircraft heard
+  (ADS-B data, position with its source and age, ground station, message count). MAP = aircraft with a known position (ADS-B, ADS-C, and on VDL2 the
+  approximate position from XID frames), tracks, VDL2 ground stations, list beside the map; the square key in the top
+  right corner opens the map alone in a new browser tab.
+- SCAN: scanner of memories and ranges. New key SCAN in the MENU group -> SCAN tab with pages SCAN, LOG, HEATMAP.
+  All channels in the band of the dongle are measured at once from the spectrum; the tuner moves only between windows.
+  Sources: ALL / FAVOURITES / group of memories, RANGE FROM-TO-STEP-MODE-BW (presets: airband 8.33 kHz, PMR446, 2 m,
+  70 cm, LPD433, marine VHF, CB) or VIEW (spectrum shown); PICK NEXT / STRONGEST. Per memory (new fields): SCAN on/off,
+  own SQ (dBFS), own ASQ margin, PRIO; ASQ FOR ALL (noise floor of each channel + margin). RESUME DELAY / CARRIER / TIME.
+  START / PAUSE / SKIP (5 min) / LOCKOUT / prev / next / STOP; priority channels (other windows: look every PRIO LOOK s);
+  CARRIER LOCKOUT after X min open. LOG = data\logs\scan_YYYY-MM-DD.csv (page LOG, CSV export); REC = WAV of each activity
+  with 0.5 s before the signal came back (recordings folder\scan); STORE = found range frequencies into the memory group
+  "Scan YYYY-MM-DD"; HEATMAP = frequency x hour of the day. Range in the spectrum blue, locked out channels grey.
+  Decoder and recording of a memory are ignored; the decoders of the scanning VFO pause. scanner.py, /api/scan.
+Minor Fixes
+- WFM filters 50, 75, 150 and 200 kHz (default 200 kHz).
+- Memory channel location: LAT / LON (decimal degrees) or CHOOSE ON MAP in the channel form, saved in memories.json and
+  in the JSON / CSV export and import; the CHANNELS table shows LAT, LON, azimuth and distance from the
+  station location (SETTINGS -> GENERAL -> LOCATION).
+- STEP keys: 10 Hz / 100 Hz / 1 kHz / 10 kHz in AM, FM, SSB, CW; WFM keeps all seven steps (each set remembers its own).
+- Default S-meter layout: amber needle.
+
+Ver. 0.113
+(after the test betas 0.113beta1 and 0.113beta2; memory editor by Brano, github.com/brjanicek)
+Main Features
+- New look: brushed black anodized aluminium panel, displays milled into it (sharp edges, glass), 3D keys
+  that stay pressed with an LED line when on, spectrum / waterfall as a display sunk behind glass.
+- Skins (SET -> SKINS): dark / black / light brushed aluminium, mahogany, or paint in a RAL colour (or own colour);
+  remembered in the browser.
+- Every VFO is one dark display window: name (lit on the active VFO; a memory name in its own tag colour), connection state, frequency, info row
+  (RX/TX, filter width, HPF / LPF with cutoffs, ST, SQL, CONV/BYPASS), annunciators lit when on (mode, AGC(+),
+  NF, SP, ALC, AFI, ASQ, ATU, satellite Doppler, CUE) and RF / SQL segment bars (drag, click, mouse wheel).
+- Connection state as a USB icon: green = running, blinking orange = connecting, grey = disconnected.
+- VFO keys A-D beside the S-meter (the flags there are gone, their information is in the VFO windows).
+- AD (additional display) under the S-meter, by priority: 1. error messages (red, accepted by a small OK, the frame
+  blinks red every 0.5 s; they used to show 5 s under the logo), 2. rotor AZ / EL (MONITOR), 3. RDS.
+  S reading and CPU / MEM in a window under the S-meter.
+- SP key: a press forgets all stored spurs, learns the band received now and switches the removal on
+  (blinking red while learning, then steady yellow); another press switches it off.
+- Waterfall speed (vertical zoom): vertical bar in the top right corner of the waterfall, 1/8 - 4x.
+- Waterfall settings: gear above the speed bar, window on mouse hover: colour scheme (Classic, Inferno,
+  Viridis, Turbo, Ice), colour range and offset (moved from SET -> DISPLAY).
+- SETTINGS tab instead of the floating SET window: the SET key is a gear; while lit, the bottom part has
+  a SETTINGS tab (beside DECODERS) with pages SDR DONGLE (BASIC, ADVANCED: SP and AGC+), AUDIO, UI (SKINS,
+  S-METER, TOUCHPAD), ROTOR (TX); no scrolling. Bandwidth moved to SDR DONGLE. AUDIO without the squelch
+  slider (SQL bar in the VFO window), only the ASQ margin.
+- ROTOR page: ON / OFF for the VFO (OFF hides the rest); polar plot and elevation column 0-180 deg instead of
+  Position / Go to (a click moves the antenna); actual AZ / EL (orange) and requested (green); STOP, RESET,
+  MONITOR (AZ / EL in the AD, the requested one only while turning); azimuth calibration. The position is
+  filtered, the ~1 % noise of the readings no longer flickers.
+- ATU in SSB: the edge of the signal goes onto the red line (USB lower edge, LSB upper edge);
+  wheel / drag tuning starts ATU from a 150 Hz move (was 250 Hz).
+- Memory editor (contributed by Brano, github.com/brjanicek): channels in several groups, with a decoder
+  switched on at recall, a recording started at recall (OFF, ON = REC, SQ = REC SQ, ASQ = REC SQ with auto squelch),
+  a red dot on the tag of a recording channel, a note, their own tag colour or a hidden tag; sort by a click on a column header, duplicates shown;
+  channel form in three columns, asks before unsaved changes are dropped.
+  Groups with notes: add, rename, copy, merge, delete. Import (one LOAD FILE... key recognises RADIMCOM JSON / CSV, SDR#,
+  SDR++, gqrx and CHIRP files) and export to JSON or CSV,
+  both through a list to edit and choose from first. New file data\memory_groups.json; memories.json is copied
+  to memories.json.bak before the first change.
+- MEMORIES tab instead of the floating MEM window: while the MEM key is lit, the bottom part has a MEMORIES tab with the pages
+  CHANNELS, GROUPS, IMPORT and EXPORT (the memory editor). CHANNELS is the list to recall from (Brano): click selects,
+  double click recalls, the pencil opens the form, the tuned channel is highlighted, * only filter, + SAVE CURRENT / + NEW;
+  TO GROUP / FROM GROUP pick from a list of all groups or + new group.
+- RTL-SDR Blog V4 tunes from 0.5 MHz (HF through its built-in upconverter, no external converter)
+- SETTINGS > SDR DONGLE > ADVANCED: list of dongles and the VFOs they serve (from data\vfos.json), their state,
+  free connected dongles; the dongle being set is highlighted
+- RECORDINGS tab (RECS key in the AUDIO group): the MP3 files of REC / REC SQ in a table (start, memory,
+  frequency, mode, length, size), a click plays the file in the browser, NEXT continues with the next older
+  file, filter, delete; the file being written is marked. HTTP API: /api/recordings.
+- SETTINGS > SDR DONGLE > BASIC: block diagram of the receive chain (antenna, upconverter, bias-tee, tuner,
+  A/D, ppm crystal, DC removal, SP spurs removal, AGC+ loop to the tuner gain); numbered blocks match numbered setting cards, a click highlights the card (RTL-SDR only).
+- Waterfall keeps the history of the whole SDR band: after zooming out or dragging the section, the parts
+  hidden before are shown at once (coarser), not an empty background.
+- HFDL decoder (aircraft data link on HF, 2.9-22 MHz, dumphfdl): DECODERS > HFDL, all HFDL channels inside
+  the band of the VFO at once, band buttons, heard ground stations, table of stations and frequencies, LOG;
+  aircraft data from ADS-B (adsb.fi / adsb.lol) like ACARS, a click on flight / registration opens the map;
+  MESSAGES / AIRCRAFT / MAP views (aircraft positions, tracks and ground stations on a map), scroll pause.
+- AIS decoder (ships, 161.975 / 162.025 MHz, own GMSK decoder, no external program): DECODERS > AIS, the
+  162.000 button centres the VFO so both channels are decoded at once, audio muted; MMSI with country flag and
+  MarineTraffic / VesselFinder links, name, type, status, position, speed, course, destination, NMEA sentence;
+  MESSAGES / SHIPS / MAP views (ships turned to their heading, tracks, base stations, aids to navigation), LOG.
+- PACKET, HFDL and AIS maps: the square key in the top right corner opens the map alone in a new browser tab
+  (live, no audio, the main window keeps its settings).
+Minor Fixes
+- Speaker / REC / REC SQ as raised keys with LED lines; faders with a metal knob.
+- RADIMCOM logo: raised white letters, raised ring LED; the version under the logo instead of the author line.
+- Lighter grey texts on the panel.
+- ST in the VFO window is lit only while stereo is really decoded (pilot and S/M on), grey with S/M set
+  to mono; before it stayed lit with the pilot, so S/M looked as if it did nothing
+- Damaged VFO settings (config_X.json full of zeros after a power cut) no longer stop the VFO: saving flushes
+  to disk and keeps a .bak, the launcher restores it (or creates new settings), the damaged file stays as .broken
+- AD window has a fixed height: an error, the rotor AZ / EL or RDS no longer change it
+- Recording (Brano): a recording or ASQ started by recalling a memory with RECORD stops when the VFO
+  leaves the memory; REC / REC SQ switched on by hand keep running while tuning.
 
 Ver. 0.112
 Main Features
