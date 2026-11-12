@@ -4,6 +4,13 @@
 
 Test beta (GitHub branch `0.115beta1`).
 
+### Main Features
+
+- **ISM at 868 MHz: Wireless M-Bus meters, weaker sensors** (by Brano, brjanicek). The **868.30** preset now has two rtl_433 channels of 256 kS/s: **868.30** (LaCrosse, Bresser…) and **868.95 MHz** (Wireless M-Bus T1 / C1 meters, e.g. heat cost allocators in a block of flats), both with `-Y autolevel` (FSK: it finds the weaker devices; at 433 MHz OOK it only added false decodes, so it stays off there). Measured on a 2.5 min recording: the 868.95 channel decoded 219 wM-Bus messages of 178 meters, the whole band with autolevel 22 and without it none (512k / 1024k channels: 192 / 101); live about 105 messages a minute instead of 10. Rate and autolevel are set per channel (`CHANNELS` in `ism.py`); the counter tooltip and `ismstate` show the channels and their rates (`channel_rates`), also right after a small retune.
+  - **Fewer rows:** a wM-Bus meter is one row for an hour with its latest message (mostly encrypted: shown compactly as mode, manufacturer, type, "encrypted"); the same message of any device within 1 min of its previous one joins its row (×N, also with other devices in between), and the row moves to the top with the time of its last message (the first in the tooltip); the list keeps 500 rows.
+  - **Two decoders, one packet:** names learnt from one packet (e.g. LaCrosse TX29IT / TX35DTHIT) also join later packets read by only one of them; only on the same channel and with the same device ID, never with a wM-Bus meter (a sensor row once collected a meter and a Honeywell of the same level).
+  - **RAW at FSK:** a package at the frequency (±10 kHz) of a decoded one at the same time is not shown as RAW (the analyzer measures FSK levels differently, so the level alone did not match).
+
 ## Ver. 0.114
 
 Released after the test beta (GitHub branch `0.114beta1`). Many parts are contributed by **Brano, [brjanicek](https://github.com/brjanicek)** (marked *by Brano*).
