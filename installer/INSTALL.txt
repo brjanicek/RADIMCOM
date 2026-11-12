@@ -89,6 +89,9 @@ Change log
 ----------
 (also in CHANGELOG.md)
 
+Ver. 0.115beta1
+(test beta, GitHub branch 0.115beta1)
+
 Ver. 0.114
 (after the test beta 0.114beta1; many parts by Brano, github.com/brjanicek)
 Main Features
