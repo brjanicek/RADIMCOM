@@ -202,3 +202,14 @@ def test_meter_one_row_per_id(monkeypatch):
     d._handle({"model": "Wireless-MBus", "id": 778, "mode": "T", "freq1": 868.92, "rssi": -30.0, "snr": 5.0}, ch)
     assert [(m["dev_id"], m["n"]) for m in d.history] == [("777", 3), ("778", 1)]
     assert d.history[0]["text"].startswith("mode=T")
+
+
+def test_same_packet_needs_same_channel_and_id():
+    d, ch, _ = make()
+    other = ism.Channel(Dec(), FS, 433920000, -500000, False)
+    d._handle(msg("LaCrosse-TX29IT", -5.1), ch)
+    d._handle(msg("Somfy-RTS", -5.1), other)              # same level by chance, other channel
+    d._handle(msg("Honeywell-CM921", -5.1, dev=99), ch)   # same level, another id
+    d._handle({"model": "Wireless-MBus", "id": 15, "freq": 433.92, "rssi": -5.1, "snr": 20.0}, ch)
+    assert [m["model"] for m in d.history] == ["LaCrosse-TX29IT", "Somfy-RTS", "Honeywell-CM921", "Wireless-MBus"]
+    assert not d.aliases

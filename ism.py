@@ -482,7 +482,9 @@ class IsmDecoder:
             for row in reversed(self.history):        # the latest activity last
                 if now - row["last"] > max(window, SAME_PACKET_S):
                     continue
-                if now - row["last"] < SAME_PACKET_S and pkt == row["pkt"] and j.get("rssi") is not None:
+                if now - row["last"] < SAME_PACKET_S and pkt == row["pkt"] and None not in pkt and not meter \
+                        and row.get("chan") == ch.start_hz and row["dev_id"] == dev_id \
+                        and not any(x.startswith("Wireless-MBus") for x in row["models"]):
                     if model in row["models"]:
                         m = dict(row, again=True)         # the same packet again: nothing new
                     else:
@@ -507,7 +509,7 @@ class IsmDecoder:
                     break
             if m is None:
                 m = {"id": self.next_id, "time": round(now, 1), "last": now, "n": 1, "freq_hz": freq_hz, "model": model,
-                     "models": [model], "pkt": pkt,
+                     "models": [model], "pkt": pkt, "chan": ch.start_hz,
                      "dev_id": dev_id, "channel": channel, "text": text, "mod": _clean(j.get("mod", "")),
                      "rssi": j.get("rssi"), "snr": j.get("snr"), "protocol": j.get("protocol"), "mic": _clean(j.get("mic", ""))}
                 self.next_id += 1
