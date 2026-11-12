@@ -49,7 +49,7 @@ CH_GAIN = 1.0                 # the channel back to u8 bytes, same scale as the 
 # channels around each preset: (offset from the centre of the dongle, sample rate, rtl_433 -Y autolevel)
 # 433: OOK; autolevel lost messages there. 868: FSK; autolevel found the weaker devices.
 CHANNELS = {433920000: ((0, CH_RATE, False), (-500000, CH_RATE, False)),
-            868300000: ((0, CH_RATE, True),)}
+            868300000: ((0, CH_RATE, True), (650000, CH_RATE, True))}   # 868.30 sensors, 868.95 wM-Bus meters
 RAW_MIN_PULSES = 20           # smaller undecoded packages are noise
 RAW_MERGE_S = 10.0            # RAW packages of one kind near one frequency within this time = one row with a count
 RAW_MERGE_HZ = 15000
@@ -61,7 +61,7 @@ REPEAT_S = 60.0               # the same message of a device within this time of
 REPEAT_ROWS = 50              # how many recent rows a repeat is looked for in
 SAME_PACKET_S = 0.5           # two decoders reporting one packet (same level and frequency) come this close together
 TCP_QUEUE = 64                # raw blocks waiting for rtl_433; more = it is stuck, drop
-MAX_HISTORY = 300
+MAX_HISTORY = 500
 
 # fields with their own column, or not worth showing
 _COLUMNS = {"time", "model", "id", "channel", "mod", "freq", "freq1", "freq2", "rssi", "snr", "noise", "protocol", "mic"}
@@ -97,8 +97,17 @@ def _field(name, value):
     return f"{_clean(value)}{unit}" if unit else f"{_clean(name)}={_clean(value)}"
 
 
+# Wireless M-Bus meters (868.95 MHz): mostly encrypted, the raw fields would only make long rows
+_MBUS_KEEP = ("mode", "M", "type_string", "type", "version")
+
+
 def message_text(j):
     """All fields of a device message that have no column of their own, readable."""
+    if str(j.get("model", "")).startswith("Wireless-MBus"):
+        parts = [_field(k, j[k]) if k != "type_string" else _clean(j[k]) for k in _MBUS_KEEP if j.get(k) not in (None, "")]
+        if j.get("payload_encrypted"):
+            parts.append("encrypted")
+        return " · ".join(parts)
     return " · ".join(_field(k, v) for k, v in j.items() if k not in _COLUMNS)
 
 

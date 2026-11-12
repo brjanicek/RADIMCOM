@@ -6261,7 +6261,7 @@ $("cwTune").addEventListener("click", () => {
 
 // ---------- ISM: 433 / 868 MHz devices (rtl_433; the VFO feeds it through rtl_tcp) ----------
 
-const ISM_MAX_ROWS = 300;
+const ISM_MAX_ROWS = 500;
 const ISM_TITLE = $("ismKey").title;   // tooltip from index.html (replaced on a device without ISM and a chained VFO)
 let ismLast = {};   // the status sends only on/off and the error; the counts come from ismstate
 

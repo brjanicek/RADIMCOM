@@ -168,3 +168,11 @@ def test_channel_rates():
     c = ism.Channel(Dec(), FS, 868300000, 650000, False, 1024000, True)
     assert c.down == 2 and c.fs == 1024000 and (c.h.size - 1) % 2 == 0
     assert "autolevel" in c.command(1234)
+
+
+def test_868_channels_and_mbus_text():
+    d = ism.IsmDecoder(lambda *a: None, lambda *a: None)
+    assert [(o, a) for o, _, a in d._offsets(FS, 868300000)] == [(0, True), (650000, True)]
+    t = ism.message_text({"model": "Wireless-MBus", "mode": "T1", "M": "TCH", "id": 1, "type": 8,
+                          "type_string": "Heat Cost Allocator", "data": "ab" * 40, "payload_encrypted": 1})
+    assert t == "mode=T1 · M=TCH · Heat Cost Allocator · type=8 · encrypted"
