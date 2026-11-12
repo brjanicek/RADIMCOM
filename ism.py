@@ -58,7 +58,7 @@ RAW_WAIT_S = 1.5              # a RAW row waits this long for a decoded message 
 RESTART_HZ = 5000000          # a bigger retune restarts rtl_433 (its FSK detector depends on the frequency)
 RESTART_WAIT_S = 2.0          # at least this long between two starts, if rtl_433 keeps ending
 REPEAT_S = 60.0               # the same message of a device within this time of its last one = one row with a count
-REPEAT_ROWS = 50              # how many recent rows a repeat is looked for in
+METER_MERGE_S = 3600.0        # Wireless M-Bus meters (hundreds around a block of flats): one row per meter for an hour
 SAME_PACKET_S = 0.5           # two decoders reporting one packet (same level and frequency) come this close together
 TCP_QUEUE = 64                # raw blocks waiting for rtl_433; more = it is stuck, drop
 MAX_HISTORY = 500
@@ -354,6 +354,7 @@ class IsmDecoder:
         self.start_hz = 0.0           # where it was when the channels started
         self.next_id = 1
         self.history = collections.deque(maxlen=MAX_HISTORY)
+        self.aliases = {}             # model -> all models rtl_433 reported for the same packets
         self.lock = threading.Lock()
         self.chans = []
         self.not_before = 0.0
@@ -473,24 +474,33 @@ class IsmDecoder:
         channel = "" if j.get("channel") is None else _clean(j["channel"])
         text = message_text(j)
         pkt = [mhz, j.get("rssi"), j.get("snr")]     # equal for every decoder that read the same packet
+        meter = model.startswith("Wireless-MBus")
+        window = METER_MERGE_S if meter else REPEAT_S
+        names = self.aliases.get(model, {model})
         with self.lock:
             m = None
-            for row in list(self.history)[-REPEAT_ROWS:][::-1]:
-                if now - row["last"] > REPEAT_S:
-                    continue                          # rows are in order of their first message, not of their last
+            for row in reversed(self.history):        # the latest activity last
+                if now - row["last"] > max(window, SAME_PACKET_S):
+                    continue
                 if now - row["last"] < SAME_PACKET_S and pkt == row["pkt"] and j.get("rssi") is not None:
                     if model in row["models"]:
                         m = dict(row, again=True)         # the same packet again: nothing new
                     else:
                         row["models"].append(model)       # another decoder of rtl_433 read the same packet: one row
                         row["model"] = " / ".join(row["models"])
+                        group = set(row["models"]).union(*(self.aliases.get(x, ()) for x in row["models"]))
+                        for x in group:
+                            self.aliases[x] = group           # later packets of either name join the same row
                         m = dict(row, again=True)
                     break
-                if model in row["models"] and (row["dev_id"], row["channel"], row["text"]) == (dev_id, channel, text):
+                if names.intersection(row["models"]) and (row["dev_id"], row["channel"]) == (dev_id, channel) \
+                        and (meter or row["text"] == text):
                     row["n"] += 1                         # the device repeats its message (maybe with another in between)
                     row["last"] = now
                     row["pkt"] = pkt
                     row["rssi"], row["snr"] = j.get("rssi"), j.get("snr")
+                    if meter:                             # a meter: one row per meter, its latest message
+                        row["text"], row["freq_hz"] = text, freq_hz
                     self.history.remove(row)              # the newest activity last (the page moves it to the top)
                     self.history.append(row)
                     m = dict(row)
@@ -525,7 +535,7 @@ class IsmDecoder:
         with self.lock:
             self.raw_count += 1
             m = None
-            for row in list(self.history)[-REPEAT_ROWS:][::-1]:
+            for row in reversed(self.history):
                 if row.get("raw") and now - row["last"] < RAW_MERGE_S and row["guess"] == guess \
                         and abs(row["freq_hz"] - freq_hz) <= RAW_MERGE_HZ:
                     row["n"] += 1            # an unknown transmitter (or interference) that keeps sending: one row

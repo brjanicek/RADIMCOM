@@ -10,6 +10,6 @@ ISM (433 / 868 MHz devices such as weather sensors and remote controls, decoded 
 
 **RAW** shows packages of at least 20 pulses that no decoder read, as grey rows: modulation guess, pulses, length and the demodulated bits from rtl_433's pulse analyzer; the tooltip has the flex decoder hint (`-X ...`) and **⧉** shows the pulses at triq.org/pdv. Many are noise or devices rtl_433 does not know. Packages of the same kind within ±15 kHz in 10 s are one row with ×N. RAW rows are not written to the log.
 
-The same message of a device within 1 min is one row with ×N, moved to the top with the time of the last one. One packet read by two decoders of rtl_433 is one row with both device names (e.g. *LaCrosse-TX29IT / LaCrosse-TX35DTHIT*). Units are SI (°C, km/h, mm).
+A Wireless M-Bus meter is one row for an hour with its latest message. The same message of a device within 1 min is one row with ×N, moved to the top with the time of the last one. One packet read by two decoders of rtl_433 is one row with both device names (e.g. *LaCrosse-TX29IT / LaCrosse-TX35DTHIT*). Units are SI (°C, km/h, mm).
 
 rtl_433 is a separate program (`lib\ism\rtl_433.exe`); `ism.py` gives it the raw samples through a local rtl_tcp server and reads its messages. Licences and sources are in `installer\ISM.txt` (`lib\ism\README.txt` in the package).

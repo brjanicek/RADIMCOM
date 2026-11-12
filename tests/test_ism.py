@@ -176,3 +176,29 @@ def test_868_channels_and_mbus_text():
     t = ism.message_text({"model": "Wireless-MBus", "mode": "T1", "M": "TCH", "id": 1, "type": 8,
                           "type_string": "Heat Cost Allocator", "data": "ab" * 40, "payload_encrypted": 1})
     assert t == "mode=T1 · M=TCH · Heat Cost Allocator · type=8 · encrypted"
+
+
+def test_alias_names_join_one_row(monkeypatch):
+    d, ch, _ = make()
+    now = [1000.0]
+    monkeypatch.setattr(ism.time, "time", lambda: now[0])
+    d._handle(msg("LaCrosse-TX35DTHIT", -5.1), ch)
+    d._handle(msg("LaCrosse-TX29IT", -5.1), ch)          # same packet: names learnt
+    now[0] += 5
+    d._handle(msg("LaCrosse-TX29IT", -6.0), ch)          # only one decoder read this packet
+    now[0] += 5
+    d._handle(msg("LaCrosse-TX35DTHIT", -6.5), ch)
+    assert len(d.history) == 1 and d.history[0]["n"] == 3
+
+
+def test_meter_one_row_per_id(monkeypatch):
+    d, ch, _ = make()
+    now = [1000.0]
+    monkeypatch.setattr(ism.time, "time", lambda: now[0])
+    for k, mode in enumerate(("T", "C", "T")):
+        now[0] += 600
+        d._handle({"model": "Wireless-MBus", "id": 777, "mode": mode, "M": "TCH", "type": 8,
+                   "freq1": 868.92, "rssi": -20.0 - k, "snr": 8.0}, ch)
+    d._handle({"model": "Wireless-MBus", "id": 778, "mode": "T", "freq1": 868.92, "rssi": -30.0, "snr": 5.0}, ch)
+    assert [(m["dev_id"], m["n"]) for m in d.history] == [("777", 3), ("778", 1)]
+    assert d.history[0]["text"].startswith("mode=T")
