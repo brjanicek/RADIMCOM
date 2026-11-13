@@ -2837,13 +2837,25 @@ body.map-only .pkt-map.map-only-box { flex-direction: column; gap: 4px; }
 .switch:has(input:disabled) { opacity: .45; cursor: default; }
 .set-field input:disabled { opacity: .45; cursor: default; }
 
-/* RADIMCOM.exe: full screen and the MAIN power switch in the corner of the master section (placement provisional) */
+/* RADIMCOM.exe: full screen and the MAIN power switch in the corner of the master section.
+ * Backlit keys like on a CDJ: matt grey when off, lit from inside when on; MAIN green (running),
+ * full screen amber while active (the colour of CUE). Hover over MAIN turns it red (= switch off). */
 .r-master { position: relative; }
-.app-keys { position: absolute; top: 6px; right: 6px; display: flex; gap: 4px; z-index: 2; }
+.app-keys { position: absolute; top: 6px; right: 6px; display: flex; gap: 6px; z-index: 2; }
 .app-keys[hidden] { display: none; }
-.app-keys .key { display: inline-flex; align-items: center; gap: 4px; padding: 3px 6px; }
+.app-keys .key { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 26px; min-width: 26px;
+  padding: 0 9px; border-radius: 4px; border: 1px solid #0b0c0d; background: linear-gradient(180deg, #3a3e42, #26292c);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .11), 0 2px 0 #000; color: #7d848b;
+  font: 700 12px/1 system-ui, sans-serif; letter-spacing: .08em; transition: color .15s, box-shadow .15s, border-color .15s; }
+.app-keys .key:active { transform: translateY(1px); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06), 0 1px 0 #000; }
 .app-ico { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
-.app-power { color: var(--green); }
-.app-power .app-ico { filter: drop-shadow(0 0 3px rgba(60, 240, 124, .8)); }
-.app-power:hover { color: #ff6b5e; }
-.app-power:hover .app-ico { filter: drop-shadow(0 0 3px rgba(255, 75, 62, .8)); }
+.app-keys #appFull { padding: 0; width: 28px; }
+.app-keys #appFull.on { color: var(--amber, #ff9a2e); border-color: #7a4a17; text-shadow: 0 0 6px #ff9a2e;
+  box-shadow: inset 0 0 10px rgba(255, 154, 46, .25), 0 0 10px rgba(255, 154, 46, .33), 0 2px 0 #000; }
+.app-keys #appFull.on .app-ico { filter: drop-shadow(0 0 3px rgba(255, 154, 46, .8)); }
+.app-keys .app-power { color: var(--green); border-color: #1f6b3e; text-shadow: 0 0 6px rgba(60, 240, 124, .9);
+  box-shadow: inset 0 0 10px rgba(60, 240, 124, .25), 0 0 10px rgba(60, 240, 124, .33), 0 2px 0 #000; }
+.app-keys .app-power .app-ico { filter: drop-shadow(0 0 3px rgba(60, 240, 124, .8)); }
+.app-keys .app-power:hover { color: #ff6b5e; border-color: #7a2520; text-shadow: 0 0 6px rgba(255, 75, 62, .9);
+  box-shadow: inset 0 0 10px rgba(255, 75, 62, .25), 0 0 10px rgba(255, 75, 62, .33), 0 2px 0 #000; }
+.app-keys .app-power:hover .app-ico { filter: drop-shadow(0 0 3px rgba(255, 75, 62, .8)); }

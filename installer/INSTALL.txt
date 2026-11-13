@@ -112,7 +112,8 @@ Main Features
 - RADIMCOM.exe: the page in its own window with the RADIMCOM icon (can be pinned to the taskbar), server without a
   console; closing the window keeps the receiver in the tray (decoders, recordings go on), tray menu: open,
   browser, data folder, server log, SDR setup, start / stop / restart server, Exit. A second start only brings the window up.
-  Full screen: F11 or the key beside the logo (remembered); MAIN key beside the logo switches RADIMCOM off.
+  Full screen: F11 or the key beside the logo (remembered); MAIN key beside the logo switches RADIMCOM off
+  (backlit keys: MAIN green while running, full screen amber while active).
   Resizing the window keeps the aspect ratio of the page (no stretched page).
   Icon: spectrum over a waterfall.
 - SDR setup in a window instead of the console (tray menu "SDR setup...", Start menu, end of the installation):
