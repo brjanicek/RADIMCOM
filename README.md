@@ -31,7 +31,7 @@ Details, drivers and running from the git sources: [Installation](docs/installat
 | Receiver bandwidth (sample rate) in RADIMCOM | up to 2.4 MS/s | up to 2.4 MS/s | up to 2.4 MS/s | 2.5 MS/s (fixed) |
 | HF through an upconverter | yes | built-in upconverter, used by its driver below 28.8 MHz | yes | yes |
 | Transmit | – | – | yes (optional, off by default) | – |
-| All audio modes and FT8, WEFAX, CW, RTTY, SSTV, PACKET, ACARS | yes | yes | yes | yes |
+| All audio modes and FT8, WEFAX, CW, RTTY, SSTV, PACKET, POCSAG, ACARS | yes | yes | yes | yes |
 | VDL2, DAB / DAB+, ISM | yes | yes | – | – |
 | Driver | WinUSB (Zadig) | WinUSB (Zadig) | FTDI D3XX | WinUSB |
 
@@ -50,7 +50,7 @@ Up to four SDRs at once, each assigned to a VFO by its serial number; one dongle
 - **AGC+**: tuner gain set from the A/D level, as high as possible without clipping. → [GAIN keys](docs/controls.md#function-keys)
 - **ATU (autotune, experimental)**: a click on an AM signal moves the tuning onto its carrier, on an SSB signal it puts the signal edge on the red line. → [TUNE keys](docs/controls.md#function-keys)
 - **Shortwave (HF)** through an upconverter, always showing the real frequency. → [HF upconverter](docs/hf-upconverter.md)
-- **Digital-mode decoders:** FT8 (with a map of the stations heard), WEFAX, CW, RTTY, SSTV and PACKET (AX.25 1200 / 9600 Bd, APRS with map). → [DECODE](docs/controls.md#function-keys)
+- **Digital-mode decoders:** FT8 (with a map of the stations heard), WEFAX, CW, RTTY, SSTV, PACKET (AX.25 1200 / 9600 Bd, APRS with map) and POCSAG (pagers, 512 / 1200 / 2400 Bd, error correction). → [DECODE](docs/controls.md#function-keys) · [POCSAG](docs/decoders/pocsag.md)
 - **CW skimmer:** up to 16 Morse stations decoded at once with soft decisions (Viterbi, beam search), the operator's timing learnt (bug, straight key, Farnsworth), calls in the spectrum. → [CW](docs/decoders/cw.md)
 - **Aircraft data link:** ACARS and VDL2 with CPDLC and ADS-C decoded to plain text and a map of the aircraft, and **HFDL** on HF (2.9–22 MHz, all channels of a band at once). → [Aircraft](docs/decoders/aircraft.md) · [HFDL](docs/decoders/hfdl.md)
 - **AIS** ships on 161.975 / 162.025 MHz (own decoder, both channels at once) with a map of ships, base stations and aids to navigation. → [AIS](docs/decoders/ais.md)
