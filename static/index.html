@@ -134,6 +134,12 @@
               <stop offset=".78" stop-color="#0b3a1c"/>
               <stop offset="1" stop-color="#031a0b"/>
             </radialGradient>
+            <!-- the same ring in red: RADIMCOM.exe, mouse over the LED = MAIN switches RADIMCOM off -->
+            <radialGradient id="logoTubeRed" gradientUnits="userSpaceOnUse" cx="294" cy="-46" r="27">
+              <stop offset=".57" stop-color="#7a120d"/>
+              <stop offset=".78" stop-color="#ff4b3e"/>
+              <stop offset="1" stop-color="#7a120d"/>
+            </radialGradient>
           </defs>
           <!-- filter on the outer group: on the clipped one the clip would cut the extrusion off -->
           <g class="r-logo-letters">
@@ -148,7 +154,9 @@
               <path transform="translate(654)" d="M8 100V0L46 66L84 0V100"/>
             </g>
           </g>
-          <!-- ring LED raised from the panel: the unlit body (with its 3D side) stays, the lit ring over it pulses -->
+          <!-- ring LED raised from the panel: the unlit body (with its 3D side) stays, the lit ring over it pulses.
+               In RADIMCOM.exe the LED is the MAIN power switch (app.js appShell): red with "MAIN OFF" under the mouse -->
+          <g class="r-logo-led" id="logoLed">
           <g class="r-logo-led-body" fill="none">
             <circle cx="294" cy="-46" r="21" stroke="url(#logoTubeOff)" stroke-width="11"/>
           </g>
@@ -156,17 +164,17 @@
             <circle cx="294" cy="-46" r="21" stroke="url(#logoTube)" stroke-width="11"/>
             <path d="M275.8 -56.5A21 21 0 0 1 297.6 -66.7" stroke="#d6ffe3" stroke-width="3.5" stroke-linecap="round"/>
           </g>
+          <circle class="r-logo-led-hit" cx="294" cy="-46" r="32" fill="transparent"/>
+          <text class="r-logo-ledtip" x="334" y="-34">MAIN OFF</text>
+          </g>
         </svg>
         </a>
         <span class="r-tag">SDR COMMUNICATIONS RECEIVER</span>
         <!-- version under the logo (installer and update_check read it from .r-ver); a newer one blinks beside it -->
         <span class="r-vers"><span class="r-ver">Ver. 0.115beta1</span><a class="r-upd" id="updLink" href="https://github.com/om2amr/RADIMCOM/releases" target="_blank" rel="noopener noreferrer" hidden></a></span>
         </div>
-        <!-- only in RADIMCOM.exe (app window): full screen and the MAIN power switch, backlit keys (style.css) -->
-        <div class="app-keys" id="appKeys" hidden>
-          <button class="key small" id="appFull" title="Full screen on / off (F11)" aria-label="Full screen"><svg class="app-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></svg></button>
-          <button class="key small app-power" id="appPower" title="MAIN: switch RADIMCOM off (stops the receivers, decoders and recordings)" aria-label="MAIN power"><svg class="app-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v8"/><path d="M6.6 6.6a8 8 0 1 0 10.8 0"/></svg><span>MAIN</span></button>
-        </div>
+        <!-- only in RADIMCOM.exe (app window): full screen as a small engraved icon in the corner (MAIN is the LED of the logo) -->
+        <button class="app-fs" id="appFull" title="Full screen on / off (F11)" aria-label="Full screen" hidden><svg class="app-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></svg></button>
         <span id="status" class="pill" hidden><span class="dot"></span><span id="statusText"></span></span>
       <!-- volume: vertical sliders (CUE = other VFOs with CUE on, MAIN = active VFO) with the level meter at the left,
            the speaker and the REC keys beside them -->

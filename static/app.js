@@ -12638,16 +12638,23 @@ async function init() {
 }
 init();
 
-// RADIMCOM.exe (the page in its WebView2 window): full screen and the MAIN power switch beside the logo.
+// RADIMCOM.exe (the page in its WebView2 window): full screen (small icon in the corner of the master section)
+// and MAIN = the green LED of the logo (red with "MAIN OFF" under the mouse; a click switches RADIMCOM off).
 // The page asks the app through window.chrome.webview; the app answers "fullscreen:1" / "fullscreen:0".
 (function appShell() {
   const wv = window.chrome && window.chrome.webview;
-  if (!wv) return;                     // in a normal browser the keys stay hidden
-  $("appKeys").hidden = false;
+  if (!wv) return;                     // in a normal browser: no icon, the LED is part of the logo (link to GitHub)
+  document.documentElement.classList.add("app-shell");
+  $("appFull").hidden = false;
   $("appFull").onclick = () => wv.postMessage("fullscreen");
-  $("appPower").onclick = () => {
+  const led = $("logoLed");
+  const tip = document.createElementNS("http://www.w3.org/2000/svg", "title");
+  tip.textContent = "MAIN: switch RADIMCOM off (stops the receivers, decoders and recordings)";
+  led.prepend(tip);
+  led.addEventListener("click", (e) => {
+    e.preventDefault(); e.stopPropagation();          // the logo link (GitHub) stays for the letters only
     if (confirm("MAIN: switch RADIMCOM off?\nThe receivers, decoders and recordings stop.")) wv.postMessage("power-off");
-  };
+  });
   wv.addEventListener("message", (e) => {
     if (typeof e.data === "string" && e.data.startsWith("fullscreen:")) $("appFull").classList.toggle("on", e.data.endsWith("1"));
   });

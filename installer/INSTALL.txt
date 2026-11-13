@@ -82,6 +82,12 @@ Change log
 
 Ver. 0.115beta1
 (test beta, GitHub branch 0.115beta1)
+Extra: setup instead of ZIP - easier installation and upgrades
+- Until 0.114 RADIMCOM was a ZIP: install.bat needed Python on the PC, created .venv and downloaded about
+  60 MB of Python packages from the internet - the most common source of problems.
+- Now one file, RADIMCOM_Setup_v<version>.exe: Python and all packages inside, nothing to download,
+  works offline, no administrator rights; drivers, DSD-FME, shortcut and autostart as check boxes.
+- Upgrade = run the newer setup into the same folder; data\ stays. Also for a ZIP installation of 0.114 or older.
 Main Features
 - POCSAG pager decoder (by Brano, brjanicek; DECODERS tab, page POCSAG): 512, 1200 and 2400 Bd at once,
   both polarities, from the baseband (any mode and filter). One or two wrong bits per codeword are corrected,
@@ -112,8 +118,8 @@ Main Features
 - RADIMCOM.exe: the page in its own window with the RADIMCOM icon (can be pinned to the taskbar), server without a
   console; closing the window keeps the receiver in the tray (decoders, recordings go on), tray menu: open,
   browser, data folder, server log, SDR setup, start / stop / restart server, Exit. A second start only brings the window up.
-  Full screen: F11 or the key beside the logo (remembered); MAIN key beside the logo switches RADIMCOM off
-  (backlit keys: MAIN green while running, full screen amber while active).
+  Full screen: F11 or the small icon in the corner beside the logo (remembered, orange while on).
+  MAIN = the green LED of the logo: under the mouse it turns red ("MAIN OFF"), a click switches RADIMCOM off.
   Resizing the window keeps the aspect ratio of the page (no stretched page).
   Icon: spectrum over a waterfall.
 - SDR setup in a window instead of the console (tray menu "SDR setup...", Start menu, end of the installation):
@@ -143,6 +149,7 @@ Changes
   processes goes to data\server_logs\logs_DDMMYYYY_HHMMSS.log (a new file at each start). Successful web
   requests are not logged, failed ones and all errors are.
 - Band keys have no LED window any more; the lit band key is only pressed in with a yellow legend.
+- FILTER in DSD (one key, 12.5 kHz): a key of normal size in the upper row like ATU and DEC.
 - ISM ON turns RTL2832 AGC and tuner AGC on (AGC+ and Remove DC peak off); ISM OFF gives back the gain, RTL AGC, AGC+ and Remove DC peak from before.
 - SCAN -> CHANNELS (memories): keys ALL / NONE tick / untick SCAN of every memory listed at once.
 - SCAN: the whole tab scrolls - the tiles and the channel chips go up and away, the bar of keys (START / STOP,

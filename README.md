@@ -11,17 +11,52 @@ with a transceiver-style screen (S-meter, 7-segment displays, spectrum, waterfal
 
 What each part of the screen does: [annotated main screen](docs/images/main_annotated.png).
 
-## Quick start
+## Installation
 
-1. Download **`RADIMCOM_Setup_v<version>.exe`** from [Releases](https://github.com/om2amr/RADIMCOM/releases) and run it
-   (Python is included, no administrator rights). Tick the USB drivers you need; at the end it runs the SDR setup.
-2. RADIMCOM opens in its own window (pin it to the taskbar); closing it keeps the receiver in the tray.
-   The page is also at **http://localhost:8434** for any browser.
-3. Upgrade: run the setup of a newer version into the same folder (the page tells when one is out); `data\` stays.
-   From 0.114 or older (installed from a zip): the same, into the folder of the old installation.
+RADIMCOM comes as one Windows setup, **`RADIMCOM_Setup_v<version>.exe`** (about 65 MB), from
+[Releases](https://github.com/om2amr/RADIMCOM/releases). Python and all its packages are inside it: there is nothing to
+install first, nothing is downloaded, and no administrator rights are needed.
 
-The DSD mode (digital voice) needs DSD-FME: tick it in the setup or run **`install_dsd.bat`**, see [DSD](docs/decoders/dsd.md).
-Details, drivers and running from the git sources: [Installation](docs/installation.md).
+1. **Run the setup.** It installs to `C:\RADIMCOM` (or a folder you choose) in English, Slovak or Czech.
+   Windows SmartScreen may warn about an unsigned program: *More info* → *Run anyway*.
+2. **Tick what you need:** the USB driver for your SDR (Zadig for RTL-SDR and Airspy, FTDI D3XX for LimeSDR),
+   DSD-FME for digital voice ([DSD](docs/decoders/dsd.md)), a desktop shortcut, start with Windows.
+3. **SDR setup:** at the end the connected dongles appear as cards; drag each onto VFO A–D, set ppm and the HF
+   upconverter if you use one, SAVE. Later it is in the tray menu and the Start menu (*RADIMCOM SDR setup*).
+4. **RADIMCOM opens in its own window** with its icon on the taskbar (pin it there). Closing the window keeps the
+   receiver running in the tray (decoders and recordings go on); *Exit RADIMCOM* in the tray menu, or the green LED
+   of the logo (MAIN), switches it off. F11 toggles full screen.
+   The page also works in any browser at **http://localhost:8434**, also from another PC on your network.
+
+**System tray:** the RADIMCOM icon by the clock (under ˄ if Windows hides it; drag it out to keep it in view) stays
+while the receiver runs, also with the window closed. Left click opens the window; right click has the menu:
+
+| Menu item | What it does |
+|---|---|
+| Open RADIMCOM | brings the window up |
+| Open in the web browser | the page in your default browser (http://localhost:8434) |
+| Data folder | opens `data\` (settings, memories, logs, recordings) in Explorer |
+| Server log | the log of the running server (`data\server_logs`), useful when something does not work |
+| SDR setup… | the dongles → VFO A–D assignment; stops the receiver while it is open |
+| Start / Stop / Restart server | Stop frees the dongles (e.g. for another program) and RADIMCOM.exe stays in the tray; its window then offers START SERVER |
+| Exit RADIMCOM | stops the receivers gracefully and closes everything |
+
+With *start with Windows* ticked in the setup, RADIMCOM starts in the tray after login, without opening the window.
+
+**Upgrade:** nothing to sort out by hand. The RADIMCOM setup is also the upgrade: run the newer one into the same
+folder and it takes care of the rest. Your memories, VFO settings, logs and recordings live in the `data\` folder,
+which the setup never overwrites (DSD-FME stays too); only the program itself is replaced.
+RADIMCOM checks GitHub for a newer release and shows it beside the version under the logo, with *DOWNLOAD SETUP*;
+exit RADIMCOM (tray menu) before you run it.
+
+**From 0.114 or older (ZIP installation):** the old version also reports the new release, but it cannot upgrade itself
+any more (there is no upgrade ZIP); instead of *UPGRADE* it offers *RELEASE PAGE*. Download the setup there, close the
+RADIMCOM console window and install into the old folder. The setup recognizes the ZIP installation and turns it into
+the RADIMCOM app; `data\` stays.
+
+**Uninstall:** Windows Settings › Apps › RADIMCOM (it asks whether to delete `data\` too).
+
+More: [Installation](docs/installation.md) (drivers, RADIMCOM.exe, running from the git sources).
 
 ## Supported hardware
 

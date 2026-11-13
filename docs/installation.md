@@ -39,10 +39,10 @@ Backup, upgrade and reinstall (the `data\` folder): see [Data folder](developmen
   web browser*, *Data folder*, *Server log*, *SDR setup…*, *Start server*, *Stop server* (the receivers close and the
   dongles are free, e.g. for another program; RADIMCOM.exe stays in the tray and its window offers START SERVER),
   *Restart server*, *Exit RADIMCOM* (stops the receivers gracefully, after 20 s by force).
-- **Full screen:** F11 or the ⛶ key beside the RADIMCOM logo (lit while on): no frame, over the taskbar of its monitor.
+- **Full screen:** F11 or the small ⛶ icon in the corner beside the RADIMCOM logo (orange while on): no frame, over the taskbar of its monitor.
   It is remembered for the next start; `RADIMCOM.exe --fullscreen` starts in it too.
-- **MAIN** key beside the logo: the power switch; after a confirmation it switches RADIMCOM off (as *Exit RADIMCOM*).
-  Both keys are only in the app window, not when the page is open in a browser (placement provisional).
+- **MAIN** is the green LED above the I of the logo: under the mouse it turns red and shows *MAIN OFF*; a click is the power switch, after a confirmation it switches RADIMCOM off (as *Exit RADIMCOM*).
+  Both work only in the app window; in a browser the logo stays a plain link to GitHub.
 - A second start only brings the window up.
 
 ### SDR setup in the window
