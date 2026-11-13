@@ -3228,7 +3228,7 @@ function setBodyTab(tab, save = true) {
 
 // order of the page keys; "|" = a vertical separator between the groups (HF digital, aircraft, ships, ISM)
 const DEC_LAYOUT = [
-  { key: "cw", title: "CW" }, { key: "ft8", title: "FT8" }, { key: "packet", title: "PACKET" }, { key: "rtty", title: "RTTY" },
+  { key: "cw", title: "CW" }, { key: "ft8", title: "FT8" }, { key: "packet", title: "PACKET" }, { key: "pocsag", title: "POCSAG" }, { key: "rtty", title: "RTTY" },
   { key: "sstv", title: "SSTV" }, { key: "wefax", title: "WEFAX" }, "|",
   { key: "acars", title: "ACARS" }, { key: "adsb", title: "ADS-B" }, { key: "hfdl", title: "HFDL" }, { key: "vdl2", title: "VDL2" }, "|",
   { key: "ais", title: "AIS" }, "|",
@@ -3419,7 +3419,7 @@ function renderScanKey() {
   $("scanTabDot").hidden = !(sc && sc.on);
 }
 $("scanKey").addEventListener("click", () => setScanOn(!scanTabShown()));
-for (const id of ["ft8On", "wefaxOn", "cwOn", "rttyOn", "sstvOn", "packetOn", "acarsOn", "vdl2On", "hfdlOn", "aisOn", "adsbOn"]) {
+for (const id of ["ft8On", "wefaxOn", "cwOn", "rttyOn", "sstvOn", "packetOn", "pocsagOn", "acarsOn", "vdl2On", "hfdlOn", "aisOn", "adsbOn"]) {
   $(id).addEventListener("change", () => renderDecTab());
 }
 setBodyTab(bodyTab, false);
@@ -6213,6 +6213,127 @@ $("packetStRows").addEventListener("click", (e) => {
   pktMapOpen().then(() => { if (pktMap && s) { pktMap.setView([s.lat, s.lon], 12); const mk = pktMarks.get(s.call); if (mk) mk.openPopup(); } });
 });
 setPktView(pktView, false);   // filled by packetLoad()
+
+// ---------- POCSAG: pager messages and addresses (pocsag.py) ----------
+
+const POC_MAX_ROWS = 500;
+let pocView = recall("pocsagView") === "rics" ? "rics" : "msgs";
+const pocRics = new Map();       // RIC -> newest state (from the server)
+let pocRicTimer = null;
+
+const pocFilterText = () => $("pocsagFilter").value.trim().toUpperCase();
+const pocMatch = (text) => { const f = pocFilterText(); return !f || text.toUpperCase().includes(f); };
+const pocNoTone = () => $("pocsagNoTone").checked;
+
+/** Message text as HTML: lost codewords (?) in red, the tone pages in grey. */
+function pocTextHtml(kind, text) {
+  if (kind === "tone") return "tone only";
+  return escHtml(text).replace(/\?+/g, (q) => `<span class="lost">${q}</span>`);
+}
+
+function addPocsag(m) {
+  const tb = $("pocsagRows");
+  const tr = document.createElement("tr");
+  tr.dataset.search = `${m.ric} ${m.text}`;
+  tr.dataset.tone = m.kind === "tone" ? "1" : "";
+  const other = m.kind === "alpha" ? `numeric: ${m.numeric}` : m.kind === "numeric" ? `alphanumeric: ${m.alpha}` : "";
+  const q = [m.inverted ? "inverted" : "", m.corrected ? `${m.corrected} bits corrected` : "", m.bad ? `${m.bad} codewords lost` : ""]
+    .filter(Boolean).join(" · ");
+  tr.innerHTML = `<td title="${escHtml(fmtMHz(m.freq_hz, 4))} MHz">${pktTime(m.time)}</td><td>${m.baud}</td>` +
+    `<td class="ric" title="Show only this address">${m.ric}</td><td>${m.func}</td>` +
+    `<td class="data ${m.kind === "numeric" ? "num" : m.kind === "tone" ? "tone" : ""}" ` +
+    `title="${escHtml([m.kind, other, q].filter(Boolean).join("\n"))}">${pocTextHtml(m.kind, m.text)}` +
+    (m.bad ? `<span class="q">${m.bad} lost</span>` : "") + "</td>";
+  tr.hidden = !pocMatch(tr.dataset.search) || (pocNoTone() && m.kind === "tone");
+  tb.prepend(tr);
+  while (tb.rows.length > POC_MAX_ROWS) tb.lastChild.remove();
+  $("pocsagEmpty").hidden = true;
+}
+
+function pocRic(r) {
+  pocRics.set(r.ric, r);
+  if (pocView === "rics" && !pocRicTimer) pocRicTimer = setTimeout(() => { pocRicTimer = null; renderPocRics(); }, 500);
+}
+
+function renderPocRics() {
+  const rows = [...pocRics.values()].filter((r) => pocMatch(`${r.ric} ${r.text}`) && !(pocNoTone() && r.kind === "tone"))
+    .sort((a, b) => b.last - a.last);
+  $("pocsagRicRows").innerHTML = rows.map((r) =>
+    `<tr><td>${pktTime(r.last)}</td><td class="ric" title="Show only this address">${r.ric}</td><td>${r.count}</td><td>${r.func}</td><td>${r.baud}</td>` +
+    `<td class="data ${r.kind === "numeric" ? "num" : r.kind === "tone" ? "tone" : ""}">${pocTextHtml(r.kind, r.text)}</td></tr>`).join("");
+  $("pocsagRicEmpty").hidden = pocRics.size > 0;
+}
+
+function setPocView(v, save = true) {
+  pocView = v;
+  if (save) store("pocsagView", v);
+  for (const b of $("pocsagViews").children) b.classList.toggle("on", b.dataset.view === v);
+  $("pocsagMsgsBox").hidden = v !== "msgs";
+  $("pocsagRicsBox").hidden = v !== "rics";
+  if (v === "rics") renderPocRics();
+}
+
+function pocFilterRows() {
+  for (const tr of $("pocsagRows").rows) tr.hidden = !pocMatch(tr.dataset.search) || (pocNoTone() && !!tr.dataset.tone);
+  if (pocView === "rics") renderPocRics();
+}
+
+function renderPocsagInfo(i) {
+  $("pocsagRate").value = i.opts.rate;
+  const el = $("pocsagInfo");
+  if (!i.enabled) { el.textContent = ""; el.title = ""; return; }
+  el.textContent = `${i.ok} msg  ${i.batches} batches  ${i.bad} lost`;
+  el.title = `running: ${i.rates.join(" + ")} Bd, both polarities · ${i.corrected} wrong bits corrected · ` +
+    `${i.bad} codewords could not be corrected` + (i.last_rx ? ` · last message ${pktTime(i.last_rx)} UTC` : "");
+}
+
+function pocsagPost(body) {
+  return fetch(vbase + "/api/pocsag", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+    .then((r) => r.json());
+}
+
+function pocsagReset() {
+  $("pocsagRows").innerHTML = "";
+  $("pocsagEmpty").hidden = false;
+  pocRics.clear();
+  renderPocRics();
+}
+
+async function pocsagLoad() {
+  const v = active;
+  try {
+    const d = await fetch(vbase + "/api/pocsag").then((r) => r.json());
+    if (v !== active) return;
+    pocsagReset();
+    for (const m of d.messages) addPocsag(m);
+    for (const r of d.rics) pocRics.set(r.ric, r);
+    renderPocsagInfo(d);
+    setPocView(pocView, false);
+  } catch { /* an older receiver without POCSAG */ }
+}
+
+$("pocsagOn").addEventListener("change", () => {
+  st.pocsag = $("pocsagOn").checked;
+  $("pocsagCard").hidden = !st.pocsag;
+  send({ pocsag: st.pocsag });
+});
+$("pocsagRate").addEventListener("change", () => pocsagPost({ opts: { rate: $("pocsagRate").value } }).then(renderPocsagInfo));
+$("pocsagClear").addEventListener("click", () => { pocsagPost({ action: "clear" }).then(renderPocsagInfo); pocsagReset(); });
+$("pocsagViews").addEventListener("click", (e) => { const b = e.target.closest("button[data-view]"); if (b) setPocView(b.dataset.view); });
+$("pocsagFilter").addEventListener("input", pocFilterRows);
+$("pocsagNoTone").checked = recall("pocsagNoTone") === "1";
+$("pocsagNoTone").addEventListener("change", () => { store("pocsagNoTone", pocNoTone() ? "1" : "0"); pocFilterRows(); });
+// a click on a RIC: only that address (again: all)
+for (const id of ["pocsagRows", "pocsagRicRows"]) {
+  $(id).addEventListener("click", (e) => {
+    const td = e.target.closest("td.ric");
+    if (!td) return;
+    $("pocsagFilter").value = $("pocsagFilter").value.trim() === td.textContent ? "" : td.textContent;
+    if (id === "pocsagRicRows") setPocView("msgs");
+    pocFilterRows();
+  });
+}
+setPocView(pocView, false);   // filled by pocsagLoad()
 
 // graph right of the lists, SPECTRUM or EYE: the server sends its data only while the PACKET page asks for it
 // (renewed every 2 s)
@@ -9574,7 +9695,7 @@ $("medSaveCur").addEventListener("click", () => {   // the tuned frequency, mode
 // ---------- memory editor (MEM → ✎ EDITOR): channels, groups with notes, import and export with a list ----------
 
 const RECORD_NAMES = { off: "OFF", on: "ON", sq: "SQ", asq: "ASQ" };   // RECORD of a memory: recording at recall
-const DECODER_NAMES = { "": "—", ft8: "FT8", wefax: "WEFAX", cw: "CW", rtty: "RTTY", sstv: "SSTV", packet: "PACKET",
+const DECODER_NAMES = { "": "—", ft8: "FT8", wefax: "WEFAX", cw: "CW", rtty: "RTTY", sstv: "SSTV", packet: "PACKET", pocsag: "POCSAG",
   acars: "ACARS", vdl2: "VDL2", hfdl: "HFDL", ais: "AIS", adsb: "ADS-B", ism: "ISM" };
 const NO_GROUP = "\u0000none";   // value of "(no group)" in the group filters
 let memGroupList = [];           // [{name, note, count}] from /api/memory_groups
@@ -10663,7 +10784,7 @@ function onStatus(s) {
   const rateChanged = st && st.audio_rate !== s.audio_rate;
   // Shortly after a local change, do not let an older state from the server overwrite tuning and selection.
   if (st && Date.now() - localChangeAt < 700) {
-    for (const k of ["tune_hz", "mode", "bandwidth", "zoom", "gain", "rtl_agc", "smart_agc", "dc_remove", "dc_hz", "dc_db", "spur_on", "spur_hz", "spur_edge", "spur_shift", "spur_db", "spur_learning", "stereo_on", "notch", "autotune", "ft8", "wefax", "cw", "rtty", "sstv", "packet", "hfdl", "ais", "adsb", "acars", "cpdlc", "dab", "dab_channel", "dab_sids", "logs", "upconv", "device", "squelch_levels", "auto_sql", "auto_sql_on", "auto_sql_level", "ctcss", "ctcss_hz", "dcs", "dcs_code"]) s[k] = st[k];
+    for (const k of ["tune_hz", "mode", "bandwidth", "zoom", "gain", "rtl_agc", "smart_agc", "dc_remove", "dc_hz", "dc_db", "spur_on", "spur_hz", "spur_edge", "spur_shift", "spur_db", "spur_learning", "stereo_on", "notch", "autotune", "ft8", "wefax", "cw", "rtty", "sstv", "packet", "pocsag", "hfdl", "ais", "adsb", "acars", "cpdlc", "dab", "dab_channel", "dab_sids", "logs", "upconv", "device", "squelch_levels", "auto_sql", "auto_sql_on", "auto_sql_level", "ctcss", "ctcss_hz", "dcs", "dcs_code"]) s[k] = st[k];
   }
   s.sample_rates = sampleRates;
   st = s;
@@ -10687,6 +10808,8 @@ function onStatus(s) {
   $("rttyCard").hidden = !s.rtty;
   $("packetOn").checked = !!s.packet;
   $("packetCard").hidden = !s.packet;
+  $("pocsagOn").checked = !!s.pocsag;
+  $("pocsagCard").hidden = !s.pocsag;
   renderHfdl(s);
   renderAis(s);
   renderAdsb(s);
@@ -10831,6 +10954,9 @@ function connectEvents(v) {
   on("rttystate", renderRttyInfo);
   on("packet", (m) => { addPacket(m); decActivity("packet"); });
   on("packetstate", renderPacketInfo);
+  on("pocsag", (m) => { addPocsag(m); if (m.ric !== undefined) pocRic({ ric: m.ric, last: m.time, count: (pocRics.get(m.ric)?.count || 0) + 1,
+    func: m.func, baud: m.baud, kind: m.kind, text: m.text }); decActivity("pocsag"); });
+  on("pocsagstate", renderPocsagInfo);
   on("packeteye", drawPktEye);
   on("packetspec", drawPktSpec);
   on("dsdcall", (c) => { addDsdCall(c); if (bodyTab !== "dsd") $("dsdTabDot").hidden = false; });
@@ -11249,6 +11375,7 @@ async function selectVfo(v, keepTab) {
   $("ft8Rows").innerHTML = ""; $("ft8Empty").hidden = false; ft8Cycle = null; ft8Count = 0;
   cwReset(); rttyOut.clear();
   packetReset();
+  pocsagReset();
   acarsResume();
   acarsDropHeld();
   $("acarsRows").innerHTML = ""; $("acarsEmpty").hidden = false; renderAcarsFilter();
@@ -11291,6 +11418,7 @@ async function loadDecoders() {
   await aisLoad();
   await adsbLoad();
   await packetLoad();
+  await pocsagLoad();
   const cwi = await fetch(vbase + "/api/cw").then((r) => r.json());
   if (v !== active) return;
   renderCwInfo(cwi);
