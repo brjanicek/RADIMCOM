@@ -1173,7 +1173,8 @@ class Receiver:
         self.tsq = ToneSquelch()                 # TSQ-C / TSQ-D: CTCSS / DCS detector (tonesq.py)
         self.tsq_hpf = PassFilter("highpass")    # with a tone squelch on, the tone is not heard
         self.tone_open, self.tone_key = None, None   # set tone / code received; None = no tone squelch now
-        self.asq_hist, self.asq_key, self.asq_floor = [], None, None   # auto squelch: (time, dB) and noise floor        self.asq_spec, self.wf_power = None, None   # auto squelch: noise in the channel from the spectrum (dBFS)
+        self.asq_hist, self.asq_key, self.asq_floor = [], None, None   # auto squelch: (time, dB) and noise floor
+        self.asq_spec, self.wf_power = None, None   # auto squelch: noise in the channel from the spectrum (dBFS)
         self.dropped = 0
         self.opened = 0
         self.sdr = None
