@@ -52,7 +52,7 @@ distance / azimuth / elevation), the RS41 frame (header, de-whitening, blocks, C
 the whole chain on synthetic GFSK at 32 and 37.5 kHz baseband, inverted, weak (11 dB), with a tuning offset, DFM frames,
 noise only.
 
-Real signals: the I/Q recordings of the Signal Identification Wiki (RS41-SG and DFM-17, both on the ground in
-Bratislava) decode completely: RS41 31 frames of 32 (serial, GPS time, position, battery; all blocks with a good CRC,
+Real signals: the I/Q recordings of the Signal Identification Wiki (RS41-SG and DFM-17, both on the ground)
+decode completely: RS41 31 frames of 32 (serial, GPS time, position, battery; all blocks with a good CRC,
 also at the 37.5 kHz baseband of RADIMCOM), DFM-17 a position every second for the 20 s of the recording.
 Not yet tested on a sonde in flight.
