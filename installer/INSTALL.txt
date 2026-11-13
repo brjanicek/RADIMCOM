@@ -91,6 +91,18 @@ Change log
 
 Ver. 0.115beta1
 (test beta, GitHub branch 0.115beta1)
+Main Features
+- ISM at 868 MHz: Wireless M-Bus meters, weaker sensors (by Brano, brjanicek). The 868.30 preset now has two
+  rtl_433 channels of 256 kS/s: 868.30 (LaCrosse, Bresser...) and 868.95 MHz (Wireless M-Bus T1 / C1 meters,
+  e.g. heat cost allocators in a block of flats), both with -Y autolevel (finds the weaker FSK devices; off at
+  433 MHz OOK, where it only added false decodes). Live about 105 messages a minute instead of 10.
+  Rate and autolevel are set per channel; the counter tooltip shows the channels and their rates.
+  - Fewer rows: a wM-Bus meter is one row for an hour with its latest message (mostly encrypted, shown
+    compactly); the same message of any device within 1 min joins its row (xN) and the row moves to the top;
+    the list keeps 500 rows.
+  - Two decoders, one packet: names learnt from one packet also join later packets read by only one decoder
+    (same channel and device ID only, never a wM-Bus meter).
+  - RAW at FSK: a package at the frequency (+-10 kHz) of a decoded one at the same time is not shown as RAW.
 Changes
 - SCAN -> CHANNELS (memories): keys ALL / NONE tick / untick SCAN of every memory listed at once.
 - SCAN: the whole tab scrolls - the tiles and the channel chips go up and away, the bar of keys (START / STOP,

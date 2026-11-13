@@ -62,7 +62,7 @@
 | **ADS-B** | aircraft on **1090 MHz**: ADS-B (DF17 / DF18: flight, category, position, altitude, speed, vertical rate, squawk, emergency) and Mode S replies (DF0 / 4 / 5 / 11 / 16 / 20 / 21) | own decoder (PPM 1 Mbit/s, CRC with bit correction, CPR positions; no external program); country from the ICAO address, distance and azimuth from the QTH, globe.adsb.fi / adsb.lol links; AIRCRAFT / MAP / MESSAGES views, LOG | all (2.4 MS/s; Airspy 2.5 MS/s) | [ADS-B](decoders/adsb.md) |
 | **DAB / DAB+** | digital broadcast radio in Band III | via welle-cli: station list of the ensemble, DLS text, slideshow, audio, signal, ensemble and capacity panels, remembered channel and station | RTL-SDR only | [DAB / DAB+](decoders/dab.md) |
 | **DSD** (first test version) | digital voice: DMR, P25, D-Star, YSF, NXDN, dPMR, M17 and more | the **DSD** key in MODE, via DSD-FME, list of calls; **separate download: run `install_dsd.bat`** | all | [DSD](decoders/dsd.md) |
-| **ISM** | devices on 433 and 868 MHz: weather sensors, remote controls, tyre sensors | via rtl_433 | RTL-SDR only | [ISM](decoders/ism.md) |
+| **ISM** | devices on 433 and 868 MHz: weather sensors, remote controls, tyre sensors, Wireless M-Bus meters (868.95 MHz) | via rtl_433 | RTL-SDR only | [ISM](decoders/ism.md) |
 
 ACARS and VDL2 messages show the aircraft type, flight level, speed and squawk from adsb.fi / adsb.lol (emergency squawks 7500, 7600, 7700 framed in red)
 and the country flag from the ICAO address; a click on a message pauses the list. Every decoder card has a LOG checkbox for a daily log.
