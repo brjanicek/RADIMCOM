@@ -13,6 +13,8 @@ Test beta (GitHub branch `0.115beta1`).
 
 ### Changes
 
+- Band keys have no LED window any more; the lit band key is only pressed in with a yellow legend.
+- ISM ON turns RTL2832 AGC and tuner AGC on (AGC+ and Remove DC peak off); ISM OFF gives back the gain, RTL AGC, AGC+ and Remove DC peak from before.
 - SCAN → CHANNELS (memories): keys **☑ ALL** / **☐ NONE** tick / untick SCAN of every memory listed at once.
 - SCAN: the whole tab scrolls – the tiles and the channel chips go up and away, the bar of keys (START / STOP,
   HOLD, SKIP, LOCK OUT, ◀ ▶, status) stays on top and CHANNELS / ACTIVITY / HEATMAP fill the rest of the height.

@@ -10260,6 +10260,8 @@ function onStatus(s) {
   } else if (Date.now() - localChangeAt >= 700) {
     renderControls();
     if (document.activeElement !== $("gainSlider")) renderGain();
+    $("dcRemove").checked = st.dc_remove !== false;    // the server may change it too (ISM on / off)
+    $("dcHz").disabled = $("dcDb").disabled = st.dc_remove === false;
   }
   if (rateChanged && audio) { stopAudio(); startAudio(); }
 }

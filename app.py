@@ -906,7 +906,9 @@ def set_dab(on, changes, channel=None):
 
 def set_ism(on, changes):
     """ISM on: rtl_433 starts, the audio is muted and the VFO goes to the last ISM frequency at 2.048 MS/s (ACARS, VDL2 and DAB off).
-    ISM off: the previous sample rate comes back. RTL-SDR only, not on a chained VFO."""
+    RTL AGC and tuner AGC go on (AGC+ and Remove DC peak off). ISM off: the previous sample rate, gain, RTL AGC, AGC+
+    and Remove DC peak come back.
+    RTL-SDR only, not on a chained VFO."""
     if on and (not RTL_DONGLE or OWNER):
         on = False
     if on == ism.enabled:
@@ -920,10 +922,22 @@ def set_ism(on, changes):
         set_dab(False, changes)
         sync_cpdlc()
         cfg["ism_prev_rate"] = changes.pop("sample_rate", cfg["sample_rate"])
+        # short bursts at unknown levels: RTL2832 AGC + tuner AGC; the gain settings before come back at ISM off
+        cfg["ism_prev_gain"] = {"gain": changes.pop("gain", cfg.get("gain", "auto")),
+                                "rtl_agc": bool(changes.pop("rtl_agc", cfg.get("rtl_agc", False))),
+                                "smart_agc": bool(changes.pop("smart_agc", cfg.get("smart_agc", False))),
+                                "dc_remove": bool(changes.pop("dc_remove", cfg.get("dc_remove", False)))}
         f = float(cfg.get("ism_hz", ISM_DEFAULT))
-        changes.update(sample_rate=ISM_RATE, center_hz=f, tune_hz=f, mode="AM")
-    elif cfg.get("ism_prev_rate") in SAMPLE_RATES and cfg["ism_prev_rate"] != ISM_RATE:
-        changes["sample_rate"] = cfg.pop("ism_prev_rate")
+        changes.update(sample_rate=ISM_RATE, center_hz=f, tune_hz=f, mode="AM", gain="auto", rtl_agc=True, smart_agc=False,
+                       dc_remove=False)
+    else:
+        if cfg.get("ism_prev_rate") in SAMPLE_RATES and cfg["ism_prev_rate"] != ISM_RATE:
+            changes["sample_rate"] = cfg.pop("ism_prev_rate")
+        prev = cfg.pop("ism_prev_gain", None)
+        if isinstance(prev, dict):
+            for k in ("gain", "rtl_agc", "smart_agc", "dc_remove"):
+                if k in prev:
+                    changes.setdefault(k, prev[k])
     ism.set_enabled(on)
 
 

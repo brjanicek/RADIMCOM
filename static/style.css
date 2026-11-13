@@ -1923,26 +1923,29 @@ html.compact .r-bands .bands button { min-width: 36px; padding-left: 5px; paddin
   color: var(--ink); text-shadow: none; white-space: nowrap; }
 .vu-db b.clip { font-size: 5.5px; }
 
-/* LED window in every key of the head (function keys, band keys, VFO keys): a small recessed window in the top left
+/* LED window in every key of the head (function keys, VFO keys; the band keys have none): a small recessed window in the top left
  * corner, above the legend, dark while off, lit in the colour of --led while the key is on. It is a background layer,
  * so the key keeps its size. The lit key stays pressed in; the LED line along its bottom is gone. */
-.r-keys .keys button, .r-bands .bands button, .vfo-keys .vfo-sel, .spk, .rec {
+.r-keys .keys button, .vfo-keys .vfo-sel, .spk, .rec {
   --led-at: left 4px top 2px / 8px 3px no-repeat;
   --led-glow: left -2px top -4px / 20px 15px no-repeat;
   --key-lit: inset 0 2px 3px rgba(0, 0, 0, .55), 0 1px 0 #08090a;
 }
 html.compact .r-keys .keys button { --led-at: left 3px top 2px / 6px 3px no-repeat; --led-glow: left -3px top -4px / 18px 15px no-repeat; }
-.r-keys .keys button, .r-bands .bands button, .vfo-keys .vfo-sel {
+.r-keys .keys button, .vfo-keys .vfo-sel {
   background: linear-gradient(180deg, #050607 1px, #15181b 1px) var(--led-at),
     linear-gradient(180deg, #4a5059 0%, #30343b 50%, #24272c 100%);
 }
-.r-keys .keys button.active, .r-keys .keys button.on, .r-keys #atuKey.busy, .r-bands .bands button.active, .vfo-keys .vfo-sel.on {
+.r-keys .keys button.active, .r-keys .keys button.on, .r-keys #atuKey.busy, .vfo-keys .vfo-sel.on {
   background: linear-gradient(var(--led), var(--led)) var(--led-at),
     radial-gradient(closest-side, color-mix(in srgb, var(--led) 55%, transparent), transparent) var(--led-glow),
     linear-gradient(180deg, #3a3f47, #2a2e34);
   box-shadow: var(--key-lit);
 }
 #agcPlusKey.on.clip, #spurKey.on.learning, #satKey.on { box-shadow: var(--key-lit); }
+/* band keys have no LED: the lit band key is only pressed in with a yellow legend */
+.r-bands .bands button.active { background: linear-gradient(180deg, #3a3f47, #2a2e34);
+  box-shadow: inset 0 2px 3px rgba(0, 0, 0, .55), 0 1px 0 #08090a; }
 /* each group of function keys has its own colour of the LED and of the lit legend (--kc; the band and VFO keys stay yellow).
  * Red is left out: it means clipping (AGC+) and learning (SP). */
 .r-keys .kgroup { --kc: var(--yellow); }
