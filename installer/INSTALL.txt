@@ -91,14 +91,41 @@ Change log
 
 Ver. 0.115beta1
 (test beta, GitHub branch 0.115beta1)
-
+Changes
+- SCAN -> CHANNELS (memories): keys ALL / NONE tick / untick SCAN of every memory listed at once.
+- SCAN: the whole tab scrolls - the tiles and the channel chips go up and away, the bar of keys (START / STOP,
+  HOLD, SKIP, LOCK OUT, status) stays on top and CHANNELS / ACTIVITY / HEATMAP fill the rest of the height.
+  The wheel over the table first scrolls the tiles away, then the rows.
+- SCAN -> ACTIVITY: the table uses the full width of the tab (Name takes the free space, Note a share).
+- SCAN -> CHANNELS: the table uses the full width of the tab (Name takes the free space, long names are cut later).
+- SCAN -> ACTIVITY: wider Name column (long channel names are cut later).
+- SCAN -> ACTIVITY: the filter, CSV and the player stay on top while the rows scroll (the column heads under them).
+- SCAN -> HEATMAP: the table uses the full width (the hour columns share the free space, wider Name column).
+- SCAN -> HEATMAP: sorted by occupancy, the busiest frequency first (was by frequency).
+- SCAN: after switching the VFO, CHANNELS / ACTIVITY / HEATMAP could still show the scan of the previous VFO
+  (a late answer of the previous VFO was taken). Answers of the VFO switched away from are now dropped.
+- SCAN -> HEATMAP, THIS SCAN: a timeline - one column per hour from the start of the scan, a row of days above
+  the hours; a scan longer than 24 h no longer sums the same hours of different days. The table scrolls sideways
+  (Frequency / Name / Total stay in place) and follows the newest hour; at most the last 14 days.
+  Older history (SHOW 1 day...) stays hours of the day 0-23 summed over the days.
+- VFO windows: the SQL bar is a slightly darker orange (like the green RF bar).
+- Waterfall settings: new colour scheme Matrix - like Ice, but green (black - deep green - phosphor green -
+  pale green-white).
 Ver. 0.114
 (after the test beta 0.114beta1; many parts by Brano, github.com/brjanicek)
+Package fix (13 Nov 2026)
+- The first 0.114 package was missing adsb.py, so the server did not start (No module named 'adsb').
+  The packages were rebuilt; the package builder now stops when a module imported by the program is not packaged.
+- Windows Defender could report the upgrade zip as Trojan:Script/Sabsik.FL.A!ml (a false positive of its
+  automatic heuristic). The program no longer starts PowerShell for this: the DSD decoder download falls back
+  only to curl.exe of Windows, the upgrade from the page ends leftover decoders through the Windows API, and
+  install.bat makes the desktop shortcuts without -ExecutionPolicy Bypass. The .bat files have Windows line endings.
 Main Features
-- DYN key (AUDIO, right of ALC) for AM/LSB/USB/CW: weak voices out of the noise - the noise between words
+- DNR key (AUDIO, right of ALC) for AM/LSB/USB/CW: weak voices out of the noise - the noise between words
   is turned down, speech stays at full level. EXP = expander with a voice detector (speech harmonics stand
-  out of the flat HF noise), EXP AUTO (default) sets sensitivity, hold and depth by itself (settles in 2-3 s),
-  LIM = soft limiter instead of hard clipping (+4 dB with ALC). Parts in SETTINGS -> AUDIO -> DYN.
+  out of the flat HF noise), EXP AUTO (default) sets sensitivity, hold and depth by itself (settles in 2-3 s;
+  AUTO off: depth, sensitivity and hold 20-1000 ms by hand, SNR shown in both modes),
+  LIM = soft limiter instead of hard clipping (+4 dB with ALC). Parts in SETTINGS -> AUDIO -> DNR.
   Smooth ALC gain (no clicks): SETTINGS -> SDR DONGLE -> ADVANCED, on by default. SETTINGS -> AUDIO
   rearranged; smaller gaps between key groups.
 - New look - a front panel like a real rack receiver: one glass over all the displays, the VFO keys (each with its

@@ -298,9 +298,9 @@ body {
  * dark like the unlit annunciators = off (or not FM), orange = on, glowing = the tone / code is received now */
 .vfo-tone { display: flex; align-items: center; gap: .8em; height: 1.45em; font-size: clamp(8px, .84cqw, 10.5px); white-space: nowrap; }
 .vfo-tone .tsq b { margin-left: .35em; font-weight: 700; }
+.vfo-tone .atu { margin-left: auto; }   /* ATU at the right end, right edge in line with CONV under it */
 .vfo-tone .ctcss b { min-width: 2.6em; }
-.vfo-tone .dcs b { min-width: 2.4em; }
-.vfo-tone .tsq.act { color: #b8681c; }
+.vfo-tone .dcs b { min-width: 2.4em; }.vfo-tone .tsq.act { color: #b8681c; }
 .vfo-row.active .vfo-tone .tsq.act { color: var(--orange); }
 /* tone / code received: lit orange box with dark text, on inactive VFOs too (shows activity like the busy VFO key) */
 .vfo-row .vfo-tone .tsq.act.rx { color: #2a1404; background: var(--orange); text-shadow: none;
@@ -319,7 +319,7 @@ body {
 .vfo-info .hpf, .vfo-info .lpf { justify-content: flex-start; }
 .vfo-info .hpf b, .vfo-info .lpf b { font-weight: 700; min-width: 2.7em; }
 .vfo-info .sql { min-width: 3.4em; }
-.vfo-info .conv { min-width: 4.4em; }
+.vfo-info .conv { min-width: 4.4em; justify-content: flex-end; }   /* right edge in line with DNR above it */
 .inf-ico { width: 1.35em; height: .9em; margin-right: .15em; fill: none; stroke: currentColor; stroke-width: 64; stroke-linecap: round; stroke-linejoin: round; }
 .vfo-info .st-icon { width: 1.35em; margin-right: .15em; }
 .ann.set { color: #5f6874; }
@@ -331,7 +331,7 @@ body {
 /* RF and SQL: label, segment bar (a range input), value */
 .vfo-foot { display: grid; grid-template-columns: 2.6em minmax(0, 1fr) 6.2em; align-items: center; gap: .6em; height: 1.4em;
   --bar-on: #3cf07c; --bar-off: #0f2016; }
-.vfo-sqrow { --bar-on: var(--amber); --bar-off: #221a0b; }
+.vfo-sqrow { --bar-on: #c98125; --bar-off: #221a0b; }
 .vfo-row:not(.active) .vfo-foot { --bar-on: #56606b; --bar-off: #12171c; }
 /* manual RF gain and the A/D clips: the whole bar and the dB value red (also in an inactive window) */
 .vfo-row .vfo-foot.clip { --bar-on: var(--red, #ff4b3e); --bar-off: #2a0d0b; }
@@ -1377,6 +1377,13 @@ canvas.axis { height: 39px; background: #1c1e22; border-bottom: 1px solid #44474
 .scan-opt input:disabled, .scan-opt select:disabled { opacity: .45; }
 /* keys + the status display */
 .scan-bar { display: flex; align-items: stretch; gap: 8px; flex-wrap: wrap; }
+/* the whole tab scrolls: the tiles and the card go up and away, the bar of keys stays on top (sticky), the page of
+   CHANNELS / ACTIVITY / HEATMAP fills the rest of the height (--scan-fill, set by JS) and scrolls inside */
+.scan-pane { overflow-y: auto; padding-top: 0; }
+.scan-pane > * { flex: none; }
+.scan-pane > .scan-top { margin-top: 10px; }
+.scan-pane > .scan-bar { position: sticky; top: 0; z-index: 8; padding: 6px 0; margin: -6px 0; background: #07090c; }
+.scan-pane > [data-scan-panel] { height: var(--scan-fill, 360px); }
 .scan-bar > .key, .scan-run > .key { align-self: center; }
 .scan-go { min-width: 108px; padding-top: 9px; padding-bottom: 9px; font-size: 13px; letter-spacing: .06em; }
 .scan-go.stop { color: var(--red); border-color: var(--red); box-shadow: 0 0 10px rgba(255, 75, 62, .25); }
@@ -1412,16 +1419,34 @@ canvas.axis { height: 39px; background: #1c1e22; border-bottom: 1px solid #44474
 .scan-cfg { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 9px 12px; border: 1px solid var(--line2); border-radius: 10px; background: var(--scan-card); }
 .scan-pages { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .scan-show { display: inline-flex; align-items: center; gap: 8px; margin-left: 14px; }
+/* ☑ ALL / ☐ NONE: a filled box with a tick vs. an empty box */
+#scanSelBox .key { display: inline-flex; align-items: center; gap: 6px; }
+.scan-sel-ico { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.6; }
+.scan-sel-ico.on rect { fill: var(--accent); stroke: var(--accent); }
+.scan-sel-ico.on path { stroke: #111; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
 /* tables of the SCAN tab: columns as wide as their content, rows separated by lines only */
 .scan-pane .recs-table { width: auto; margin: 0; }
 .scan-pane .recs-table th, .scan-pane .recs-table td { padding: 4px 9px; border: 0; border-bottom: 1px solid #171c23; vertical-align: middle; }
 .scan-pane .recs-table th { top: 0; font-size: 11px; letter-spacing: .05em; border-bottom-color: var(--line2); }
 .scan-pane .recs-table td.scan-name { max-width: 24ch; overflow: hidden; text-overflow: ellipsis; }
+.scan-pane .recs-table.scan-log td.scan-name { max-width: 36ch; }
 .scan-pane .recs-table tbody tr:nth-child(even) { background: #070a0d; }
 .scan-pane .recs-table tbody tr:hover { background: #10151c; }
 .scan-table td input[type="checkbox"] { margin: 0; accent-color: var(--yellow); }
 .scan-table .scan-num { width: 48px; padding: 2px 4px; border: 1px solid var(--line); border-radius: 4px; background: #000; color: var(--text); font-size: 12px; }
 .scan-table tbody tr { cursor: default; }
+/* CHANNELS uses the full width of the tab: Name takes the free space (cut with … only when even that is too narrow),
+   State a fixed share, the other columns spread evenly */
+.scan-pane .recs-table.scan-table { width: 100%; }
+.scan-table :is(th, td) { white-space: nowrap; }
+.scan-pane .scan-table td.scan-name { width: 30%; max-width: 0; }
+.scan-table th:nth-child(2) { width: 30%; }
+.scan-table :is(th, td):last-child { width: 14%; }
+/* ACTIVITY the same: full width, Name takes the free space, Note a share */
+.scan-pane .recs-table.scan-log { width: 100%; }
+.scan-pane .recs-table.scan-log td.scan-name { width: 32%; max-width: 0; }
+.scan-log th:nth-child(5) { width: 32%; }
+.scan-log :is(th, td):last-child { width: 16%; }
 /* VISIBLE BAND / RANGE: the columns of a memory (SCAN, Name, BW, SQ, ASQ, PRIO) are not shown */
 .scan-table.grid :is(th, td):is(:nth-child(1), :nth-child(2), :nth-child(5), :nth-child(6), :nth-child(7), :nth-child(8)) { display: none; }
 .scan-table tbody tr.scan-off td { color: var(--dim); }
@@ -1439,12 +1464,35 @@ canvas.axis { height: 39px; background: #1c1e22; border-bottom: 1px solid #44474
 .scan-st.sig { color: var(--green); padding-left: 0; }
 .scan-st.lock { background: rgba(255, 75, 62, .15); color: var(--red); }
 .scan-st.skip { background: rgba(255, 181, 71, .15); color: var(--amber); }
-.scan-log-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 8px; }
+/* ACTIVITY: filter + player stay on top while the rows scroll, the column heads right under them (--slh = its
+   height, set by JS) */
+.scan-log-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 8px;
+  position: sticky; top: 0; z-index: 4; background: #000; }
+.scan-pane .recs-table.scan-log th { top: var(--slh, 0px); }
 .scan-log-head audio { height: 30px; min-width: 220px; color-scheme: dark; }
 .scan-heat-note { padding: 6px 8px; margin: 0; }
 .scan-log tbody tr, .scan-heat tbody tr { cursor: pointer; }
-.scan-pane .scan-heat th.hh { text-align: center; padding: 5px 0; width: 22px; min-width: 22px; }
-.scan-pane .scan-heat td.hc { padding: 0; width: 22px; height: 20px; border-left: 1px solid #10151c; }
+/* HEATMAP over the full width: fixed layout, the hour columns share what the first three leave (min 22 px each,
+   then the table scrolls sideways; JS sets min-width). Frequency / Name / Total stay in place while scrolling. */
+.scan-pane .recs-table.scan-heat { width: 100%; table-layout: fixed; }
+.scan-pane .scan-heat col.cf { width: 105px; }
+.scan-pane .scan-heat col.cn { width: 220px; }
+.scan-pane .scan-heat col.ct { width: 75px; }
+.scan-pane .recs-table.scan-heat td.scan-name { max-width: none; }
+.scan-pane .scan-heat th.sl3, .scan-pane .scan-heat td.sl3 { text-align: right; box-shadow: inset -1px 0 0 var(--line2); }
+.scan-pane .scan-heat .sl { position: sticky; z-index: 1; overflow: hidden; text-overflow: ellipsis; }
+.scan-pane .scan-heat th { z-index: 2; }
+.scan-pane .scan-heat th.sl { z-index: 3; vertical-align: bottom; }
+.scan-pane .scan-heat .sl1 { left: 0; }
+.scan-pane .scan-heat .sl2 { left: 105px; }
+.scan-pane .scan-heat .sl3 { left: 325px; }
+.scan-pane .scan-heat tbody tr { background: #000; }
+.scan-pane .scan-heat td.sl { background: inherit; }
+.scan-pane .scan-heat th.hd { text-align: left; padding: 3px 5px; overflow: hidden; text-overflow: ellipsis; color: var(--muted);
+  border-left: 1px solid var(--line2); }
+.scan-pane .scan-heat th.hh { text-align: center; padding: 5px 0; overflow: hidden; }
+.scan-pane .scan-heat td.hc { padding: 0; height: 20px; border-left: 1px solid #10151c; }
+.scan-pane .scan-heat .d0 { border-left: 1px solid var(--line2); }
 /* SCAN key while the active VFO scans: only its LED blinks, in the colour of the lit legend (MENU group) (lit or not, the key itself stays as it is) */
 .r-keys .keys #scanKey.scanning { animation: scan-key-blink 1s steps(1) infinite;
   background: linear-gradient(var(--led), var(--led)) var(--led-at),
@@ -1511,7 +1559,7 @@ canvas.axis { height: 39px; background: #1c1e22; border-bottom: 1px solid #44474
 .set-subpanel .blk-flash { animation: blkFlash 1.4s ease-out; border-radius: 6px; }
 @keyframes blkFlash { 0%, 40% { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); } 100% { box-shadow: 0 0 0 0 transparent; } }
 .set-grid3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-/* VFO › AUDIO: filters | AFI over ASQ | TSQ, DYN in the third column over both rows */
+/* VFO › AUDIO: filters | AFI over ASQ | TSQ, DNR in the third column over both rows */
 .set-grid3:has(> .set-dyn) { align-items: stretch; }   /* boxes of one row equally high, no holes */
 .set-grid3 > .set-dyn { grid-column: 3; grid-row: 1 / span 2; }
 .set-dyn .dyn-sub { margin-left: 26px; }

@@ -9,6 +9,7 @@ The version is taken from the logo in static/index.html (<span class="r-ver">Ver
 Only the program, web interface, libraries and drivers go into the package. Not the settings of this PC
 (vfos.json, config_X.json, memories, EEPROM backups, recordings); the new PC creates those during installation.
 """
+import ast
 import os
 import re
 import shutil
@@ -84,7 +85,7 @@ def make_upgrade(full_zip):
     print(f"{out}: {n + 2} files, {os.path.getsize(out) / 1e6:.1f} MB")
 
 
-CODE = ["app.py", "launcher.py", "paths.py", "sdr.py", "autotune.py", "lime.py", "airspy.py", "rds.py", "cw.py", "rtty.py", "packet.py", "aprs.py", "daylog.py", "ft8.py", "wefax.py", "sstv.py", "acars.py", "cpdlc.py", "cpdlc_schema.py", "adsc.py", "vdl2.py", "hfdl.py", "ais.py", "tonesq.py", "scanner.py", "airports.py", "dab.py", "ism.py", "dsd.py", "recorder.py", "install_dsd.py", "install_dsd.bat",
+CODE = ["app.py", "launcher.py", "paths.py", "sdr.py", "autotune.py", "lime.py", "airspy.py", "rds.py", "cw.py", "rtty.py", "packet.py", "aprs.py", "daylog.py", "ft8.py", "wefax.py", "sstv.py", "acars.py", "cpdlc.py", "cpdlc_schema.py", "adsc.py", "vdl2.py", "hfdl.py", "ais.py", "adsb.py", "tonesq.py", "scanner.py", "airports.py", "dab.py", "ism.py", "dsd.py", "recorder.py", "install_dsd.py", "install_dsd.bat",
         "memories.py", "satellites.py", "update_check.py", "upgrade_helper.py", "sattrack.py", "satplan.py", "location.py", "sysload.py", "rotor.py", "iqshare.py", "eeprom_tool.py", "setup_sdr.py", "start.bat", "setup.bat", "README.md", "CHANGELOG.md",
         "LICENSE", "NOTICE.md", "API/API.md"]
 LIBS = ["lib/librtlsdr.dll", "lib/libusb-1.0.dll"]
@@ -120,13 +121,45 @@ ALLOWED = [b"By Radim Mutina OM2AMR", b"github.com/om2amr/RADIMCOM", b"api.githu
 def copy(src, dst_rel, build):
     dst = os.path.join(build, dst_rel)
     os.makedirs(os.path.dirname(dst), exist_ok=True)
-    shutil.copy2(src, dst)
+    if dst.lower().endswith(".bat"):       # cmd.exe wants CRLF (with LF, labels and goto can misfire)
+        with open(src, "rb") as f:
+            body = f.read().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+        with open(dst, "wb") as f:
+            f.write(body)
+        shutil.copystat(src, dst)
+    else:
+        shutil.copy2(src, dst)
+
+
+def unpackaged_imports():
+    """Local .py modules imported (also indirectly) by app.py / launcher.py that are not in CODE."""
+    local = {f for f in os.listdir(ROOT) if f.endswith(".py")}
+    seen, todo = set(), ["app.py", "launcher.py"]
+    while todo:
+        f = todo.pop()
+        if f in seen:
+            continue
+        seen.add(f)
+        with open(os.path.join(ROOT, f), encoding="utf-8") as fh:
+            tree = ast.parse(fh.read())
+        for n in ast.walk(tree):
+            if isinstance(n, ast.Import):
+                mods = [a.name for a in n.names]
+            elif isinstance(n, ast.ImportFrom) and n.module and not n.level:
+                mods = [n.module]
+            else:
+                mods = []
+            todo += [m.split(".")[0] + ".py" for m in mods if m.split(".")[0] + ".py" in local]
+    return sorted(seen - set(CODE))
 
 
 def main():
     missing = [p for p in list(EXTERNAL.values()) + [D3XX_ZIP] if not os.path.exists(p)]
     if missing:
         sys.exit("missing: " + ", ".join(missing))
+    lost = unpackaged_imports()
+    if lost:
+        sys.exit("imported but not in CODE: " + ", ".join(lost))
     with tempfile.TemporaryDirectory() as tmp:
         build = os.path.join(tmp, TOP)
         for f in CODE + LIBS:

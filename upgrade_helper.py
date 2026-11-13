@@ -1,5 +1,5 @@
 """RADIMCOM upgrade, second half (started by update_check.py, from a copy in data\\update\\, in its own console):
-waits until RADIMCOM has closed, ends programs still running from lib\\ (decoders), unzips the upgrade zip over the
+waits until RADIMCOM has closed, ends decoders still running from lib\\, unzips the upgrade zip over the
 RADIMCOM folder (data\\ is never touched), runs upgrade.bat (Python packages) and starts start.bat again.
 
   python -I upgrade_helper.py --pid <RADIMCOM pid> --base <RADIMCOM folder> --zip <upgrade zip> --version 0.1xx
@@ -32,11 +32,33 @@ def wait_exit(pid, timeout):
 
 
 def end_lib_programs(base):
-    """Decoders started from lib\\ (welle-cli, rtl_433, dumpvdl2, dumphfdl, dsd-fme) that outlived RADIMCOM hold their files."""
-    lib = os.path.join(base, "lib") + "\\"
-    ps = ("Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($env:RC_LIB, 'OrdinalIgnoreCase') } | "
-          "ForEach-Object { Write-Output ('  ending ' + $_.Path); Stop-Process -Id $_.Id -Force }")
-    subprocess.run(["powershell", "-NoProfile", "-Command", ps], env=dict(os.environ, RC_LIB=lib), check=False)
+    """Decoders started from lib\\ (welle-cli, rtl_433, dumpvdl2, dumphfdl, dsd-fme) that outlived RADIMCOM hold their files.
+    Only processes whose program file lies in this RADIMCOM's lib\\ folder are ended (Windows API, no shell)."""
+    from ctypes import wintypes
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.OpenProcess.restype = wintypes.HANDLE
+    k32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    k32.QueryFullProcessImageNameW.argtypes = (wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD))
+    k32.TerminateProcess.argtypes = (wintypes.HANDLE, wintypes.UINT)
+    k32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    lib =os.path.normcase(os.path.join(os.path.abspath(base), "lib")) + os.sep
+    pids = (wintypes.DWORD * 4096)()
+    got = wintypes.DWORD()
+    if not k32.K32EnumProcesses(pids, ctypes.sizeof(pids), ctypes.byref(got)):
+        return
+    for pid in pids[:got.value // ctypes.sizeof(wintypes.DWORD)]:
+        h = k32.OpenProcess(0x1000 | 0x0001, False, pid)     # PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE
+        if not h:
+            continue
+        try:
+            buf = ctypes.create_unicode_buffer(1024)
+            size = wintypes.DWORD(len(buf))
+            if k32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(size)) and \
+                    os.path.normcase(buf.value).startswith(lib):
+                print(f"  ending {buf.value}")
+                k32.TerminateProcess(h, 1)
+        finally:
+            k32.CloseHandle(h)
 
 
 def unzip(path, base):
@@ -78,7 +100,7 @@ def main():
     a.add_argument("--zip", required=True)
     a.add_argument("--version", default="")
     args = a.parse_args()
-    os.system(f"title RADIMCOM upgrade to {args.version}")
+    ctypes.windll.kernel32.SetConsoleTitleW(f"RADIMCOM upgrade to {args.version}")
     print(f"RADIMCOM upgrade to {args.version}\n{'=' * 40}\nFolder: {args.base}\n")
     print("Waiting for the receiver to close...")
     if not wait_exit(args.pid, WAIT_EXIT_S):

@@ -80,7 +80,7 @@ if not errorlevel 2 ".venv\Scripts\python.exe" setup_sdr.py --no-start
 rem ---- 5. desktop shortcut ----
 echo.
 echo [5/5] Creating desktop shortcuts...
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+powershell -NoProfile -Command ^
   "$w = New-Object -ComObject WScript.Shell; $d = [Environment]::GetFolderPath('Desktop');" ^
   "$s = $w.CreateShortcut(\"$d\RADIMCOM.lnk\"); $s.TargetPath = '%~dp0start.bat'; $s.WorkingDirectory = '%~dp0'; $s.IconLocation = 'shell32.dll,138'; $s.Save();" ^
   "$s = $w.CreateShortcut(\"$d\RADIMCOM SDR setup.lnk\"); $s.TargetPath = '%~dp0setup.bat'; $s.WorkingDirectory = '%~dp0'; $s.IconLocation = 'shell32.dll,21'; $s.Save()"

@@ -209,7 +209,7 @@
       <button id="hpfKey" class="key pass-key" aria-label="HPF"><svg class="pass-icon" viewBox="60 180 680 440" aria-hidden="true"><path d="M100 576H150Q190 576 215 535L390 265Q415 228 460 228H695"/></svg><span id="hpfVal" class="pass-val"></span></button>
       <button id="lpfKey" class="key pass-key" aria-label="LPF"><svg class="pass-icon" viewBox="60 180 680 440" aria-hidden="true"><path d="M100 228H340Q390 228 415 270L580 540Q610 576 650 576H695"/></svg><span id="lpfVal" class="pass-val"></span></button>
       <button id="alcKey" class="key" title="Audio ALC (automatic audio level) in AM/LSB/USB/CW; off = fixed gain, set the level with MAIN">ALC</button>
-      <button id="dynKey" class="key" title="DYN – HF dynamics in AM/LSB/USB/CW: expander (EXP, the noise between words turned down, speech at full level) + soft limiter (LIM, rounded peaks, +4 dB with ALC); AGC threshold THR optional. Parts and levels in SETTINGS › VFO › AUDIO">DYN</button>
+      <button id="dynKey" class="key" title="DNR – Dynamic Noise Reduction in AM/LSB/USB/CW: expander (EXP, the noise between words turned down, speech at full level) + soft limiter (LIM, rounded peaks, +4 dB with ALC); AGC threshold THR optional. Parts and levels in SETTINGS › VFO › AUDIO">DNR</button>
       <button id="afiKey" class="key" title="AFI: audio frequency inversion – voice inversion scrambler / descrambler (all modes except WFM); the inversion frequency is set in SETTINGS">AFI</button>
       <button id="asqKey" class="key" title="ASQ: auto squelch in AM/FM/WFM – the level follows the noise floor (margin in SETTINGS › VFO › AUDIO). Also on by itself with AGC+ and the squelch set">ASQ</button>
       <button id="tsqcKey" class="key" title="TSQ-C: CTCSS tone squelch (FM)">TSQ-C</button>
@@ -915,7 +915,7 @@
         </div>
       </div>
       <!-- 2. the keys and what the scan does now; HOLD / SKIP / ◀ ▶ only while scanning -->
-      <div class="scan-bar">
+      <div class="scan-bar" id="scanBar">
         <button id="scanGo" class="key accent scan-go" title="START / STOP the scan on this VFO">▶ START</button>
         <span class="scan-run" id="scanRun" hidden>
           <button id="scanPause" class="key" title="HOLD on the channel heard now / CONTINUE the scan">❚❚ HOLD</button>
@@ -952,6 +952,10 @@
         <button class="key small on" data-scan-page="scan" role="tab">CHANNELS</button>
         <button class="key small" data-scan-page="log" role="tab">ACTIVITY <span id="scanActN"></span></button>
         <button class="key small" data-scan-page="heat" role="tab">HEATMAP</button>
+        <span class="scan-show" id="scanSelBox" hidden>
+          <button id="scanSelAll" class="key small" title="SCAN on for all the memories listed (the source chosen above)"><svg class="scan-sel-ico on" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="1.5" width="13" height="13" rx="2.5"/><path d="M4.5 8.3l2.4 2.4 4.6-5.2"/></svg>ALL</button>
+          <button id="scanSelNone" class="key small" title="SCAN off for all the memories listed (the source chosen above)"><svg class="scan-sel-ico" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="1.5" width="13" height="13" rx="2.5"/></svg>NONE</button>
+        </span>
         <span class="scan-show" id="scanShowBox" hidden>
           <label class="scan-opt" title="THIS SCAN = only what this scan heard (a START of another source or range, or CLR, begins a new one); the others = the history of all VFOs">SHOW
             <select id="scanShow"><option value="session">THIS SCAN</option><option value="1">TODAY (UTC)</option><option value="7">7 DAYS</option><option value="31">31 DAYS</option><option value="365">ALL KEPT</option></select></label>
@@ -989,8 +993,9 @@
       </div>
       <!-- page HEATMAP -->
       <div class="amsat-body recs-body" data-scan-panel="heat" hidden>
-        <p class="amsat-info scan-heat-note">Seconds of activity per hour of the day (local time), the 60 busiest frequencies; yellow = most. A click on a row tunes it.</p>
-        <table class="recs-table scan-heat">
+        <p class="amsat-info scan-heat-note" id="scanHeatNote"></p>
+        <table class="recs-table scan-heat" id="scanHeatTable">
+          <colgroup id="scanHeatCols"></colgroup>
           <thead id="scanHeatHead"></thead>
           <tbody id="scanHeatRows"></tbody>
         </table>
@@ -1576,23 +1581,25 @@ ecordings, played in the browser -->
                   (f → 2·F − f, band 0 … 2·F). The same setting scrambles and descrambles. Default 1750 Hz (band up to 3500 Hz). 500–4000 Hz.</p>
               </div>
               <div class="setting set-dyn">
-                <div class="row"><span>DYN – HF dynamics (DYN key)</span></div>
+                <div class="row"><span>DNR – Dynamic Noise Reduction (DNR key)</span></div>
                 <label class="switch"><input id="dynExp" type="checkbox"><span></span> EXP – expander: quiet between words</label>
                 <label class="switch dyn-sub"><input id="dynExpAuto" type="checkbox"><span></span> AUTO – sets itself</label>
                 <div class="dyn-now dyn-sub"><span>Now</span><span id="dynExpInfo" class="value"></span></div>
                 <div class="set-cols dyn-sub">
                   <label class="set-field"><span>Depth (dB)</span><input id="dynExpDb" type="number" step="1" min="3" max="30" value="12"></label>
                   <label class="set-field"><span>Sensitivity (1–10)</span><input id="dynExpSens" type="number" step="1" min="1" max="10" value="5"></label>
+                  <label class="set-field"><span>Hold (ms)</span><input id="dynExpHold" type="number" step="10" min="20" max="1000" value="100"></label>
                 </div>
                 <label class="switch"><input id="dynLim" type="checkbox"><span></span> LIM – soft limiter</label>
-                <p class="note">The DYN key (AUDIO, beside ALC; AM/LSB/USB/CW) switches on the ticked parts.
+                <p class="note">The DNR key (AUDIO, beside ALC; AM/LSB/USB/CW) switches on the ticked parts.
                   <b>EXP</b> turns the noise between words down by the <i>depth</i>; speech stays at full level. A voice detector
                   looks at the spectrum every 8 ms (speech has harmonics standing out of the noise, the noise is flat), opens at
                   once on speech, holds a while and closes in 80 ms. In CW it watches only the CW passband.</p>
                 <p class="note"><b>AUTO</b> (default): a noise blip lowers the sensitivity, missed weak speech raises it, a chop
-                  (reopening soon after closing) makes the hold longer (80–250 ms), the depth follows the measured SNR (8–18 dB).
+                  (reopening soon after closing) makes the hold longer (180–350 ms), the depth follows the measured SNR (8–18 dB).
                   Settles in about 2–3 s, after a retune it starts again fast; <i>Now</i> shows the values in use. AUTO off: depth 3–30 dB (12),
-                  sensitivity 1–10 (5; chopped speech → raise, noise opening it → lower), hold 100 ms.</p>
+                  sensitivity 1–10 (5; chopped speech → raise, noise opening it → lower), hold 20–1000 ms (100; chopped words → longer).
+                  The SNR in <i>Now</i> (speech vs. noise between words) is measured in both modes.</p>
                 <p class="note"><b>LIM</b>: soft limiter instead of hard clipping; with ALC +4 dB, the peaks rounded, not cut.</p>
               </div>
               <div class="setting">

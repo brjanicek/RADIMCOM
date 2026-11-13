@@ -37,23 +37,14 @@ Listening to some radio services can also be restricted by law.
 
 
 def download_windows(path):
-    """Download with the tools of Windows. Python only reads the certificates already in the Windows store, while these
-    use the TLS of Windows, which fetches a missing root certificate by itself. They verify the certificate as well."""
-    system = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32")
-    commands = (
-        [os.path.join(system, "curl.exe"), "-fL", "-o", path, URL],
-        [os.path.join(system, "WindowsPowerShell", "v1.0", "powershell.exe"), "-NoProfile", "-Command",
-         "$ProgressPreference = 'SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol = 'Tls12'; "
-         "Invoke-WebRequest -UseBasicParsing -Uri $env:DSD_URL -OutFile $env:DSD_OUT"],
-    )
-    env = dict(os.environ, DSD_URL=URL, DSD_OUT=path)
-    for command in commands:
-        try:
-            if subprocess.run(command, env=env, check=False).returncode == 0:
-                return True
-        except OSError:
-            pass                   # this tool is not on this Windows
-    return False
+    """Download with curl.exe of Windows (in Windows 10 since 1803). Python only reads the certificates already in the
+    Windows store, while curl.exe uses the TLS of Windows, which fetches a missing root certificate by itself; it
+    verifies the certificate as well. (Only curl.exe on purpose: script-shell downloads look like malware to antivirus.)"""
+    curl = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "curl.exe")
+    try:
+        return subprocess.run([curl, "-fL", "-o", path, URL], check=False).returncode == 0
+    except OSError:
+        return False               # no curl.exe on this Windows
 
 
 def download(path):

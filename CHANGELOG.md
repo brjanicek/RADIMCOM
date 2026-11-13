@@ -11,19 +11,46 @@ Test beta (GitHub branch `0.115beta1`).
   - **Two decoders, one packet:** names learnt from one packet (e.g. LaCrosse TX29IT / TX35DTHIT) also join later packets read by only one of them; only on the same channel and with the same device ID, never with a wM-Bus meter (a sensor row once collected a meter and a Honeywell of the same level).
   - **RAW at FSK:** a package at the frequency (±10 kHz) of a decoded one at the same time is not shown as RAW (the analyzer measures FSK levels differently, so the level alone did not match).
 
+### Changes
+
+- SCAN → CHANNELS (memories): keys **☑ ALL** / **☐ NONE** tick / untick SCAN of every memory listed at once.
+- SCAN: the whole tab scrolls – the tiles and the channel chips go up and away, the bar of keys (START / STOP,
+  HOLD, SKIP, LOCK OUT, ◀ ▶, status) stays on top and CHANNELS / ACTIVITY / HEATMAP fill the rest of the height.
+  The wheel over the table first scrolls the tiles away, then the rows.
+- SCAN → ACTIVITY: the table uses the full width of the tab (Name takes the free space, Note a share).
+- SCAN → CHANNELS: the table uses the full width of the tab (Name takes the free space, long names are cut later).
+- SCAN → ACTIVITY: wider Name column (long channel names are cut later).
+- SCAN → ACTIVITY: the filter, CSV and the player stay on top while the rows scroll (the column heads under them).
+- SCAN → HEATMAP: the table uses the full width (the hour columns share the free space, wider Name column).
+- SCAN → HEATMAP: sorted by occupancy, the busiest frequency first (was by frequency).
+- SCAN: after switching the VFO, CHANNELS / ACTIVITY / HEATMAP could still show the scan of the previous VFO
+  (a late answer of the previous VFO was taken). Answers of the VFO switched away from are now dropped.
+- SCAN → HEATMAP, THIS SCAN: a timeline - one column per hour from the start of the scan, a row of days above
+  the hours; a scan longer than 24 h no longer sums the same hours of different days. The table scrolls sideways
+  (Frequency / Name / Total stay in place) and follows the newest hour; at most the last 14 days.
+  Older history (SHOW 1 day...) stays hours of the day 0-23 summed over the days.
+- VFO windows: the SQL bar is a slightly darker orange (like the green RF bar).
+- Waterfall settings: new colour scheme **Matrix** – like Ice, but green (black – deep green – phosphor green –
+  pale green-white).
 ## Ver. 0.114
 
 Released after the test beta (GitHub branch `0.114beta1`). Many parts are contributed by **Brano, [brjanicek](https://github.com/brjanicek)** (marked *by Brano*).
 
+### Package fix (13 Nov 2026)
+
+- The first 0.114 package was missing `adsb.py`, so the server did not start (`No module named 'adsb'`). The packages were rebuilt; the package builder now stops when a module imported by the program is not packaged.
+- Windows Defender could report the upgrade zip as `Trojan:Script/Sabsik.FL.A!ml` (a false positive of its automatic heuristic). The program no longer starts PowerShell for this: the DSD decoder download falls back only to `curl.exe` of Windows, the upgrade from the page ends leftover decoders through the Windows API, and install.bat makes the desktop shortcuts without `-ExecutionPolicy Bypass`. The `.bat` files in the package have Windows line endings.
+
 ### Main Features
 
-- **DYN key – weak HF voices out of the noise.** A new key **DYN** in **AUDIO**, right of ALC, for AM / LSB / USB / CW. It makes weak signals easier to hear in the noise: the noise between words is turned down, the speech stays at its full level, so the voice stands out of the noise instead of drowning in it. Two parts, both on by default and ticked in SETTINGS › AUDIO › DYN:
+- **DNR key (Dynamic Noise Reduction) – weak HF voices out of the noise.** A new key **DNR** in **AUDIO**, right of ALC, for AM / LSB / USB / CW. It makes weak signals easier to hear in the noise: the noise between words is turned down, the speech stays at its full level, so the voice stands out of the noise instead of drowning in it. Two parts, both on by default and ticked in SETTINGS › AUDIO › DNR:
   - **EXP – expander with a voice detector.** Every 8 ms the audio goes through an FFT; each frequency of the passband has its own noise floor. Speech has harmonics that stand out of the noise even when it is hardly louder than the noise, the HF noise is flat – so speech is told apart from noise also at a low signal-to-noise ratio. On speech it opens at once (in time for the start of a syllable), after it holds a while and closes in 80 ms to the *depth*. In CW it watches only the CW passband.
-  - **EXP AUTO** (on by default) sets the expander by itself: an opening on a noise blip lowers the sensitivity, weak speech left closed raises it, a reopening soon after closing in the middle of speech (a chop) makes the hold longer (80–250 ms), and the depth follows the measured speech-to-noise ratio (8–18 dB). It settles in about 2–3 s; after a retune or a new mode it starts again in a fast mode. *Now* in the settings shows the values in use. AUTO off: depth 3–30 dB (default 12) and sensitivity 1–10 (default 5) by hand.
+  - **EXP AUTO** (on by default) sets the expander by itself: an opening on a noise blip lowers the sensitivity, weak speech left closed raises it, a reopening soon after closing in the middle of speech (a chop) makes the hold longer (180–350 ms), and the depth follows the measured speech-to-noise ratio (8–18 dB). It settles in about 2–3 s; after a retune or a new mode it starts again in a fast mode. *Now* in the settings shows the values in use. AUTO off: depth 3–30 dB (default 12), sensitivity 1–10 (default 5) and hold 20–1000 ms (default 100) by hand; the measured SNR is shown in *Now* in both modes.
   - **LIM – soft limiter** instead of the hard clipping: the peaks are rounded, not cut; with ALC +4 dB louder.
   - **Smooth ALC gain** (SETTINGS › SDR DONGLE › ADVANCED, by AGC+, on by default): the ALC gain rises in a smooth ramp instead of steps – no clicks and no zipper noise; it still falls at once.
-  - The AUDIO key group has 7 columns now; the gaps between the key groups are a little smaller so the row fits. SETTINGS › AUDIO is rearranged: HPF / LPF and AFI, ASQ and TSQ, DYN in its own column.
-  - Server: keys `dyn`, `dyn_exp`, `dyn_exp_auto`, `dyn_exp_db`, `dyn_exp_sens`, `dyn_lim`, `agc_smooth` in `/api/set` and the state, `dyn_exp_info` (the values in use) in the state.
+  - The VFO window shows **DNR** in green (annunciator row after ALC, AFI moved after ASQ) while DNR is on; **ATU** moved to the right end of the CTCSS / DCS row, right-aligned with CONV under it.
+  - The AUDIO key group has 7 columns now; the gaps between the key groups are a little smaller so the row fits. SETTINGS › AUDIO is rearranged: HPF / LPF and AFI, ASQ and TSQ, DNR in its own column.
+  - Server: keys `dyn`, `dyn_exp`, `dyn_exp_auto`, `dyn_exp_db`, `dyn_exp_sens`, `dyn_exp_hold_ms`, `dyn_lim`, `agc_smooth` in `/api/set` and the state, `dyn_exp_info` (the values in use) in the state.
 - **New look – a front panel like a real rack receiver.** The head is laid out anew: **one glass over all the displays** (S-meter, the four VFO windows, the clock with the AD), the **VFO keys under their windows**, each with its own **CUE** key, the **function keys as modules of two rows** with the legend over each group, the **master column at the right** (logo, MONITOR faders with the level meter, speaker, RECORD) and the **band keys across the whole width**; rack ears with screws at both edges, the lower part with the tabs sunk deeper into the panel.
   - **Keys with an LED window and a colour for each key group** (VIEW white, MODE yellow, FILTER orange, GAIN green, STEP cyan, TUNE lime, AUDIO violet, DECODE fuchsia, TRACKING blue, MENU teal); the lit tab of the lower part and the accents inside it have the colour of the group whose key opens it.
   - **Details of a real set:** the clock with faint unlit segments, the date and LOC / UTC; faders with a dB scale and ribbed caps; the level meter with dB numbers, peak hold and a CLIP LED for each channel; the logo printed on the panel; in the VFO windows the mode is aligned with RX and the unlit CTCSS / DCS are as dark as the other annunciators.

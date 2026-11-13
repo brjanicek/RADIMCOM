@@ -1140,6 +1140,9 @@ const WF_SCHEMES = {
   ice: { name: "Ice", bg: "#000000",           // black – deep blue – cyan – white (calm, signals stand out as light)
     stops: [[0, 0, 0, 0], [0.25, 0, 20, 45], [0.45, 0, 80, 130], [0.62, 0, 170, 210], [0.8, 120, 230, 255],
       [1, 255, 255, 255]] },
+  matrix: { name: "Matrix", bg: "#000000",     // black – deep green – phosphor green – pale green-white (like Ice, in green)
+    stops: [[0, 0, 0, 0], [0.25, 0, 35, 8], [0.45, 0, 100, 25], [0.62, 0, 190, 50], [0.8, 110, 255, 120],
+      [1, 230, 255, 230]] },
 };
 let wfScheme = WF_SCHEMES[recall("wfScheme")] ? recall("wfScheme") : "classic";
 const wfBg = () => WF_SCHEMES[wfScheme].bg;
@@ -2246,13 +2249,13 @@ function renderRds() {
   const expAuto = st.dyn_exp_auto !== false;
   $("dynExpAuto").checked = expAuto;
   $("dynExpAuto").disabled = !expOn;     // AUTO only sets the expander: nothing to do without EXP
-  for (const [id, key] of [["dynExpDb", "dyn_exp_db"], ["dynExpSens", "dyn_exp_sens"]]) {
+  for (const [id, key] of [["dynExpDb", "dyn_exp_db"], ["dynExpSens", "dyn_exp_sens"], ["dynExpHold", "dyn_exp_hold_ms"]]) {
     $(id).disabled = !expOn || expAuto;  // AUTO: the manual values are not used
     if (st[key] != null && document.activeElement !== $(id)) $(id).value = st[key];
   }
   const ei = st.dyn_exp_info;
   $("dynExpInfo").textContent = !expOn ? "EXP off" : !ei ? "" : `${ei.auto ? "AUTO" : "manual"} · sens ${ei.sens} · depth ${Math.round(ei.depth_db)} dB · hold ${ei.hold_ms} ms`
-    + (ei.auto ? ` · SNR ${ei.snr_db == null ? "…" : Math.round(ei.snr_db) + " dB"}` : "");
+    + ` · SNR ${ei.snr_db == null ? "…" : Math.round(ei.snr_db) + " dB"}`;
   $("agcSmooth").checked = st.agc_smooth !== false;
   const afiMode = st.mode !== "WFM" && st.mode !== "DSD";
   const atuMode = ATU_MODES.includes(st.mode);
@@ -2450,7 +2453,7 @@ $("dynKey").addEventListener("click", () => {
   renderRds();
   send({ dyn: st.dyn });
 });
-for (const [id, key, lo, hi, def] of [["dynExpDb", "dyn_exp_db", 3, 30, 12], ["dynExpSens", "dyn_exp_sens", 1, 10, 5]]) {
+for (const [id, key, lo, hi, def] of [["dynExpDb", "dyn_exp_db", 3, 30, 12], ["dynExpSens", "dyn_exp_sens", 1, 10, 5], ["dynExpHold", "dyn_exp_hold_ms", 20, 1000, 100]]) {
   $(id).addEventListener("change", () => {
     const v = Math.min(hi, Math.max(lo, Math.round(Number($(id).value)) || def));
     $(id).value = v;
@@ -10356,9 +10359,9 @@ const VFO_ANNS = [
   ["nf", "NF", "NF: automatic notch filter (AM/LSB/USB)"],
   ["sp", "SP", "SP: spur removal"],
   ["alc", "ALC", "ALC: automatic audio level (AM/LSB/USB/CW)"],
-  ["afi", "AFI", "AFI: audio frequency inversion"],
+  ["dnr", "DNR", "DNR: Dynamic Noise Reduction (AM/LSB/USB/CW)"],
   ["asq", "ASQ", "ASQ: auto squelch (AM/FM/WFM)"],
-  ["atu", "ATU", "ATU: autotune (USB/LSB/AM)"],
+  ["afi", "AFI", "AFI: audio frequency inversion"],
   ["sat", SAT_ANN_ICON, "SAT: frequency corrected for Doppler by satellite tracking"],
 ];
 const vfoAnnsHtml = (mode = "") => `<div class="vfo-anns"><span class="ann vfo-mode">${mode}</span>` +
@@ -10377,7 +10380,7 @@ function renderVfoAnns(row, s) {
   a("alc").classList.toggle("on", ["AM", "LSB", "USB", "CW"].includes(s.mode) && s.audio_agc !== false);
   a("afi").classList.toggle("on", s.mode !== "WFM" && s.mode !== "DSD" && !!s.afi);
   a("asq").classList.toggle("on", ["AM", "FM", "WFM"].includes(s.mode) && !!s.auto_sql_on);
-  a("atu").classList.toggle("on", ATU_MODES.includes(s.mode) && !!s.autotune);
+  a("dnr").classList.toggle("on", ["AM", "LSB", "USB", "CW"].includes(s.mode) && !!s.dyn);
   a("sat").classList.toggle("on", !!s.trsp_name);
 }
 // Info row under the frequency (was the flags beside the S-meter): RX/TX, filter width, audio HPF and LPF with their
@@ -10388,9 +10391,11 @@ const PASS_ICON = {
 };
 // Tone squelch row under the frequency: the set CTCSS tone and DCS code, dark (as an unlit annunciator) = off, orange = on (FM), glowing = received.
 const vfoToneHtml = () => `<div class="vfo-tone"><span class="ann tsq ctcss">CTCSS<b></b></span>` +
-  `<span class="ann tsq dcs">DCS<b></b></span></div>`;
+  `<span class="ann tsq dcs">DCS<b></b></span>` +
+  `<span class="ann atu" title="ATU: autotune (USB/LSB/AM)">ATU</span></div>`;
 function renderVfoTone(row, s) {
   const fm = s.mode === "FM";
+  row.querySelector(".vfo-tone .atu")?.classList.toggle("on", ATU_MODES.includes(s.mode) && !!s.autotune);
   for (const [c, on, val, name] of [["ctcss", s.ctcss, ctcssText(ctcssHz(s)), "TSQ-C: CTCSS tone squelch"],
     ["dcs", s.dcs, dcsCode(s), "TSQ-D: DCS code squelch"]]) {
     const el = row.querySelector(`.vfo-tone .${c}`);
@@ -11164,10 +11169,10 @@ let scanRowsKey = "";
 let scanRowsHover = false;    // the mouse is over the CHANNELS table: no rebuild (the rows stay under the pointer)
 // HEARD in the State column: a speaker (what is heard now), not ▶ (that looks like a play key)
 const SCAN_SPK = `<svg class="scan-spk" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a7.5 7.5 0 0 1 0 11"/></svg>`;         // the rows are rebuilt only when the memories / channels change (inputs keep focus)
-let scanPolling = false;
+let scanPolling = null;       // the VFO whose /api/scan is being read (a poll of another VFO does not block)
 let scanPage = "scan";
 let scanLogRows = [];
-let scanSession = "";         // session of THIS SCAN
+let scanSession = null;       // session of THIS SCAN of the active VFO (null = not read yet)
 const SCAN_RANGE_SRC = ["range", "view", "fmbc"];
 const SCAN_MODES = ["AM", "FM"];           // a squelch scan needs AM or FM (WFM: the FM BCAST tile)
 const SCAN_FM = { from_hz: 88e6, to_hz: 108e6, step_hz: 50000 };   // FM BCAST (scanner.py FMBC_*)
@@ -11323,6 +11328,12 @@ async function scanPaneOpened() {
   else await loadMemGroups();
   scanData = null;
   scanRowsKey = "";
+  // another VFO (or the pane opened again): nothing of the previous one stays; THIS SCAN = the session of this VFO
+  scanSession = null;
+  scanLogRows = [];
+  renderScanLog();
+  $("scanHeatRows").innerHTML = "";
+  $("scanHeatHead").innerHTML = "";
   await scanPoll();
   if (scanData) {
     scanPresets = scanData.presets || [];
@@ -11344,6 +11355,7 @@ function setScanPage(page, save = true) {
   for (const b of $("scanPages").querySelectorAll("button[data-scan-page]")) b.classList.toggle("on", b.dataset.scanPage === page);
   for (const el of $("scanPane").querySelectorAll("[data-scan-panel]")) el.hidden = el.dataset.scanPanel !== page;
   $("scanShowBox").hidden = page === "scan";
+  if (page !== "scan") $("scanSelBox").hidden = true;
   scanHistoryReload();
   renderScanRows();
 }
@@ -11353,15 +11365,18 @@ $("scanPages").addEventListener("click", (e) => {
 });
 
 async function scanPoll() {
-  if (scanPolling) return;
-  scanPolling = true;
+  const v = active;
+  if (scanPolling === v) return;
+  scanPolling = v;
+  let r;
   try {
-    const r = await memApi("/api/scan", undefined, "GET");
-    scanData = r.ok ? r.data : null;
-    if (!r.ok) $("scanInfo").textContent = `Scan: ${r.error}`;
+    r = await memApi("/api/scan", undefined, "GET");
   } finally {
-    scanPolling = false;
+    if (scanPolling === v) scanPolling = null;
   }
+  if (v !== active) return;   // the answer of the VFO switched away from
+  scanData = r.ok ? r.data : null;
+  if (!r.ok) $("scanInfo").textContent = `Scan: ${r.error}`;
   if (scanData && scanData.session_id !== scanSession) {   // another source / range started, or CLR (any page of this VFO)
     scanSession = scanData.session_id;
     scanHistoryReload();
@@ -11380,6 +11395,7 @@ function renderScanRows() {
   const key = scanTile() + "|" + (range ? list.map((c) => c.id).join(",")
     : list.map((m) => [m.id, m.name, m.freq_hz, m.mode, m.bw, m.scan, m.scan_sq, m.scan_asq, m.scan_prio].join(",")).join(";"));
   const body = $("scanRows");
+  $("scanSelBox").hidden = range || !list.length;
   body.parentElement.classList.toggle("grid", range);   // a band / range: no memory columns (SCAN, Name, BW, SQ, ASQ, PRIO)
   // while the mouse is over the table the rows are not rebuilt (a new channel heard would move the row under the
   // pointer and the ✕ aimed at would be missed); only the live cells change, the rebuild comes when it leaves
@@ -11546,6 +11562,19 @@ $("scanRows").addEventListener("change", async (e) => {
   await memChanged(mems.map((x) => (x.id === r.data.id ? r.data : x)));
   renderScanRows();
 });
+// ☑ ALL / ☐ NONE: SCAN on / off for every memory of the source chosen (only those that change are sent)
+async function scanSelectAll(on) {
+  const ids = scanMems().filter((m) => (m.scan !== false) !== on).map((m) => m.id);
+  if (!ids.length) return;
+  const r = await memApi("/api/memories/bulk", { ids, changes: { scan: on } });
+  if (!r.ok) { adError(`SCAN: ${r.error}`); return; }
+  await memChanged();
+  scanRowsKey = "";
+  scanTilesShown();
+  renderScanRows();
+}
+$("scanSelAll").addEventListener("click", () => scanSelectAll(true));
+$("scanSelNone").addEventListener("click", () => scanSelectAll(false));
 // ✕ of a row: lock the channel out until STOP / back in. On pointerdown: a click (down + up) is lost when the row
 // changes between the two while scanning.
 $("scanRows").addEventListener("pointerdown", (e) => {
@@ -11560,6 +11589,29 @@ $("scanRows").addEventListener("pointerdown", (e) => {
 $("scanRows").addEventListener("pointerenter", () => { scanRowsHover = true; });
 $("scanRows").addEventListener("pointerleave", () => { scanRowsHover = false; renderScanRows(); });
 setInterval(() => { if (bodyTab === "scan" && !document.hidden) scanPoll(); }, 500);
+// the tab scrolls, the key bar stays on top: the page (CHANNELS / ACTIVITY / HEATMAP) is as high as what is left
+// under the bar, the ⚙ options and the page keys, so once the tiles are scrolled away it fills the tab
+function scanFit() {
+  const p = $("scanPane");
+  if (p.hidden) return;
+  const gap = parseFloat(getComputedStyle(p).rowGap) || 0, cfg = $("scanCfg");
+  const h = p.clientHeight - parseFloat(getComputedStyle(p).paddingBottom) - ($("scanBar").offsetHeight - 12)
+    - $("scanPages").offsetHeight - 2 * gap - (cfg.hidden ? 0 : cfg.offsetHeight + gap);
+  p.style.setProperty("--scan-fill", `${Math.max(160, Math.floor(h))}px`);
+}
+{
+  const ro = new ResizeObserver(scanFit);
+  for (const id of ["scanPane", "scanBar", "scanCfg", "scanPages"]) ro.observe($(id));
+}
+// wheel down over the page: first the tiles scroll away, then the rows (up: the rows first, then the tiles come back)
+$("scanPane").addEventListener("wheel", (e) => {
+  const p = $("scanPane");
+  if (e.deltaY <= 0 || e.shiftKey || !e.target.closest("[data-scan-panel]")) return;
+  const room = p.scrollHeight - p.clientHeight - p.scrollTop;
+  if (room < 1) return;
+  e.preventDefault();
+  p.scrollTop += Math.min(room, e.deltaMode === 1 ? e.deltaY * 40 : e.deltaY);
+}, { passive: false });
 
 // ACTIVITY and HEATMAP: THIS SCAN (session of this VFO) or the history of all VFOs
 function scanShowQuery() {
@@ -11603,7 +11655,10 @@ function scanLogMem(r) {
 }
 async function loadScanLog() {
   if (!mems.length) await loadMems();
+  if (scanSession === null && $("scanShow").value === "session") return;   // session of this VFO not known yet (scanPoll reloads)
+  const v = active;
   const r = await memApi(`/api/scan/log?${scanShowQuery()}`, undefined, "GET");
+  if (v !== active) return;
   scanLogRows = r.ok ? r.data.rows.map(scanLogMem) : [];
   if (!r.ok) adError(`SCAN activity: ${r.error}`);
   renderScanLog();
@@ -11647,18 +11702,54 @@ $("scanLogCsv").addEventListener("click", () => {
 });
 setInterval(() => { if (bodyTab === "scan" && !document.hidden) scanHistoryReload(); }, 5000);
 
+// THIS SCAN = a timeline: one column per hour from the start of the scan (the server bins by hour, start_ts), a row
+// of days above the hours, scrolled sideways (Frequency / Name / Total stay in place), the newest hour in view.
+// Older history = the hours of the day 0–23 summed over the days.
+const HEAT_DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 async function loadScanHeat() {
+  if (scanSession === null && $("scanShow").value === "session") return;   // session of this VFO not known yet (scanPoll reloads)
+  const v = active;
   const r = await memApi(`/api/scan/heatmap?${scanShowQuery()}`, undefined, "GET");
-  const rows = r.ok ? r.data.rows : [];
+  if (v !== active) return;
+  const rows = (r.ok ? r.data.rows : []).sort((a, b) => b.total - a.total);   // the busiest frequency first
   if (!r.ok) adError(`SCAN heatmap: ${r.error}`);
+  const tl = !!(r.ok && r.data.timeline);
+  const n = rows.length ? rows[0].hours.length : 24;
+  const cols = Array.from({ length: n }, (_, i) => (tl ? new Date((r.data.start_ts + i * 3600) * 1000) : null));
+  const hourOf = (i) => (tl ? cols[i].getHours() : i);
   const max = Math.max(1, ...rows.flatMap((x) => x.hours));
-  $("scanHeatHead").innerHTML = `<tr><th>Frequency</th><th>Name</th><th>Total</th>${Array.from({ length: 24 }, (_, h) => `<th class="hh">${h}</th>`).join("")}</tr>`;
+  const box = $("scanHeatTable").parentElement;
+  const atEnd = box.scrollLeft + box.clientWidth >= box.scrollWidth - 4;   // follow the newest hour unless scrolled back
+  $("scanHeatNote").textContent = tl
+    ? "Seconds of activity in each hour since the start of this scan (local time), the 60 busiest frequencies; yellow = most. Scroll sideways for older hours. A click on a row tunes it."
+    : "Seconds of activity per hour of the day (local time), summed over the days, the 60 busiest frequencies; yellow = most. A click on a row tunes it.";
+  $("scanHeatCols").innerHTML = `<col class="cf"><col class="cn"><col class="ct">${"<col>".repeat(n)}`;
+  $("scanHeatTable").style.minWidth = `${400 + n * 22}px`;
+  let days = "";
+  if (tl) {
+    for (let i = 0; i < n;) {
+      let k = i + 1;
+      while (k < n && cols[k].getDate() === cols[i].getDate()) k++;
+      const d = cols[i];
+      days += `<th class="hd" colspan="${k - i}" title="${d.toLocaleDateString()}">${k - i >= 3 ? `${HEAT_DAYS[d.getDay()]} ${d.getDate()}.${d.getMonth() + 1}.` : ""}</th>`;
+      i = k;
+    }
+  }
+  const span = tl ? ' rowspan="2"' : "";
+  $("scanHeatHead").innerHTML = `<tr><th class="sl sl1"${span}>Frequency</th><th class="sl sl2"${span}>Name</th><th class="sl sl3"${span}>Total</th>${
+    tl ? `${days}</tr><tr class="hh-row">` : ""}${cols.map((_, i) => `<th class="hh${tl && i && !hourOf(i) ? " d0" : ""}">${hourOf(i)}</th>`).join("")}</tr>`;
   $("scanHeatRows").innerHTML = rows.map((x) => `<tr data-hz="${x.freq_hz}" data-mode="${escHtml(x.mode)}">
-    <td class="num">${fmtMemFreq(x.freq_hz)}</td><td class="scan-name" title="${escHtml(x.name || "")}">${escHtml(x.name || "")}</td><td class="num">${x.total >= 60 ? (x.total / 60).toFixed(1) + " min" : x.total.toFixed(0) + " s"}</td>
-    ${x.hours.map((s, h) => {
+    <td class="num sl sl1">${fmtMemFreq(x.freq_hz)}</td><td class="scan-name sl sl2" title="${escHtml(x.name || "")}">${escHtml(x.name || "")}</td><td class="num sl sl3">${x.total >= 60 ? (x.total / 60).toFixed(1) + " min" : x.total.toFixed(0) + " s"}</td>
+    ${x.hours.map((s, i) => {
+      const h = hourOf(i);
       const k = s ? Math.log1p(s) / Math.log1p(max) : 0;   // log scale: a few seconds still show
-      return `<td class="hc" style="background:${s ? `hsla(${48 - 48 * (1 - k)}, 100%, ${18 + 40 * k}%, ${0.35 + 0.65 * k})` : "transparent"}" title="${h}:00–${h}:59 · ${s.toFixed(0)} s"></td>`;
+      const when = tl ? `${cols[i].toLocaleDateString()} ${h}:00–${h}:59` : `${h}:00–${h}:59`;
+      return `<td class="hc${tl && i && !h ? " d0" : ""}" style="background:${s ? `hsla(${48 - 48 * (1 - k)}, 100%, ${18 + 40 * k}%, ${0.35 + 0.65 * k})` : "transparent"}" title="${when} · ${s.toFixed(0)} s"></td>`;
     }).join("")}</tr>`).join("");
+  // the hour row sticks right under the row of days
+  const top = tl ? $("scanHeatHead").rows[0].querySelector(".hd")?.offsetHeight || 0 : 0;
+  for (const th of $("scanHeatHead").querySelectorAll(".hh")) th.style.top = `${top}px`;
+  if (atEnd) box.scrollLeft = box.scrollWidth;
   $("scanHeatHead").hidden = !rows.length;
   $("scanHeatEmpty").hidden = rows.length > 0;
   $("scanHeatEmpty").textContent = scanEmptyText();
@@ -11667,6 +11758,12 @@ $("scanHeatRows").addEventListener("click", (e) => {
   const tr = e.target.closest("tr");
   if (tr) send({ tune_hz: +tr.dataset.hz, mode: tr.dataset.mode });
 });
+
+// ACTIVITY: the column heads stick right under the sticky filter + player bar (its height changes when it wraps)
+new ResizeObserver(([e]) => {
+  const head = e.target;
+  head.closest(".recs-body")?.style.setProperty("--slh", `${head.offsetHeight}px`);
+}).observe(document.querySelector(".scan-log-head"));
 
 // ---------- stereo level meter next to the sliders ----------
 // LEDs from the bottom up: 10 green up to 0 dB, then yellow (+3 dB) and red (+6 dB = 0 dBFS, clipping).

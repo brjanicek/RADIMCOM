@@ -23,7 +23,7 @@
   also with strong signals outside the channel; presets CAREFUL / MODERATE (default) / BOLD trade clipping for a few dB more gain. With the squelch set, AGC+ switches it to auto squelch. See [Function keys → GAIN](controls.md#function-keys).
 - **ATU (autotune), experimental,** in USB, LSB and AM: a click on a signal moves the tuning onto its carrier (AM within a few Hz in under 1 s);
   in SSB the edge of the voice band goes onto the red line (USB lower edge, LSB upper edge, ~2 s). See [Function keys → TUNE](controls.md#function-keys).
-- **Audio processing:** automatic notch filter (NF), audio low-pass and high-pass filters (LPF / HPF), automatic audio level (ALC) with smooth gain, and **DYN** – weak HF voices out of the noise: an expander with a voice detector turns the noise between words down while the speech stays at full level (AUTO sets it by itself), plus a soft limiter.
+- **Audio processing:** automatic notch filter (NF), audio low-pass and high-pass filters (LPF / HPF), automatic audio level (ALC) with smooth gain, and **DNR** – weak HF voices out of the noise: an expander with a voice detector turns the noise between words down while the speech stays at full level (AUTO sets it by itself), plus a soft limiter.
 - **AFI (audio frequency inversion):** voice inversion scrambler / descrambler, inversion frequency 500–4000 Hz; REC and the decoders get the descrambled audio.
   See [Function keys → AUDIO](controls.md#function-keys).
 - **Remove DC peak** and **remove spurs** from local sources, in the waterfall and in the received signal.
