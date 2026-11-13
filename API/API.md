@@ -188,7 +188,7 @@ On connect a `status` event with the full state, then:
 | `vdl2state` | VDL2 decoder state |
 | `dabstate` | DAB state (channel, welle-cli connected, dongle on channel, error) |
 | `adsb`, `adsbstate` | ADS-B: changed aircraft and new messages once a second; decoder state (see `/api/adsb`) |
-| `ism`, `ismstate` | ISM device message (the same `id` again = the repeat count `n` of a message grew); decoder state (`enabled`, `error`, `count`, `dropped`, `running`, `raw`, `raw_count`, `channels` = centres of the 256 kS/s rtl_433 channels); a RAW row has `raw: true`, `view` (triq.org link) and `flex` |
+| `ism`, `ismstate` | ISM device message (the same `id` again = the repeat count `n` of a message grew); decoder state (`enabled`, `error`, `count`, `dropped`, `running`, `raw`, `raw_count`, `channels` = centres of the rtl_433 channels, `channel_rates` = their sample rates); a RAW row has `raw: true`, `view` (triq.org link) and `flex` |
 
 A comment line `: ping` is sent every 15 s when nothing else happens.
 

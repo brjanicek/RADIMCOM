@@ -42,23 +42,26 @@ ISM_RATE = 2048000
 # middle of the 433.05-434.79 MHz band; middle of the 868.0-868.6 MHz sub-band
 ISM_FREQS = (433920000, 868300000)
 ISM_DEFAULT = ISM_FREQS[0]
-CH_RATE = 256000              # sample rate of a channel for rtl_433
-CH_TAPS = 129                 # low-pass of a channel: (taps - 1) must be a multiple of the decimation (8 at 2.048 MS/s)
-CH_CUTOFF_HZ = 115000         # its -6 dB point
+CH_RATE = 256000              # sample rate of a channel for rtl_433 (default)
+CH_TAPS_PER_DOWN = 16         # low-pass of a channel: 16 taps per decimation step + 1 (129 taps for 8), at least 65
+CH_CUTOFF = 0.45              # its -6 dB point, as a part of the channel's sample rate (115 kHz at 256 kS/s)
 CH_GAIN = 1.0                 # the channel back to u8 bytes, same scale as the dongle (measured: clipping stays ~0.002 %)
-# channels around each preset, as offsets from the centre of the dongle
-CHANNELS = {433920000: (0, -500000), 868300000: (0,)}
+# channels around each preset: (offset from the centre of the dongle, sample rate, rtl_433 -Y autolevel)
+# 433: OOK; autolevel lost messages there. 868: FSK; autolevel found the weaker devices.
+CHANNELS = {433920000: ((0, CH_RATE, False), (-500000, CH_RATE, False)),
+            868300000: ((0, CH_RATE, True), (650000, CH_RATE, True))}   # 868.30 sensors, 868.95 wM-Bus meters
 RAW_MIN_PULSES = 20           # smaller undecoded packages are noise
 RAW_MERGE_S = 10.0            # RAW packages of one kind near one frequency within this time = one row with a count
 RAW_MERGE_HZ = 15000
+RAW_SAME_HZ = 10000           # a RAW package this close to a decoded one at the same time is that one
 RAW_WAIT_S = 1.5              # a RAW row waits this long for a decoded message of the same package (they come on stdout)
 RESTART_HZ = 5000000          # a bigger retune restarts rtl_433 (its FSK detector depends on the frequency)
 RESTART_WAIT_S = 2.0          # at least this long between two starts, if rtl_433 keeps ending
-REPEAT_S = 2.0                # a device repeats its message: same text within this time = one row with a count
-REPEAT_ROWS = 50              # how many recent rows a repeat is looked for in
+REPEAT_S = 60.0               # the same message of a device within this time of its last one = one row with a count
+METER_MERGE_S = 3600.0        # Wireless M-Bus meters (hundreds around a block of flats): one row per meter for an hour
 SAME_PACKET_S = 0.5           # two decoders reporting one packet (same level and frequency) come this close together
 TCP_QUEUE = 64                # raw blocks waiting for rtl_433; more = it is stuck, drop
-MAX_HISTORY = 300
+MAX_HISTORY = 500
 
 # fields with their own column, or not worth showing
 _COLUMNS = {"time", "model", "id", "channel", "mod", "freq", "freq1", "freq2", "rssi", "snr", "noise", "protocol", "mic"}
@@ -94,26 +97,36 @@ def _field(name, value):
     return f"{_clean(value)}{unit}" if unit else f"{_clean(name)}={_clean(value)}"
 
 
+# Wireless M-Bus meters (868.95 MHz): mostly encrypted, the raw fields would only make long rows
+_MBUS_KEEP = ("mode", "M", "type_string", "type", "version")
+
+
 def message_text(j):
     """All fields of a device message that have no column of their own, readable."""
+    if str(j.get("model", "")).startswith("Wireless-MBus"):
+        parts = [_field(k, j[k]) if k != "type_string" else _clean(j[k]) for k in _MBUS_KEEP if j.get(k) not in (None, "")]
+        if j.get("payload_encrypted"):
+            parts.append("encrypted")
+        return " · ".join(parts)
     return " · ".join(_field(k, v) for k, v in j.items() if k not in _COLUMNS)
 
 
 class Channel:
     """One rtl_433 with its rtl_tcp server, fed by a narrow channel cut from the dongle samples (or by all of them)."""
 
-    def __init__(self, dec, fs, center_hz, offset_hz, raw):
+    def __init__(self, dec, fs, center_hz, offset_hz, raw, rate=CH_RATE, autolevel=False):
         self.dec = dec
         self.offset = offset_hz
         self.fs_in = fs
-        self.down = fs // CH_RATE if fs % CH_RATE == 0 and fs > CH_RATE else 1
+        self.autolevel = autolevel
+        self.down = fs // rate if fs % rate == 0 and fs > rate else 1
         self.fs = fs // self.down
         self.start_hz = center_hz + offset_hz          # what rtl_433 is told
         self.raw = raw
         self.proc = self.srv = self.conn = None
         self.q = queue.Queue(maxsize=TCP_QUEUE)
         self.log = collections.deque(maxlen=10)       # last lines rtl_433 printed (for errors)
-        self.decoded = collections.deque(maxlen=50)   # (time, rssi, snr) of decoded packages, to tell RAW ones apart
+        self.decoded = collections.deque(maxlen=50)   # (time, rssi, snr, MHz) of decoded packages, to tell RAW ones apart
         self.pending = []                             # RAW candidates waiting RAW_WAIT_S
         self.plock = threading.Lock()
         self.attempts = 0                             # analyzer blocks with a demodulation attempt (stderr)
@@ -121,8 +134,9 @@ class Channel:
         self.codes = {}
         if self.down > 1:
             from scipy.signal import firwin
-            n = CH_TAPS + (-(CH_TAPS - 1)) % self.down   # (taps - 1) a multiple of the decimation
-            self.h = firwin(n, CH_CUTOFF_HZ, fs=fs, window=("kaiser", 7.0)).astype(np.float32)
+            n = max(CH_TAPS_PER_DOWN * self.down + 1, 65)
+            n += (-(n - 1)) % self.down                  # (taps - 1) a multiple of the decimation
+            self.h = firwin(n, CH_CUTOFF * self.fs, fs=fs, window=("kaiser", 7.0)).astype(np.float32)
             self.tail = np.zeros(n - 1, np.complex64)
             self.phase = 0.0
             self.lut = None
@@ -163,6 +177,8 @@ class Channel:
     def command(self, port):
         cmd = [EXE, "-c", "0", "-d", f"rtl_tcp:127.0.0.1:{port}", "-f", str(int(self.start_hz)), "-s", str(self.fs),
                "-F", "json", "-F", "log", "-C", "si", "-M", "time:off", "-M", "level", "-M", "protocol"]
+        if self.autolevel:
+            cmd += ["-Y", "autolevel"]
         return cmd + ["-A"] if self.raw else cmd
 
     def start(self):
@@ -251,7 +267,8 @@ class Channel:
             try:
                 j = json.loads(line)
                 if isinstance(j, dict) and j.get("model"):
-                    self.decoded.append((time.time(), j.get("rssi"), j.get("snr")))
+                    mhz = j.get("freq") if j.get("freq") is not None else j.get("freq1")
+                    self.decoded.append((time.time(), j.get("rssi"), j.get("snr"), mhz))
                     self.dec._handle(j, self)
             except (ValueError, TypeError):
                 continue                     # one odd line must not stop the decoder
@@ -308,12 +325,16 @@ class Channel:
                 self.dec._handle_raw(b, self)
 
     def _was_decoded(self, t, b):
-        if "level" not in b:
-            return False
-        rssi, snr = float(b["level"][0]), float(b["level"][1])
-        for td, r, s in list(self.decoded):
-            if abs(td - t) < RAW_WAIT_S + 1 and r is not None and s is not None \
+        """Same level (OOK), or the same frequency at the same time (FSK: the analyzer measures the level otherwise)."""
+        rssi, snr = (float(b["level"][0]), float(b["level"][1])) if "level" in b else (None, None)
+        hz = self.start_hz + float(b["foff"][0]) * 1e3 if "foff" in b else None
+        for td, r, s, mhz in list(self.decoded):
+            if abs(td - t) >= RAW_WAIT_S + 1:
+                continue
+            if rssi is not None and r is not None and s is not None \
                     and abs(float(r) - rssi) < 0.06 and abs(float(s) - snr) < 0.06:
+                return True
+            if hz is not None and isinstance(mhz, (int, float)) and abs(mhz * 1e6 - hz) <= RAW_SAME_HZ:
                 return True
         return False
 
@@ -333,6 +354,7 @@ class IsmDecoder:
         self.start_hz = 0.0           # where it was when the channels started
         self.next_id = 1
         self.history = collections.deque(maxlen=MAX_HISTORY)
+        self.aliases = {}             # model -> all models rtl_433 reported for the same packets
         self.lock = threading.Lock()
         self.chans = []
         self.not_before = 0.0
@@ -363,7 +385,8 @@ class IsmDecoder:
         return {"enabled": self.enabled, "error": self.error, "count": self.count, "dropped": self.dropped,
                 "raw": self.raw, "raw_count": self.raw_count,
                 "running": bool(self.chans) and all(c.conn is not None for c in self.chans),
-                "channels": [round(c.start_hz) for c in self.chans]}
+                "channels": [round(c.start_hz + self.center_hz - self.start_hz) for c in self.chans],
+                "channel_rates": [c.fs for c in self.chans]}
 
     def messages(self):
         with self.lock:
@@ -395,11 +418,12 @@ class IsmDecoder:
     # ---------- rtl_433 processes ----------
 
     def _offsets(self, fs, center_hz):
-        if fs % CH_RATE or fs <= CH_RATE:
-            return (0,)                      # cannot be cut into channels: rtl_433 gets the whole band, as before
+        """Channels (offset, rate, autolevel) for this dongle centre and rate."""
+        whole = ((0, fs, False),)             # cannot be cut into channels: rtl_433 gets the whole band, as before
         near = min(CHANNELS, key=lambda f: abs(f - center_hz))
-        offs = CHANNELS[near] if abs(near - center_hz) < 1e6 else (0,)
-        return tuple(o for o in offs if abs(o) + CH_RATE / 2 <= fs / 2) or (0,)
+        specs = CHANNELS[near] if abs(near - center_hz) < 1e6 else ((0, CH_RATE, False),)
+        specs = tuple(c for c in specs if fs % c[1] == 0 and fs > c[1] and abs(c[0]) + c[1] / 2 <= fs / 2)
+        return specs or whole
 
     def _start(self, fs, center_hz):
         self._stop()
@@ -410,8 +434,8 @@ class IsmDecoder:
             return
         chans = []
         try:
-            for off in self._offsets(fs, center_hz):
-                c = Channel(self, fs, center_hz, off, self.raw)
+            for off, rate, autolevel in self._offsets(fs, center_hz):
+                c = Channel(self, fs, center_hz, off, self.raw, rate, autolevel)
                 chans.append(c)
                 c.start()
         except (OSError, ImportError, ValueError) as e:
@@ -450,28 +474,42 @@ class IsmDecoder:
         channel = "" if j.get("channel") is None else _clean(j["channel"])
         text = message_text(j)
         pkt = [mhz, j.get("rssi"), j.get("snr")]     # equal for every decoder that read the same packet
+        meter = model.startswith("Wireless-MBus")
+        window = METER_MERGE_S if meter else REPEAT_S
+        names = self.aliases.get(model, {model})
         with self.lock:
             m = None
-            for row in list(self.history)[-REPEAT_ROWS:][::-1]:
-                if now - row["last"] > REPEAT_S:
-                    continue                          # rows are in order of their first message, not of their last
-                if now - row["last"] < SAME_PACKET_S and pkt == row["pkt"] and j.get("rssi") is not None:
+            for row in reversed(self.history):        # the latest activity last
+                if now - row["last"] > max(window, SAME_PACKET_S):
+                    continue
+                if now - row["last"] < SAME_PACKET_S and pkt == row["pkt"] and None not in pkt and not meter \
+                        and row.get("chan") == ch.start_hz and row["dev_id"] == dev_id \
+                        and not any(x.startswith("Wireless-MBus") for x in row["models"]):
                     if model in row["models"]:
                         m = dict(row, again=True)         # the same packet again: nothing new
                     else:
                         row["models"].append(model)       # another decoder of rtl_433 read the same packet: one row
                         row["model"] = " / ".join(row["models"])
+                        group = set(row["models"]).union(*(self.aliases.get(x, ()) for x in row["models"]))
+                        for x in group:
+                            self.aliases[x] = group           # later packets of either name join the same row
                         m = dict(row, again=True)
                     break
-                if model in row["models"] and (row["dev_id"], row["channel"], row["text"]) == (dev_id, channel, text):
+                if names.intersection(row["models"]) and (row["dev_id"], row["channel"]) == (dev_id, channel) \
+                        and (meter or row["text"] == text):
                     row["n"] += 1                         # the device repeats its message (maybe with another in between)
                     row["last"] = now
                     row["pkt"] = pkt
+                    row["rssi"], row["snr"] = j.get("rssi"), j.get("snr")
+                    if meter:                             # a meter: one row per meter, its latest message
+                        row["text"], row["freq_hz"] = text, freq_hz
+                    self.history.remove(row)              # the newest activity last (the page moves it to the top)
+                    self.history.append(row)
                     m = dict(row)
                     break
             if m is None:
                 m = {"id": self.next_id, "time": round(now, 1), "last": now, "n": 1, "freq_hz": freq_hz, "model": model,
-                     "models": [model], "pkt": pkt,
+                     "models": [model], "pkt": pkt, "chan": ch.start_hz,
                      "dev_id": dev_id, "channel": channel, "text": text, "mod": _clean(j.get("mod", "")),
                      "rssi": j.get("rssi"), "snr": j.get("snr"), "protocol": j.get("protocol"), "mic": _clean(j.get("mic", ""))}
                 self.next_id += 1
@@ -499,11 +537,13 @@ class IsmDecoder:
         with self.lock:
             self.raw_count += 1
             m = None
-            for row in list(self.history)[-REPEAT_ROWS:][::-1]:
+            for row in reversed(self.history):
                 if row.get("raw") and now - row["last"] < RAW_MERGE_S and row["guess"] == guess \
                         and abs(row["freq_hz"] - freq_hz) <= RAW_MERGE_HZ:
                     row["n"] += 1            # an unknown transmitter (or interference) that keeps sending: one row
                     row["last"] = now
+                    self.history.remove(row)
+                    self.history.append(row)
                     if codes or not row["has_codes"]:     # show the latest package, but keep one with bits
                         row.update(text=" · ".join(parts), has_codes=bool(codes), rssi=rssi, snr=snr,
                                    view=view or row["view"], flex=flex or row["flex"])

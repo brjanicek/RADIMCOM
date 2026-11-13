@@ -6261,20 +6261,21 @@ $("cwTune").addEventListener("click", () => {
 
 // ---------- ISM: 433 / 868 MHz devices (rtl_433; the VFO feeds it through rtl_tcp) ----------
 
-const ISM_MAX_ROWS = 300;
+const ISM_MAX_ROWS = 500;
 const ISM_TITLE = $("ismKey").title;   // tooltip from index.html (replaced on a device without ISM and a chained VFO)
 let ismLast = {};   // the status sends only on/off and the error; the counts come from ismstate
 
 function ismRow(tr, m) {
   tr.classList.toggle("raw", !!m.raw);
   const level = m.rssi == null ? "-" : `${Number(m.rssi).toFixed(1)} / ${Number(m.snr).toFixed(1)} dB`;
-  tr.innerHTML = `<td>${new Date(m.time * 1000).toISOString().slice(11, 19)}</td><td>${fmtMHz(m.freq_hz, 3)}</td>` +
+  const utc = (t) => new Date(t * 1000).toISOString().slice(11, 19);
+  tr.innerHTML = `<td title="${m.n > 1 ? `first ${utc(m.time)} UTC, last ${utc(m.last || m.time)} UTC` : ""}">${utc(m.last || m.time)}</td><td>${fmtMHz(m.freq_hz, 3)}</td>` +
     `<td class="dev" title="${escHtml(m.model)}${m.protocol ? ` · rtl_433 protocol ${escHtml(m.protocol)}` : ""}${(m.models || []).length > 1 ? " · the same packet read by more decoders of rtl_433" : ""}">${escHtml(m.model)}</td>` +
     `<td class="id" title="${escHtml(m.dev_id)}">${escHtml(m.dev_id || "-")}</td><td>${escHtml(m.channel || "-")}</td>` +
     `<td title="${escHtml(m.mod)}">${level}</td>` +
     `<td class="data" title="${escHtml(m.raw ? `Not decoded${m.flex ? ` · rtl_433 flex decoder: ${m.flex}` : ""}` : m.mic ? `Check: ${m.mic}` : "")}">${escHtml(m.text)}` +
     `${m.view ? `<a class="pdv" href="${escHtml(m.view)}" target="_blank" rel="noopener" title="Show the pulses at triq.org/pdv">⧉</a>` : ""}` +
-    `${m.n > 1 ? `<span class="rep" title="Same message received ${m.n} times">×${m.n}</span>` : ""}</td>`;
+    `${m.n > 1 ? `<span class="rep" title="Same message received ${m.n} times, each within ${m.raw ? "10 s" : "1 min"} of the previous one">×${m.n}</span>` : ""}</td>`;
 }
 
 function addIsm(m) {
@@ -6283,9 +6284,9 @@ function addIsm(m) {
   if (!tr) {
     tr = document.createElement("tr");
     tr.dataset.id = m.id;
-    tb.prepend(tr);
-    while (tb.rows.length > ISM_MAX_ROWS) tb.lastChild.remove();
+    while (tb.rows.length >= ISM_MAX_ROWS) tb.lastChild.remove();
   }
+  if (tb.firstElementChild !== tr) tb.prepend(tr);      // the latest activity on top
   ismRow(tr, m);
   $("ismEmpty").hidden = true;
 }
@@ -6315,7 +6316,7 @@ function renderIsmInfo(d) {
   if (i.error) { el.textContent = `ISM: ${i.error}`; return; }
   el.textContent = !i.enabled ? "" : i.running === false ? "starting rtl_433…"
     : `${i.count || 0} messages${i.raw_count ? ` · ${i.raw_count} raw` : ""}${i.dropped ? ` · ${i.dropped} blocks dropped` : ""}`;
-  if (i.channels && i.channels.length) el.title = `rtl_433 channels (256 kHz): ${i.channels.map((f) => fmtMHz(f, 3)).join(", ")} MHz`;
+  if (i.channels && i.channels.length) el.title = `rtl_433 channels: ${i.channels.map((f, k) => `${fmtMHz(f, 3)} MHz (${Math.round((i.channel_rates || [])[k] / 1000) || "?"} kS/s)`).join(", ")}`;
 }
 
 function renderIsm(s) {
@@ -6398,7 +6399,8 @@ function addHfdl(m) {
   tr.dataset.pos = m.lat != null ? "1" : "";
   tr._msg = m;
   if (!m.crc_ok) tr.classList.add("bad");
-  tr.innerHTML = `<td>${new Date(m.time * 1000).toISOString().slice(11, 19)}</td><td>${fmtKhz0(m.freq_hz)}</td>` +
+  const utc = (t) => new Date(t * 1000).toISOString().slice(11, 19);
+  tr.innerHTML = `<td title="${m.n > 1 ? `first ${utc(m.time)} UTC, last ${utc(m.last || m.time)} UTC` : ""}">${utc(m.last || m.time)}</td><td>${fmtKhz0(m.freq_hz)}</td>` +
     `<td title="${m.noise != null ? `noise ${m.noise.toFixed(0)} dB` : ""}">${sig}${m.bitrate ? `<span class="sub">${m.bitrate} bit/s</span>` : ""}</td>` +
     `<td class="${up ? "up" : "down"}">${up ? "↑" : "↓"}</td>` +
     `<td class="gs" title="${escHtml(m.gs_id != null ? `${up ? "sent by" : "addressed to"} ground station ID ${m.gs_id} (HFDL frame header; name from the system table)` : "")}">${escHtml(m.gs || "-")}</td>` +

@@ -53,9 +53,9 @@ def test_channel_rejects_outside():
 
 def test_offsets():
     d = ism.IsmDecoder(lambda *a: None, lambda *a: None)
-    assert d._offsets(FS, 433920000) == (0, -500000)
-    assert d._offsets(FS, 868300000) == (0,)
-    assert d._offsets(1000000, 433920000) == (0,)        # not a multiple of 256 kS/s: whole band as before
+    assert [c[0] for c in d._offsets(FS, 433920000)] == [0, -500000]
+    assert d._offsets(FS, 868300000)[0][:2] == (0, 256000)
+    assert d._offsets(1000000, 433920000) == ((0, 1000000, False),)   # not a multiple of 256 kS/s: whole band
 
 
 def make():
@@ -85,13 +85,13 @@ def test_repeat_with_another_message_between():
     d._handle(msg("inFactory-TH", -5.0, dev=69), ch)
     d._handle(msg("GT-WT03", -9.0, dev=154), ch)
     d._handle(msg("inFactory-TH", -5.5, dev=69), ch)
-    assert [m["n"] for m in d.history] == [2, 1]
+    assert [(m["model"], m["n"]) for m in d.history] == [("GT-WT03", 1), ("inFactory-TH", 2)]   # latest activity last
 
 
 def test_raw_rows():
     d, ch, ev = make()
     ch.dec = d
-    ch.decoded.append((time.time(), -5.6, 20.0))         # decoded package: no RAW row for it
+    ch.decoded.append((time.time(), -5.6, 20.0, 433.9))         # decoded package: no RAW row for it
     blocks = """Detected OOK package\t2026-11-12 21:05:05
 Total count:   34,  width: 66.12 ms\t\t(16928 S)
 RSSI: -12.1 dB SNR: 7.9 dB Noise: -20.0 dB
@@ -139,10 +139,11 @@ def test_repeat_found_behind_an_older_row(monkeypatch):
     d, ch, _ = make()
     now = [1000.0]
     monkeypatch.setattr(ism.time, "time", lambda: now[0])
-    for t, model, dev, rssi in ((0, "A", 1, -5.0), (0.5, "B", 2, -9.0), (1.0, "A", 1, -5.5), (2.6, "A", 1, -5.7)):
+    for t, model, dev, rssi in ((0, "A", 1, -5.0), (10, "B", 2, -9.0), (50, "A", 1, -5.5), (105, "A", 1, -5.7),
+                                (170, "A", 1, -5.0)):     # the last one more than 60 s after the previous: new row
         now[0] = 1000.0 + t
         d._handle(msg(model, rssi, dev=dev), ch)
-    assert [m["n"] for m in d.history] == [3, 1]
+    assert [(m["model"], m["n"]) for m in d.history] == [("B", 1), ("A", 3), ("A", 1)]
 
 
 def test_raw_repeats_one_row():
@@ -152,3 +153,63 @@ def test_raw_repeats_one_row():
         d._handle_raw(dict(b, foff=(f"+{20 + k}.0",)), ch)
     d._handle_raw(dict(b, guess=("Pulse Width Modulation with sync/delimiter",)), ch)
     assert [m["n"] for m in d.history] == [5, 1] and d.raw_count == 6
+
+
+def test_raw_fsk_decoded_by_frequency():
+    d, ch, _ = make()
+    ch.dec = d
+    ch.decoded.append((time.time(), -3.0, 25.0, 433.9408))   # FSK: the level differs, the frequency is the same
+    b = {"mod": "FSK", "count": ("52", "6.2"), "level": ("-12.1", "15.2"), "foff": ("+20.8",), "guess": ("No clue...",)}
+    assert ch._was_decoded(time.time(), b)
+    assert not ch._was_decoded(time.time(), dict(b, foff=("+60.0",)))
+
+
+def test_channel_rates():
+    c = ism.Channel(Dec(), FS, 868300000, 650000, False, 1024000, True)
+    assert c.down == 2 and c.fs == 1024000 and (c.h.size - 1) % 2 == 0
+    assert "autolevel" in c.command(1234)
+
+
+def test_868_channels_and_mbus_text():
+    d = ism.IsmDecoder(lambda *a: None, lambda *a: None)
+    assert [(o, a) for o, _, a in d._offsets(FS, 868300000)] == [(0, True), (650000, True)]
+    t = ism.message_text({"model": "Wireless-MBus", "mode": "T1", "M": "TCH", "id": 1, "type": 8,
+                          "type_string": "Heat Cost Allocator", "data": "ab" * 40, "payload_encrypted": 1})
+    assert t == "mode=T1 · M=TCH · Heat Cost Allocator · type=8 · encrypted"
+
+
+def test_alias_names_join_one_row(monkeypatch):
+    d, ch, _ = make()
+    now = [1000.0]
+    monkeypatch.setattr(ism.time, "time", lambda: now[0])
+    d._handle(msg("LaCrosse-TX35DTHIT", -5.1), ch)
+    d._handle(msg("LaCrosse-TX29IT", -5.1), ch)          # same packet: names learnt
+    now[0] += 5
+    d._handle(msg("LaCrosse-TX29IT", -6.0), ch)          # only one decoder read this packet
+    now[0] += 5
+    d._handle(msg("LaCrosse-TX35DTHIT", -6.5), ch)
+    assert len(d.history) == 1 and d.history[0]["n"] == 3
+
+
+def test_meter_one_row_per_id(monkeypatch):
+    d, ch, _ = make()
+    now = [1000.0]
+    monkeypatch.setattr(ism.time, "time", lambda: now[0])
+    for k, mode in enumerate(("T", "C", "T")):
+        now[0] += 600
+        d._handle({"model": "Wireless-MBus", "id": 777, "mode": mode, "M": "TCH", "type": 8,
+                   "freq1": 868.92, "rssi": -20.0 - k, "snr": 8.0}, ch)
+    d._handle({"model": "Wireless-MBus", "id": 778, "mode": "T", "freq1": 868.92, "rssi": -30.0, "snr": 5.0}, ch)
+    assert [(m["dev_id"], m["n"]) for m in d.history] == [("777", 3), ("778", 1)]
+    assert d.history[0]["text"].startswith("mode=T")
+
+
+def test_same_packet_needs_same_channel_and_id():
+    d, ch, _ = make()
+    other = ism.Channel(Dec(), FS, 433920000, -500000, False)
+    d._handle(msg("LaCrosse-TX29IT", -5.1), ch)
+    d._handle(msg("Somfy-RTS", -5.1), other)              # same level by chance, other channel
+    d._handle(msg("Honeywell-CM921", -5.1, dev=99), ch)   # same level, another id
+    d._handle({"model": "Wireless-MBus", "id": 15, "freq": 433.92, "rssi": -5.1, "snr": 20.0}, ch)
+    assert [m["model"] for m in d.history] == ["LaCrosse-TX29IT", "Somfy-RTS", "Honeywell-CM921", "Wireless-MBus"]
+    assert not d.aliases
