@@ -149,7 +149,7 @@ class Chain(unittest.TestCase):
         sym = [0, 1] * 200
         for i in range(3):
             sym += second(48.62 + 0.001 * i, i)
-        _, out = run(gfsk(sym + [0, 1] * 200, baud=5000, dev=3500, snr_db=15, offset=-1500))
+        _, out = run(gfsk(sym + [0, 1] * 200, baud=2500, dev=3500, snr_db=15, offset=-1500))
         self.assertEqual([m["frame"] for m in out], [0, 1, 2])
         m = out[-1]
         self.assertEqual((m["type"], m["serial"], m["lon"], m["alt"], m["vv"], m["dir"], m["vh"]),

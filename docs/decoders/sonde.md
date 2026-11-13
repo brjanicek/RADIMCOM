@@ -25,8 +25,8 @@ one on the ground only a few km.
   battery voltage, GPS time, ECEF position and velocity → latitude, longitude, altitude (above the WGS84 ellipsoid),
   horizontal speed, direction, climb; satellites. RS41-SGM (military) frames with the encrypted block are marked
   *encrypted*. Temperature and humidity are not decoded (they need the calibration sent in 51 pieces).
-- **Graw DFM** (DFM-06 / 09 / 17), *experimental*: 2500 bit/s Manchester. Position, altitude, speed, direction, climb.
-  The serial number is not decoded yet: the sonde is shown as `DFM-<frequency>`. Tested only on synthetic signals so far.
+- **Graw DFM** (DFM-06 / 09 / 17), *experimental*: 2500 Bd Manchester (1250 bit/s). Position, altitude, speed,
+  direction, climb, frame counter. The serial number is not decoded yet: the sonde is shown as `DFM-<frequency>`.
 - Meteomodem M10 / M20 and others are not decoded.
 
 ## How it works
@@ -51,3 +51,8 @@ one on the ground only a few km.
 distance / azimuth / elevation), the RS41 frame (header, de-whitening, blocks, CRC, extended frame, corrected bit errors),
 the whole chain on synthetic GFSK at 32 and 37.5 kHz baseband, inverted, weak (11 dB), with a tuning offset, DFM frames,
 noise only.
+
+Real signals: the I/Q recordings of the Signal Identification Wiki (RS41-SG and DFM-17, both on the ground in
+Bratislava) decode completely: RS41 31 frames of 32 (serial, GPS time, position, battery; all blocks with a good CRC,
+also at the 37.5 kHz baseband of RADIMCOM), DFM-17 a position every second for the 20 s of the recording.
+Not yet tested on a sonde in flight.

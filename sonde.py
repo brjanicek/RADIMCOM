@@ -447,7 +447,7 @@ class _Path:
 
 # ---------- Graw DFM (DFM-06 / 09 / 17), experimental ----------
 
-DFM_BAUD = 2500              # bits/s, Manchester: 5000 symbols/s
+DFM_BAUD = 2500              # symbols/s, Manchester: 1250 bit/s
 DFM_RAWHEADER = "10011010100110010101101001010101"   # the 16 header bits 0100010111001111 as symbols
 DFM_HDR_ERR = 2              # wrong symbols allowed in the header
 DFM_BITS = 264               # after the header: configuration (7 codewords) + two data blocks (13 codewords each)
@@ -580,6 +580,7 @@ class SondeDecoder:
         self.disc = None
         self.paths = []
         self.dfm = {}
+        self.offset_path = None
         self.since_state = 0.0
 
     # ---------- control ----------
@@ -624,8 +625,9 @@ class SondeDecoder:
         self._fs = fs
         self.chan = _Fir(lowpass(min(CHAN_HZ, 0.45 * fs), fs, 63), 1, np.complex64)
         self.disc = _Disc(fs)
-        self.paths = [_Path(fs, RS41_BAUD, Rs41Framer, "rs41"), _Path(fs, 2 * DFM_BAUD, DfmFramer, "dfm")]
+        self.paths = [_Path(fs, RS41_BAUD, Rs41Framer, "rs41"), _Path(fs, DFM_BAUD, DfmFramer, "dfm")]
         self.dfm = {}
+        self.offset_path = None
         self.base_headers -= old
 
     def feed(self, base, fs, dial_hz):
@@ -643,8 +645,11 @@ class SondeDecoder:
                     rec = self._frame(frame, inv, now) if kind == "rs41" else self._dfm(frame, inv, now)
                     if rec is not None:
                         new.append(rec)
-            if self.paths and self.paths[0].hi is not None:
-                self.offset = self.paths[0].offset
+                        self.offset_path = p
+            # offset of the signal: from the path (type) that decoded last, the RS41 one before any frame
+            p = self.offset_path or (self.paths[0] if self.paths else None)
+            if p is not None and p.hi is not None:
+                self.offset = p.offset
             self.since_state += len(base) / fs
         for m in new:
             self.on_event("sonde", m)
