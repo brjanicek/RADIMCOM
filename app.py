@@ -51,6 +51,7 @@ from cw import CwDecoder
 from rtty import RttyDecoder
 from packet import PacketDecoder
 from pocsag import PocsagDecoder
+from sonde import SondeDecoder
 from daylog import DayLog, TextLog
 import recorder as recorder_mod
 from recorder import Recorder
@@ -206,9 +207,9 @@ def save_config_later():
 
 # ---------- daily decoder logs (turned on with LOG in the decoder card) ----------
 
-LOG_KEYS = ("ft8", "wefax", "cw", "rtty", "sstv", "acars", "dsd", "ism", "packet", "pocsag", "hfdl", "ais", "adsb")
+LOG_KEYS = ("ft8", "wefax", "cw", "rtty", "sstv", "acars", "dsd", "ism", "packet", "pocsag", "sonde", "hfdl", "ais", "adsb")
 _tag = cfg.get("vfo") or ""
-logs = {"ft8": DayLog("ft8", _tag), "wefax": DayLog("wefax", _tag), "sstv": DayLog("sstv", _tag), "dsd": DayLog("dsd", _tag), "ism": DayLog("ism", _tag), "packet": DayLog("packet", _tag), "pocsag": DayLog("pocsag", _tag), "hfdl": DayLog("hfdl", _tag), "ais": DayLog("ais", _tag), "adsb": DayLog("adsb", _tag),
+logs = {"ft8": DayLog("ft8", _tag), "wefax": DayLog("wefax", _tag), "sstv": DayLog("sstv", _tag), "dsd": DayLog("dsd", _tag), "ism": DayLog("ism", _tag), "packet": DayLog("packet", _tag), "pocsag": DayLog("pocsag", _tag), "sonde": DayLog("sonde", _tag), "hfdl": DayLog("hfdl", _tag), "ais": DayLog("ais", _tag), "adsb": DayLog("adsb", _tag),
         "cw": TextLog("cw", _tag), "rtty": TextLog("rtty", _tag)}
 _saved_logged = {"wefax": None, "sstv": None}
 
@@ -291,6 +292,11 @@ def decoder_event(kind, data):
             q = f" ({data['bad']} lost)" if data["bad"] else ""
             logs["pocsag"].write(f"{_mhz(data['freq_hz'])} {data['baud']} Bd RIC {data['ric']} F{data['func']} "
                                  f"{data['kind']}{q}" + (f" | {text}" if text else ""))
+        elif kind == "sonde" and log_on("sonde"):
+            pos = (f" | {data['lat']:.5f} {data['lon']:.5f} {data['alt']:.0f} m {data['vh']:.1f} m/s {data['dir']:.0f}° "
+                   f"climb {data['vv']:+.1f} m/s sats {data.get('sats', '?')}") if data.get("lat") is not None else " | no position"
+            logs["sonde"].write(f"{_mhz(data['freq_hz'])} {data['type']} {data.get('serial') or '?'} "
+                                f"frame {data.get('frame', '?')}{pos}" + (" | encrypted" if data.get("encrypted") else ""))
         elif kind == "cwtext" and log_on("cw"):
             f = cw.dial + (cw.tone or 0.0)
             logs["cw"].add(data["t"], f"{_mhz(f)} {round(1200 / cw.dot_ms)} WPM")
@@ -349,6 +355,7 @@ def own_station():
 
 packet = PacketDecoder(on_event=decoder_event, station=own_station)
 pocsag = PocsagDecoder(on_event=decoder_event)
+sonde = SondeDecoder(on_event=decoder_event, station=own_station)
 sstv = SstvDecoder(on_event=decoder_event)
 acars = AcarsDecoder(on_event=hub.event, tag=_tag)
 acars.log_on = log_on("acars")
@@ -395,7 +402,7 @@ def audio_muted():
 
 def state():
     capable = tx_capable()
-    return dict(receiver.state(), ft8=ft8.enabled, ft8_error=ft8.error, wefax=wefax.enabled, cw=cw.enabled, rtty=rtty.enabled, packet=packet.enabled, pocsag=pocsag.enabled,
+    return dict(receiver.state(), ft8=ft8.enabled, ft8_error=ft8.error, wefax=wefax.enabled, cw=cw.enabled, rtty=rtty.enabled, packet=packet.enabled, pocsag=pocsag.enabled, sonde=sonde.enabled,
                 sstv=sstv.enabled, acars=acars.enabled, vdl2=vdl2.enabled, vdl2_error=vdl2.error, vdl2_region=vdl2.region, cpdlc=acars.cpdlc_on,
                 dsd=dsd.info(), dab=dab.enabled, dab_error=dab.error, dab_channel=dab.channel, dab_sids=cfg.get("dab_sids") or {}, ism=ism.enabled, ism_error=ism.error, ism_raw=ism.raw, hfdl=hfdl.enabled, hfdl_error=hfdl.error, ais=ais.enabled, ais_error=ais.error, adsb=adsb.enabled, adsb_error=adsb.error, ism_hz=cfg.get("ism_hz", ISM_DEFAULT), audio_muted=audio_muted(), recording=recorder.state(), logs={k: log_on(k) for k in LOG_KEYS},
                 **doppler_trsp(),
@@ -439,6 +446,8 @@ def on_baseband(base, fs, dial_hz):
         packet.feed(base, fs, dial_hz)
     if pocsag.enabled:
         pocsag.feed(base, fs, dial_hz)
+    if sonde.enabled:
+        sonde.feed(base, fs, dial_hz)
     acars.feed(base, fs, dial_hz)
 
 
@@ -480,6 +489,7 @@ packet.set_options(cfg.get("packet_opts") or {})
 packet.set_enabled(cfg.get("packet", False))
 pocsag.set_options(cfg.get("pocsag_opts") or {})
 pocsag.set_enabled(cfg.get("pocsag", False))
+sonde.set_enabled(cfg.get("sonde", False))
 sstv.set_enabled(cfg.get("sstv", False))
 acars.set_enabled(cfg.get("acars", False) and not cfg.get("vdl2", False))
 
@@ -852,6 +862,17 @@ def api_pocsag_cmd():
         cfg["pocsag_opts"] = pocsag.opts
         save_config_later()
     return jsonify(pocsag.info(msgs=False))
+
+
+@app.route("/api/sonde", methods=["GET"])
+def api_sonde():
+    return jsonify(sonde.info())
+
+
+@app.route("/api/sonde", methods=["POST"])
+def api_sonde_cmd():
+    sonde.command(request.get_json(force=True))
+    return jsonify(sonde.info(frames=False))
 
 
 @app.route("/api/acars", methods=["GET"])
@@ -1833,6 +1854,11 @@ def api_set():
     if "pocsag" in body:
         cfg["pocsag"] = bool(body["pocsag"])
         pocsag.set_enabled(cfg["pocsag"])
+        save_config_later()
+        hub.event("status", state())
+    if "sonde" in body:
+        cfg["sonde"] = bool(body["sonde"])
+        sonde.set_enabled(cfg["sonde"])
         save_config_later()
         hub.event("status", state())
     if "tx_enabled" in body:

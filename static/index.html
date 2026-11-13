@@ -224,7 +224,7 @@
       <button id="recsKey" class="key" aria-controls="recsPane" title="RECS: the RECORDINGS tab – the MP3 files recorded by REC / REC SQ (data\recordings), play them in the browser">RECS</button>
     </div></div>
     <div class="kgroup" data-g="DECODE"><span class="klabel">DECODE</span><div class="keys">
-      <button id="decKey" class="key" aria-controls="decPane" title="DEC: decoders on/off – shows or hides the DECODERS tab, one page for each decoder (CW, FT8, PACKET, POCSAG, RTTY, SSTV, WEFAX | ACARS, ADS-B, HFDL, VDL2 | AIS | ISM); DAB and DSD are modes with their own tabs">DEC</button>
+      <button id="decKey" class="key" aria-controls="decPane" title="DEC: decoders on/off – shows or hides the DECODERS tab, one page for each decoder (CW, FT8, PACKET, POCSAG, RTTY, SSTV, WEFAX | ACARS, ADS-B, HFDL, VDL2 | AIS | SONDE | ISM); DAB and DSD are modes with their own tabs">DEC</button>
     </div></div>
     <div class="kgroup" data-g="TRACKING"><span class="klabel">TRACKING</span><div class="keys">
       <button id="satKey" class="key sat-key" aria-label="Satellite tracking" aria-controls="amsatPane" title="Satellite tracking: the SATELLITES tab (passes, map, Doppler, rotor)"><svg class="sat-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.6 7C3.2 12.6 8.4 18.8 15 17.4Z"/><path d="M9.8 12.2L13.4 8.6"/><circle cx="14.6" cy="7.4" r="1.6"/><path d="M16.6 3.1A5 5 0 0 1 19 5.5"/><path d="M17.2.6A8 8 0 0 1 21.5 4.9"/><path d="M7.6 15.4L5.8 20.6M11 17.2L12.4 20.6M3.2 21.2H15"/></svg></button>
@@ -749,6 +749,49 @@
       <div class="ais-map" id="aisMapBox" hidden>
         <div class="ais-map-main"><div id="aisMap"></div><div id="aisMapNote" class="muted"></div></div>
         <div class="ais-map-list" id="aisMapList"></div>
+      </div>
+    </section>
+
+    <section class="card ft8 sonde" id="sondeCard" data-dec="sonde" hidden>
+      <div class="ft8-head">
+        <label class="key small toggle" data-dec-on="sonde" title="Radiosonde decoder (Vaisala RS41, 400–406 MHz) on/off"><input id="sondeOn" type="checkbox">ON</label>
+        <button id="sondeInfoKey" class="key small" title="Show / hide the description of the decoder">INFO</button>
+        <div class="bands" id="sondeViews">
+          <button class="key small on" data-view="sondes" title="Sondes heard: the newest data of each">SONDES</button>
+          <button class="key small" data-view="map" title="Sondes and their flight paths on a map">MAP</button>
+          <button class="key small" data-view="frames" title="All decoded frames">FRAMES</button>
+        </div>
+        <span class="txt-info" id="sondeInfo"></span>
+        <label class="wf-opt log-opt" title="Write to the daily log data\logs\sonde_YYYY-MM-DD.txt (UTC, shared by all VFOs; one line per frame)"><input type="checkbox" data-log="sonde">LOG</label>
+        <button id="sondeClear" class="key small" title="Clear the frames, the sondes and the counters">CLR</button>
+      </div>
+      <p class="note" id="sondeNote" hidden>Weather balloons: radiosondes send their GPS position, altitude, speed and climb once a second on
+        <b>400–406 MHz</b> while they rise to 30–35 km, burst and fall back on a parachute. Decoded here from the baseband,
+        independent of the listening mode and filter: tune the VFO onto the sonde (a few kHz off is fine, <b>Offset</b> in the status shows how far).
+        Type: <b>Vaisala RS41</b> (GFSK 4800 Bd), the sonde of most weather services around (Wien 11035, Prostějov, Budapest 403.2 MHz,
+        Poprad-Gánovce 400.6 MHz, Praha), launched at about 23:15 and 11:15 UTC. Reed–Solomon corrects up to 12 wrong bytes in each half of a frame.
+        Temperature and humidity are not decoded (they need the calibration sent in 51 pieces).
+        Range: line of sight, a high sonde is heard 300–500 km away; on the ground only a few km.
+        Distance, azimuth and elevation are from the station location (MENU › SETUP › LOCATION).</p>
+      <div class="ft8-table" id="sondeListBox">
+        <table class="sonde-table">
+          <colgroup><col class="c-utc"><col class="c-type"><col class="c-ser"><col class="c-mhz"><col class="c-pos"><col class="c-alt"><col class="c-vv"><col class="c-vh"><col class="c-dir"><col class="c-dist"><col class="c-az"><col class="c-sat"><col class="c-bat"><col class="c-n"><col></colgroup>
+          <thead><tr><th title="Last frame">UTC</th><th>Type</th><th title="Serial number; click to show it on the MAP">Serial</th><th title="Frequency the VFO was tuned to">MHz</th><th title="Newest GPS position; click for the MAP">Position</th><th title="Altitude (GPS, above the ellipsoid), m">Alt m</th><th title="Climb (+) or fall (−), m/s">Climb</th><th title="Horizontal speed, km/h">km/h</th><th title="Direction it drifts to">Dir</th><th title="Distance from the station, km">km</th><th title="Azimuth and elevation from the station">Az / El</th><th title="GPS satellites used">Sats</th><th title="Battery voltage">Batt</th><th title="Frames received">N</th><th>State</th></tr></thead>
+          <tbody id="sondeRows"></tbody>
+        </table>
+        <div id="sondeEmpty" class="ft8-empty">No sondes yet. Tune the VFO onto a sonde in 400–406 MHz (often 401–405 MHz); a sonde in flight sends a frame every second.</div>
+      </div>
+      <div class="ais-map" id="sondeMapBox" hidden>
+        <div class="ais-map-main"><div id="sondeMap"></div><div id="sondeMapNote" class="muted"></div></div>
+        <div class="ais-map-list" id="sondeMapList"></div>
+      </div>
+      <div class="ft8-table" id="sondeFrameBox" hidden>
+        <table class="sonde-frame-table">
+          <colgroup><col class="c-utc"><col class="c-type"><col class="c-ser"><col class="c-n"><col class="c-pos"><col class="c-alt"><col class="c-vv"><col class="c-vh"><col class="c-dir"><col class="c-sat"><col></colgroup>
+          <thead><tr><th>UTC</th><th>Type</th><th>Serial</th><th title="Frame number">Frame</th><th>Position</th><th title="Altitude, m">Alt m</th><th title="Climb, m/s">Climb</th><th title="Horizontal speed, km/h">km/h</th><th>Dir</th><th title="GPS satellites">Sats</th><th title="GPS time of the frame, Reed–Solomon corrections, polarity">Details</th></tr></thead>
+          <tbody id="sondeFrameRows"></tbody>
+        </table>
+        <div id="sondeFrameEmpty" class="ft8-empty">No frames yet.</div>
       </div>
     </section>
 

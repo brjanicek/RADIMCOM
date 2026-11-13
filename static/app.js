@@ -130,11 +130,11 @@ let vbase = ""; // receiver address of the active VFO ("" = server of this page,
 let vfos = []; // [{name, port, serial, note, base, st, rows, online}]
 let active = null; // active VFO
 
-// "?map=packet|hfdl|ais|adsb|acars&vfo=A": this tab shows only that map (opened by the □ key of the map) – no audio,
+// "?map=packet|hfdl|ais|adsb|acars|sonde&vfo=A": this tab shows only that map (opened by the □ key of the map) – no audio,
 // no spectrum, and it saves nothing to the browser, so the settings of the main window stay as they are
 const MAP_ONLY = (() => {
   const m = new URLSearchParams(location.search).get("map");
-  return ["packet", "hfdl", "ais", "adsb", "acars", "ft8"].includes(m) ? m : null;
+  return ["packet", "hfdl", "ais", "adsb", "acars", "ft8", "sonde"].includes(m) ? m : null;
 })();
 
 function store(key, value) { if (MAP_ONLY) return; try { localStorage.setItem(key, value); } catch (e) { /* no storage */ } }
@@ -3226,12 +3226,13 @@ function setBodyTab(tab, save = true) {
 
 // ---------- DECODERS tab: a page for each decoder (like the pages of SATELLITES) ----------
 
-// order of the page keys; "|" = a vertical separator between the groups (HF digital, aircraft, ships, ISM)
+// order of the page keys; "|" = a vertical separator between the groups (HF digital, aircraft, ships, radiosondes, ISM)
 const DEC_LAYOUT = [
   { key: "cw", title: "CW" }, { key: "ft8", title: "FT8" }, { key: "packet", title: "PACKET" }, { key: "pocsag", title: "POCSAG" }, { key: "rtty", title: "RTTY" },
   { key: "sstv", title: "SSTV" }, { key: "wefax", title: "WEFAX" }, "|",
   { key: "acars", title: "ACARS" }, { key: "adsb", title: "ADS-B" }, { key: "hfdl", title: "HFDL" }, { key: "vdl2", title: "VDL2" }, "|",
   { key: "ais", title: "AIS" }, "|",
+  { key: "sonde", title: "SONDE" }, "|",
   { key: "ism", title: "ISM" },
 ];   // DAB and DSD are modes (MODE) with their own tabs
 const DEC_PAGES = DEC_LAYOUT.filter((p) => p !== "|");
@@ -3419,7 +3420,7 @@ function renderScanKey() {
   $("scanTabDot").hidden = !(sc && sc.on);
 }
 $("scanKey").addEventListener("click", () => setScanOn(!scanTabShown()));
-for (const id of ["ft8On", "wefaxOn", "cwOn", "rttyOn", "sstvOn", "packetOn", "pocsagOn", "acarsOn", "vdl2On", "hfdlOn", "aisOn", "adsbOn"]) {
+for (const id of ["ft8On", "wefaxOn", "cwOn", "rttyOn", "sstvOn", "packetOn", "pocsagOn", "sondeOn", "acarsOn", "vdl2On", "hfdlOn", "aisOn", "adsbOn"]) {
   $(id).addEventListener("change", () => renderDecTab());
 }
 setBodyTab(bodyTab, false);
@@ -6334,6 +6335,259 @@ for (const id of ["pocsagRows", "pocsagRicRows"]) {
   });
 }
 setPocView(pocView, false);   // filled by pocsagLoad()
+
+// ---------- SONDE: radiosondes (sonde.py): the newest data of each sonde, its flight path on a MAP, all frames ----------
+
+const SONDE_MAX_FRAMES = 500;
+const SONDE_OLD_S = 600;         // no frame for 10 min: lost (grey)
+const sondes = new Map();        // serial -> {…sonde from the server, pts: [[lat, lon, alt, t]]}
+let sondeView = ["sondes", "map", "frames"].includes(recall("sondeView")) ? recall("sondeView") : "sondes";
+let sondeMap = null, sondeLayers = null, sondeFitted = false, sondeSel = null, sondeTimer = null;
+
+const sondeKmh = (v) => (v == null ? "" : (v * 3.6).toFixed(0));
+const sondeClimb = (v) => (v == null ? "" : `${v > 0 ? "+" : ""}${v.toFixed(1)}`);
+const sondeAlt = (v) => (v == null ? "" : String(Math.round(v)).replace(/\B(?=(\d{3})+$)/g, " "));
+const sondeOld = (s) => Date.now() / 1000 - s.last > SONDE_OLD_S;
+function sondeState(s) {
+  if (sondeOld(s)) return "lost";
+  if (s.vv == null) return "no GPS";
+  if (s.burst) return s.alt != null && s.alt < 3000 && Math.abs(s.vv) < 1 ? "landed" : `falling, burst at ${sondeAlt(s.burst_alt)} m`;
+  if (Math.abs(s.vv) < 1 && (s.alt ?? 0) < 3000) return "on the ground";
+  return s.vv > 0 ? "rising" : "falling";
+}
+
+function sondeUpdate(f) {
+  if (!f.serial) return;
+  let s = sondes.get(f.serial);
+  if (!s) { s = { serial: f.serial, type: f.type, first: f.time, n: 0, pts: [], max_alt: null, burst: false }; sondes.set(f.serial, s); }
+  s.n += 1;
+  s.last = f.time;
+  for (const k of ["frame", "batt", "sats", "freq_hz", "encrypted", "gps_time", "dist", "az", "el"]) if (f[k] != null) s[k] = f[k];
+  if (f.lat != null) {
+    for (const k of ["lat", "lon", "alt", "vh", "dir", "vv"]) s[k] = f[k];
+    s.pos_time = f.time;
+    if (s.max_alt == null || f.alt > s.max_alt) s.max_alt = f.alt;
+    if (!s.burst && f.vv < -8 && s.max_alt - f.alt > 200 && s.max_alt > 5000) { s.burst = true; s.burst_alt = s.max_alt; }
+    const last = s.pts[s.pts.length - 1];
+    if (!last || f.time - last[3] >= 2) { s.pts.push([f.lat, f.lon, f.alt, f.time]); if (s.pts.length > 3000) s.pts.splice(1, 1); }
+  }
+  sondeLater();
+}
+
+function sondeLater() {
+  if (sondeView === "frames" || sondeTimer) return;
+  sondeTimer = setTimeout(() => { sondeTimer = null; renderSondeView(); }, 400);
+}
+
+function renderSondeView() {
+  if (sondeView === "sondes") renderSondeTable();
+  else if (sondeView === "map") renderSondeMap();
+}
+
+const sondeList = () => [...sondes.values()].sort((a, b) => b.last - a.last);
+const sondePos = (s) => (s.lat == null ? "" : `${s.lat.toFixed(5)}, ${s.lon.toFixed(5)}`);
+const sondeDir = (v) => (v == null ? "" : `${Math.round(v)}°`);
+const sondeUpDown = (v) => (v > 0 ? "up" : v < 0 ? "down" : "");
+
+function renderSondeTable() {
+  const list = sondeList();
+  $("sondeRows").innerHTML = list.map((s) =>
+    `<tr data-serial="${escHtml(s.serial)}" class="${sondeOld(s) ? "old" : ""}"><td>${aisUtc(s.last)}</td><td>${escHtml(s.type)}</td>` +
+    `<td class="ser"><a href="#" class="sonde-goto" title="Show on the MAP">${escHtml(s.serial)}</a></td><td>${s.freq_hz ? fmtMHz(s.freq_hz, 3) : ""}</td>` +
+    `<td>${s.lat != null ? `<a href="#" class="sonde-goto">${sondePos(s)}</a> <span class="muted">${aisAge(s.pos_time)}</span>` : ""}</td>` +
+    `<td class="num">${sondeAlt(s.alt)}</td><td class="num ${sondeUpDown(s.vv)}">${sondeClimb(s.vv)}</td>` +
+    `<td class="num">${sondeKmh(s.vh)}</td><td class="num">${sondeDir(s.dir)}</td>` +
+    `<td class="num">${s.dist == null ? "" : s.dist.toFixed(1)}</td><td class="num">${s.az == null ? "" : `${Math.round(s.az)}° / ${s.el.toFixed(1)}°`}</td>` +
+    `<td class="num">${s.sats ?? ""}</td><td class="num">${s.batt == null ? "" : `${s.batt.toFixed(1)} V`}</td><td class="num">${s.n}</td>` +
+    `<td>${escHtml(sondeState(s))}${s.encrypted ? ' <span class="muted">encrypted</span>' : ""}</td></tr>`).join("");
+  $("sondeEmpty").hidden = list.length > 0;
+}
+
+function addSondeFrame(f) {
+  const tb = $("sondeFrameRows");
+  const tr = document.createElement("tr");
+  const det = [f.gps_time ? `GPS ${aisUtc(f.gps_time)}` : "", f.ecc ? `${f.ecc} bytes corrected` : "", f.blocks_bad ? `${f.blocks_bad} blocks bad` : "",
+    f.encrypted ? "encrypted" : "", f.inverted ? "inverted" : "", f.batt != null ? `batt ${f.batt.toFixed(1)} V` : ""].filter(Boolean).join(" · ");
+  tr.innerHTML = `<td title="${escHtml(fmtMHz(f.freq_hz, 4))} MHz">${aisUtc(f.time)}</td><td>${escHtml(f.type)}</td><td class="ser">${escHtml(f.serial || "?")}</td>` +
+    `<td class="num">${f.frame ?? ""}</td><td>${sondePos(f)}</td><td class="num">${sondeAlt(f.alt)}</td>` +
+    `<td class="num ${sondeUpDown(f.vv)}">${sondeClimb(f.vv)}</td><td class="num">${sondeKmh(f.vh)}</td>` +
+    `<td class="num">${sondeDir(f.dir)}</td><td class="num">${f.sats ?? ""}</td><td class="muted">${escHtml(det)}</td>`;
+  tb.prepend(tr);
+  while (tb.rows.length > SONDE_MAX_FRAMES) tb.lastChild.remove();
+  $("sondeFrameEmpty").hidden = true;
+}
+
+/** Map icon: a balloon while rising, a parachute after the burst. */
+function sondeIcon(s, sel) {
+  const st = sondeOld(s) ? "old" : s.burst ? "fall" : "rise";
+  const svg = s.burst
+    ? '<svg viewBox="0 0 24 24"><path d="M3 10a9 7 0 0 1 18 0z"/><path class="ln" d="M4 10l8 9 8-9M12 10v9"/><rect x="10" y="18" width="4" height="4"/></svg>'
+    : '<svg viewBox="0 0 24 24"><ellipse cx="12" cy="8" rx="6.5" ry="7"/><path class="ln" d="M12 15v4"/><rect x="10" y="19" width="4" height="4"/></svg>';
+  return L.divIcon({ className: `sonde-mk ${st}${sel ? " sel" : ""}`, html: svg, iconSize: [22, 22], iconAnchor: [11, 21] });
+}
+
+function sondePopup(s) {
+  const lines = [`<b>${escHtml(s.serial)}</b> ${escHtml(s.type)}${s.freq_hz ? ` · ${fmtMHz(s.freq_hz, 3)} MHz` : ""}`];
+  if (s.lat != null) {
+    lines.push(`${sondeAlt(s.alt)} m · climb ${sondeClimb(s.vv)} m/s · ${sondeKmh(s.vh)} km/h to ${sondeDir(s.dir)}`);
+    lines.push(`position ${sondePos(s)} (${aisAge(s.pos_time)} ago)`);
+  }
+  if (s.dist != null) lines.push(`${s.dist.toFixed(1)} km, azimuth ${Math.round(s.az)}°, elevation ${s.el.toFixed(1)}°`);
+  lines.push(escHtml(sondeState(s)) + (s.max_alt != null ? ` · highest ${sondeAlt(s.max_alt)} m` : ""));
+  lines.push(`last frame ${aisUtc(s.last)} UTC · ${s.n} frames · <a href="https://sondehub.org/${encodeURIComponent(s.serial)}" target="_blank" rel="noopener">SondeHub</a>`);
+  return lines.join("<br>");
+}
+
+async function sondeMapOpen() {
+  try {
+    await Promise.all([satAsset("/static/leaflet/leaflet.css"), satAsset("/static/leaflet/leaflet.js")]);
+  } catch (e) {
+    $("sondeMapNote").textContent = e.message;
+    return false;
+  }
+  if (!sondeMap) {
+    sondeMap = L.map($("sondeMap"), { worldCopyJump: true, minZoom: 2 }).setView([48.5, 17], 7);
+    // the same darkened OpenStreetMap tiles as the AIS and HFDL maps
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 16, className: "hfdl-dark",
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors',
+    }).addTo(sondeMap);
+    mapPopout(sondeMap, "sonde");
+    sondeLayers = { tracks: L.layerGroup().addTo(sondeMap), marks: L.layerGroup().addTo(sondeMap), m: new Map() };
+    try {
+      const s = await satFetch("/api/location");
+      if (s && Number.isFinite(s.lat) && Number.isFinite(s.lon)) {
+        L.circleMarker([s.lat, s.lon], { radius: 6, color: "#000", weight: 2, fillColor: "#ff5a3c", fillOpacity: 1 }).bindTooltip("QTH").addTo(sondeMap);
+        sondeMap.setView([s.lat, s.lon], 7);
+      }
+    } catch { /* server unreachable */ }
+  }
+  return true;
+}
+
+async function renderSondeMap() {
+  if (!(await sondeMapOpen())) return;
+  sondeMap.invalidateSize();
+  const lay = sondeLayers;
+  lay.tracks.clearLayers();
+  const list = sondeList().filter((s) => s.lat != null);
+  const keep = new Set();
+  for (const s of list) {
+    keep.add(s.serial);
+    const sel = s.serial === sondeSel;
+    if (s.pts.length > 1) {
+      L.polyline(s.pts.map((q) => [q[0], q[1]]), { color: sel ? "#ff4b3c" : "#6cff9c", weight: sel ? 2.5 : 1.8, opacity: 0.8 }).addTo(lay.tracks);
+      const p0 = s.pts[0];
+      L.circleMarker([p0[0], p0[1]], { radius: 3, color: "#6cff9c", weight: 1, fillOpacity: 1 })
+        .bindTooltip(`first frame ${aisUtc(p0[3])} UTC, ${sondeAlt(p0[2])} m`).addTo(lay.tracks);
+      if (s.burst) {
+        const top = s.pts.reduce((a, q) => (q[2] > a[2] ? q : a));
+        L.circleMarker([top[0], top[1]], { radius: 6, color: "#ffd84a", weight: 2, fill: false }).bindTooltip(`burst ${sondeAlt(top[2])} m`).addTo(lay.tracks);
+      }
+    }
+    let mk = lay.m.get(s.serial);
+    if (!mk) {
+      mk = L.marker([s.lat, s.lon]).bindPopup("").bindTooltip("", { permanent: true, direction: "bottom", offset: [0, 2], className: "ais-label" }).addTo(lay.marks);
+      mk.on("click", () => sondeSelect(s.serial, false));
+      lay.m.set(s.serial, mk);
+    }
+    mk.setLatLng([s.lat, s.lon]);
+    mk.setIcon(sondeIcon(s, sel));
+    mk.setTooltipContent(`${escHtml(s.serial)}<br>${sondeAlt(s.alt)} m ${sondeClimb(s.vv)}`);
+    mk.setPopupContent(sondePopup(s));
+  }
+  for (const [k, mk] of lay.m) if (!keep.has(k)) { mk.remove(); lay.m.delete(k); }
+  if (!sondeFitted && lay.m.size) {
+    sondeFitted = true;
+    sondeMap.fitBounds(L.latLngBounds(list.flatMap((s) => [[s.lat, s.lon], ...s.pts.map((q) => [q[0], q[1]])])).pad(0.3), { maxZoom: 10 });
+  }
+  $("sondeMapList").innerHTML = `<div class="ais-ml-head">${list.length} sonde${list.length === 1 ? "" : "s"} with a position${sondes.size > list.length ? ` (${sondes.size - list.length} without)` : ""}</div>` +
+    list.map((s) => `<div class="ais-ml sonde-ml${s.serial === sondeSel ? " sel" : ""}${sondeOld(s) ? " old" : ""}" data-serial="${escHtml(s.serial)}">` +
+      `<b>${escHtml(s.serial)}</b><span class="stype">${escHtml(s.type)}</span><span>${sondeAlt(s.alt)} m</span>` +
+      `<span class="${sondeUpDown(s.vv)}">${sondeClimb(s.vv)}</span><span class="age">${aisAge(s.last)}</span></div>`).join("");
+  $("sondeMapNote").textContent = `${list.length} with a position · balloon = rising · parachute = falling after the burst (yellow ring) · red = selected · grey = no frame for 10 min · green line = flight path · map © OpenStreetMap`;
+}
+
+function sondeSelect(serial, pan = true) {
+  sondeSel = serial;
+  renderSondeMap().then(() => {
+    const mk = sondeLayers && sondeLayers.m.get(serial);
+    if (!mk) return;
+    if (pan) sondeMap.setView(mk.getLatLng(), Math.max(sondeMap.getZoom(), 9));
+    mk.openPopup();
+  });
+}
+
+function setSondeView(v, save = true) {
+  sondeView = v;
+  if (save) store("sondeView", v);
+  for (const b of $("sondeViews").children) b.classList.toggle("on", b.dataset.view === v);
+  $("sondeListBox").hidden = v !== "sondes";
+  $("sondeMapBox").hidden = v !== "map";
+  $("sondeFrameBox").hidden = v !== "frames";
+  renderSondeView();
+}
+
+function renderSondeInfo(i) {
+  const el = $("sondeInfo");
+  if (!i.enabled) { el.textContent = ""; el.title = ""; return; }
+  const off = i.offset_hz == null ? "" : `  offset ${i.offset_hz > 0 ? "+" : ""}${(i.offset_hz / 1000).toFixed(1)} kHz`;
+  el.textContent = `${i.ok} frames  ${i.bad} bad${i.last_rx ? off : ""}`;
+  el.title = `${i.headers} frame starts found · ${i.ok} frames decoded · ${i.bad} could not be read · ${i.fixed} bytes corrected by Reed–Solomon` +
+    (i.last_rx ? ` · last frame ${aisUtc(i.last_rx)} UTC` : "") + " · offset = how far the signal is from the dial";
+}
+
+function sondePost(body) {
+  return fetch(vbase + "/api/sonde", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+    .then((r) => r.json());
+}
+
+function sondeReset() {
+  $("sondeFrameRows").innerHTML = "";
+  $("sondeFrameEmpty").hidden = false;
+  sondes.clear();
+  sondeSel = null;
+  sondeFitted = false;
+  if (sondeLayers) { sondeLayers.marks.clearLayers(); sondeLayers.tracks.clearLayers(); sondeLayers.m.clear(); }
+  renderSondeView();
+}
+
+async function sondeLoad() {
+  const v = active;
+  try {
+    const d = await fetch(vbase + "/api/sonde").then((r) => r.json());
+    if (v !== active) return;
+    sondeReset();
+    for (const f of d.frames) addSondeFrame(f);
+    for (const s of d.sondes) sondes.set(s.serial, s);
+    renderSondeInfo(d);
+    setSondeView(sondeView, false);
+  } catch { /* an older receiver without the sonde decoder */ }
+}
+
+function setSondeNote(on) {
+  store("sondeNote", on ? "1" : "0");
+  $("sondeInfoKey").classList.toggle("on", on);
+  $("sondeNote").hidden = !on;
+  if (sondeMap) setTimeout(() => sondeMap.invalidateSize());
+}
+$("sondeInfoKey").addEventListener("click", () => setSondeNote($("sondeNote").hidden));
+setSondeNote(recall("sondeNote") !== "0");
+$("sondeOn").addEventListener("change", () => {
+  st.sonde = $("sondeOn").checked;
+  $("sondeCard").hidden = !st.sonde;
+  send({ sonde: st.sonde });
+});
+$("sondeClear").addEventListener("click", () => { sondePost({ action: "clear" }).then(renderSondeInfo); sondeReset(); });
+$("sondeViews").addEventListener("click", (e) => { const b = e.target.closest("button[data-view]"); if (b) setSondeView(b.dataset.view); });
+$("sondeMapList").addEventListener("click", (e) => { const r = e.target.closest("[data-serial]"); if (r) sondeSelect(r.dataset.serial); });
+$("sondeRows").addEventListener("click", (e) => {
+  if (!e.target.closest(".sonde-goto")) return;
+  e.preventDefault();
+  setSondeView("map");
+  sondeSelect(e.target.closest("tr").dataset.serial);
+});
+setTimeout(() => setSondeView(sondeView, false));   // after the declarations below; filled by sondeLoad()
 
 // graph right of the lists, SPECTRUM or EYE: the server sends its data only while the PACKET page asks for it
 // (renewed every 2 s)
@@ -9695,7 +9949,7 @@ $("medSaveCur").addEventListener("click", () => {   // the tuned frequency, mode
 // ---------- memory editor (MEM → ✎ EDITOR): channels, groups with notes, import and export with a list ----------
 
 const RECORD_NAMES = { off: "OFF", on: "ON", sq: "SQ", asq: "ASQ" };   // RECORD of a memory: recording at recall
-const DECODER_NAMES = { "": "—", ft8: "FT8", wefax: "WEFAX", cw: "CW", rtty: "RTTY", sstv: "SSTV", packet: "PACKET", pocsag: "POCSAG",
+const DECODER_NAMES = { "": "—", ft8: "FT8", wefax: "WEFAX", cw: "CW", rtty: "RTTY", sstv: "SSTV", packet: "PACKET", pocsag: "POCSAG", sonde: "SONDE",
   acars: "ACARS", vdl2: "VDL2", hfdl: "HFDL", ais: "AIS", adsb: "ADS-B", ism: "ISM" };
 const NO_GROUP = "\u0000none";   // value of "(no group)" in the group filters
 let memGroupList = [];           // [{name, note, count}] from /api/memory_groups
@@ -10784,7 +11038,7 @@ function onStatus(s) {
   const rateChanged = st && st.audio_rate !== s.audio_rate;
   // Shortly after a local change, do not let an older state from the server overwrite tuning and selection.
   if (st && Date.now() - localChangeAt < 700) {
-    for (const k of ["tune_hz", "mode", "bandwidth", "zoom", "gain", "rtl_agc", "smart_agc", "dc_remove", "dc_hz", "dc_db", "spur_on", "spur_hz", "spur_edge", "spur_shift", "spur_db", "spur_learning", "stereo_on", "notch", "autotune", "ft8", "wefax", "cw", "rtty", "sstv", "packet", "pocsag", "hfdl", "ais", "adsb", "acars", "cpdlc", "dab", "dab_channel", "dab_sids", "logs", "upconv", "device", "squelch_levels", "auto_sql", "auto_sql_on", "auto_sql_level", "ctcss", "ctcss_hz", "dcs", "dcs_code"]) s[k] = st[k];
+    for (const k of ["tune_hz", "mode", "bandwidth", "zoom", "gain", "rtl_agc", "smart_agc", "dc_remove", "dc_hz", "dc_db", "spur_on", "spur_hz", "spur_edge", "spur_shift", "spur_db", "spur_learning", "stereo_on", "notch", "autotune", "ft8", "wefax", "cw", "rtty", "sstv", "packet", "pocsag", "sonde", "hfdl", "ais", "adsb", "acars", "cpdlc", "dab", "dab_channel", "dab_sids", "logs", "upconv", "device", "squelch_levels", "auto_sql", "auto_sql_on", "auto_sql_level", "ctcss", "ctcss_hz", "dcs", "dcs_code"]) s[k] = st[k];
   }
   s.sample_rates = sampleRates;
   st = s;
@@ -10810,6 +11064,8 @@ function onStatus(s) {
   $("packetCard").hidden = !s.packet;
   $("pocsagOn").checked = !!s.pocsag;
   $("pocsagCard").hidden = !s.pocsag;
+  $("sondeOn").checked = !!s.sonde;
+  $("sondeCard").hidden = !s.sonde;
   renderHfdl(s);
   renderAis(s);
   renderAdsb(s);
@@ -10957,6 +11213,8 @@ function connectEvents(v) {
   on("pocsag", (m) => { addPocsag(m); if (m.ric !== undefined) pocRic({ ric: m.ric, last: m.time, count: (pocRics.get(m.ric)?.count || 0) + 1,
     func: m.func, baud: m.baud, kind: m.kind, text: m.text }); decActivity("pocsag"); });
   on("pocsagstate", renderPocsagInfo);
+  on("sonde", (f) => { addSondeFrame(f); sondeUpdate(f); decActivity("sonde"); });
+  on("sondestate", renderSondeInfo);
   on("packeteye", drawPktEye);
   on("packetspec", drawPktSpec);
   on("dsdcall", (c) => { addDsdCall(c); if (bodyTab !== "dsd") $("dsdTabDot").hidden = false; });
@@ -11376,6 +11634,7 @@ async function selectVfo(v, keepTab) {
   cwReset(); rttyOut.clear();
   packetReset();
   pocsagReset();
+  sondeReset();
   acarsResume();
   acarsDropHeld();
   $("acarsRows").innerHTML = ""; $("acarsEmpty").hidden = false; renderAcarsFilter();
@@ -11419,6 +11678,7 @@ async function loadDecoders() {
   await adsbLoad();
   await packetLoad();
   await pocsagLoad();
+  await sondeLoad();
   const cwi = await fetch(vbase + "/api/cw").then((r) => r.json());
   if (v !== active) return;
   renderCwInfo(cwi);
@@ -12562,8 +12822,8 @@ function mapOnlySetup() {
   document.body.append(box);
   box.classList.add("map-only-box");
   document.body.classList.add("map-only");
-  document.title = `${({ packet: "APRS", acars: "ACARS / VDL2", adsb: "ADS-B", ft8: "FT8 stations" })[MAP_ONLY] || MAP_ONLY.toUpperCase()} map${active && active.name ? ` · VFO ${active.name}` : ""} · RADIMCOM`;
-  ({ packet: setPktView, hfdl: setHfdlView, ais: setAisView, adsb: setAdsbView, acars: setAcarsView, ft8: () => renderFt8Map() })[MAP_ONLY]("map");
+  document.title = `${({ packet: "APRS", acars: "ACARS / VDL2", adsb: "ADS-B", ft8: "FT8 stations", sonde: "Radiosonde" })[MAP_ONLY] || MAP_ONLY.toUpperCase()} map${active && active.name ? ` · VFO ${active.name}` : ""} · RADIMCOM`;
+  ({ packet: setPktView, hfdl: setHfdlView, ais: setAisView, adsb: setAdsbView, acars: setAcarsView, ft8: () => renderFt8Map(), sonde: setSondeView })[MAP_ONLY]("map");
 }
 
 /** □ key in the top right corner of a map: the same map in a new browser tab. */

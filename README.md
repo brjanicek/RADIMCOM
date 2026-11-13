@@ -54,6 +54,7 @@ Up to four SDRs at once, each assigned to a VFO by its serial number; one dongle
 - **CW skimmer:** up to 16 Morse stations decoded at once with soft decisions (Viterbi, beam search), the operator's timing learnt (bug, straight key, Farnsworth), calls in the spectrum. → [CW](docs/decoders/cw.md)
 - **Aircraft data link:** ACARS and VDL2 with CPDLC and ADS-C decoded to plain text and a map of the aircraft, and **HFDL** on HF (2.9–22 MHz, all channels of a band at once). → [Aircraft](docs/decoders/aircraft.md) · [HFDL](docs/decoders/hfdl.md)
 - **AIS** ships on 161.975 / 162.025 MHz (own decoder, both channels at once) with a map of ships, base stations and aids to navigation. → [AIS](docs/decoders/ais.md)
+- **Radiosondes** (weather balloons, 400–406 MHz): Vaisala RS41 with Reed–Solomon correction, Graw DFM (experimental); position, altitude, climb, burst and the flight path on a map. → [SONDE](docs/decoders/sonde.md)
 - **ADS-B** aircraft on 1090 MHz (own Mode S / ADS-B decoder) with a list, a map with tracks and the raw messages. → [ADS-B](docs/decoders/adsb.md)
 - **DAB / DAB+ radio**, **digital voice** (DMR, P25, D-Star, YSF, …; test version) and **ISM** 433 / 868 MHz devices (incl. Wireless M-Bus meters). → [DAB](docs/decoders/dab.md) · [DSD](docs/decoders/dsd.md) · [ISM](docs/decoders/ism.md)
 - **Satellite tracking:** passes, world map, Doppler correction and a K3NG rotor, no other program needed. → [Satellites](docs/satellites.md)

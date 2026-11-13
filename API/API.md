@@ -86,13 +86,13 @@ Main fields:
 | `autotune`, `autotune_info` | ATU on/off; last autotune job `{id, state: "listen" \| "done" \| "none" \| "", shift_hz, how: "carrier" \| "comb" \| "edge", mode}` |
 | `lpf`, `lpf_hz`, `hpf`, `hpf_hz` | audio low-pass and high-pass filter on/off and their cutoff frequencies in Hz |
 | `status`, `error`, `opened`, `dropped`, `hw` | device status, last error, open flag, dropped blocks, LimeSDR stream info |
-| `ft8`, `cw`, `rtty`, `wefax`, `sstv`, `packet`, `pocsag`, `acars`, `vdl2`, `cpdlc` | decoders on/off |
+| `ft8`, `cw`, `rtty`, `wefax`, `sstv`, `packet`, `pocsag`, `sonde`, `acars`, `vdl2`, `cpdlc` | decoders on/off |
 | `ft8_error`, `vdl2_error` | decoder errors |
 | `vdl2_region` | selected VDL2 channel set, `"eu"` or `"us"` |
 | `audio_muted` | the audio of this VFO is muted because the ACARS, VDL2, HFDL, AIS or ISM decoder runs |
 | `recording` | `{"cont": {...}, "squelch": {...}, "dropped": n}`: REC and REC SQ, each with `on`, `open` (a file is being written), `file` (current or last file in `data\recordings`), `secs` (length of the current file), `saved` (files finished since switched on), `error`; `dropped` = audio blocks lost because the disk did not keep up |
 | `dab`, `dab_channel`, `dab_sids`, `dab_error` | DAB on/off, Band III channel (e.g. `12C`), last station of each channel (`{"12C": "0x5464"}`, `null` = stopped), welle-cli error |
-| `logs` | daily logs on/off: `{"ft8", "wefax", "cw", "rtty", "sstv", "acars", "dsd", "ism", "packet", "pocsag", "hfdl", "ais"}` (`acars` covers both the ACARS and the VDL2 log) |
+| `logs` | daily logs on/off: `{"ft8", "wefax", "cw", "rtty", "sstv", "acars", "dsd", "ism", "packet", "pocsag", "sonde", "hfdl", "ais"}` (`acars` covers both the ACARS and the VDL2 log) |
 | `trsp_name`, `trsp_sat` | transmitter and satellite of the Doppler correction (`/api/sat/doppler`) while it is on, empty otherwise |
 | `tx_capable`, `tx_enabled`, `can_tx`, `tx`, `tx_info` | transmitter (LimeSDR) |
 | `wf` | waterfall format: `bins`, `db_min`, `db_step`, `rows_per_s` |
@@ -153,7 +153,7 @@ Send any combination of these keys:
 | `lo_offset_hz` | upconverter LO, 0 to 1 000 000 000 Hz |
 | `device` | device index (single-receiver mode) |
 | `reset` | `true` = reset the dongle |
-| `ft8`, `cw`, `rtty`, `wefax`, `sstv`, `packet`, `pocsag`, `acars`, `vdl2` | decoders on / off. `vdl2: true` switches the VFO to 2.1 MS/s around 136.500 MHz and turns ACARS off (RTL-SDR only); `acars: true` turns VDL2 off |
+| `ft8`, `cw`, `rtty`, `wefax`, `sstv`, `packet`, `pocsag`, `sonde`, `acars`, `vdl2` | decoders on / off. `vdl2: true` switches the VFO to 2.1 MS/s around 136.500 MHz and turns ACARS off (RTL-SDR only); `acars: true` turns VDL2 off |
 | `vdl2_region` | VDL2 channel set: `"eu"` or `"us"`. Restarts dumpvdl2 with the new channels |
 | `dab_sid` | remembers the station of the current DAB channel (`"0x5464"`, `null` = stopped) |
 | `dab`, `dab_channel` | DAB on / off and channel. `dab: true` starts welle-cli and switches the VFO to 2.048 MS/s on the channel centre (ACARS and VDL2 off, RTL-SDR only); `dab: false` restores the sample rate; `dab_channel` alone retunes a running DAB |
@@ -179,6 +179,7 @@ On connect a `status` event with the full state, then:
 | `rttytext`, `rttystate` | RTTY text; decoder state |
 | `packet`, `packetstate` | PACKET: one valid AX.25 frame (see `/api/packet`); decoder state (counters, AFC, error) |
 | `pocsag`, `pocsagstate` | POCSAG: one pager message (see `/api/pocsag`); decoder state (counters) |
+| `sonde`, `sondestate` | SONDE: one radiosonde frame (see `/api/sonde`); decoder state (counters, offset) |
 | `packetspec` | PACKET spectrum, 4× per second while asked for: `db` (2·`k`+1 values, dB relative to a full-scale carrier, the tuned frequency in the middle), `df` (Hz per value), `afc_live` (9600 Bd AFC, Hz, or null) |
 | `packeteye` | PACKET eye diagram, 4× per second while asked for: `rate`, `n` points per trace, `full` (full scale: Hz at 9600, 1.2 at 1200), `data` (base64 int8 traces, value/full·127), `open` and `open_frame` (eye opening % now / in the last good frame), `dev_hz`, `afc_live` (9600 only) |
 | `wefaxrow`, `wefaxstate`, `wefaxnew`, `wefaxtrim`, `wefaxreload` | WEFAX image rows, state, new image, trimmed image, image changed (slant correction: load it again) |
@@ -221,6 +222,8 @@ is removed. 0 dB is a sine at 75 kHz deviation. Outside WFM, `db` is empty and `
 | GET | `/api/rtty` | RTTY decoder info and text |
 | POST | `/api/rtty` | `{"action": "clear"}` and/or `{"opts": {...}}` (decoder options, saved to the config) |
 | GET | `/api/pocsag` | POCSAG decoder: state (`ok` messages, `batches`, `corrected` bits, `bad` codewords, `rates`), the last 500 `messages` (`ric`, `func`, `baud`, `inverted`, `kind` = `alpha` / `numeric` / `tone`, `text`, both readings `alpha` and `numeric`, `corrected`, `bad`) and the `rics` (newest message of each address) |
+| GET | `/api/sonde` | radiosonde decoder: state (`ok` frames, `bad`, `headers` found, `fixed` bytes corrected, `offset_hz` of the signal from the dial, `last_rx`), the last 300 `frames` (`type` RS41 / DFM, `serial`, `frame`, `lat`, `lon`, `alt` m, `vh` m/s, `dir`, `vv` m/s, `sats`, `batt` V, `gps_time`, `dist` km, `az`, `el`, `ecc`, `inverted`, `encrypted`) and the `sondes` (newest data of each, `max_alt`, `burst`, `burst_alt`, flight path `pts` = [lat, lon, alt, time]) |
+| POST | `/api/sonde` | `{"action": "clear"}`; `{"action": "forget", "serial": "W1234567"}` removes one sonde |
 | POST | `/api/pocsag` | `{"action": "clear"}` and/or `{"opts": {"rate": "all" \| "512" \| "1200" \| "2400"}}` (saved to the config) |
 | GET | `/api/packet` | PACKET decoder: state, the last 500 `frames` and the APRS `stations` (newest first) |
 | POST | `/api/packet` | `{"action": "clear"}` and/or `{"opts": {"rate": "both" \| "1200" \| "9600", "scrambler": "auto" \| "on" \| "off"}}` (saved to the config); `{"action": "eye", "rate": 9600 \| 1200}` sends `packeteye` events for the next 4 s, `{"action": "spectrum"}` the same for `packetspec` (the page renews it every 2 s) |
@@ -245,7 +248,7 @@ is removed. 0 dB is a sine at 75 kHz deviation. Outside WFM, `db` is empty and `
 
 A memory: `{"id", "name", "group", "groups", "freq_hz", "mode", "bw", "fav", "decoder", "record", "note", "color", "tag"}`, and `"dab_channel"` (e.g. `"12C"`) on a DAB memory. Modes: `AM`, `FM`, `WFM`, `LSB`, `USB`, `CW`, `DAB`, `DSD`. A DAB memory has the mode `DAB` (older versions stored the DAB channel with another mode; such memories are read as `DAB`); `bw` is fixed for `DAB` (1536000) and `DSD` (12500).
 `groups` is the list of its groups (may be empty), `group` the first of them (kept for older clients). `decoder` is switched on
-when the memory is recalled in the page: `""` (none), `ft8`, `wefax`, `cw`, `rtty`, `sstv`, `packet`, `pocsag`, `acars`, `vdl2` or `ism`.
+when the memory is recalled in the page: `""` (none), `ft8`, `wefax`, `cw`, `rtty`, `sstv`, `packet`, `pocsag`, `sonde`, `acars`, `vdl2` or `ism`.
 `note` up to 200 characters. `color` is the colour of its tag in the spectrum, `#rrggbb` or `""` (default green); `tag` false hides the tag.
 
 | Method | Path | Description |

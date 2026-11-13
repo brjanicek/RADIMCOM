@@ -22,7 +22,7 @@ Features
   everything, or only while the squelch is open. RECS: the RECORDINGS tab lists the files and
   plays them in the browser.
 - Decoders: FT8, WEFAX (radio fax), CW (Morse), RTTY (auto shift/speed), SSTV (14 modes),
-  PACKET (AX.25 1200 / 9600 Bd, APRS with a station list and map), POCSAG (pagers, 512 / 1200 / 2400 Bd), ACARS (aircraft data link, VHF airband), CPDLC (controller-pilot messages in ACARS);
+  PACKET (AX.25 1200 / 9600 Bd, APRS with a station list and map), POCSAG (pagers, 512 / 1200 / 2400 Bd), SONDE (radiosondes RS41, DFM, with map), ACARS (aircraft data link, VHF airband), CPDLC (controller-pilot messages in ACARS);
   optional daily log for each.
 - DSD mode (first test version): digital voice (DMR, P25, D-Star, YSF, NXDN, dPMR, M17...) with call list;
   needs DSD-FME, which is not in the package: run install_dsd.bat (read its patent notice first).
@@ -83,6 +83,10 @@ Change log
 Ver. 0.115beta1
 (test beta, GitHub branch 0.115beta1)
 Main Features
+- Radiosonde decoder (by Brano, brjanicek; DECODERS tab, page SONDE): weather balloons on 400-406 MHz from the
+  baseband (any mode and filter). Vaisala RS41 with Reed-Solomon correction (serial, position, altitude, speed,
+  direction, climb, satellites, battery), Graw DFM experimental. SONDES list with distance / azimuth / elevation,
+  MAP with the flight path, balloon / parachute and burst point, FRAMES; daily log data\logs\sonde_YYYY-MM-DD.txt.
 - POCSAG pager decoder (by Brano, brjanicek; DECODERS tab, page POCSAG): 512, 1200 and 2400 Bd at once,
   both polarities, from the baseband (any mode and filter). One or two wrong bits per codeword are corrected,
   a codeword that cannot be corrected is a red ? in its message. Numeric or alphanumeric is guessed from the
@@ -254,7 +258,7 @@ Minor Fixes
 - Keys inside the tabs in the colour of the tab: lit band keys (e.g. 433.92 in ISM) had a yellow LED line; the gold
   keys in RECORDINGS and SETTINGS are keys like the others; row highlights follow the tab colour.
 - DECODERS (by Brano, brjanicek): page keys in groups with separators - CW, FT8, PACKET, POCSAG, RTTY, SSTV, WEFAX |
-  ACARS, ADS-B, HFDL, VDL2 | AIS | ISM.
+  ACARS, ADS-B, HFDL, VDL2 | AIS | SONDE | ISM.
 - AGC+ PRESETS above the sliders (SETTINGS -> VFO -> ADVANCED -> AGC+), the matching one lit: CAREFUL (the old
   behaviour, no clipping), MODERATE (new default: gain up to a -2...-5 dBFS peak, short clipping up to 100 ppm tolerated,
   2.5-4 dB more gain), BOLD (new setting "Bold: up while clipping <=": climbs into clipping up to 20 ppm, down above 300 ppm,

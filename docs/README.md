@@ -20,6 +20,7 @@ Decoders:
 | [Aircraft data link](decoders/aircraft.md) | ACARS, VDL2, CPDLC, ADS-C |
 | [POCSAG](decoders/pocsag.md) | pager messages, 512 / 1200 / 2400 Bd, error correction |
 | [HFDL](decoders/hfdl.md) | aircraft data link on HF (2.9–22 MHz) via dumphfdl |
+| [SONDE](decoders/sonde.md) | radiosondes (weather balloons) on 400–406 MHz: RS41, DFM, map |
 | [AIS](decoders/ais.md) | ships on 161.975 / 162.025 MHz, own GMSK decoder, map |
 | [ADS-B](decoders/adsb.md) | aircraft on 1090 MHz, own Mode S / ADS-B decoder, map |
 | [DAB / DAB+](decoders/dab.md) | digital broadcast radio via welle-cli |
