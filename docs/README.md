@@ -18,6 +18,7 @@ Decoders:
 |---|---|
 | [CW](decoders/cw.md) | Morse decoder and skimmer (up to 16 stations at once), soft decisions |
 | [Aircraft data link](decoders/aircraft.md) | ACARS, VDL2, CPDLC, ADS-C |
+| [POCSAG](decoders/pocsag.md) | pager messages, 512 / 1200 / 2400 Bd, error correction |
 | [HFDL](decoders/hfdl.md) | aircraft data link on HF (2.9–22 MHz) via dumphfdl |
 | [AIS](decoders/ais.md) | ships on 161.975 / 162.025 MHz, own GMSK decoder, map |
 | [ADS-B](decoders/adsb.md) | aircraft on 1090 MHz, own Mode S / ADS-B decoder, map |

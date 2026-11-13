@@ -1285,6 +1285,13 @@ body.map-only .ft8-map.map-only-box { flex-direction: column; }
 .pkt td.data .raw { color: var(--muted); font-size: 11px; display: block; }
 .pkt .b96 { color: var(--green); }            /* 9600 Bd (satellites) */
 .pkt-filter { width: 110px; }
+.pocsag .c-ric { width: 82px; }
+.pocsag .c-fn { width: 30px; }
+.pocsag td.ric { color: var(--amber); font-variant-numeric: tabular-nums; cursor: pointer; }
+.pocsag td.data.num { color: #6cb8ff; font-variant-numeric: tabular-nums; }   /* numeric reading (blue) */
+.pocsag td.data.tone { color: var(--dim); font-style: italic; }
+.pocsag td.data .lost { color: #ff7b6b; }      /* codewords that could not be corrected */
+.pocsag td.data .q { color: var(--muted); font-size: 11px; margin-left: 6px; }
 .dec-pane .pkt-body { flex: 1 1 0; min-height: 150px; display: flex; gap: 10px; }
 .pkt-main { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
 .pkt-eye { flex: 0 0 340px; display: flex; flex-direction: column; gap: 6px; padding: 8px;
