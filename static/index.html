@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark">
 <title>RADIMCOM</title>
+<link rel="icon" type="image/png" href="/static/favicon.png">
 <link rel="stylesheet" href="/static/style.css">
 <!-- SET → SKINS: the chosen finish is applied before the first paint (app.js keeps it up to date) -->
 <script>try { const d = document.documentElement, k = localStorage.getItem("skin"), c = localStorage.getItem("skinPaint");
@@ -160,6 +161,11 @@
         <span class="r-tag">SDR COMMUNICATIONS RECEIVER</span>
         <!-- version under the logo (installer and update_check read it from .r-ver); a newer one blinks beside it -->
         <span class="r-vers"><span class="r-ver">Ver. 0.115beta1</span><a class="r-upd" id="updLink" href="https://github.com/om2amr/RADIMCOM/releases" target="_blank" rel="noopener noreferrer" hidden></a></span>
+        </div>
+        <!-- only in RADIMCOM.exe (app window): full screen and the MAIN power switch (placement provisional) -->
+        <div class="app-keys" id="appKeys" hidden>
+          <button class="key small" id="appFull" title="Full screen on / off (F11)" aria-label="Full screen"><svg class="app-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></svg></button>
+          <button class="key small app-power" id="appPower" title="MAIN: switch RADIMCOM off (stops the receivers, decoders and recordings)" aria-label="MAIN power"><svg class="app-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v8"/><path d="M6.6 6.6a8 8 0 1 0 10.8 0"/></svg><span>MAIN</span></button>
         </div>
         <span id="status" class="pill" hidden><span class="dot"></span><span id="statusText"></span></span>
       <!-- volume: vertical sliders (CUE = other VFOs with CUE on, MAIN = active VFO) with the level meter at the left,
@@ -377,15 +383,26 @@
       <div id="decEmpty" class="ft8-empty" hidden></div>
     <!-- ===== decoders ===== -->
     <!-- text decoders (CW, RTTY): the text fills the rest of the tab -->
-    <section class="card ft8 txtdec" id="cwCard" data-dec="cw" hidden>
+    <section class="card ft8 txtdec cwdec" id="cwCard" data-dec="cw" hidden>
       <div class="ft8-head">
         <label class="key small toggle" data-dec-on="cw" title="CW decoder on/off"><input id="cwOn" type="checkbox">ON</label>
+        <label class="wf-opt" id="cwSpanWrap" title="Where to search for stations: in the filter passband, or ±3.4 kHz around the tuned frequency whatever the filter">SPAN
+          <select id="cwSpan"><option value="filter">Filter</option><option value="wide">Wide ±3.4 kHz</option></select>
+        </label>
         <span class="txt-info" id="cwInfo"></span>
-        <label class="wf-opt log-opt" title="Write to the daily log data\logs\cw_YYYY-MM-DD.txt (UTC, shared by all VFOs)"><input type="checkbox" data-log="cw">LOG</label>
-        <button id="cwTune" class="key small" title="Switches to CW and tunes exactly to the detected tone">TUNE</button>
-        <button id="cwClear" class="key small" title="Clear text">CLR</button>
+        <button id="cwAuto" class="key small" hidden title="The strongest station is the followed one again (automatic): its text goes to the log and the audio spectrum bubble">AUTO</button>
+        <label class="wf-opt log-opt" title="Write to the daily log data\logs\cw_YYYY-MM-DD.txt (UTC, shared by all VFOs); the text of the followed station"><input type="checkbox" data-log="cw">LOG</label>
+        <button id="cwTune" class="key small" title="Switches to CW and tunes exactly to the followed station (amber row)">TUNE</button>
+        <button id="cwClear" class="key small" title="Empty the table; stations still on the air come back within half a second with empty text">CLR</button>
       </div>
-      <div class="txt-out" id="cwText"><span id="cwEmpty" class="cw-empty">waiting for a CW signal…</span></div>
+      <div class="cw-list" id="cwList">
+        <table class="cw-st">
+          <colgroup><col class="c-f"><col class="c-call"><col class="c-n"><col class="c-n"><col></colgroup>
+          <thead><tr><th>kHz</th><th>CALL</th><th>WPM</th><th>SNR</th><th>TEXT</th></tr></thead>
+          <tbody id="cwStBody"></tbody>
+        </table>
+        <div id="cwEmpty" class="cw-empty cw-list-empty">waiting for CW stations…</div>
+      </div>
     </section>
 
     <section class="card ft8 txtdec" id="rttyCard" data-dec="rtty" hidden>
@@ -480,12 +497,34 @@
         <button id="ft8Clear" class="key small">CLR</button>
       </div>
       <p class="note">Decodes the USB passband 0–3 kHz above the tuned frequency in 15 s cycles timed by the PC clock (must be accurate to ±1 s).</p>
+      <div class="ft8-split">
       <div class="ft8-table">
-        <table>
-          <thead><tr><th>UTC</th><th>dB</th><th>DT</th><th>Hz</th><th>Frequency</th><th>Message</th></tr></thead>
+        <table class="ft8-tbl">
+          <colgroup><col class="c-utc"><col class="c-snr"><col class="c-dt"><col class="c-hz"><col class="c-f"><col></colgroup>
+          <thead><tr><th>UTC</th><th title="Signal-to-noise ratio in 2.5 kHz">SNR dB</th><th class="num" title="Time offset from the PC clock">DT s</th>
+            <th title="Audio offset in the 0–3 kHz passband">Audio Hz</th><th class="num">kHz</th><th>Message</th></tr></thead>
           <tbody id="ft8Rows"></tbody>
         </table>
         <div id="ft8Empty" class="ft8-empty">No messages yet.</div>
+      </div>
+      <div class="ft8-map" id="ft8MapBox">
+        <div class="ft8-map-bar">
+          <b>STATIONS</b>
+          <div class="bands" id="ft8Win" title="Stations heard in the last …">
+            <button class="key small" data-win="600">10 min</button>
+            <button class="key small" data-win="1800">30 min</button>
+            <button class="key small" data-win="3600">1 h</button>
+            <button class="key small" data-win="43200">12 h</button>
+            <button class="key small" data-win="86400">24 h</button>
+          </div>
+          <span id="ft8MapInfo" class="muted"></span>
+          <button id="ft8MapClr" class="key small" title="Clear the stations of the map (also in the other tabs of this VFO)">CLR</button>
+        </div>
+        <div class="ft8-map-body">
+          <div class="ais-map-main"><div id="ft8Map"></div><div id="ft8MapNote" class="muted"></div></div>
+          <div class="ais-map-list ft8-ml-box" id="ft8MapList"></div>
+        </div>
+      </div>
       </div>
     </section>
 

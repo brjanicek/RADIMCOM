@@ -11,11 +11,13 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import time
 
 from flask import Flask, jsonify, request, send_from_directory
 
 import rotor
+import serverlog
 import sysload
 import update_check
 from paths import BASE, data
@@ -71,7 +73,7 @@ def main():
     # VFOs with their own dongle first, chained VFOs (sharing a dongle, "chain": "A") after them.
     for v in sorted(vfos, key=lambda v: bool(v.get("chain"))):
         procs.append(subprocess.Popen([sys.executable, os.path.join(BASE, "app.py"), "--vfo", v["name"]],
-                                      stdin=subprocess.PIPE, cwd=BASE))
+                                      stdin=subprocess.PIPE, cwd=BASE, **serverlog.child_kwargs()))
         # Dongles are opened one after another; opening them at the same time through libusb is unreliable.
         time.sleep(0.5 if v.get("chain") else 1.5)
 
@@ -92,8 +94,9 @@ def main():
         return jsonify([dict({k: v.get(k) for k in ("name", "port", "serial", "note", "chain")}, rotor=i == 0)
                         for i, v in enumerate(vfos)])
 
-    def shutdown():
-        """For the upgrade: the VFO receivers end as with the launcher closed (their input closes), then the launcher."""
+    def shutdown(code=0):
+        """The VFO receivers end as with the launcher closed (their input closes), then the launcher
+        (when RADIMCOM.exe closes our input)."""
         for p in procs:
             try:
                 p.stdin.close()
@@ -104,18 +107,19 @@ def main():
                 p.wait(10)
             except subprocess.TimeoutExpired:
                 p.terminate()
-        os._exit(0)
+        os._exit(code)
 
-    @app.route("/api/update", methods=["GET", "POST"])
+    if os.environ.get("RADIMCOM_SHELL"):
+        # started by RADIMCOM.exe: it stops the server by closing our input (Exit in its tray menu)
+        def exit_with_shell():
+            sys.stdin.read()
+            print("RADIMCOM.exe closed: stopping the receivers")
+            shutdown(0)
+        threading.Thread(target=exit_with_shell, name="exit_with_shell", daemon=True).start()
+
+    @app.route("/api/update")
     def api_update():
-        """GET: newer version on GitHub; POST {"upgrade": true}: download it, close RADIMCOM and install it."""
-        if request.method == "POST":
-            if not update_check.same_host(request):
-                return jsonify({"error": "the upgrade is accepted only from this RADIMCOM page"}), 403
-            if (request.get_json(force=True, silent=True) or {}).get("upgrade"):
-                err = update_check.upgrade(shutdown)
-                if err:
-                    return jsonify({"error": err}), 409
+        """Newer version on GitHub (update_check.py): the page shows it with the link to its setup."""
         return jsonify(update_check.info())
 
     update_check.start(setup.get("update_check", True))

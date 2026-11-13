@@ -39,12 +39,14 @@ does not contain the binaries; the release packages do, except where noted.
 | libairspy | Airspy access | BSD 3-Clause | <https://github.com/airspy/airspyone_host> |
 | pthreads-win32 | used by airspy.dll | LGPL v2.1 or later | <https://sourceware.org/pthreads-win32/> |
 | FTDI D3XX driver | LimeSDR USB driver | FTDI driver licence | <https://ftdichip.com/drivers/d3xx-drivers/> |
-| PyFT8 | FT8 decoder; `install.bat` installs it from PyPI, not in the package | GPL v3 or later | <https://github.com/G1OJS/PyFT8m> |
-| Flask, NumPy, SciPy, pyserial | Python packages; `install.bat` installs them from PyPI, not in the package | BSD | PyPI |
+| PyFT8 | FT8 decoder; in the Python of the setup (`python\`), `install.bat` installs it from PyPI | GPL v3 or later | <https://github.com/G1OJS/PyFT8m> |
+| Flask, NumPy, SciPy, pyserial | Python packages; in the Python of the setup (`python\`), `install.bat` installs them from PyPI | BSD (NumPy/SciPy include OpenBLAS: BSD, GCC runtime: GPL with GCC Runtime Library Exception) | PyPI |
+| Python 3.13 | runs RADIMCOM; the setup brings it in `python\` (NuGet package "python") | PSF License | <https://www.python.org> |
+| Microsoft Edge WebView2 SDK | the app window of `RADIMCOM.exe` (`Microsoft.Web.WebView2.*.dll`, `WebView2Loader.dll`) | Microsoft WebView2 SDK licence (`WebView2_LICENSE.txt`), redistributable | <https://www.nuget.org/packages/Microsoft.Web.WebView2> |
 | Leaflet 1.9.4 | map for choosing the station place (SATELLITES tab, SETUP); in `static/leaflet` | BSD 2-Clause (`static/leaflet/LICENSE`) | <https://leafletjs.com> |
 | Natural Earth 1:50m land and country borders | world map (SATELLITES tab, MAP); simplified in `static/world.js` by `installer/make_world.py` | public domain | <https://www.naturalearthdata.com/> |
-| sgp4 | satellite positions (SATELLITES tab, PASSES); `install.bat` installs it from PyPI, not in the package | MIT | <https://github.com/brandon-rhodes/python-sgp4> |
-| lameenc (with the LAME MP3 encoder) | MP3 recording; `install.bat` installs it from PyPI, not in the package | LGPL v3 or later (LAME: LGPL) | <https://github.com/chrisstaite/lameenc> |
+| sgp4 | satellite positions (SATELLITES tab, PASSES); in the Python of the setup (`python\`), `install.bat` installs it from PyPI | MIT | <https://github.com/brandon-rhodes/python-sgp4> |
+| lameenc (with the LAME MP3 encoder) | MP3 recording; in the Python of the setup (`python\`), `install.bat` installs it from PyPI | LGPL v3 or later (LAME: LGPL) | <https://github.com/chrisstaite/lameenc> |
 
 ### Not in the package: DSD-FME
 

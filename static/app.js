@@ -55,6 +55,10 @@ function fitStage() {
     const k = Math.min(w / STAGE_W, h / STAGE_H);
     apply(k);
     if (widen()) apply(Math.min(k, w / baseW));
+    // the window keeps the ratio of the screen: the page looks like in full screen, only smaller
+    // (with STAGE_H the lower part would be lower than in full screen)
+    const sw = (window.screen && screen.width) || STAGE_W, sh = (window.screen && screen.height) || STAGE_H;
+    tellAspect(sw, sh);
     return;
   }
   // the head height depends on the stage width (compact keys): fit, measure again, fit once more
@@ -65,6 +69,16 @@ function fitStage() {
     stageH = hh;
     apply(Math.min(w / baseW, h / stageH));
   }
+  tellAspect(baseW, stageH);
+}
+// RADIMCOM.exe (WebView2 window): the window keeps the aspect ratio of the stage when it is resized
+let lastAspect = "";
+function tellAspect(w, h) {
+  const wv = window.chrome && window.chrome.webview;
+  const a = `${Math.round(w)}:${Math.round(h)}`;
+  if (!wv || !h || a === lastAspect) return;
+  lastAspect = a;
+  wv.postMessage("aspect:" + a);
 }
 fitStage();
 window.addEventListener("resize", fitStage);   // before the other resize handlers (redraw)
@@ -120,7 +134,7 @@ let active = null; // active VFO
 // no spectrum, and it saves nothing to the browser, so the settings of the main window stay as they are
 const MAP_ONLY = (() => {
   const m = new URLSearchParams(location.search).get("map");
-  return ["packet", "hfdl", "ais", "adsb", "acars"].includes(m) ? m : null;
+  return ["packet", "hfdl", "ais", "adsb", "acars", "ft8"].includes(m) ? m : null;
 })();
 
 function store(key, value) { if (MAP_ONLY) return; try { localStorage.setItem(key, value); } catch (e) { /* no storage */ } }
@@ -1594,6 +1608,7 @@ function drawOverlays() {
     ctx.strokeStyle = "#ff5d5d";
     ctx.beginPath(); ctx.moveTo(xt, 0); ctx.lineTo(xt, h); ctx.stroke();
     if (spectrum) drawScanMarks(ctx, w, h);
+    if (spectrum) drawCwMarks(ctx, w, h);
     if (spectrum) {
       // Label above the passband: tuned frequency, then demodulator and bandwidth.
       const { txt: fTxt, unit } = freqDigits(st.tune_hz);
@@ -2837,25 +2852,66 @@ function renderFt8Bands(freqs) {
     `<button data-f="${f}" title="${fmtKHz(f, 0)} kHz USB">${FT8_BANDS[f] || fmtMHz(f, 3)} m</button>`).join("");
 }
 
+// The message split into coloured tokens: CQ (+ its modifier), callsigns, grid locators, reports, 73 / RR73.
+const ft8Esc = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+function ft8MsgHtml(msg) {
+  const w = msg.trim().split(/\s+/);
+  return w.map((t, i) => {
+    let c = "";
+    if (i === 0 && t === "CQ") c = "t-cq";
+    else if (i === 1 && w[0] === "CQ" && /^([A-Z]{2,4}|\d{3})$/.test(t) && w.length > 3) c = "t-cqm";   // CQ DX / CQ POTA / CQ 290
+    else if (/^(RR73|RRR|73)$/.test(t)) c = "t-73";
+    else if (/^R?[+-]\d{2}$/.test(t)) c = "t-rep";
+    else if (/^[A-R]{2}\d{2}$/.test(t) && i === w.length - 1) c = "t-grid";
+    else if (/^<.*>$/.test(t)) c = "t-hash";
+    else if (/\d/.test(t) && /[A-Z]/.test(t)) c = "t-call";
+    return c ? `<span class="${c}">${ft8Esc(t)}</span>` : ft8Esc(t);
+  }).join(" ");
+}
+
+function ft8Kind(msg) {
+  if (/^CQ\b/.test(msg)) return "cq";
+  if (/\b(RR73|RRR|73)$/.test(msg)) return "end";
+  if (/\bR?[+-]\d{2}$/.test(msg)) return "rep";
+  return "qso";
+}
+
 function addFt8(d, fresh) {
   const tb = $("ft8Rows");
   $("ft8Empty").hidden = true;
   if (ft8Cycle !== d.time) {
     ft8Cycle = d.time;
     const sep = document.createElement("tr");
-    sep.className = "cycle";
-    sep.innerHTML = `<td colspan="6">── ${d.time} UTC</td>`;
+    const odd = Math.floor(Number(String(d.time).slice(-2)) / 15) % 2;   // 00/30 = even slot, 15/45 = odd
+    sep.className = "cycle " + (odd ? "odd" : "even");
+    sep.innerHTML = `<td colspan="6"><span class="cy-t">${d.time}</span><span class="cy-n">0</span>` +
+      `<span class="cy-s">${odd ? "2nd / odd" : "1st / even"}</span><i class="cy-strip"></i></td>`;
     tb.prepend(sep);
   }
+  const sep = tb.firstChild;
   const tr = document.createElement("tr");
+  tr.className = "k-" + ft8Kind(d.msg);
   if (/^CQ\b/.test(d.msg)) tr.classList.add("cq");
   if (fresh) tr.classList.add("new");
-  const esc = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
-  tr.innerHTML = `<td>${d.time}</td><td class="num">${d.snr > 0 ? "+" : ""}${d.snr}</td>` +
-    `<td class="num">${d.dt.toFixed(1)}</td><td class="num">${d.df}</td>` +
-    `<td class="num">${fmtKHz(d.freq_hz, 1)}</td><td class="msg">${esc(d.msg)}</td>`;
+  // SNR −24…+20 dB → bar length and colour (red → amber → green)
+  const lvl = Math.max(0, Math.min(1, (d.snr + 24) / 44));
+  const snrCls = d.snr >= 0 ? "s-hi" : d.snr >= -12 ? "s-mid" : "s-lo";
+  const dtCls = Math.abs(d.dt) > 1 ? "dt-bad" : Math.abs(d.dt) > 0.5 ? "dt-warn" : "";
+  const pos = Math.max(0, Math.min(100, d.df / 30));   // 0–3000 Hz → %
+  tr.innerHTML = `<td class="utc">${d.time}</td>` +
+    `<td class="snr ${snrCls}"><div class="cf"><span class="snr-v">${d.snr > 0 ? "+" : ""}${d.snr}</span><span class="snr-b"><i style="width:${(lvl * 100).toFixed(0)}%"></i></span></div></td>` +
+    `<td class="num ${dtCls}">${d.dt >= 0 ? "+" : ""}${d.dt.toFixed(1)}</td>` +
+    `<td class="hz"><div class="cf"><span class="hz-b"><i style="left:${pos.toFixed(1)}%"></i></span><span class="hz-v">${d.df}</span></div></td>` +
+    `<td class="num fq">${fmtKHz(d.freq_hz, 1)}</td><td class="msg">${ft8MsgHtml(d.msg)}</td>`;
   // New messages go to the top, right under the separator of their cycle.
-  tb.insertBefore(tr, tb.firstChild.nextSibling);
+  tb.insertBefore(tr, sep.nextSibling);
+  const n = sep.querySelector(".cy-n");
+  n.textContent = Number(n.textContent) + 1;
+  // the cycle strip: one tick per decode at its audio offset (0–3 kHz), coloured by the message kind
+  const tick = document.createElement("b");
+  tick.className = "k-" + ft8Kind(d.msg);
+  tick.style.left = pos.toFixed(1) + "%";
+  sep.querySelector(".cy-strip").append(tick);
   while (tb.rows.length > FT8_MAX_ROWS) tb.lastChild.remove();
   ft8Count++;
 }
@@ -2889,6 +2945,209 @@ $("ft8Clear").addEventListener("click", () => {
   ft8Cycle = null;
   ft8Count = 0;
 });
+
+// ---------- FT8 station map: the stations heard (by the locator in their messages), kept 24 h by the server ----------
+
+const ft8St = new Map();    // call -> {call, grid, lat, lon, ts, first, n, snr, freq_hz, msg, cq}
+let ft8Win = Number(recall("ft8Win")) || 3600;
+var ft8PageShown = false;   // var: renderDecTab can run before this line
+let ft8Map = null, ft8MapLay = null, ft8MapFitted = false, ft8Sel = null, ft8Qth = null, ft8MapTimer = null;
+
+const ft8Shown = () => MAP_ONLY === "ft8" || (bodyTab === "dec" && decPage === "ft8");
+const ft8BandOf = (hz) => FT8_BANDS[Object.keys(FT8_BANDS).find((f) => Math.abs(f - hz) < 5000)];
+function ft8Ago(ts) {
+  const s = Math.max(0, Date.now() / 1000 - ts);
+  return s < 60 ? `${Math.round(s)} s` : s < 3600 ? `${Math.round(s / 60)} min` : `${(s / 3600).toFixed(s < 36000 ? 1 : 0)} h`;
+}
+/** Distance (km) and azimuth (°) from the QTH, great circle. */
+function ft8DistAz(lat, lon) {
+  if (!ft8Qth) return null;
+  const r = Math.PI / 180, f1 = ft8Qth.lat * r, f2 = lat * r, dl = (lon - ft8Qth.lon) * r;
+  const d = Math.acos(Math.min(1, Math.sin(f1) * Math.sin(f2) + Math.cos(f1) * Math.cos(f2) * Math.cos(dl))) * 6371;
+  const az = (Math.atan2(Math.sin(dl) * Math.cos(f2), Math.cos(f1) * Math.sin(f2) - Math.sin(f1) * Math.cos(f2) * Math.cos(dl)) / r + 360) % 360;
+  return { km: Math.round(d), az: Math.round(az) };
+}
+/** A 4-character locator is 2° × 1°: the stations of one square are spread inside it (by a hash of the call),
+ *  so they do not lie on one point. */
+function ft8Spread(s) {
+  let h = 2166136261;
+  for (const c of s.call) h = Math.imul(h ^ c.charCodeAt(0), 16777619);
+  const a = ((h >>> 0) % 1000) / 1000 - 0.5, b = ((h >>> 10) % 1000) / 1000 - 0.5;
+  return [s.lat + a * 0.8, s.lon + b * 1.6];
+}
+
+function ft8StUpsert(d) {
+  if (!d.call) return;
+  let s = ft8St.get(d.call);
+  if (!s) { s = { call: d.call, first: d.ts, n: 0 }; ft8St.set(d.call, s); }
+  Object.assign(s, { ts: d.ts, snr: d.snr, freq_hz: d.freq_hz, msg: d.msg, n: s.n + 1, cq: /^CQ /.test(d.msg) });
+  if (d.grid) Object.assign(s, { grid: d.grid, lat: d.lat, lon: d.lon });
+  s.fresh = Date.now();
+  ft8MapLater();
+}
+
+function ft8MapLater() {
+  if (ft8MapTimer || !ft8Shown()) return;
+  ft8MapTimer = setTimeout(() => { ft8MapTimer = null; renderFt8Map(); }, 700);
+}
+
+async function ft8StLoad() {
+  const v = active;
+  try {
+    const list = await fetch(vbase + "/api/ft8/stations").then((r) => r.json());
+    if (v !== active) return;
+    ft8St.clear();
+    for (const s of list) ft8St.set(s.call, s);
+  } catch { /* server unreachable */ }
+  ft8MapFitted = false;
+  ft8MapLater();
+}
+
+async function ft8MapOpen() {
+  try {
+    await Promise.all([satAsset("/static/leaflet/leaflet.css"), satAsset("/static/leaflet/leaflet.js")]);
+  } catch (e) {
+    $("ft8MapNote").textContent = e.message;
+    return false;
+  }
+  if (!ft8Map) {
+    ft8Map = L.map($("ft8Map"), { worldCopyJump: true, minZoom: 2 }).setView([50, 15], 4);
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 12, className: "hfdl-dark",
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors',
+    }).addTo(ft8Map);
+    mapPopout(ft8Map, "ft8");
+    ft8MapLay = { path: L.layerGroup().addTo(ft8Map), st: L.layerGroup().addTo(ft8Map), marks: new Map() };
+    // call labels only when zoomed in enough (a whole continent of labels is unreadable)
+    const lbl = () => $("ft8Map").classList.toggle("ft8-nolbl", ft8Map.getZoom() < 5);
+    ft8Map.on("zoomend", lbl);
+    lbl();
+    try {
+      const s = await satFetch("/api/location");
+      if (s && Number.isFinite(s.lat) && Number.isFinite(s.lon) && (s.lat || s.lon)) {
+        ft8Qth = { lat: s.lat, lon: s.lon };
+        L.circleMarker([s.lat, s.lon], { radius: 6, color: "#000", weight: 2, fillColor: "#ff5a3c", fillOpacity: 1 })
+          .bindTooltip(`QTH${s.locator ? " " + escHtml(s.locator) : ""}`).addTo(ft8Map);
+      }
+    } catch { /* server unreachable */ }
+  }
+  return true;
+}
+
+function ft8Icon(s, sel) {
+  const age = Date.now() / 1000 - s.ts;
+  const kind = sel ? "sel" : s.cq ? "cq" : "qso";
+  return `ft8-tri ${kind}${age > Math.min(ft8Win / 2, 1800) ? " old" : ""}${s.fresh && Date.now() - s.fresh < 20000 ? " fresh" : ""}`;
+}
+const ft8IconOf = (cls) => L.divIcon({ className: cls, html: '<svg viewBox="0 0 16 16"><path d="M8 1.5 15 14.5H1z"/></svg>', iconSize: [12, 12], iconAnchor: [6, 7.5] });
+
+/** Redraw of the map, at most one at a time: calls during a redraw are folded into one more after it. */
+const FT8_LIST_MAX = 300;
+let ft8Drawing = false, ft8DrawAgain = false;
+async function renderFt8Map() {
+  if (ft8Drawing) { ft8DrawAgain = true; return; }
+  ft8Drawing = true;
+  try {
+    do { ft8DrawAgain = false; await drawFt8Map(); } while (ft8DrawAgain);
+  } finally { ft8Drawing = false; }
+}
+
+function ft8Popup(s) {
+  const da = s.lat != null ? ft8DistAz(s.lat, s.lon) : null;
+  const band = ft8BandOf(s.freq_hz);
+  return `<b class="ft8-pop-call">${escHtml(s.call)}</b>${s.grid ? ` <span class="ft8-pop-grid">${escHtml(s.grid)}</span>` : ""}<br>` +
+    (da ? `${da.km.toLocaleString("en")} km · az ${da.az}°<br>` : "") +
+    `<span class="ft8-pop-msg">${ft8MsgHtml(s.msg)}</span><br>` +
+    `${s.snr > 0 ? "+" : ""}${s.snr} dB · ${fmtKHz(s.freq_hz, 1)} kHz${band ? ` (${band} m)` : ""}<br>` +
+    `${ft8Ago(s.ts)} ago · ${s.n} decode${s.n === 1 ? "" : "s"} · <a href="https://www.qrz.com/db/${encodeURIComponent(s.call)}" target="_blank" rel="noopener">QRZ</a>` +
+    ` · <a href="https://pskreporter.info/pskmap.html?callsign=${encodeURIComponent(s.call)}" target="_blank" rel="noopener">PSK Reporter</a>`;
+}
+
+async function drawFt8Map() {
+  if (!ft8Shown() || !(await ft8MapOpen())) return;
+  ft8Map.invalidateSize();
+  const now = Date.now() / 1000;
+  const all = [...ft8St.values()].filter((s) => now - s.ts <= ft8Win).sort((a, b) => b.ts - a.ts);
+  const list = all.filter((s) => s.lat != null);
+  const lay = ft8MapLay, keep = new Set();
+  lay.path.clearLayers();
+  for (const s of list) {
+    keep.add(s.call);
+    const sel = s.call === ft8Sel;
+    let mk = lay.marks.get(s.call);
+    const call = s.call, cls = ft8Icon(s, sel);
+    if (!mk) {
+      // the popup text is made only when it opens (from the newest data of the station)
+      mk = L.marker(ft8Spread(s), { icon: ft8IconOf(cls) })
+        .bindPopup(() => ft8Popup(ft8St.get(call) || s), { className: "ft8-popup" })
+        .bindTooltip(escHtml(call), { permanent: true, direction: "bottom", offset: [0, -1], className: "ft8-label" }).addTo(lay.st);
+      mk.on("click", () => ft8Select(call, false));
+      mk._ft8 = { cls, grid: s.grid };
+      lay.marks.set(call, mk);
+    }
+    // only what changed is touched (a new icon re-creates its element)
+    if (mk._ft8.grid !== s.grid) { mk.setLatLng(ft8Spread(s)); mk._ft8.grid = s.grid; }
+    if (mk._ft8.cls !== cls) { mk.setIcon(ft8IconOf(cls)); mk._ft8.cls = cls; mk.setZIndexOffset(sel ? 1000 : s.cq ? 500 : 0); mk._ft8.lbl = null; }
+    // the frame of the call label in the colour of the triangle
+    const tt = mk.getTooltip() && mk.getTooltip().getElement();
+    if (tt && mk._ft8.lbl !== cls) { tt.classList.toggle("cq", !sel && s.cq); tt.classList.toggle("sel", sel); mk._ft8.lbl = cls; }
+    if (mk.isPopupOpen()) mk.getPopup().update();
+    if (sel && ft8Qth) L.polyline([[ft8Qth.lat, ft8Qth.lon], ft8Spread(s)], { color: "#ff4b3c", weight: 1.5, dashArray: "4 4", opacity: 0.8, interactive: false }).addTo(lay.path);
+  }
+  for (const [k, mk] of lay.marks) if (!keep.has(k)) { mk.remove(); lay.marks.delete(k); }
+  if (!ft8MapFitted && lay.marks.size) {
+    ft8MapFitted = true;
+    const pts = [...lay.marks.values()].map((m) => m.getLatLng());
+    if (ft8Qth) pts.push(L.latLng(ft8Qth.lat, ft8Qth.lon));
+    ft8Map.fitBounds(L.latLngBounds(pts).pad(0.15), { maxZoom: 6 });
+  }
+  const far = list.reduce((m, s) => { const da = ft8DistAz(s.lat, s.lon); return da && da.km > m.km ? { km: da.km, call: s.call } : m; }, { km: 0 });
+  $("ft8MapInfo").textContent = `${all.length} station${all.length === 1 ? "" : "s"} · ${list.length} on the map` +
+    (far.km ? ` · farthest ${far.call} ${far.km.toLocaleString("en")} km` : "");
+  $("ft8MapList").innerHTML = `<div class="ais-ml-head">${all.length} heard · ${all.length - list.length} without a locator yet${all.length > FT8_LIST_MAX ? ` · newest ${FT8_LIST_MAX} listed` : ""}</div>` +
+    all.slice(0, FT8_LIST_MAX).map((s) => {
+      const da = s.lat != null ? ft8DistAz(s.lat, s.lon) : null;
+      const snrCls = s.snr >= 0 ? "s-hi" : s.snr >= -12 ? "s-mid" : "s-lo";
+      return `<div class="ft8-ml${s.call === ft8Sel ? " sel" : ""}${s.lat == null ? " nopos" : ""}${s.cq ? " cq" : ""}" data-call="${escHtml(s.call)}" title="${escHtml(s.msg)}">` +
+        `<i class="tri"></i><b>${escHtml(s.call)}</b><span class="grid">${escHtml(s.grid || "")}</span>` +
+        `<span class="km">${da ? da.km.toLocaleString("en") : ""}</span><span class="${snrCls}">${s.snr > 0 ? "+" : ""}${s.snr}</span>` +
+        `<span class="age">${ft8Ago(s.ts)}</span></div>`;
+    }).join("");
+  $("ft8MapNote").textContent = `▲ green = calling CQ · cyan = in a QSO · red = selected · pale = not heard lately · position = centre area of the locator ` +
+    `(4 characters: 2° × 1°, stations of one square spread inside it) · map © OpenStreetMap`;
+}
+
+function ft8Select(call, pan = true) {
+  ft8Sel = call;
+  renderFt8Map().then(() => {
+    const mk = ft8MapLay && ft8MapLay.marks.get(call);
+    if (!mk) return;
+    if (pan) ft8Map.setView(mk.getLatLng(), Math.max(ft8Map.getZoom(), 5));
+    mk.openPopup();
+  });
+}
+
+function setFt8Win(sec) {
+  ft8Win = sec;
+  store("ft8Win", String(sec));
+  for (const b of $("ft8Win").children) b.classList.toggle("on", Number(b.dataset.win) === sec);
+  renderFt8Map();
+}
+$("ft8Win").addEventListener("click", (e) => { const b = e.target.closest("[data-win]"); if (b) setFt8Win(Number(b.dataset.win)); });
+for (const b of $("ft8Win").children) b.classList.toggle("on", Number(b.dataset.win) === ft8Win);
+$("ft8MapList").addEventListener("click", (e) => { const r = e.target.closest("[data-call]"); if (r && !r.classList.contains("nopos")) ft8Select(r.dataset.call); });
+$("ft8MapClr").addEventListener("click", async () => {
+  try { await fetch(vbase + "/api/ft8/stations", { method: "DELETE" }); } catch { /* server unreachable */ }
+  ft8StClear();
+});
+function ft8StClear() {
+  ft8St.clear();
+  ft8Sel = null;
+  ft8MapFitted = false;
+  if (ft8MapLay) { ft8MapLay.st.clearLayers(); ft8MapLay.path.clearLayers(); ft8MapLay.marks.clear(); }
+  renderFt8Map();
+}
+setInterval(() => { if (ft8Shown()) renderFt8Map(); }, 15000);   // ages, window edge
 
 // ---------- SPECTRUM / DECODERS / SATELLITES tabs ----------
 // The decoders are not below the screen (scrolling to them was awkward) but in a tab that covers the spectrum and waterfall.
@@ -3026,6 +3285,10 @@ function renderDecTab() {
   if (st) renderLinkBands();
   // the ACARS map was hidden (size 0); later: this also runs before the map variables are declared
   if (decPage === "acars" || decPage === "vdl2") setTimeout(() => { if (acarsMap) acarsMap.invalidateSize(); });
+  // the station map (hidden = size 0 until now): drawn when the page opens, not at each status message
+  const ft8Now = decPage === "ft8" && !na && bodyTab === "dec";
+  if (ft8Now && !ft8PageShown) setTimeout(renderFt8Map);
+  ft8PageShown = ft8Now;
   $("decEmpty").hidden = !na;
   $("decEmpty").classList.toggle("dec-na", !!na);
   $("decEmpty").textContent = na;
@@ -6233,34 +6496,228 @@ function textOut(boxId, emptyId, max) {
 }
 
 let cwInfo = null;
-const cwOut = textOut("cwText", "cwEmpty", 6000);
-const cwAppend = (t) => cwOut.add(t);
+// CW skimmer table: one row per station. The text of each station is kept here: seeded from the state (its end),
+// the whole of it fetched when its row is opened, then extended by the cwchan events.
+const CW_TEXT_MAX = 4000, CW_ROW_CHARS = 400;
+const cwTexts = new Map();   // id -> { t: text, c: confidence digits 0–9 }
+const cwOpen = new Set();    // ids of the opened rows
+const cwRows = new Map();    // id -> { tr, cells, box, inner, det }
+const cwCls = (c) => (c >= 7 ? "" : c >= 4 ? "cq-mid" : "cq-lo");
+const cwPost = (body) => fetch(vbase + "/api/cw", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+  .then((r) => r.json()).then((i) => { if (i && i.channels) renderCwInfo(i); }).catch(() => {});
+const KEY_NAMES = { paddle: "paddle", bug: "bug", straight: "straight key" };
+
+/** Text into an element, each character coloured by its confidence (runs of one class in one span). */
+function cwPaint(el, t, c) {
+  el.textContent = "";
+  let run = "", k = null;
+  const flush = () => {
+    if (!run) return;
+    const s = document.createElement("span");
+    if (k) s.className = k;
+    s.textContent = run;
+    el.append(s);
+    run = "";
+  };
+  for (let i = 0; i < t.length; i++) {
+    const kk = cwCls(c && c[i] != null ? +c[i] : 9);
+    if (kk !== k) { flush(); k = kk; }
+    run += t[i];
+  }
+  flush();
+}
+
+function cwTextOf(id) {
+  let x = cwTexts.get(id);
+  if (!x) { x = { t: "", c: "" }; cwTexts.set(id, x); }
+  return x;
+}
+
+/** The text cell of a row: closed = one line ending with the newest characters, open = the whole text. */
+function cwRowText(id) {
+  const r = cwRows.get(id);
+  if (!r) return;
+  const x = cwTextOf(id), open = cwOpen.has(id);
+  const n = open ? x.t.length : CW_ROW_CHARS;
+  const stick = r.box.scrollTop + r.box.clientHeight >= r.box.scrollHeight - 4;
+  cwPaint(r.inner, x.t.slice(-n), x.c.slice(-n));
+  if (!x.t) r.inner.textContent = "…";
+  if (open && stick) r.box.scrollTop = r.box.scrollHeight;
+}
+
+/** cwchan: new characters of one station. */
+function cwChanAdd(d) {
+  const x = cwTextOf(d.id);
+  x.t = (x.t + d.t).slice(-CW_TEXT_MAX);
+  x.c = (x.c + d.c.join("")).slice(-CW_TEXT_MAX);
+  cwRowText(d.id);
+}
+
+function cwToggle(id) {
+  if (cwOpen.has(id)) {
+    cwOpen.delete(id);
+  } else {
+    cwOpen.add(id);
+    cwPost({ action: "follow", id });   // the opened station is the followed one (LOG, TUNE, audio bubble)
+    fetch(vbase + "/api/cw?id=" + id).then((r) => (r.ok ? r.json() : null)).then((d) => {
+      if (!d || d.text == null) return;
+      cwTexts.set(id, { t: d.text, c: d.conf });
+      cwRowText(id);
+    }).catch(() => {});
+  }
+  const r = cwRows.get(id);
+  if (r) r.tr.classList.toggle("open", cwOpen.has(id));
+  cwRowText(id);
+}
+
+function cwRow(id) {
+  let r = cwRows.get(id);
+  if (r) return r;
+  const tr = document.createElement("tr");
+  const cells = ["num", "call", "num", "num"].map((cl) => { const td = document.createElement("td"); td.className = cl; tr.append(td); return td; });
+  const td = document.createElement("td");
+  td.className = "txt";
+  const box = document.createElement("div"), inner = document.createElement("span"), det = document.createElement("div");
+  box.className = "cw-t"; inner.className = "cw-ti"; det.className = "cw-det";
+  box.append(inner);
+  td.append(box, det);
+  tr.append(td);
+  tr.addEventListener("click", (e) => {
+    // inside an opened text: selecting / scrolling, not closing
+    if (cwOpen.has(id) && (box.contains(e.target) || det.contains(e.target))) return;
+    if (String(window.getSelection() || "")) return;
+    cwToggle(id);
+  });
+  r = { tr, cells, box, inner, det };
+  cwRows.set(id, r);
+  return r;
+}
+
+function cwDetails(r, c) {
+  const p = c.profile;
+  const parts = [`${fmtKHz(c.freq_hz, 3)} kHz (${c.tone_hz > 0 ? "+" : ""}${c.tone_hz} Hz)`];
+  if (c.acquired) {
+    parts.push(`dot ${p.dot_ms} ms`, `dah/dit ${(p.dah / p.dit).toFixed(2)}`, `gaps ${p.ie} / ${p.ic} / ${p.iw} dots`);
+    if (c.key) parts.push(KEY_NAMES[c.key] || c.key);
+    if (c.farnsworth) parts.push(`Farnsworth: letters ${c.wpm} WPM, text ${c.eff_wpm} WPM`);
+  } else parts.push("learning the speed…");
+  r.det.textContent = "";
+  const span = document.createElement("span");
+  span.textContent = parts.join("  ·  ");
+  const tuneBtn = document.createElement("button");
+  tuneBtn.className = "key small";
+  tuneBtn.textContent = "TUNE";
+  tuneBtn.title = "Switch to CW and tune the VFO to this station";
+  tuneBtn.addEventListener("click", (e) => { e.stopPropagation(); cwTuneTo(c.freq_hz); });
+  r.det.append(tuneBtn, span);
+}
+
+function renderCwTable(i) {
+  const body = $("cwStBody"), ids = new Set();
+  let k = 0;
+  for (const c of i.channels) {
+    ids.add(c.id);
+    const fresh = !cwRows.has(c.id);
+    const r = cwRow(c.id);
+    if (fresh || !cwTexts.has(c.id)) cwTexts.set(c.id, { t: c.text, c: c.conf });   // seed with the end of its text
+    const [f, call, wpm, snr] = r.cells;
+    f.textContent = fmtKHz(c.freq_hz, 2);
+    call.textContent = c.call || "—";
+    wpm.textContent = c.acquired ? c.wpm : "…";
+    snr.textContent = Math.round(c.snr_db);
+    r.tr.className = [c.id === i.cur ? "cur" : "", c.present ? "" : "gone", cwOpen.has(c.id) ? "open" : ""].join(" ").trim();
+    r.tr.title = `${c.wpm} WPM · SNR ${c.snr_db} dB${c.key ? " · " + (KEY_NAMES[c.key] || c.key) : ""}`
+      + (c.id === i.cur ? (i.follow == null ? " · followed (the strongest)" : " · followed") : "")
+      + (cwOpen.has(c.id) ? " · click to close" : " · click to open the whole text");
+    cwDetails(r, c);
+    // rows in frequency order; moved only when out of place (moving resets the scroll of an opened text)
+    if (body.children[k] !== r.tr) body.insertBefore(r.tr, body.children[k] || null);
+    k++;
+    if (fresh) cwRowText(c.id);
+  }
+  for (const [id, r] of cwRows) {
+    if (ids.has(id)) continue;
+    r.tr.remove();
+    cwRows.delete(id); cwTexts.delete(id); cwOpen.delete(id);
+  }
+  $("cwEmpty").hidden = i.channels.length > 0;
+}
+
+function cwReset() {
+  for (const r of cwRows.values()) r.tr.remove();
+  cwRows.clear(); cwTexts.clear(); cwOpen.clear();
+  $("cwEmpty").hidden = false;
+}
 
 function renderCwInfo(i) {
+  const hadMarks = cwInfo && cwInfo.channels && cwInfo.channels.length;
   cwInfo = i;
-  // Short like on a station "WPM:25"; details in the tooltip.
-  $("cwInfo").textContent = i.tone_hz == null ? "WPM:--" : `${i.present ? "●" : "○"} WPM:${i.wpm}  ${Math.round(i.snr_db)} dB`;
-  $("cwInfo").title = i.tone_hz == null ? "searching for tone…"
-    : `tone ${fmtKHz(i.freq_hz, 2)} kHz (${i.tone_hz > 0 ? "+" : ""}${i.tone_hz} Hz) · SNR ${i.snr_db} dB`;
+  const s = i.station, n = (i.channels || []).filter((c) => c.present).length;
+  // Short like on a station; details in the tooltip.
+  $("cwInfo").textContent = !s ? "no station"
+    : `${n} stn  ${i.present ? "●" : "○"} ${s.call ? s.call + " " : ""}${i.wpm} WPM ${Math.round(i.snr_db)} dB`;
+  $("cwInfo").title = !s ? "searching for stations…"
+    : `${n} station(s) heard; followed: ${fmtKHz(i.freq_hz, 2)} kHz (${i.tone_hz > 0 ? "+" : ""}${i.tone_hz} Hz) · SNR ${i.snr_db} dB`;
   $("cwTune").disabled = i.tone_hz == null;
+  if (document.activeElement !== $("cwSpan")) $("cwSpan").value = i.span || "filter";
+  $("cwAuto").hidden = i.follow == null;
+  renderCwTable(i);
+  if (hadMarks || (i.channels && i.channels.length)) drawOverlays();   // stations in the spectrum
+}
+
+/** Skimmer stations in the spectrum (bandmap): a mark at the bottom edge and the call (or WPM) above it. */
+function drawCwMarks(ctx, w, h) {
+  const i = cwInfo;
+  if (!st || !st.cw || !i || !i.channels || !i.channels.length) return;
+  ctx.save();
+  ctx.font = "600 10px system-ui, sans-serif";
+  ctx.textBaseline = "middle";
+  ctx.textAlign = "left";
+  const used = [[], []];
+  for (const c of [...i.channels].sort((a, b) => (b.id === i.cur) - (a.id === i.cur))) {
+    const x = Math.round(freqToX(c.freq_hz, w)) + 0.5;
+    if (x < 0 || x > w) continue;
+    const color = c.id === i.cur ? "#ffb547" : c.present ? "#5fd7ff" : "#5f6b78";
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.moveTo(x, h - 9); ctx.lineTo(x - 4, h - 2); ctx.lineTo(x + 4, h - 2); ctx.closePath(); ctx.fill();
+    const label = c.call || (c.acquired ? `${c.wpm}` : "");
+    if (!label) continue;
+    const tw = ctx.measureText(label).width + 8;
+    const bx = Math.min(Math.max(x - tw / 2, 2), w - tw - 2);
+    const row = used.findIndex((u) => u.every(([a, b]) => bx + tw + 2 < a || bx - 2 > b));
+    if (row < 0) continue;
+    used[row].push([bx, bx + tw]);
+    const y0 = h - 25 - row * 16;
+    ctx.fillStyle = "rgba(8,12,14,.85)";
+    ctx.strokeStyle = color;
+    ctx.beginPath(); ctx.roundRect(bx, y0, tw, 13, 3); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = color;
+    ctx.fillText(label, bx + 4, y0 + 7);
+  }
+  ctx.restore();
+}
+
+function cwTuneTo(freq) {
+  if (freq == null) return;
+  const changes = {};
+  if (st.mode !== "CW") { st.mode = "CW"; renderControls(); changes.mode = "CW"; }
+  tune(freq);
+  if (changes.mode) send(changes);
 }
 
 $("cwOn").addEventListener("change", () => {
   st.cw = $("cwOn").checked;
   $("cwCard").hidden = !st.cw;
   send({ cw: st.cw });
+  drawOverlays();
 });
 $("cwClear").addEventListener("click", () => {
-  fetch(vbase + "/api/cw", { method: "POST", headers: { "Content-Type": "application/json" }, body: '{"action":"clear"}' });
-  cwOut.clear();
+  cwReset();   // the whole table; stations still on the air come back with empty text
+  cwPost({ action: "clear" });
 });
-$("cwTune").addEventListener("click", () => {
-  if (!cwInfo || cwInfo.freq_hz == null) return;
-  const changes = {};
-  if (st.mode !== "CW") { st.mode = "CW"; renderControls(); changes.mode = "CW"; }
-  tune(cwInfo.freq_hz);
-  if (changes.mode) send(changes);
-});
+$("cwTune").addEventListener("click", () => cwTuneTo(cwInfo && cwInfo.freq_hz));
+$("cwSpan").addEventListener("change", () => cwPost({ action: "options", span: $("cwSpan").value }));
+$("cwAuto").addEventListener("click", () => cwPost({ action: "follow", id: null }));
 
 // ---------- ISM: 433 / 868 MHz devices (rtl_433; the VFO feeds it through rtl_tcp) ----------
 
@@ -10272,9 +10729,68 @@ function onStatus(s) {
 
 const VFO_ROWS_MAX = 1400;
 
+// The browser (and the WebView2 of RADIMCOM.exe) keeps at most 6 connections to one server for all its windows.
+// The main window holds the events and the audio of each VFO; if every map tab (□ key of a map) held its own
+// events too, a few map tabs used them all up: the audio of the main window stopped and its requests waited
+// for ever. So the main window passes the events on to the map tabs (BroadcastChannel, same origin); a map tab
+// opens its own event stream only while no main window answers.
+const EV_CH = (() => { try { return new BroadcastChannel("radimcom-events"); } catch (e) { return null; } })();
+const EV_NO_RELAY = new Set(["wf", "meter", "packeteye", "packetspec"]);   // many a second, not used by a map tab
+const EV_ID = Math.random().toString(36).slice(2);
+let evTabsAt = 0;          // main window: a map tab said hello (relay only while one listens)
+let evMain = null, evMainAt = 0;   // map tab: the main window it takes the events from
+
+/** The event stream of VFO v into its bus (v.bus), in the main window also relayed to the map tabs. */
+function evOpen(v) {
+  if (v.es) return;
+  const es = v.es = new EventSource(v.base + "/api/events");
+  for (const k of v.kinds) {
+    es.addEventListener(k, (e) => {
+      v.bus.dispatchEvent(new MessageEvent(k, { data: e.data }));
+      if (!MAP_ONLY && EV_CH && !EV_NO_RELAY.has(k) && Date.now() - evTabsAt < 6000) EV_CH.postMessage({ t: "ev", from: EV_ID, vfo: v.name, k, d: e.data });
+    });
+  }
+  es.onerror = () => v.bus.dispatchEvent(new Event("down"));
+}
+function evClose(v) { if (v.es) { v.es.close(); v.es = null; } }
+
+if (EV_CH) {
+  EV_CH.onmessage = (e) => {
+    const m = e.data || {};
+    if (!MAP_ONLY) {
+      if (m.t === "hello") { evTabsAt = Date.now(); EV_CH.postMessage({ t: "here", from: EV_ID }); }
+      return;
+    }
+    if (m.t === "here") {
+      if (!evMain || Date.now() - evMainAt > 5000) evMain = m.from;   // the first main window, or another one when it is gone
+      if (m.from === evMain) evMainAt = Date.now();
+    } else if (m.t === "ev" && m.from === evMain) {
+      const v = vfos.find((x) => x.name === m.vfo);
+      if (v && v.bus && !v.es && !EV_NO_RELAY.has(m.k)) v.bus.dispatchEvent(new MessageEvent(m.k, { data: m.d }));
+    }
+  };
+}
+/** Map tab: events from the main window while it answers, otherwise an own stream (only of its VFO). */
+function evMapTabWatch() {
+  const tick = () => {
+    if (EV_CH) EV_CH.postMessage({ t: "hello", from: EV_ID });
+    const relay = !!evMain && Date.now() - evMainAt < 5000;
+    for (const v of vfos) {
+      if (!v.bus) continue;
+      if (relay) evClose(v);
+      else if (v === active) evOpen(v);
+    }
+  };
+  if (EV_CH) EV_CH.postMessage({ t: "hello", from: EV_ID });
+  setTimeout(() => { tick(); setInterval(tick, 2000); }, 1200);   // give the main window a moment to answer
+}
+
 function connectEvents(v) {
-  const es = new EventSource(v.base + "/api/events");
-  const on = (kind, fn) => es.addEventListener(kind, (e) => { if (v === active) fn(JSON.parse(e.data)); });
+  const bus = v.bus = new EventTarget();
+  v.kinds = new Set();
+  const listen = (kind, fn) => { v.kinds.add(kind); bus.addEventListener(kind, fn); };
+  const es = { addEventListener: listen };
+  const on = (kind, fn) => listen(kind, (e) => { if (v === active) fn(JSON.parse(e.data)); });
   es.addEventListener("status", (e) => {
     const s = JSON.parse(e.data);
     // Inactive VFO retuned by the wheel: an older state from the server must not turn the display back.
@@ -10307,7 +10823,8 @@ function connectEvents(v) {
   on("sstvrow", (d) => { if (d.id === sstvImg.id) sstvAddRow(d.y, d.row); });
   on("sstvdone", (d) => { if (d.id === sstvImg.id) sstvReload(); });
   on("sstvstate", renderSstvInfo);
-  on("cwtext", (d) => { cwAppend(d.t); if (st && st.cw) cwBubbleAdd(d.t); });
+  on("cwtext", (d) => { if (st && st.cw) cwBubbleAdd(d.t); });
+  on("cwchan", cwChanAdd);
   on("cwpeek", (d) => { if (st && !st.cw) cwBubbleAdd(d.t); });
   on("cwstate", renderCwInfo);
   on("rttytext", (d) => rttyOut.add(d.t));
@@ -10320,7 +10837,7 @@ function connectEvents(v) {
   on("acars", (m) => { acarsReceive(m); decActivity(st && st.vdl2 ? "vdl2" : "acars"); });
   on("cpdlc", (c) => { if (c.imi === "ATN") { addAtn(c, true); decActivity("vdl2"); } });   // others come inside "acars"
   on("ft8", () => decActivity("ft8"));
-  on("cwtext", () => decActivity("cw"));
+  on("cwchan", () => decActivity("cw"));
   on("rttytext", () => decActivity("rtty"));
   on("wefaxnew", () => decActivity("wefax"));
   on("sstvnew", () => decActivity("sstv"));
@@ -10338,12 +10855,15 @@ function connectEvents(v) {
   on("adsbstate", (d) => { if (st) renderAdsbInfo(d); });
   on("acarsinfo", onAcarsInfo);
   on("acarspos", acarsPosUpdate);
+  on("ft8", ft8StUpsert);
+  on("ft8stclear", ft8StClear);
   on("ft8cycle", (d) => renderFt8Info(`cycle ${d.time} · decoding…`));
-  es.onerror = () => {
+  bus.addEventListener("down", () => {
     v.online = false;
     renderVfoDisplays();
     if (v === active) renderStatusPill();
-  };
+  });
+  if (!MAP_ONLY) evOpen(v);
 }
 
 // USB symbol (trident): circle, arrow, upper branch with a ring, lower one with a square.
@@ -10727,7 +11247,7 @@ async function selectVfo(v, keepTab) {
   adRotInfo = null; rotorInfo = null; rotorPendingOn = false;
   for (const id of ["modes", "bandwidths", "steps"]) $(id)._html = null;
   $("ft8Rows").innerHTML = ""; $("ft8Empty").hidden = false; ft8Cycle = null; ft8Count = 0;
-  cwOut.clear(); rttyOut.clear();
+  cwReset(); rttyOut.clear();
   packetReset();
   acarsResume();
   acarsDropHeld();
@@ -10774,7 +11294,6 @@ async function loadDecoders() {
   const cwi = await fetch(vbase + "/api/cw").then((r) => r.json());
   if (v !== active) return;
   renderCwInfo(cwi);
-  if (cwi.text) cwAppend(cwi.text);
   const rti = await fetch(vbase + "/api/rtty").then((r) => r.json());
   if (v !== active) return;
   renderRttyInfo(rti);
@@ -10782,6 +11301,7 @@ async function loadDecoders() {
   const decodes = await fetch(vbase + "/api/ft8").then((r) => r.json());
   if (v !== active) return;
   for (const d of decodes) addFt8(d, false);
+  await ft8StLoad();
   const ac = await fetch(vbase + "/api/acars").then((r) => r.json());
   const cp = await fetch(vbase + "/api/cpdlc").then((r) => r.json());
   if (v !== active) return;
@@ -11841,7 +12361,7 @@ $("muteBtn").addEventListener("click", () => {
 renderVolume();
 
 /** After start: a newer version on GitHub Releases (update_check.py on the server) shown beside the own one,
- *  and a small window offering the upgrade. LATER hides it until RADIMCOM is started again, SKIP until a still newer one. */
+ *  and a small window with the link to the setup of the new version (nothing is installed from the page). LATER hides it until RADIMCOM is started again, SKIP until a still newer one. */
 let updInfo = null;
 async function updFetch(opts) {
   const r = await fetch("/api/update", opts);
@@ -11881,19 +12401,22 @@ function showUpdate() {
     w.setAttribute("aria-label", "New version");
     document.querySelector(".stage").append(w);
   }
-  const mb = u.zip_size ? ` (${(u.zip_size / 1e6).toFixed(1)} MB)` : "";
+  const mb = u.setup_size ? ` (${(u.setup_size / 1e6).toFixed(0)} MB)` : "";
+  const how = u.kind === "dev"
+    ? `<p class="muted small">This is a development copy (git): update it with git.</p>`
+    : `<p class="muted small">Download the setup${mb}, close RADIMCOM (tray icon: Exit RADIMCOM${u.kind === "zip" ? ", or the console window" : ""})
+        and run the setup. Install it into the <b>same folder</b>${u.folder ? `, <b>${escHtml(u.folder)}</b>` : ""}: your settings,
+        memories, logs and recordings (the data folder) stay.${u.kind === "zip"
+          ? " This installation is from a zip: the setup replaces it with the RADIMCOM app (its own window and tray icon, own Python)."
+          : ""}</p>`;
   w.innerHTML = `<div class="drawer-head"><b>New version ${escHtml(u.latest)}</b><button class="key small" id="updX">✕</button></div>
     <div class="drawer-body">
       <p>RADIMCOM <b>${escHtml(u.latest)}</b> is out${u.published ? ` (${u.published.slice(0, 10)})` : ""}; this one is ${escHtml(u.current)}.
         <a href="${escHtml(u.url)}" target="_blank" rel="noopener noreferrer">What is new</a></p>
-      ${u.can_upgrade
-        ? `<p class="muted small">UPGRADE downloads the upgrade zip${mb}, closes the receiver, installs it in its own window
-            (with upgrade.bat) and starts RADIMCOM again; this page then reloads. The data folder and the settings stay.
-            It takes about a minute.</p>`
-        : `<p class="note warn">No automatic upgrade here: ${escHtml(u.why_not || "")}.</p>`}
-      <p class="note error" id="updErr" hidden></p>
+      ${how}
       <div class="upd-keys">
-        ${u.can_upgrade ? '<button class="key" id="updGo">UPGRADE</button>' : `<a class="key" href="${escHtml(u.url)}" target="_blank" rel="noopener noreferrer">RELEASE PAGE</a>`}
+        ${u.setup_url && u.kind !== "dev" ? `<a class="key" href="${escHtml(u.setup_url)}" target="_blank" rel="noopener noreferrer">DOWNLOAD SETUP</a>` : ""}
+        <a class="key" href="${escHtml(u.url)}" target="_blank" rel="noopener noreferrer">RELEASE PAGE</a>
         <button class="key" id="updLater" title="Ask again at the next start of RADIMCOM">LATER</button>
         <button class="key" id="updSkip" title="Do not ask again for ${escHtml(u.latest)}; the note beside the version stays">SKIP THIS VERSION</button>
       </div>
@@ -11903,39 +12426,6 @@ function showUpdate() {
   $("updX").onclick = close;
   $("updLater").onclick = () => { store("updLater", String(u.checked)); close(); };
   $("updSkip").onclick = () => { store("updSkip", u.latest); close(); };
-  if ($("updGo")) $("updGo").onclick = () => updStart(u);
-}
-
-async function updStart(u) {
-  const body = $("updWin").querySelector(".drawer-body");
-  const say = (html) => { body.innerHTML = `<p>${html}</p>`; };
-  try {
-    await updFetch({ method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ upgrade: true }) });
-  } catch (e) {
-    $("updErr").textContent = e.message;
-    $("updErr").hidden = false;
-    return;
-  }
-  say("Downloading…");
-  const t0 = Date.now();
-  let down = false;
-  const poll = async () => {
-    let s = null;
-    try { s = await updFetch(); } catch (e) { down = true; }
-    if (s && s.current && s.current !== u.current) { location.reload(); return; }     // the new version answers
-    if (s && s.upgrade_error) { say(`<span class="error">Upgrade failed: ${escHtml(s.upgrade_error)}</span>`); return; }
-    if (s && s.state === "downloading") {
-      say(`Downloading… ${s.got ? (s.got / 1e6).toFixed(1) : 0}${u.zip_size ? ` of ${(u.zip_size / 1e6).toFixed(1)}` : ""} MB`);
-    } else if (down || (s && s.state === "installing")) {
-      say(`Installing ${escHtml(u.latest)} in the window "RADIMCOM upgrade"… This page reloads when RADIMCOM runs again.`);
-    }
-    if (Date.now() - t0 > 600000) {
-      say("RADIMCOM did not come back within 10 minutes: look at the window \"RADIMCOM upgrade\", then start RADIMCOM by hand.");
-      return;
-    }
-    setTimeout(poll, down ? 3000 : 1000);
-  };
-  setTimeout(poll, 1000);
 }
 
 /** "?map=…" tab: the map box alone over the whole window, the map view of its decoder. */
@@ -11944,8 +12434,8 @@ function mapOnlySetup() {
   document.body.append(box);
   box.classList.add("map-only-box");
   document.body.classList.add("map-only");
-  document.title = `${({ packet: "APRS", acars: "ACARS / VDL2", adsb: "ADS-B" })[MAP_ONLY] || MAP_ONLY.toUpperCase()} map${active && active.name ? ` · VFO ${active.name}` : ""} · RADIMCOM`;
-  ({ packet: setPktView, hfdl: setHfdlView, ais: setAisView, adsb: setAdsbView, acars: setAcarsView })[MAP_ONLY]("map");
+  document.title = `${({ packet: "APRS", acars: "ACARS / VDL2", adsb: "ADS-B", ft8: "FT8 stations" })[MAP_ONLY] || MAP_ONLY.toUpperCase()} map${active && active.name ? ` · VFO ${active.name}` : ""} · RADIMCOM`;
+  ({ packet: setPktView, hfdl: setHfdlView, ais: setAisView, adsb: setAdsbView, acars: setAcarsView, ft8: () => renderFt8Map() })[MAP_ONLY]("map");
 }
 
 /** □ key in the top right corner of a map: the same map in a new browser tab. */
@@ -12014,7 +12504,27 @@ async function init() {
   renderLinkBands();
   loadMems();
   for (const v of vfos) connectEvents(v);
+  if (MAP_ONLY) evMapTabWatch();
   startAudio();
   await loadDecoders();
 }
 init();
+
+// RADIMCOM.exe (the page in its WebView2 window): full screen and the MAIN power switch beside the logo.
+// The page asks the app through window.chrome.webview; the app answers "fullscreen:1" / "fullscreen:0".
+(function appShell() {
+  const wv = window.chrome && window.chrome.webview;
+  if (!wv) return;                     // in a normal browser the keys stay hidden
+  $("appKeys").hidden = false;
+  $("appFull").onclick = () => wv.postMessage("fullscreen");
+  $("appPower").onclick = () => {
+    if (confirm("MAIN: switch RADIMCOM off?\nThe receivers, decoders and recordings stop.")) wv.postMessage("power-off");
+  };
+  wv.addEventListener("message", (e) => {
+    if (typeof e.data === "string" && e.data.startsWith("fullscreen:")) $("appFull").classList.toggle("on", e.data.endsWith("1"));
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "F11") { e.preventDefault(); wv.postMessage("fullscreen"); }
+  }, true);
+  wv.postMessage("hello");             // the app answers with the full screen state
+})();

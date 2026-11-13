@@ -39,33 +39,24 @@ Features
   message or carrier; only in ham bands, CB 27 MHz and PMR446.
 - Clock (local / UTC), all settings remembered per VFO.
 
-Installation on a new PC
-------------------------
-1. Unzip RADIMCOM_install_v<version>.zip (e.g. RADIMCOM_install_v0.102.zip) - it contains
-   the RADIMCOM folder; put it e.g. to C:\RADIMCOM (not into Program Files).
-2. Connect the SDR dongles (RTL-SDR, LimeSDR Mini, Airspy R2).
-3. Run install.bat. It will:
-   - check Python 3.9+ (if missing, it opens python.org; install it with "Add python.exe to PATH"),
-   - install the Python packages into .venv (needs internet),
-   - offer to install the USB drivers (Zadig for RTL-SDR, FTDI D3XX for LimeSDR) - see DRIVERS.txt,
-   - run the SDR setup (setup_sdr.py): finds the dongles, assigns them to VFO A, B, C...,
-     asks about an upconverter and ppm, and can write unique serial numbers into the EEPROM.
-     Tip: to pick the right dongle for a VFO, simply UNPLUG it when asked and press Enter -
-     the setup detects which one it was (then plug it back in). The USB order says nothing
-     about which dongle is connected to which antenna or upconverter.
-     To let one dongle serve several VFOs, type the letter of the VFO that already has it
-     (e.g. A) instead of a device number.
-   - create desktop shortcuts "RADIMCOM" and "RADIMCOM SDR setup".
-4. Start the receiver with the RADIMCOM shortcut. The page opens at http://localhost:8434
-   (the first start of a LimeSDR takes ~10 s because of calibration).
-5. !!! SEPARATE STEP for the DSD mode (digital voice: DMR, P25, D-Star, YSF, NXDN, dPMR, M17...): run install_dsd.bat. !!!
-   install.bat does not do this. It shows a patent notice and, after you type YES, downloads the DSD-FME decoder
-   (about 38 MB, 80 MB unpacked, needs internet) into lib\dsd-fme. DSD-FME is not in the package; without it the DSD
-   mode stays silent, everything else works. DSD is a first test version and still needs more testing (see README.md).
-
-Upgrade: unzip RADIMCOM_upgrade_v<version>.zip over the installation and run upgrade.bat (see UPGRADE.txt in that zip).
-Settings in data\ and an installed DSD-FME stay. Without DSD-FME: step 5 above. A new RADIMCOM version may need a
-newer DSD-FME: then run install_dsd.bat again, the change log says so.
+Installation on a new PC (setup, recommended)
+---------------------------------------------
+1. Connect the SDR dongles (RTL-SDR, LimeSDR Mini, Airspy R2).
+2. Run RADIMCOM_Setup_v<version>.exe (from the release page). No Python and no administrator rights needed;
+   Windows SmartScreen may say "Windows protected your PC": More info -> Run anyway (the setup is not signed).
+   - Folder: C:\RADIMCOM by default (an older zip installation there is upgraded in place, data\ stays).
+   - Tick the USB drivers you need (Zadig for RTL-SDR, FTDI D3XX for LimeSDR - see DRIVERS.txt; they ask for
+     administrator rights), optionally DSD-FME (DSD mode, patent notice) and starting with Windows.
+   - At the end it opens the SDR setup in the RADIMCOM window (assign the dongles to VFO A-D; IDENTIFY finds
+     the dongle you unplug) and then starts RADIMCOM.
+3. RADIMCOM opens in its own window (RADIMCOM.exe; pin it to the taskbar if you like). Closing the window keeps
+   the receiver running in the tray (icon by the clock); right click it -> Exit RADIMCOM to stop it.
+Upgrade: close RADIMCOM and run the setup of the new version into the same folder; data\ and DSD-FME stay.
+  The page tells when a new version is out (with a link to its setup).
+Upgrade from 0.114 or older (installed from a zip): run the setup and install into the folder of the old
+  installation (e.g. C:\RADIMCOM). The setup says on its first page that it upgrades the older RADIMCOM;
+  data\ stays, .venv and the upgrade scripts are removed, RADIMCOM becomes the app (RADIMCOM.exe).
+Uninstall: Windows Settings -> Apps -> RADIMCOM (asks whether to delete data\ as well).
 
 Different dongles later: close the receiver and run "RADIMCOM SDR setup" (setup.bat) again.
 Old settings are moved to data\config_backup\.
@@ -92,6 +83,10 @@ Change log
 Ver. 0.115beta1
 (test beta, GitHub branch 0.115beta1)
 Main Features
+- FT8 station map: next to the FT8 table a map of the stations heard (triangle at the locator from their
+  messages; green = CQ, cyan = QSO), time window 10 min / 30 min / 1 h / 12 h / 24 h, CLR, list of the
+  stations with locator, distance, SNR and age on the right; popup with azimuth, message, QRZ and PSK Reporter.
+  Opens also in a new tab. The server keeps the stations of the last 24 h (not over a restart).
 - ISM at 868 MHz: Wireless M-Bus meters, weaker sensors (by Brano, brjanicek). The 868.30 preset now has two
   rtl_433 channels of 256 kS/s: 868.30 (LaCrosse, Bresser...) and 868.95 MHz (Wireless M-Bus T1 / C1 meters,
   e.g. heat cost allocators in a block of flats), both with -Y autolevel (finds the weaker FSK devices; off at
@@ -103,7 +98,44 @@ Main Features
   - Two decoders, one packet: names learnt from one packet also join later packets read by only one decoder
     (same channel and device ID only, never a wM-Bus meter).
   - RAW at FSK: a package at the frequency (+-10 kHz) of a decoded one at the same time is not shown as RAW.
+- Windows setup RADIMCOM_Setup_v<version>.exe: its own Python (no Python installation, no internet, no admin
+  rights), drivers / DSD-FME / autostart as check boxes, Start menu entries, uninstall (asks about data\).
+  The same setup upgrades an installation (data\ stays), also a zip installation of 0.114 or older: it tells
+  new installation / upgrade by the folder, says so on its first page, and at an upgrade skips the SDR setup and the
+  DSD-FME download (offers a DSD-FME update only when its version changes). A release has only the setup now.
+  New version: the page shows it with DOWNLOAD SETUP; nothing is installed from the page any more.
+- RADIMCOM.exe: the page in its own window with the RADIMCOM icon (can be pinned to the taskbar), server without a
+  console; closing the window keeps the receiver in the tray (decoders, recordings go on), tray menu: open,
+  browser, data folder, server log, SDR setup, start / stop / restart server, Exit. A second start only brings the window up.
+  Full screen: F11 or the key beside the logo (remembered); MAIN key beside the logo switches RADIMCOM off.
+  Resizing the window keeps the aspect ratio of the page (no stretched page).
+  Icon: spectrum over a waterfall.
+- SDR setup in a window instead of the console (tray menu "SDR setup...", Start menu, end of the installation):
+  the connected dongles are dragged onto VFO A-D (or shared), then ppm, upconverter LO and name per VFO;
+  IDENTIFY places the dongle you unplug; unique serial numbers for RTL-SDRs with the same number.
+- CW decoder rebuilt: soft decisions and a skimmer (docs/decoders/cw.md).
+  - Always a skimmer: up to 16 stations at once, SPAN filter or Wide +-3.4 kHz. The CW page is a table of the
+    stations with calls and their text; a click opens the whole text, the operator profile and TUNE.
+    Stations with calls in the spectrum.
+    Sidebands / key clicks of a strong station are not listed as stations.
+  - Matched filter, Kalman fading tracker, Viterbi keying decision, beam search over the readings.
+  - Learns the operator's timing (bug, straight key, Farnsworth); key type shown.
+  - Text coloured by confidence.
+  - Measured on synthetic CW: mean character error rate 50 % -> 19 %; Farnsworth 58 % -> 3 %,
+    35 WPM at 6 dB 23 % -> 0 %.
+  - Block diagram docs/images/cw_decoder.png: where the decoder takes the signal (after AGC+, DC, SPUR;
+    before the filter, ALC and DNR) and how it works inside.
 Changes
+- Map tabs (the new-tab key of a map) no longer stop the main window: the browser keeps at most 6 connections
+  to one receiver, and 3-4 map tabs used them up (no audio, page not responding). The map tabs now get the
+  events from the main window; an own connection only while no main window is open.
+- FT8 table redesigned: aligned columns, SNR bar, DT warning colours, audio offset marker in the 0-3 kHz
+  passband, coloured message tokens (CQ, calls, locator, report, 73), cycle row with decode count, slot and
+  a strip of the decodes.
+- Zoom 64x for the spectrum and waterfall (24 kHz at 1.536 MS/s, 23 Hz per point from its own finer FFT).
+- Server log to a file: the window shows only where the log is; the output of the launcher and of all VFO
+  processes goes to data\server_logs\logs_DDMMYYYY_HHMMSS.log (a new file at each start). Successful web
+  requests are not logged, failed ones and all errors are.
 - Band keys have no LED window any more; the lit band key is only pressed in with a yellow legend.
 - ISM ON turns RTL2832 AGC and tuner AGC on (AGC+ and Remove DC peak off); ISM OFF gives back the gain, RTL AGC, AGC+ and Remove DC peak from before.
 - SCAN -> CHANNELS (memories): keys ALL / NONE tick / untick SCAN of every memory listed at once.

@@ -15,15 +15,15 @@ separate program (`dsd.py` feeds it the FM discriminator and takes the voice bac
 > the frequency band and what you saw.
 
 > [!IMPORTANT]
-> **Installation: run `install_dsd.bat`.** DSD-FME is **not part of the RADIMCOM package**, neither the install zip nor the upgrade zip.
-> `install.bat` does not install it, so this is a separate step. It needs internet.
+> **Installation: tick "Download the DSD-FME decoder" in the setup, or run `install_dsd.bat`.** DSD-FME is **not part of the RADIMCOM package**
+> (neither the setup nor the zips contain it); `install.bat` does not install it, so this is a separate step. It needs internet.
 
 Why it is separate: the voice codec of DSD-FME (mbelib, AMBE+2) may be covered by patents, see [NOTICE.md](../../NOTICE.md). `install_dsd.bat` shows the
 notice, and after you type YES it downloads the release of the author (about 38 MB, checked by SHA-256) into `lib\dsd-fme`. Without it the DSD mode
 stays silent and the card says what to do; if the mode is already selected, the decoder starts by itself a few seconds after the installation. To
 replace a version, first switch every VFO out of the DSD mode: a decoder in use cannot be replaced, and the script then leaves the installed version as it was.
 
-**Upgrade of RADIMCOM:** the upgrade zip does not touch `lib\dsd-fme`, so an installed DSD-FME stays. If it is not installed yet, run `install_dsd.bat`.
+**Upgrade of RADIMCOM:** the setup does not touch `lib\dsd-fme`, so an installed DSD-FME stays. When a new RADIMCOM needs another DSD-FME version, the setup offers to update it (`install_dsd.py` writes its version to `lib\dsd-fme\VERSION.txt`). If it is not installed yet, run `install_dsd.bat`.
 The script always installs the one version tested with this RADIMCOM; if a new RADIMCOM needs a newer one, the change log says to run `install_dsd.bat` again.
 
 **New, empty folder:** `lib\dsd-fme` is not in `data\`, so a clean installation has no decoder. Run `install_dsd.bat` there as well.

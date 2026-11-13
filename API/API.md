@@ -32,8 +32,7 @@ Memories (`data\memories.json`) are shared by all VFOs, so `/api/memories` gives
 |---|---|---|
 | GET | `/` | web page |
 | GET | `/api/vfos` | list of VFOs: `[{"name", "port", "serial", "note", "chain", "rotor"}]`; `chain` = name of the VFO whose dongle a chained VFO uses, otherwise `null`; `rotor` = true on the VFO whose receiver holds the rotor (the first one) |
-| GET | `/api/update` | newer version on GitHub Releases, checked once after start: `{"state": "checking" / "done" / "failed" / "off" / "downloading" / "installing", "current", "latest", "newer", "name", "url", "published", "can_upgrade", "why_not", "zip_url", "zip_size", "got", "upgrade_error"}`. Off with `"update_check": false` in `vfos.json`. A receiver started without `vfos.json` answers it itself (`"update_check"` in its config) |
-| POST | `/api/update` | `{"upgrade": true}`: downloads the upgrade zip of the newer release to `data\update\`, checks it, starts `upgrade_helper.py` and closes RADIMCOM; the helper unzips the program, runs `upgrade.bat` and starts `start.bat`. Only from a page of this RADIMCOM (Origin); 409 when no upgrade is possible (`why_not`) |
+| GET | `/api/update` | newer version on GitHub Releases, checked once after start: `{"state": "checking" / "done" / "failed" / "off", "current", "latest", "newer", "name", "url", "published", "kind" ("setup" / "zip" / "dev"), "folder", "setup_name", "setup_url", "setup_size"}`. Nothing is installed from the page: the page links the setup, the user runs it into the same folder. Off with `"update_check": false` in `vfos.json`. A receiver started without `vfos.json` answers it itself (`"update_check"` in its config) |
 
 ## Receiver: state and control
 
@@ -148,7 +147,7 @@ Send any combination of these keys:
 | `auto_sql` | ASQ auto squelch on / off (AM, FM, WFM) |
 | `auto_sql_db` | auto squelch margin above the noise floor, 2 – 30 dB (default 6) |
 | `sample_rate` | 1024000, 1536000, 2048000, 2100000, 2400000; on an Airspy VFO 2500000 |
-| `zoom` | 1, 2, 4, 8, 16, 32 |
+| `zoom` | 1, 2, 4, 8, 16, 32, 64 |
 | `ppm` | frequency correction (integer) |
 | `upconv` | `auto`, `on`, `off` |
 | `lo_offset_hz` | upconverter LO, 0 to 1 000 000 000 Hz |
@@ -175,8 +174,8 @@ On connect a `status` event with the full state, then:
 | `status` | full state (as `/api/state`) after a change |
 | `wf` | waterfall row |
 | `meter` | S-meter level in dBFS, `{"db": -73.5}`, for every block of samples (as often as `wf`) |
-| `ft8`, `ft8cycle` | FT8 decode; start of a 15 s cycle |
-| `cwtext`, `cwstate` | CW text; CW decoder state (speed, tone, …) |
+| `ft8`, `ft8cycle`, `ft8stclear` | FT8 decode (with `ts`, and `call` / `grid` / `lat` / `lon` of the transmitting station when the message has them); start of a 15 s cycle; the station map was cleared |
+| `cwchan`, `cwtext`, `cwstate` | CW: new characters of a station (`id`, `t`, per-character confidence `c` 0–9); the same for the followed station only (`t`, `c`: log, audio bubble); decoder state once a second (followed station, `channels` with the end of their text and timing `profile`) |
 | `rttytext`, `rttystate` | RTTY text; decoder state |
 | `packet`, `packetstate` | PACKET: one valid AX.25 frame (see `/api/packet`); decoder state (counters, AFC, error) |
 | `packetspec` | PACKET spectrum, 4× per second while asked for: `db` (2·`k`+1 values, dB relative to a full-scale carrier, the tuned frequency in the middle), `df` (Hz per value), `afc_live` (9600 Bd AFC, Hz, or null) |
@@ -215,8 +214,9 @@ is removed. 0 dB is a sine at 75 kHz deviation. Outside WFM, `db` is empty and `
 | GET | `/api/dsd` | DSD mode: `enabled`, `installed`, `error`, `protocol`, `slot`, detected `proto` and `cc`, running calls in `active`, finished calls in `calls`, the allowed values in `protocols` and `slots` |
 | POST | `/api/dsd` | `{"protocol": "auto"}` and/or `{"slot": "both"}` (restarts the decoder), `{"action": "clear"}` |
 | GET | `/api/ft8` | recent FT8 decodes |
-| GET | `/api/cw` | CW decoder info and text |
-| POST | `/api/cw` | `{"action": "clear"}` |
+| GET, DELETE | `/api/ft8/stations` | FT8 stations heard in the last 24 h (call, locator + lat/lon, newest message, SNR, frequency, `ts`, `n`); DELETE clears them |
+| GET | `/api/cw` | CW skimmer: `span`, the followed station (`cur`, `follow`, `station`, `tone_hz`, `freq_hz`, `wpm`, `snr_db`), all `channels` (tone, frequency, WPM, SNR, call, key type, the last 300 characters `text` with `conf`, timing profile), `text` of the followed station and its confidence `conf` (one digit 0–9 per character). `?id=3`: the whole text of one station (`text`, `conf`; 404 when it is gone) |
+| POST | `/api/cw` | `{"action": "clear"}`; `{"action": "follow", "id": 3}` follows a skimmer station (`null` = automatic, the strongest); `{"action": "options", "span": "filter" \| "wide"}` (saved to the config) |
 | GET | `/api/rtty` | RTTY decoder info and text |
 | POST | `/api/rtty` | `{"action": "clear"}` and/or `{"opts": {...}}` (decoder options, saved to the config) |
 | GET | `/api/packet` | PACKET decoder: state, the last 500 `frames` and the APRS `stations` (newest first) |

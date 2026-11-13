@@ -4,7 +4,7 @@
 
 | Page | Contents |
 |---|---|
-| [Installation and running](installation.md) | requirements, drivers (Zadig, D3XX), running from the sources, third-party DLLs |
+| [Installation and running](installation.md) | the setup and RADIMCOM.exe (app window, tray), requirements, drivers (Zadig, D3XX), running from the sources, third-party DLLs |
 | [Features](features.md) | the complete feature list |
 | [Shortwave (HF) with an upconverter](hf-upconverter.md) | LO of common upconverters, CONV / BYPASS, setup |
 | [Controls](controls.md) | tuning, VFO window, frequency display, function keys, SETTINGS, MEM |
@@ -16,6 +16,7 @@ Decoders:
 
 | Page | Contents |
 |---|---|
+| [CW](decoders/cw.md) | Morse decoder and skimmer (up to 16 stations at once), soft decisions |
 | [Aircraft data link](decoders/aircraft.md) | ACARS, VDL2, CPDLC, ADS-C |
 | [HFDL](decoders/hfdl.md) | aircraft data link on HF (2.9–22 MHz) via dumphfdl |
 | [AIS](decoders/ais.md) | ships on 161.975 / 162.025 MHz, own GMSK decoder, map |

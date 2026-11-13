@@ -1,36 +1,25 @@
 """After start: is a newer RADIMCOM on GitHub Releases? One request to the GitHub API in the background;
-the page asks /api/update, shows the newer version beside its own and offers the upgrade in a small window.
-Without internet nothing is shown.
-
-UPGRADE (POST /api/update {"upgrade": true}): the upgrade zip of that release is downloaded to data\\update\\,
-checked, and upgrade_helper.py (copied there) is started in its own console window; RADIMCOM then closes. The helper
-waits for it, unzips the program over this folder, runs upgrade.bat and starts start.bat again. Not offered in a
-development copy (a folder with .git) or without .venv and upgrade.bat.
+the page asks /api/update, shows the newer version beside its own and a small window with the link to the setup
+of the new version. Nothing is downloaded or installed by RADIMCOM itself: the user downloads the setup and runs it,
+it installs over the same folder (data\\ stays). Without internet nothing is shown.
 
 The own version is the one in the logo of the page (static/index.html, <span class="r-ver">Ver. 0.1xx</span>),
-the same that make_installer.py puts into the zip names. Off with "update_check": false (vfos.json, or config.json
+the same that make_installer.py puts into the setup name. Off with "update_check": false (vfos.json, or config.json
 of a receiver started without vfos.json).
 """
 import json
 import os
 import re
-import shutil
-import subprocess
-import sys
 import threading
 import time
 import urllib.request
-import zipfile
-from urllib.parse import urlsplit
 
-from paths import BASE, data
+from paths import BASE
 
 LATEST_URL = "https://api.github.com/repos/om2amr/RADIMCOM/releases/latest"     # drafts and pre-releases are left out
 RELEASES_URL = "https://github.com/om2amr/RADIMCOM/releases"
 TIMEOUT_S = 10
-DOWNLOAD_TIMEOUT_S = 60
 START_DELAY_S = 5        # the receivers open their dongles first
-TOP = "RADIMCOM/"        # folder inside the zips (make_installer.py)
 
 _state = {"state": "off"}
 _lock = threading.Lock()
@@ -54,19 +43,11 @@ def _key(v):
     return (int(m.group(1)), int(m.group(2))) + ((0, int(m.group(3))) if m.group(3) else (1, 0))
 
 
-def why_no_upgrade():
-    """Why this folder cannot upgrade itself, or "" when it can."""
+def kind():
+    """How this folder is installed: "dev" (git), "setup" (RADIMCOM_Setup) or "zip" (0.114 and older)."""
     if os.path.exists(os.path.join(BASE, ".git")):
-        return "this is a development copy (git): upgrade it with git"
-    for f in ("upgrade.bat", "start.bat", "upgrade_helper.py", os.path.join(".venv", "Scripts", "python.exe")):
-        if not os.path.exists(os.path.join(BASE, f)):
-            return f"{f} is missing in the RADIMCOM folder: upgrade by hand from the release page"
-    return ""
-
-
-def _set(**kw):
-    with _lock:
-        _state.update(kw)
+        return "dev"
+    return "setup" if os.path.exists(os.path.join(BASE, "unins000.exe")) else "zip"
 
 
 def _check():
@@ -79,13 +60,12 @@ def _check():
         tag = rel.get("tag_name", "")
         latest = tag.lstrip("v")
         newer = _key(tag) is not None and _key(cur) is not None and _key(tag) > _key(cur)
-        zip_name = f"RADIMCOM_upgrade_v{latest}.zip"
-        asset = next((a for a in rel.get("assets") or [] if a.get("name") == zip_name), None)
-        why = why_no_upgrade() or ("" if asset else f"the release has no {zip_name}")
+        name = f"RADIMCOM_Setup_v{latest}.exe"
+        asset = next((a for a in rel.get("assets") or [] if a.get("name") == name), None)
         res = {"state": "done", "current": cur, "latest": latest, "newer": newer, "checked": time.time(),
                "name": rel.get("name") or tag, "url": rel.get("html_url") or RELEASES_URL, "published": rel.get("published_at"),
-               "can_upgrade": newer and not why, "why_not": why,
-               "zip_url": asset and asset.get("browser_download_url"), "zip_size": asset and asset.get("size")}
+               "kind": kind(), "folder": BASE, "setup_name": asset and name,
+               "setup_url": asset and asset.get("browser_download_url"), "setup_size": asset and asset.get("size")}
         print(f"Update check: version {latest} is available at {res['url']}" if newer
               else f"Update check: {cur} is the newest version")
     except Exception as e:      # offline, GitHub limit, ...: quietly nothing
@@ -108,71 +88,3 @@ def start(enabled=True):
 def info():
     with _lock:
         return dict(_state)
-
-
-def same_host(req):
-    """Only pages of this RADIMCOM may start the upgrade (no other web site through the browser)."""
-    origin = req.headers.get("Origin")
-    return not origin or urlsplit(origin).hostname == urlsplit(req.host_url).hostname
-
-
-def upgrade(shutdown):
-    """Downloads and checks the upgrade zip, starts upgrade_helper.py, then calls shutdown() (ends RADIMCOM).
-    -> error text, or "" when it has started (it goes on in the background; the state says how far it is)."""
-    with _lock:
-        s = dict(_state)
-        if s.get("state") in ("downloading", "installing"):
-            return ""
-        if not s.get("newer"):
-            return "no newer version is known"
-        if not s.get("can_upgrade"):
-            return s.get("why_not") or "upgrade not possible"
-        _state.update(state="downloading", got=0, upgrade_error="")
-    threading.Thread(target=_upgrade, args=(s, shutdown), name="upgrade", daemon=True).start()
-    return ""
-
-
-def _upgrade(s, shutdown):
-    folder = data("update")
-    path = os.path.join(folder, f"RADIMCOM_upgrade_v{s['latest']}.zip")
-    try:
-        os.makedirs(folder, exist_ok=True)
-        req = urllib.request.Request(s["zip_url"], headers={"User-Agent": "RADIMCOM"})
-        with urllib.request.urlopen(req, timeout=DOWNLOAD_TIMEOUT_S) as r, open(path + ".part", "wb") as f:
-            got = 0
-            while True:
-                chunk = r.read(256 * 1024)
-                if not chunk:
-                    break
-                f.write(chunk)
-                got += len(chunk)
-                _set(got=got)
-        if s.get("zip_size") and got != s["zip_size"]:
-            raise RuntimeError(f"download incomplete ({got} of {s['zip_size']} bytes)")
-        os.replace(path + ".part", path)
-        with zipfile.ZipFile(path) as z:
-            bad = z.testzip()
-            if bad:
-                raise RuntimeError(f"the zip is damaged ({bad})")
-            names = set(z.namelist())
-        for need in ("app.py", "upgrade.bat", "start.bat", "static/index.html"):
-            if TOP + need not in names:
-                raise RuntimeError(f"the zip has no {TOP}{need}")
-        helper = os.path.join(folder, "upgrade_helper.py")
-        shutil.copy2(os.path.join(BASE, "upgrade_helper.py"), helper)     # runs from data\, not from the folder it overwrites
-        subprocess.Popen([sys.executable, "-I", helper, "--pid", str(os.getpid()), "--base", BASE, "--zip", path,
-                          "--version", s["latest"]],
-                         cwd=folder, creationflags=subprocess.CREATE_NEW_CONSOLE | subprocess.CREATE_NEW_PROCESS_GROUP,
-                         close_fds=True)
-    except Exception as e:
-        print(f"Upgrade: {e}")
-        _set(state="done", upgrade_error=str(e))
-        try:
-            os.remove(path + ".part")
-        except OSError:
-            pass
-        return
-    print(f"Upgrade to {s['latest']}: the receiver closes, the upgrade goes on in its own window")
-    _set(state="installing")
-    time.sleep(1.0)          # the page gets the state first
-    shutdown()

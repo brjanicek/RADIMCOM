@@ -42,16 +42,17 @@
 - **Daily logs:** the LOG checkbox in each decoder card writes to `data\logs\<decoder>_YYYY-MM-DD.txt` (UTC, one line per message; WEFAX/SSTV log the names of saved images), classic ACARS to `data\acars\acars_YYYY-MM-DD.txt` and VDL2 to `data\acars\vdl2_YYYY-MM-DD.txt`.
 - **TX with LimeSDR** (optional, off by default), see [Transmitting (LimeSDR)](configuration.md#transmitting-limesdr).
 - **HTTP API:** everything the page does can be done from scripts, see [API/API.md](../API/API.md).
-- **Upgrade from the page:** after each start RADIMCOM checks GitHub for a newer version and can download and install it; `data\` and the settings stay. A red RADIMCOM logo shows that a newer version is available; a click on it opens the release page.
+- **Windows setup and app:** `RADIMCOM_Setup_v<version>.exe` installs RADIMCOM with its own Python (no admin rights, no internet), the USB drivers and DSD-FME as options, and upgrades an installation in place (`data\` stays). **RADIMCOM.exe** shows the page in its own window with the RADIMCOM icon (pinnable to the taskbar) and keeps the server in the tray when the window closes; full screen (F11) and a MAIN power key beside the logo; the SDR setup (dongles → VFO A–D, serial numbers, IDENTIFY by unplugging) in the same window. See [Installation](installation.md).
+- **New version notice:** after each start RADIMCOM checks GitHub for a newer version and shows it with a link to its setup; run the setup into the same folder, `data\` and the settings stay. A red RADIMCOM logo shows that a newer version is available; a click on it opens the release page.
   See [Data folder](development.md#data-folder-data).
 
 ## Decoders
 
 | Decoder | What it decodes | Details | SDR | More |
 |---|---|---|---|---|
-| **FT8** | FT8 on the HF ham bands (160–10 m) | band buttons; the PC clock must be accurate (±1 s) | all | [DECODE](controls.md#function-keys) |
+| **FT8** | FT8 on the HF ham bands (160–10 m); next to the table a **station map** (▲ by the locator in the messages, last 10 min … 24 h, list of stations with distance, also in a new tab) | band buttons; the PC clock must be accurate (±1 s) | all | [DECODE](controls.md#function-keys) |
 | **WEFAX** | radio fax (DWD, Northwood…) | automatic format detection (LPM / IOC), slant correction (SLANT, ALIGN), AFC that retunes the VFO onto the signal, gallery of saved images | all | [DECODE](controls.md#function-keys) |
-| **CW** | Morse | AFC, speed estimation, noise blanker; text also in the audio spectrum bubble | all | [DECODE](controls.md#function-keys) |
+| **CW** | Morse skimmer: up to 16 stations in the passband (or ±3.4 kHz) decoded at once | soft decoder: matched filter, Kalman fading tracker, Viterbi keying, beam search over the readings; learns the operator's timing (paddle / bug / straight key, Farnsworth); table of the stations with calls and their text (a click opens the whole text and the operator profile), text coloured by confidence, stations in the spectrum; text also in the audio spectrum bubble | all | [CW](decoders/cw.md) |
 | **RTTY** | Baudot | automatic shift 90–1000 Hz, speed 45.45 / 50 / 75 / 100 Bd and polarity | all | [DECODE](controls.md#function-keys) |
 | **SSTV** | colour images | 14 modes (Martin, Scottie, Robot, PD), VIS, automatic AFC and slant, gallery of saved images | all | [DECODE](controls.md#function-keys) |
 | **PACKET** | AX.25 at 1200 Bd AFSK and 9600 Bd FSK / GFSK G3RUH (satellites) | APRS with a station list and map, spectrum and eye diagram | all | [DECODE](controls.md#function-keys) |
@@ -80,7 +81,7 @@ and the country flag from the ICAO address; a click on a message pauses the list
   (e.g. `HAM 70cm`) or the satellite transponder, lit on the active VFO (a memory name in its own tag colour); the receiver state, recording and mute indicators;
   the frequency; an info row (RX/TX, filter width, HPF and LPF with cutoffs, ST, SQL, CONV/BYPASS); a tone squelch row (CTCSS / DCS); annunciators lit like LCD segments (mode, AGC / AGC+, NF, SP, ALC, AFI, ASQ, ATU, satellite Doppler, CUE);
   **RF and SQL segment bars** (drag, click or mouse wheel; at a manual RF gain the RF bar and its value turn red while the A/D converter clips). See [VFO window](controls.md#vfo-window).
-- **Spectrum and waterfall** with 1×–32× zoom (the waterfall keeps the history of the whole band, so after zooming out the hidden parts are shown at once) and a waterfall speed bar (1/8 – 4×) and waterfall settings under a gear (colour scheme, range, offset), the same gear and bar by the spectrum (zero level −20 … +20 dB, colour schemes background / curve); tuning by a click, dragging the band or the passband, the mouse wheel or the wheel over a digit of the display. See [Tuning](controls.md#tuning).
+- **Spectrum and waterfall** with 1×–64× zoom (the waterfall keeps the history of the whole band, so after zooming out the hidden parts are shown at once) and a waterfall speed bar (1/8 – 4×) and waterfall settings under a gear (colour scheme, range, offset), the same gear and bar by the spectrum (zero level −20 … +20 dB, colour schemes background / curve); tuning by a click, dragging the band or the passband, the mouse wheel or the wheel over a digit of the display. See [Tuning](controls.md#tuning).
 - **Band plan on the frequency axis** (Europe / ITU Region 1: ham, broadcast, aviation, marine, satellites, mobile networks, ISM…); hover it for the descriptions of all bands at that frequency.
 - **Audio spectrum bubble:** hovering over the passband label shows the audio spectrum of the active VFO (in WFM the MPX signal with the stereo pilot, in CW also the decoded text).
 - **Frequency memories** (MEMORIES tab) with groups, favourites, import from SDR# (`frequencies.xml`), JSON and CSV, export to JSON and CSV; memories in view show as tags in the spectrum,

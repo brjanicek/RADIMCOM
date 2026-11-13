@@ -44,8 +44,9 @@ All components and how the signals flow between them, from the hardware at the b
 | `airspy.py` | Airspy R2 via airspy.dll (receive) |
 | `static/` | web interface (`index.html`, `style.css`, `app.js`) |
 | `paths.py` | data paths (`data\`), migration of data from older versions |
-| `installer/` | building the installer package (`make_installer.py`) and the files it contains; the package is created in `dist\` |
+| `installer/` | building the setup and the zips (`make_installer.py`, `radimcom.iss`, `shell/RADIMCOM.cs` = RADIMCOM.exe, `make_icon.py`) and the files they contain; created in `dist\` |
 | `docs/block_diagram.py` | draws `docs/images/block_diagram.png` (needs Chrome or Edge) |
+| `docs/cw_diagram.py` | draws `docs/images/cw_decoder.png`, the CW decoder block diagram (needs Chrome or Edge) |
 | `docs/annotate.py` | draws the annotated screenshots `docs/images/*_annotated.png` (callouts in the script, needs Chrome or Edge) |
 
 ## Data folder (`data\`)
@@ -82,13 +83,15 @@ never overwritten (a leftover copy then stays unused in the main folder).
 folder somewhere outside the RADIMCOM folder.
 
 **Reinstall / update:**
-- After each start RADIMCOM asks GitHub once whether a newer version is released. If so, a small window offers it:
-  **UPGRADE** downloads the upgrade zip, closes the receiver, installs it in its own console window (unzips the program,
-  runs `upgrade.bat`) and starts RADIMCOM again; the page reloads by itself. `data\` and the settings stay.
+- After each start RADIMCOM asks GitHub once whether a newer version is released. If so, a small window says so, with
+  **DOWNLOAD SETUP** (`RADIMCOM_Setup_v<version>.exe` of that release) and **RELEASE PAGE**. Nothing is downloaded or
+  installed by RADIMCOM itself: close RADIMCOM and run the setup into the **same folder**; `data\` and the settings stay.
   **LATER** asks again at the next start, **SKIP THIS VERSION** not before a still newer one. The RADIMCOM logo turns red and an orange, blinking "0.1xx" shows beside the version under the logo;
   a click on either opens the release page in a new tab. Without internet nothing is shown. Off with
-  `"update_check": false` in `data\vfos.json`. A development copy (a folder with `.git`) is not upgraded by itself.
-- Unzipping a new installer package over the old folder keeps `data\` (the package has no `data\`).
+  `"update_check": false` in `data\vfos.json`. A development copy (a folder with `.git`) is updated with git.
+- **From 0.114 or older (zip installation):** run `RADIMCOM_Setup_v<version>.exe` and install into the folder of the old
+  installation (e.g. `C:\RADIMCOM`). The setup recognizes it (`data\config.json` without `RADIMCOM.exe`) and says so on
+  its first page; `data\` stays, `.venv` and the upgrade scripts are removed and RADIMCOM becomes the app (RADIMCOM.exe).
 - In a new, empty folder: copy the backed-up `data\` into it before the first start. For the DSD mode, run `install_dsd.bat` again.
 - In `install.bat`, answer **N** to "Run the SDR setup now" to keep the existing VFO assignment; with Y a new
   assignment is created and the old one is moved to `data\config_backup\`.

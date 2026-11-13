@@ -44,7 +44,10 @@ body {
   transform: scale(var(--k)); transform-origin: 0 0;
   background: radial-gradient(1200px 600px at 50% -20%, #161b22, var(--bg) 70%);
 }
-.scroller { position: absolute; inset: 0; overflow-x: hidden; overflow-y: auto; }
+/* The panel is always exactly as high as the stage (.radio = --vh), so the scroller has nothing to scroll; a bar
+   left over from a passing overflow while resizing (maximize, full screen) took 15 px on the right: hidden. */
+.scroller { position: absolute; inset: 0; overflow-x: hidden; overflow-y: auto; scrollbar-width: none; }
+.scroller::-webkit-scrollbar { display: none; }
 .muted { color: var(--muted); }
 [hidden] { display: none !important; }
 
@@ -889,6 +892,40 @@ canvas.axis { height: 39px; background: #1c1e22; border-bottom: 1px solid #44474
   white-space: pre-wrap; word-break: break-all;
 }
 .cw-empty { color: var(--dim); font: 12px system-ui, sans-serif; }
+/* CW skimmer: a table of the stations fills the tab; a row shows the end of the station's text on one line,
+   a click opens it (the whole text and the operator profile) */
+.cwdec .cw-list { flex: 1 1 0; min-height: 150px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; background: #000; }
+.cw-list-empty { padding: 10px; }
+.cw-st { width: 100%; table-layout: fixed; border-collapse: collapse; font: 13px ui-monospace, "Cascadia Mono", Consolas, monospace; }
+.cw-st col.c-f { width: 92px; }
+.cw-st col.c-call { width: 100px; }
+.cw-st col.c-n { width: 50px; }
+.cw-st th { position: sticky; top: 0; z-index: 1; background: #0b0e12; color: var(--dim); font-weight: 600; text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); }
+.cw-st td { padding: 4px 8px; border-bottom: 1px solid rgba(255,255,255,.05); white-space: nowrap; cursor: pointer; vertical-align: top; overflow: hidden; }
+.cw-st td.num { text-align: right; }
+.cw-st td.call { color: #5fd7ff; font-weight: 700; text-overflow: ellipsis; }
+.cw-st tr:hover td { background: rgba(95,215,255,.06); }
+.cw-st tr.cur td { background: rgba(255,181,71,.10); }
+.cw-st tr.cur td.call { color: #ffb547; }
+.cw-st tr.gone td { opacity: .45; }
+/* the text: one line, the newest characters at the right edge (the start is cut off on the left) */
+.cw-st .cw-t { display: flex; justify-content: flex-end; overflow: hidden; color: #f4f6f8; font: 600 15px/1.35 ui-monospace, "Cascadia Mono", Consolas, monospace; }
+.cw-st .cw-ti { flex: none; white-space: pre; }
+.cw-st .cw-det { display: none; }
+/* opened row: the whole text wrapped (scrolls inside if long), the profile line and TUNE under it */
+.cw-st tr.open td { background: rgba(255,255,255,.035); }
+.cw-st tr.open.cur td { background: rgba(255,181,71,.10); }
+.cw-st tr.open .cw-t { display: block; max-height: 45vh; overflow: auto; cursor: text; user-select: text; }
+.cw-st tr.open .cw-ti { white-space: pre-wrap; word-break: break-all; }
+.cw-st tr.open .cw-det { display: flex; gap: 10px; align-items: center; margin: 6px 0 2px; color: var(--dim); font-size: 12px; white-space: normal; cursor: default; }
+.cw-st .cq-mid { color: #b8a878; }
+.cw-st .cq-lo { color: #5f6873; }
+@media (max-width: 760px) {
+  .cw-st col.c-f { width: 78px; }
+  .cw-st col.c-call { width: 70px; }
+  .cw-st col.c-n { width: 34px; }
+  .cw-st td, .cw-st th { padding: 3px 4px; }
+}
 /* RTTY like on an old terminal: green phosphor with glow and fine screen lines */
 #rttyText {
   background: repeating-linear-gradient(180deg, rgba(0, 0, 0, 0) 0 2px, rgba(0, 0, 0, .35) 2px 3px),
@@ -923,6 +960,147 @@ canvas.axis { height: 39px; background: #1c1e22; border-bottom: 1px solid #44474
 .ft8 td.num { text-align: right; color: var(--muted); }
 .acars td.act { text-align: left; }
 .ft8 tr.cq td.msg { color: var(--green); }
+/* FT8 table: fixed column widths, every header aligned like its column */
+.ft8 .ft8-tbl { table-layout: fixed; }
+.ft8-tbl col.c-utc { width: 82px; }
+.ft8-tbl col.c-snr { width: 128px; }
+.ft8-tbl col.c-dt { width: 64px; }
+.ft8-tbl col.c-hz { width: 168px; }
+.ft8-tbl col.c-f { width: 92px; }
+.ft8 .ft8-tbl th { background: #10151b; border-bottom: 1px solid var(--line); z-index: 2; }
+.ft8 .ft8-tbl th.num { text-align: right; }
+.ft8 .ft8-tbl td { padding: 4px 10px; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
+.ft8 .ft8-tbl tbody tr:not(.cycle) td:first-child { box-shadow: inset 3px 0 0 var(--k, transparent); }
+.ft8 .ft8-tbl tbody tr:not(.cycle):hover td { background: rgba(255, 255, 255, .045); }
+.ft8-tbl tr.k-cq { --k: var(--green); }
+.ft8-tbl tr.k-rep { --k: var(--amber); }
+.ft8-tbl tr.k-end { --k: #a78bfa; }
+.ft8-tbl tr.k-qso { --k: #5fd7ff; }
+.ft8 .ft8-tbl tr.cq td { background: rgba(80, 220, 120, .045); }
+.ft8 .ft8-tbl td.utc { color: var(--dim); font-size: 12px; }
+/* SNR: the value + a bar −24…+20 dB */
+.ft8-tbl .cf { display: flex; align-items: center; gap: 8px; }
+.ft8-tbl .snr-v { flex: none; width: 3ch; text-align: right; font-weight: 700; }
+.ft8-tbl .snr-b { flex: 1 1 auto; height: 6px; border-radius: 3px; background: rgba(255, 255, 255, .07); overflow: hidden; }
+.ft8-tbl .snr-b i { display: block; height: 100%; border-radius: 3px; background: currentColor; opacity: .85; }
+.ft8-tbl td.s-hi { color: var(--green); }
+.ft8-tbl td.s-mid { color: var(--amber); }
+.ft8-tbl td.s-lo { color: #ff6b6b; }
+.ft8 .ft8-tbl td.dt-warn { color: var(--amber); }
+.ft8 .ft8-tbl td.dt-bad { color: #ff6b6b; font-weight: 700; }
+/* Audio Hz: where the signal sits in the 0–3 kHz passband + the value */
+.ft8-tbl .hz-b { position: relative; flex: 1 1 auto; height: 8px; border-radius: 2px;
+  background: linear-gradient(90deg, rgba(95, 215, 255, .05), rgba(95, 215, 255, .14) 50%, rgba(95, 215, 255, .05)); }
+.ft8-tbl .hz-b i { position: absolute; top: -2px; bottom: -2px; width: 3px; margin-left: -1px; border-radius: 1px;
+  background: #5fd7ff; box-shadow: 0 0 6px #5fd7ff; }
+.ft8-tbl .hz-v { flex: none; width: 4ch; text-align: right; color: var(--muted); }
+.ft8 .ft8-tbl td.fq { color: var(--text); }
+/* the message: coloured tokens */
+.ft8 .ft8-tbl td.msg { color: #e8ecf0; font-weight: 600; letter-spacing: .02em; }
+.ft8 .ft8-tbl tr.cq td.msg { color: #e8ecf0; }
+.ft8-tbl .t-cq { padding: 0 5px; border-radius: 3px; background: var(--green); color: #04130a; font-weight: 800; }
+.ft8-tbl .t-cqm { color: var(--green); font-weight: 800; }
+.ft8-tbl .t-call { color: #5fd7ff; }
+.ft8-tbl .t-grid { padding: 0 4px; border: 1px solid rgba(255, 181, 71, .45); border-radius: 3px; color: #ffb547; }
+.ft8-tbl .t-rep { color: var(--yellow); }
+.ft8-tbl .t-73 { color: #a78bfa; }
+.ft8-tbl .t-hash { color: var(--dim); }
+/* cycle separator: time, number of decodes, slot and a strip with one tick per decode at its audio offset */
+.ft8 .ft8-tbl tr.cycle td { padding: 5px 10px; font: 600 11px system-ui, sans-serif; color: var(--muted);
+  background: linear-gradient(90deg, rgba(95, 215, 255, .09), rgba(255, 255, 255, .015) 60%); border-top: 1px solid var(--line); }
+.ft8 .ft8-tbl tr.cycle.odd td { background: linear-gradient(90deg, rgba(167, 139, 250, .1), rgba(255, 255, 255, .015) 60%); }
+.ft8 .ft8-tbl tr.cycle td > * { vertical-align: middle; }
+.ft8-tbl .cy-t { font: 700 12px ui-monospace, "Cascadia Mono", Consolas, monospace; color: var(--text); }
+.ft8-tbl .cy-t::after { content: " UTC"; color: var(--dim); font-weight: 400; }
+.ft8-tbl .cy-n { margin-left: 10px; padding: 0 7px; border-radius: 8px; background: rgba(255, 255, 255, .08); color: var(--text); }
+.ft8-tbl .cy-n::after { content: " decodes"; color: var(--muted); font-weight: 400; }
+.ft8-tbl .cy-s { margin-left: 10px; color: var(--dim); font-weight: 400; }
+.ft8-tbl .cy-strip { position: relative; display: inline-block; width: min(320px, 30%); height: 10px; margin-left: 14px;
+  border-radius: 2px; background: rgba(255, 255, 255, .05); }
+.ft8-tbl .cy-strip b { position: absolute; top: 0; bottom: 0; width: 2px; background: #5fd7ff; }
+.ft8-tbl .cy-strip b.k-cq { background: var(--green); }
+.ft8-tbl .cy-strip b.k-rep { background: var(--amber); }
+.ft8-tbl .cy-strip b.k-end { background: #a78bfa; }
+/* FT8: the table and the station map side by side, half each (one under the other on a narrow screen) */
+.dec-pane .ft8-split { flex: 1 1 0; min-height: 300px; display: flex; gap: 10px; }
+.dec-pane .ft8-split > .ft8-table { flex: 1 1 0; min-width: 0; }
+.ft8-map { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.ft8-map-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.ft8-map-bar > b { font: 700 11px system-ui, sans-serif; letter-spacing: .08em; color: var(--muted); }
+.ft8-map-bar .bands button { min-width: 0; padding: 3px 8px; font-size: 11px; }
+#ft8MapInfo { flex: 1 1 auto; font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; }
+.ft8-map-body { flex: 1 1 0; min-height: 0; display: flex; gap: 8px; }
+#ft8Map { flex: 1 1 0; min-height: 240px; border: 1px solid var(--line); border-radius: 6px; background: #0e1116; }
+#ft8Map.leaflet-container { font: 12px system-ui, sans-serif; }
+#ft8MapNote { font-size: 11px; }
+.ft8-ml-box { width: 250px; }
+.ft8-ml { display: grid; grid-template-columns: 10px 1fr 40px 44px 30px 40px; gap: 6px; align-items: center; padding: 2px 8px;
+  cursor: pointer; font: 12px ui-monospace, "Cascadia Mono", Consolas, monospace; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ft8-ml:hover { background: rgba(255, 255, 255, .06); }
+.ft8-ml.sel { background: rgba(255, 75, 60, .22); }
+.ft8-ml.nopos { cursor: default; opacity: .5; }
+.ft8-ml b { overflow: hidden; text-overflow: ellipsis; color: #5fd7ff; }
+.ft8-ml.cq b { color: var(--green); }
+.ft8-ml .grid { color: #ffb547; }
+.ft8-ml .km, .ft8-ml .age, .ft8-ml span[class^="s-"] { text-align: right; }
+.ft8-ml .km, .ft8-ml .age { color: var(--muted); }
+.ft8-ml .s-hi { color: var(--green); }
+.ft8-ml .s-mid { color: var(--amber); }
+.ft8-ml .s-lo { color: #ff6b6b; }
+.ft8-ml .tri { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 9px solid #5fd7ff; }
+.ft8-ml.cq .tri { border-bottom-color: var(--green); }
+.ft8-ml.sel .tri { border-bottom-color: #ff4b3c; }
+.ft8-ml.nopos .tri { border-bottom-color: var(--dim); }
+/* the triangles on the map */
+.ft8-tri { background: none; border: none; }
+.ft8-tri svg { width: 12px; height: 12px; overflow: visible; display: block; }
+.ft8-tri path { fill: #5fd7ff; stroke: rgba(0, 0, 0, .8); stroke-width: 1.6; stroke-linejoin: round; }
+.ft8-tri.cq path { fill: #4ade80; }
+.ft8-tri.sel path { fill: #ff4b3c; }
+.ft8-tri.old { opacity: .45; }
+.ft8-tri.fresh svg { filter: drop-shadow(0 0 4px #fff); animation: ft8pulse 1.2s ease-out 3; }
+@keyframes ft8pulse { 0% { transform: scale(1.7); } 100% { transform: scale(1); } }
+.leaflet-tooltip.ft8-label { padding: 1px 3px; margin-top: 2px; background: rgba(8, 12, 16, .82); border: 1px solid rgba(95, 215, 255, .55);
+  border-radius: 3px; box-shadow: 0 1px 3px rgba(0, 0, 0, .6); color: #ffffff;
+  font: 700 10px/1.15 ui-monospace, "Cascadia Mono", Consolas, monospace; letter-spacing: .03em; }
+.leaflet-tooltip.ft8-label::before { display: none; }
+.leaflet-tooltip.ft8-label.cq { border-color: rgba(74, 222, 128, .7); color: #d9ffe6; }
+.leaflet-tooltip.ft8-label.sel { border-color: #ff4b3c; background: rgba(60, 10, 8, .9); }
+#ft8Map.ft8-nolbl .ft8-label { display: none; }
+.ft8-popup .leaflet-popup-content-wrapper, .ft8-popup .leaflet-popup-tip { background: #11151b; color: #d6dde5; border: 1px solid var(--line); }
+.ft8-popup .leaflet-popup-content { margin: 10px 12px; line-height: 1.55; }
+.ft8-popup a { color: #6cb8ff; }
+.ft8-pop-call { font: 700 15px ui-monospace, "Cascadia Mono", Consolas, monospace; color: #5fd7ff; }
+.ft8-pop-grid { padding: 0 4px; border: 1px solid rgba(255, 181, 71, .45); border-radius: 3px; color: #ffb547; font-weight: 600; }
+.ft8-pop-msg { font: 600 12px ui-monospace, "Cascadia Mono", Consolas, monospace; color: #e8ecf0; }
+.ft8-pop-msg .t-cq { padding: 0 4px; border-radius: 3px; background: var(--green); color: #04130a; font-weight: 800; }
+.ft8-pop-msg .t-cqm { color: var(--green); }
+.ft8-pop-msg .t-call { color: #5fd7ff; }
+.ft8-pop-msg .t-grid { color: #ffb547; }
+.ft8-pop-msg .t-rep { color: var(--yellow); }
+.ft8-pop-msg .t-73 { color: #a78bfa; }
+.ft8-pop-msg .t-hash { color: var(--dim); }
+.ft8-pop-msg { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; }
+body.map-only .ft8-map.map-only-box { flex-direction: column; }
+/* half the width is too little for all columns: the table gives up its bars first */
+@media (max-width: 1500px) {
+  .ft8-tbl col.c-snr { width: 70px; }
+  .ft8-tbl col.c-hz { width: 64px; }
+  .ft8-tbl .snr-b, .ft8-tbl .hz-b, .ft8-tbl .cy-strip { display: none; }
+}
+@media (max-width: 1000px) {
+  .dec-pane .ft8-split { flex-direction: column; }
+  .dec-pane .ft8-split > .ft8-table, .ft8-map { flex: 1 1 300px; }
+}
+@media (max-width: 760px) {
+  .ft8-ml-box { display: none; }
+  .ft8-tbl col.c-utc { width: 64px; }
+  .ft8-tbl col.c-snr { width: 70px; }
+  .ft8-tbl col.c-hz { width: 60px; }
+  .ft8-tbl col.c-f { width: 72px; }
+  .ft8-tbl .snr-b, .ft8-tbl .hz-b, .ft8-tbl .cy-strip, .ft8-tbl .cy-s { display: none; }
+  .ft8 .ft8-tbl td { padding: 3px 5px; }
+}
 /* ACARS: the message text can have several lines; bad CRC dimmed */
 .acars td.msg { white-space: pre-wrap; word-break: break-word; min-width: 24em; }
 .acars td.reg, .acars td.reg a { color: var(--amber); }
@@ -2651,3 +2829,14 @@ body.map-only .pkt-map.map-only-box { flex-direction: column; gap: 4px; }
 /* SETTINGS: a switch or field that has no effect now (e.g. EXP AUTO with EXP off) is greyed out */
 .switch:has(input:disabled) { opacity: .45; cursor: default; }
 .set-field input:disabled { opacity: .45; cursor: default; }
+
+/* RADIMCOM.exe: full screen and the MAIN power switch in the corner of the master section (placement provisional) */
+.r-master { position: relative; }
+.app-keys { position: absolute; top: 6px; right: 6px; display: flex; gap: 4px; z-index: 2; }
+.app-keys[hidden] { display: none; }
+.app-keys .key { display: inline-flex; align-items: center; gap: 4px; padding: 3px 6px; }
+.app-ico { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.app-power { color: var(--green); }
+.app-power .app-ico { filter: drop-shadow(0 0 3px rgba(60, 240, 124, .8)); }
+.app-power:hover { color: #ff6b5e; }
+.app-power:hover .app-ico { filter: drop-shadow(0 0 3px rgba(255, 75, 62, .8)); }

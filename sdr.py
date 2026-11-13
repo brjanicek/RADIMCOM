@@ -12,6 +12,7 @@ import threading
 import time
 
 import numpy as np
+import scipy.fft as scipy_fft
 from collections import deque
 
 from autotune import AutoTune
@@ -26,7 +27,8 @@ READ_SAMPLES = 131072  # samples per read (~85 ms at 1.536 MS/s)
 WF_BINS = 1024        # points in the waterfall line sent to the browser
 WF_FFT = 32768        # fine FFT (47 Hz/point at 1.536 MS/s); the zoom takes a section of it
 WF_SEGMENTS = READ_SAMPLES // WF_FFT
-ZOOMS = (1, 2, 4, 8, 16, 32)   # at 32× the section has exactly WF_BINS points of the fine FFT
+ZOOMS = (1, 2, 4, 8, 16, 32, 64)   # at 32× the section has exactly WF_BINS points of the fine FFT
+WF_FFT2 = 2 * WF_FFT  # 64×: a finer FFT (23 Hz/point at 1.536 MS/s, 3 segments with 50 % overlap), only when needed
 WF_DB_MIN = -130.0
 WF_DB_STEP = 0.5
 MODES = ("AM", "FM", "WFM", "LSB", "USB", "CW", "DSD")
@@ -1338,6 +1340,8 @@ class Receiver:
         self.phase = 0.0
         self.win = np.hanning(WF_FFT).astype(np.float32)
         self.wf_norm = 1.0 / (self.win.sum() ** 2)
+        self.win2 = np.hanning(WF_FFT2).astype(np.float32)
+        self.wf_norm2 = 1.0 / (self.win2.sum() ** 2)
         self.view_start = None
         self.dc_zi = None
         self.view_key = None
@@ -1623,11 +1627,33 @@ class Receiver:
             db = 10 * np.log10(p.reshape(WF_BINS, -1).mean(axis=1) + 1e-20)
             return np.clip((db - WF_DB_MIN) / WF_DB_STEP, 0, 255).astype(np.uint8).tobytes()
 
+        if span_bins < WF_BINS:
+            section = self._fine_section(iq, start, span_bins, lines if c.get("spur_on") and lines else None)
+        else:
+            section = power[start:start + span_bins]
+
         view_center = lo_edge + (start + span_bins / 2) * bin_hz
         # Zoomed in: also a coarse line of the whole band, so the browser can show the history of the parts hidden
         # by the zoom when zooming out. At 1× the line itself is the whole band.
         full = to_row(power) if zoom > 1 else None
-        self.on_row(to_row(power[start:start + span_bins]), view_center, span_bins * bin_hz, full, c["center_hz"], self.fs)
+        self.on_row(to_row(section), view_center, span_bins * bin_hz, full, c["center_hz"], self.fs)
+
+    def _fine_section(self, iq, start, span_bins, spurs):
+        """64×: the section has fewer points of the WF_FFT spectrum than the waterfall line, so it is taken from
+        a WF_FFT2 spectrum (Hann, 50 % overlap) instead of stretching the coarse points. Sine-normalised like
+        the coarse one: a carrier keeps its level, the noise per point is 3 dB lower (half the bandwidth)."""
+        k = WF_FFT2 // WF_FFT
+        segs = np.stack([iq[i:i + WF_FFT2] for i in range(0, len(iq) - WF_FFT2 + 1, WF_FFT2 // 2)]) * self.win2
+        spec = scipy_fft.fft(segs, axis=1, overwrite_x=True)     # complex64: ~2.5× faster than np.fft
+        fine = np.fft.fftshift(np.mean(spec.real ** 2 + spec.imag ** 2, axis=0)) * self.wf_norm2
+        if self.cfg.get("dc_remove", True):
+            mid = WF_FFT2 // 2
+            fine[mid] = (fine[mid - 1] + fine[mid + 1]) / 2
+        a, b = start * k, (start + span_bins) * k
+        out = fine[a:b]
+        if spurs and self.spur_mask is not None:
+            out = out * np.repeat(self.spur_mask[start:start + span_bins], k)
+        return out
 
     def _loop(self, sdr, blocks, reader):
         last_status = 0

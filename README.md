@@ -13,12 +13,14 @@ What each part of the screen does: [annotated main screen](docs/images/main_anno
 
 ## Quick start
 
-1. Download `RADIMCOM_install_v<version>.zip` from [Releases](https://github.com/om2amr/RADIMCOM/releases) and unzip it.
-2. Run **`install.bat`**: it installs the Python packages, offers the USB drivers and runs the SDR setup.
-3. Run **`start.bat`**.
-4. Open **http://localhost:8434** in the browser.
+1. Download **`RADIMCOM_Setup_v<version>.exe`** from [Releases](https://github.com/om2amr/RADIMCOM/releases) and run it
+   (Python is included, no administrator rights). Tick the USB drivers you need; at the end it runs the SDR setup.
+2. RADIMCOM opens in its own window (pin it to the taskbar); closing it keeps the receiver in the tray.
+   The page is also at **http://localhost:8434** for any browser.
+3. Upgrade: run the setup of a newer version into the same folder (the page tells when one is out); `data\` stays.
+   From 0.114 or older (installed from a zip): the same, into the folder of the old installation.
 
-The DSD mode (digital voice) needs one extra step: run **`install_dsd.bat`** once, see [DSD](docs/decoders/dsd.md).
+The DSD mode (digital voice) needs DSD-FME: tick it in the setup or run **`install_dsd.bat`**, see [DSD](docs/decoders/dsd.md).
 Details, drivers and running from the git sources: [Installation](docs/installation.md).
 
 ## Supported hardware
@@ -48,7 +50,8 @@ Up to four SDRs at once, each assigned to a VFO by its serial number; one dongle
 - **AGC+**: tuner gain set from the A/D level, as high as possible without clipping. → [GAIN keys](docs/controls.md#function-keys)
 - **ATU (autotune, experimental)**: a click on an AM signal moves the tuning onto its carrier, on an SSB signal it puts the signal edge on the red line. → [TUNE keys](docs/controls.md#function-keys)
 - **Shortwave (HF)** through an upconverter, always showing the real frequency. → [HF upconverter](docs/hf-upconverter.md)
-- **Digital-mode decoders:** FT8, WEFAX, CW, RTTY, SSTV and PACKET (AX.25 1200 / 9600 Bd, APRS with map). → [DECODE](docs/controls.md#function-keys)
+- **Digital-mode decoders:** FT8 (with a map of the stations heard), WEFAX, CW, RTTY, SSTV and PACKET (AX.25 1200 / 9600 Bd, APRS with map). → [DECODE](docs/controls.md#function-keys)
+- **CW skimmer:** up to 16 Morse stations decoded at once with soft decisions (Viterbi, beam search), the operator's timing learnt (bug, straight key, Farnsworth), calls in the spectrum. → [CW](docs/decoders/cw.md)
 - **Aircraft data link:** ACARS and VDL2 with CPDLC and ADS-C decoded to plain text and a map of the aircraft, and **HFDL** on HF (2.9–22 MHz, all channels of a band at once). → [Aircraft](docs/decoders/aircraft.md) · [HFDL](docs/decoders/hfdl.md)
 - **AIS** ships on 161.975 / 162.025 MHz (own decoder, both channels at once) with a map of ships, base stations and aids to navigation. → [AIS](docs/decoders/ais.md)
 - **ADS-B** aircraft on 1090 MHz (own Mode S / ADS-B decoder) with a list, a map with tracks and the raw messages. → [ADS-B](docs/decoders/adsb.md)
@@ -61,7 +64,7 @@ Up to four SDRs at once, each assigned to a VFO by its serial number; one dongle
 ### User interface
 
 - **Transceiver-style screen** in brushed black anodized aluminium (other skins: black or light aluminium, mahogany, RAL paint): S-meter, recessed displays, 3D keys; every VFO is one dark display window with all its state, side by side, each waterfall keeps running. → [Controls](docs/controls.md)
-- **Spectrum and waterfall** with 1×–32× zoom and a waterfall speed bar; tune by click, drag, mouse wheel or the wheel over a digit. → [Tuning](docs/controls.md#tuning)
+- **Spectrum and waterfall** with 1×–64× zoom and a waterfall speed bar; tune by click, drag, mouse wheel or the wheel over a digit. → [Tuning](docs/controls.md#tuning)
 - **Band plan on the frequency axis**, audio spectrum bubble, seven S-meter layouts. → [Tuning](docs/controls.md#tuning)
 - **Memories** with favourites, spectrum tags and a memory editor (groups with notes, decoder and recording at recall, import from SDR# / JSON / CSV, export). → [MEM](docs/controls.md#function-keys), [Memory editor](docs/controls.md#memory-editor)
 - **CUE**: hear other VFOs while one is selected, with MAIN / CUE faders and a level meter. → [Function keys](docs/controls.md#function-keys)

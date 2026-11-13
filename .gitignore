@@ -38,3 +38,13 @@ dist/
 # created by make_installer in the upgrade zip (unpacked upgrade)
 /UPGRADE.txt
 /upgrade.bat
+
+# RADIMCOM.exe built for this development copy (python installer/make_installer.py --exe)
+/RADIMCOM.exe
+/Microsoft.Web.WebView2.Core.dll
+/Microsoft.Web.WebView2.WinForms.dll
+/WebView2Loader.dll
+/WebView2_LICENSE.txt
+# bundled Python of an installed copy; NuGet downloads and the prepared Python of the setup build
+/python/
+installer/cache/

@@ -104,11 +104,47 @@ def unique_serial(old, taken):
     return None
 
 
+def to_rewrite(rtl):
+    """RTL-SDR dongles whose serial number has to change: empty ones, and of the same number all but the first."""
+    serials = [d["serial"] for d in rtl]
+    seen, out = set(), []
+    for d in rtl:
+        if d["serial"] and serials.count(d["serial"]) == 1:
+            continue
+        if d["serial"] and d["serial"] not in seen:
+            seen.add(d["serial"])          # keep the first dongle with a given (non-empty) number
+            continue
+        out.append(d)
+    return out
+
+
+def eeprom_serial(index):
+    """(serial number in the EEPROM, backup file) of RTL-SDR #index; the EEPROM is backed up first."""
+    import eeprom_tool
+    os.makedirs(eeprom_tool.BACKUP_DIR, exist_ok=True)
+    data_ = eeprom_tool.read(index)
+    backup = os.path.join(eeprom_tool.BACKUP_DIR, f"dongle{index}_{time.strftime('%Y%m%d_%H%M%S')}.bin")
+    with open(backup, "wb") as f:
+        f.write(data_)
+    _, strs = eeprom_tool.describe(data_)
+    if not strs:
+        raise RuntimeError("the EEPROM has no valid string table")
+    return strs[2][2], backup
+
+
+def write_serial(index, new):
+    """Writes a new serial number (same length as the old one) into RTL-SDR #index; the EEPROM is backed up first."""
+    import eeprom_tool
+    old, backup = eeprom_serial(index)
+    if len(new) != len(old):
+        raise ValueError(f"the serial must have exactly {len(old)} characters")
+    eeprom_tool.write(index, new)
+    return backup
+
+
 def fix_serials(rtl):
     """Offers to write unique serial numbers into the EEPROM when numbers are duplicate or empty."""
-    import eeprom_tool
-    serials = [d["serial"] for d in rtl]
-    bad = [d for d in rtl if not d["serial"] or serials.count(d["serial"]) > 1]
+    bad = to_rewrite(rtl)
     if not bad:
         return False
     print("Some RTL-SDR dongles share the same serial number, so they cannot be told apart.")
@@ -116,32 +152,19 @@ def fix_serials(rtl):
     if not yes("Write unique serial numbers now?"):
         print("Skipped: dongles with the same serial will be opened by USB order (may swap after replugging).")
         return False
-    taken = set(serials)
-    os.makedirs(eeprom_tool.BACKUP_DIR, exist_ok=True)
-    # keep the first dongle with a given (non-empty) number, rewrite the others
-    seen = set()
+    taken = {d["serial"] for d in rtl}
     for d in bad:
-        if d["serial"] and d["serial"] not in seen:
-            seen.add(d["serial"])
-            continue
         try:
-            data = eeprom_tool.read(d["index"])
+            old, _ = eeprom_serial(d["index"])
         except RuntimeError as e:
-            print(f"  #{d['index']}: cannot read EEPROM ({e}), skipped")
+            print(f"  #{d['index']}: cannot read the EEPROM ({e}), skipped")
             continue
-        backup = os.path.join(eeprom_tool.BACKUP_DIR, f"dongle{d['index']}_{time.strftime('%Y%m%d_%H%M%S')}.bin")
-        with open(backup, "wb") as f:
-            f.write(data)
-        _, strs = eeprom_tool.describe(data)
-        if not strs:
-            print(f"  #{d['index']}: EEPROM has no valid string table, skipped")
-            continue
-        old = strs[2][2]
         new = ask(f"  #{d['index']}: new serial ({len(old)} characters)", unique_serial(old, taken) or "")
-        if len(new) != len(old):
-            print(f"  must have exactly {len(old)} characters, skipped")
+        try:
+            write_serial(d["index"], new)
+        except (ValueError, RuntimeError) as e:
+            print(f"  {e}, skipped")
             continue
-        eeprom_tool.write(d["index"], new)
         taken.add(new)
     print("\nUnplug all dongles, plug them back in and press Enter to continue.")
     input()
@@ -153,6 +176,14 @@ DEVICE_NAMES = {"rtl": "RTL-SDR", "lime": "LimeSDR", "airspy": "Airspy"}
 
 def label(d):
     return f"{DEVICE_NAMES[d['driver']]} '{d['serial']}'"
+
+
+def devices():
+    """All connected SDRs: [{driver, serial, name, index (RTL-SDR)}]."""
+    devs = [dict(d, driver="rtl", name=f"{d.get('vendor', '')} {d.get('product', '')}".strip()) for d in rtl_devices()]
+    devs += [dict(d, driver="lime") for d in lime_devices()]
+    devs += [dict(d, driver="airspy", name=d.get("name", "Airspy")) for d in airspy_devices()]
+    return devs
 
 
 def present():
@@ -241,51 +272,97 @@ def assign(devs):
     return out
 
 
+def lo_mhz(lo):
+    """Upconverter LO in MHz from what was typed (a value of 30–1000 MHz entered in Hz is taken as Hz);
+    ValueError outside 30–1000 MHz: an LO below 30 MHz would shift HF where the tuner cannot receive (below 24 MHz)."""
+    lo = float(str(lo).replace(",", "."))
+    if 30 <= lo / 1e6 <= 1000:
+        lo /= 1e6
+    if not 30 <= lo <= 1000:
+        raise ValueError("the LO must be between 30 and 1000 MHz (use a decimal point, e.g. 100.00215)")
+    return lo
+
+
+def default_note(driver, upconverter):
+    if upconverter:
+        return "HF via upconverter"
+    return ("" if driver == "rtl" else f"{DEVICE_NAMES[driver]}, ") + "VHF/UHF direct"
+
+
+def make_entry(dev, name, port, ppm=0, lo=None, note=None):
+    """vfos.json entry of a VFO with its own device; lo = upconverter LO in MHz or None (direct)."""
+    driver = dev["driver"]
+    entry = {"name": name, "serial": dev["serial"], "port": port, "config": f"config_{name}.json"}
+    if driver != "rtl":
+        entry["driver"] = driver
+    init = {"ppm": int(ppm)}
+    if lo:
+        init.update(upconv="auto", lo_offset_hz=lo * 1e6, tune_hz=7074000, mode="USB")
+    else:
+        init.update(upconv="off", lo_offset_hz=0, tune_hz=145500000, mode="FM")
+    init["center_hz"] = init["tune_hz"] + 409600   # tuned frequency off-centre (the centre has a DC spike)
+    if driver == "lime":
+        init.update(gain=35, bias_tee=False, rtl_agc=False)
+    elif driver == "airspy":
+        init.update(gain=12, bias_tee=False, rtl_agc=False)
+    entry["note"] = default_note(driver, bool(lo)) if note is None else note
+    entry["init"] = init
+    return entry
+
+
+def make_chained(owner, name, port, note=None):
+    """vfos.json entry of a VFO without its own dongle: it uses the dongle of VFO owner (its entry)."""
+    o = owner["init"]
+    init = {k: o[k] for k in ("tune_hz", "mode", "center_hz") if k in o}
+    entry = {"name": name, "chain": owner["name"], "port": port, "config": f"config_{name}.json"}
+    entry["note"] = f"chained to VFO {owner['name']}" if note is None else note
+    entry["init"] = init
+    return entry
+
+
+def save(vfos):
+    """Writes vfos.json; old VFO settings belong to other dongles: they are moved to data/config_backup/<time>/
+    (new ones are created from "init" at the next start). -> the backup folder or None."""
+    stamp = time.strftime("%Y%m%d_%H%M%S")
+    old = [f for f in os.listdir(DATA) if f == "vfos.json" or (f.startswith("config_") and f.endswith(".json"))]
+    bdir = None
+    if old:
+        bdir = data("config_backup", stamp)
+        os.makedirs(bdir, exist_ok=True)
+        for f in old:
+            shutil.move(data(f), os.path.join(bdir, f))
+    with open(VFOS_PATH, "w", encoding="utf-8") as f:
+        json.dump({"port": 8434, "vfos": vfos}, f, indent=2, ensure_ascii=False)
+    return bdir
+
+
 def configure_chained(owner, name, port):
     """VFO without its own dongle: it uses the dongle of VFO owner (entry already made by configure)."""
     print(f"\nVFO {name}: chained to the dongle of VFO {owner['name']} ('{owner['serial']}')")
     print(f"  It tunes inside the band VFO {owner['name']} receives (± half the sample rate around its centre);")
     print(f"  gain, ppm and sample rate are shared with VFO {owner['name']}.")
-    o = owner["init"]
-    init = {k: o[k] for k in ("tune_hz", "mode", "center_hz") if k in o}
-    entry = {"name": name, "chain": owner["name"], "port": port, "config": f"config_{name}.json"}
-    entry["note"] = ask("  Description shown on the VFO button", f"chained to VFO {owner['name']}")
-    entry["init"] = init
-    return entry
+    return make_chained(owner, name, port, ask("  Description shown on the VFO button", f"chained to VFO {owner['name']}"))
 
 
 def configure(dev, name, port):
     """Questions about one device -> vfos.json entry."""
     driver = dev["driver"]
     print(f"\nVFO {name}: {DEVICE_NAMES[driver]} serial '{dev['serial']}'")
-    entry = {"name": name, "serial": dev["serial"], "port": port, "config": f"config_{name}.json"}
-    if driver != "rtl":
-        entry["driver"] = driver
-    init = {"ppm": ask_num("  Frequency correction ppm (0 if unknown)", 0, int)}
+    ppm = ask_num("  Frequency correction ppm (0 if unknown)", 0, int)
+    lo = None
     if yes("  Is it connected through an HF upconverter (e.g. Ham It Up)?", False):
         while True:
-            lo = ask_num("  Upconverter LO in MHz (e.g. 100 or 100.0021)", 100)
-            # an LO below 30 MHz would shift HF into a range the tuner cannot receive (below 24 MHz)
-            if 30 <= lo / 1e6 <= 1000:   # entered in Hz
-                lo /= 1e6
+            typed = ask("  Upconverter LO in MHz (e.g. 100 or 100.0021)", 100)
+            try:
+                lo = lo_mhz(typed)
+            except ValueError as e:
+                print(f"  {e}")
+                continue
+            if lo != float(typed.replace(",", ".")):
                 print(f"  taken as Hz: {f'{lo:.6f}'.rstrip('0').rstrip('.')} MHz")
-            if 30 <= lo <= 1000:
-                break
-            print("  the LO must be between 30 and 1000 MHz (use a decimal point, e.g. 100.00215)")
-        init.update(upconv="auto", lo_offset_hz=lo * 1e6, tune_hz=7074000, mode="USB")
-        entry["note"] = "HF via upconverter"
-    else:
-        init.update(upconv="off", lo_offset_hz=0, tune_hz=145500000, mode="FM")
-        entry["note"] = ("" if driver == "rtl" else f"{DEVICE_NAMES[driver]}, ") + "VHF/UHF direct"
-    init["center_hz"] = init["tune_hz"] + 409600   # tuned frequency off-centre (the centre has a DC spike)
-    if driver == "lime":
-        init.update(gain=35, bias_tee=False, rtl_agc=False)
-    elif driver == "airspy":
-        init.update(gain=12, bias_tee=False, rtl_agc=False)
-    note = ask("  Description shown on the VFO button", entry["note"])
-    entry["note"] = note
-    entry["init"] = init
-    return entry
+            break
+    note = ask("  Description shown on the VFO button", default_note(driver, bool(lo)))
+    return make_entry(dev, name, port, ppm, lo, note)
 
 
 def main():
@@ -330,26 +407,19 @@ def main():
         if yes("Save this configuration?"):
             break
         print("\nStarting the assignment again.")
-    # Old VFO settings belong to other dongles: they are backed up and new ones are created from "init".
-    stamp = time.strftime("%Y%m%d_%H%M%S")
-    old = [f for f in os.listdir(DATA) if f == "vfos.json" or (f.startswith("config_") and f.endswith(".json"))]
-    if old:
-        bdir = data("config_backup", stamp)
-        os.makedirs(bdir, exist_ok=True)
-        for f in old:
-            shutil.move(data(f), os.path.join(bdir, f))
+    bdir = save(vfos)
+    if bdir:
         print(f"\nPrevious settings moved to {bdir}")
-    with open(VFOS_PATH, "w", encoding="utf-8") as f:
-        json.dump({"port": 8434, "vfos": vfos}, f, indent=2, ensure_ascii=False)
     print(f"\nSaved {VFOS_PATH}: " + ", ".join(
         f"VFO {v['name']} = " + (f"chained to VFO {v['chain']}" if v.get("chain") else v["serial"]) for v in vfos))
     # install.bat asks about starting by itself at the end (--no-start)
     if "--no-start" in sys.argv:
         return
+    shell = os.path.join(BASE, "RADIMCOM.exe")          # the app window (installed with the setup)
     if yes("Start the receiver now?"):
-        os.startfile(os.path.join(BASE, "start.bat"))   # own window; the page opens by itself
+        os.startfile(shell if os.path.exists(shell) else os.path.join(BASE, "start.bat"))   # the page opens by itself
     else:
-        print("Start it later with the RADIMCOM shortcut (start.bat).")
+        print("Start it later with the RADIMCOM shortcut.")
         input("Press Enter to exit.")
 
 

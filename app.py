@@ -21,6 +21,14 @@ from paths import BASE, data
 
 VFOS_PATH = data("vfos.json")
 
+# The output goes to data/server_logs/ (serverlog.py): a new log at the start, the VFO processes write into it.
+if __name__ == "__main__":
+    import serverlog
+    if "--vfo" in sys.argv:
+        serverlog.attach()
+    else:
+        serverlog.start()
+
 # Without arguments and with vfos.json: the launcher, which starts one receiver (process) per VFO.
 if __name__ == "__main__" and "--vfo" not in sys.argv and os.path.exists(VFOS_PATH):
     import launcher
@@ -311,7 +319,7 @@ def wefax_retune(old_hz, new_hz):
 
 
 wefax = WefaxDecoder(on_event=decoder_event, on_retune=wefax_retune)
-cw = CwDecoder(on_event=decoder_event)
+cw = CwDecoder(on_event=decoder_event, mode="skimmer")    # always the skimmer: all stations in the table
 # Peek CW decoder for the audio spectrum bubble (the CW decoder itself is off): runs only while a browser keeps
 # renewing it (POST /api/cw {"action": "peek"}); its text goes only to the bubble, not to the log or the CW card.
 cw_peek = CwDecoder(on_event=lambda kind, data: hub.event("cwpeek", data) if kind == "cwtext" else None)
@@ -452,6 +460,7 @@ ft8.set_enabled(cfg.get("ft8", False))
 wefax.slant_ppm = float(cfg.get("wefax_slant_ppm", 0.0))
 wefax.afc_vfo = bool(cfg.get("wefax_afc_vfo", True))
 wefax.set_enabled(cfg.get("wefax", False))
+cw.set_options(span=(cfg.get("cw_opts") or {}).get("span"))
 cw.set_enabled(cfg.get("cw", False))
 try:
     rtty.set_options(cfg.get("rtty_opts") or {})
@@ -525,19 +534,9 @@ def index():
     return send_from_directory(app.static_folder, "index.html")
 
 
-@app.route("/api/update", methods=["GET", "POST"])
+@app.route("/api/update")
 def api_update():
-    """Newer version on GitHub Releases (update_check.py); POST {"upgrade": true} installs it.
-    With the launcher the page asks the launcher instead."""
-    if request.method == "POST":
-        if VFO:
-            return jsonify({"error": "the launcher does the upgrade"}), 409
-        if not update_check.same_host(request):
-            return jsonify({"error": "the upgrade is accepted only from this RADIMCOM page"}), 403
-        if (request.get_json(force=True, silent=True) or {}).get("upgrade"):
-            err = update_check.upgrade(shutdown_for_upgrade)
-            if err:
-                return jsonify({"error": err}), 409
+    """Newer version on GitHub Releases (update_check.py). With the launcher the page asks the launcher instead."""
     return jsonify(update_check.info())
 
 
@@ -684,6 +683,17 @@ def api_ft8():
     return jsonify(list(ft8.decodes))
 
 
+@app.route("/api/ft8/stations", methods=["GET", "DELETE"])
+def api_ft8_stations():
+    """Stations heard in the last 24 h (call, locator + lat/lon, newest message, SNR, frequency, time);
+    DELETE clears them (CLR of the station map)."""
+    if request.method == "DELETE":
+        ft8.clear_stations()
+        hub.event("ft8stclear", {})
+        return jsonify(ok=True)
+    return jsonify(ft8.station_list())
+
+
 @app.route("/api/wefax", methods=["GET"])
 def api_wefax():
     return jsonify(wefax.info())
@@ -747,6 +757,10 @@ def api_sstv_file(name):
 
 @app.route("/api/cw", methods=["GET"])
 def api_cw():
+    if request.args.get("id"):
+        # whole text of one station (its row opened in the table)
+        t = cw.channel_text(int(request.args["id"]))
+        return jsonify(t) if t else (jsonify({"error": "station gone"}), 404)
     return jsonify(cw.info())
 
 
@@ -757,6 +771,14 @@ def api_cw_cmd():
     action = body.get("action")
     if action == "clear":
         cw.clear()
+    elif action == "follow":
+        # station picked in the skimmer list (id) or back to automatic (null)
+        cw.follow(body.get("id"))
+    elif action == "options":
+        # the skimmer span (filter passband or WIDE), kept in the config
+        cw.set_options(span=body.get("span"))
+        cfg["cw_opts"] = {"span": cw.span}
+        save_config_later()
     elif action == "peek":
         # bubble open (on, renewed every ~2 s) / closed (off); a new opening starts with empty text
         if body.get("on") and not cw.enabled and cfg["mode"] == "CW":
@@ -2163,16 +2185,6 @@ def api_audio():
                              "X-Channels": "2"})
 
 
-def shutdown_for_upgrade():
-    """A receiver started without vfos.json ends itself for the upgrade."""
-    for stop in (recorder.stop_all, rotor_link.stop, receiver.stop):
-        try:
-            stop()
-        except Exception as e:
-            print(f"Upgrade: {e}")
-    os._exit(0)
-
-
 def exit_with_parent():
     """The VFO process ends when the launcher ends (its input is closed)."""
     sys.stdin.read()
@@ -2186,7 +2198,7 @@ def exit_with_parent():
 
 
 if __name__ == "__main__":
-    if VFO:
+    if VFO or os.environ.get("RADIMCOM_SHELL"):     # a receiver without vfos.json under RADIMCOM.exe ends the same way
         threading.Thread(target=exit_with_parent, daemon=True).start()
     if CHAINED:
         import iqshare
