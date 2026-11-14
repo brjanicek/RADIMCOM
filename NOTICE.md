@@ -60,13 +60,14 @@ may infringe patent rights in your jurisdiction and/or require a licence. Check 
 
 ### Source code
 
-Each release from Ver. 0.108 has `RADIMCOM_sources_v<version>.zip` with the source code of the GPL and LGPL components
-in that release, in the exact versions used, and the build instructions (`installer/VDL2.txt`, `installer/DAB.txt`,
-`installer/build_dab.sh`, `installer/welle_radimcom.patch`). The list of its contents is `SOURCES.txt` in that zip. It is built by
-`installer/make_sources.py`.
+The source code of the GPL and LGPL components in a release, in the exact versions used, with the build instructions
+(`installer/VDL2.txt`, `installer/DAB.txt`, `installer/build_dab.sh`, `installer/welle_radimcom.patch`), is available
+**on request**: write to radim.mutina@gmail.com and name the RADIMCOM version. This offer is valid to anyone who received
+that release, for at least three years after it was published. The source package is built by `installer/make_sources.py`
+(its list of contents is `SOURCES.txt`); the releases Ver. 0.108 – 0.114 also have it attached as
+`RADIMCOM_sources_v<version>.zip`.
 
-**librtlsdr:** the exact source of the `librtlsdr.dll` in the packages is still being confirmed, so it is not in that
-zip yet. To ask for it, or for any other source code, write to radim.mutina@gmail.com.
+**librtlsdr:** the exact source of the `librtlsdr.dll` in the packages is still being confirmed; ask for it at the same address.
 
 ### Data
 

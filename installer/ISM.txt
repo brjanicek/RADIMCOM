@@ -15,4 +15,4 @@ Program in this folder:
   rtl-sdr 2.0.2, GNU GPL v2 or later, https://github.com/osmocom/rtl-sdr
   libusb 1.0.29, GNU LGPL v2.1 or later, https://github.com/libusb/libusb
 
-The sources of rtl_433, rtl-sdr and libusb in these versions are in RADIMCOM_sources_v<version>.zip on the release page.
+The sources of rtl_433, rtl-sdr and libusb in these versions are available on request, see NOTICE.md (Source code).

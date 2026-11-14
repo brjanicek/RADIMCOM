@@ -1,5 +1,9 @@
 # Changelog
 
+## Ver. 1.0beta1
+
+Test beta (GitHub branch `1.0beta1`; continues the release 0.115).
+
 ## Ver. 0.115
 
 Released after the test beta (GitHub branch `0.115beta1`) and the release candidate (`0.115rc1`). Many parts are contributed by **Brano, [brjanicek](https://github.com/brjanicek)** (marked *by Brano*).

@@ -48,7 +48,7 @@ def label(x,y,s,kind=None,anchor="middle",size=13,rot=None):
 
 # Title
 text(40,50,"RADIMCOM: block diagram of all components",32,weight=700)
-text(40,78,"Signal flows from the hardware at the bottom up to the browser at the top. Ver. 0.114",16,MUTE)
+text(40,78,"Signal flows from the hardware at the bottom up to the browser at the top. Ver. 1.0beta1",16,MUTE)
 
 # ---------- top row ----------
 group(40,115,300,215,"VFO launcher",FILL["srv"])
@@ -56,9 +56,9 @@ box(60,155,260,70,"launcher.py",["serves the page and /api/vfos on :8434,","star
 text(60,250,"Starts one receiver per VFO.",13.5,MUTE)
 text(60,270,"Without vfos.json: one receiver on",13.5,MUTE)
 text(60,288,":8434, settings from config.json.",13.5,MUTE)
-text(60,310,"start.bat → app.py → launcher",13.5,MUTE)
+text(60,310,"RADIMCOM.exe (or start.bat) → app.py",13.5,MUTE)
 
-group(380,115,1090,215,"Web browser",FILL["ui"],"The page talks directly to each VFO's port; localStorage holds UI preferences")
+group(380,115,1090,215,"Web browser or the RADIMCOM.exe window (WebView2)",FILL["ui"],"The page talks directly to each VFO's port; localStorage holds UI preferences")
 box(400,180,200,132,"index.html",["style.css","layout, VFO windows,","function keys"],)
 box(614,180,200,132,"app.js",["UI logic, one connection","set per VFO"])
 box(828,180,200,132,"bandplan.js",["icao_countries.js, world.js,","leaflet\\ (station map);","band labels, country flags"])
@@ -72,7 +72,7 @@ box(1530,225,230,60,"API/API.md",["API description"])
 
 group(1860,115,520,215,"Internet (optional)",FILL["net"],"Everything works without it")
 box(1880,180,150,132,"opendata.adsb.fi",["api.adsb.lol","aircraft type,","flight level, speed,","position"],size=13.5)
-box(2040,180,150,132,"flagcdn.com",["country flags;","globe.adsb.fi and","adsb.lol as map links"],size=13.5)
+box(2040,180,150,132,"flagcdn.com",["country flags;","globe.adsb.fi, adsb.lol","map links;","sondehub.org:","sonde launch sites"],size=13.5)
 box(2200,180,165,132,"Satellite data",["CelesTrak: orbits","SatNOGS: transmitters","AMSAT: active lists","OpenStreetMap: tiles"],mono=False,size=14)
 
 # ---------- receiver process ----------
@@ -85,7 +85,7 @@ text(640,488,"one process per VFO, :8441–:8444, config_X.json. Flask, NumPy, S
 # API row
 Y=500;HA=58
 box(110,Y,320,HA,"/api/set /state /tx /devices /mpx",["tuning, mode, gain, PTT, MPX spectrum"],size=14)
-box(450,Y,500,HA,"/api/ft8 /wefax /sstv /cw /rtty /packet /acars /cpdlc",["decoder on/off, options, messages and images"],size=14)
+box(450,Y,500,HA,"/api/ft8 /wefax /sstv /cw /rtty /packet",["/pocsag /sonde /acars /cpdlc /whatsnew","decoder on/off, options, messages and images"],size=14)
 box(1140,Y,98,HA,"/events",["SSE"],size=14)
 box(1248,Y,98,HA,"/audio",["16-bit PCM"],size=14)
 box(1362,Y,230,HA,"/api/vdl2 /hfdl /ais /adsb",["/dab/* /dsd /ism /scan","/rotor /sat/*"],size=13.5)
@@ -96,9 +96,9 @@ box(1140,590,206,46,"Hub",["broadcast to browsers"],size=14)
 
 # Decoders
 group(110,680,850,195,"Decoders on baseband (on_baseband)",FILL["dec"],tx=126)
-BW=157
-for i,(n,l) in enumerate([("ft8.py",["needs PyFT8"]),("wefax.py",["radio fax, PNG"]),("cw.py",["Morse, AFC, speed"]),("rtty.py",["Baudot, auto shift"]),("packet.py",["AX.25 1k2 / 9k6","aprs.py: APRS"])]):
-    box(126+i*(BW+8),716,BW,60,n,l)
+BW=112
+for i,(n,l) in enumerate([("ft8.py",["needs PyFT8"]),("wefax.py",["radio fax, PNG"]),("cw.py",["Morse, skimmer"]),("rtty.py",["Baudot, ATC"]),("packet.py",["AX.25, aprs.py"]),("pocsag.py",["pagers"]),("sonde.py",["RS41, DFM;","sonde_sites.py"])]):
+    box(126+i*(BW+6),716,BW,60,n,l,size=14)
 box(126,792,250,31,"adsc.py: ADS-C reports",[],size=13.5)
 box(126,827,250,31,"cpdlc_schema.py: message set",[],size=13.5)
 box(430,792,210,66,"cpdlc.py",["FANS-1/A, ARINC 622"])
@@ -156,11 +156,11 @@ box(1480,1016,260,42,"paths.py",["locates data\\, migrates old files"])
 box(1480,1064,260,42,"daylog.py",["daily decoder logs"])
 box(1480,1112,260,42,"recorder.py",["REC, REC SQ: MP3 files"])
 box(1480,1160,260,42,"location.py",["station location, locator"])
-text(1610,1224,"config: app.py; logs, images: decoders",13,MUTE,anchor="middle")
+text(1610,1224,"serverlog.py: server log; config: app.py",13,MUTE,anchor="middle")
 
 # ---------- external programs ----------
 group(2020,430,360,445,"Separate programs (lib\\)",FILL["ext"])
-box(2040,475,320,90,"dsd-fme.exe",["DMR, P25, D-Star, YSF, NXDN, dPMR, M17...","mbelib; ISC, parts GPL v2","downloaded by install_dsd.bat, not in the zips"])
+box(2040,475,320,90,"dsd-fme.exe",["DMR, P25, D-Star, YSF, NXDN, dPMR, M17...","mbelib; ISC, parts GPL v2","downloaded at the user's choice, not in the setup"])
 box(2040,575,320,80,"dumpvdl2.exe",["demodulation, FEC, ATN ASN.1","libacars, MSYS2 runtime; GPL v3"])
 box(2040,665,320,90,"welle-cli.exe (our patch)",["OFDM, Viterbi, AAC / MP2","FFTW, FAAD2, mpg123, LAME;","GPL v2 or later"])
 box(2040,765,320,50,"rtl_433.exe",["ISM devices; GPL v2 or later"])
@@ -175,7 +175,7 @@ box(2440,775,300,70,"Antenna rotor",["azimuth and elevation"],mono=False)
 
 # ---------- data ----------
 group(1860,905,520,330,"data\\ folder: your settings and logs, never packaged",FILL["data"])
-rows=[("vfos.json","dongle to VFO assignment"),("config.json","single-receiver settings, VFO template"),("config_A…D.json","settings of each VFO"),("memories.json","frequency memories"),("logs\\  acars\\","daily decoder logs (UTC)"),("wefax\\  sstv\\","saved images (PNG)"),("recordings\\","audio recordings (MP3)"),("tx_audio\\","optional FM test message"),("sat_*.json  sat_tle.txt","satellites: station, orbits, transmitters"),("satellites.json","AMSAT lists (SATELLITES tab)"),("rotor.json","the station rotor"),("location.json","station location"),("config_backup\\","previous vfos.json and configs"),("eeprom_backup\\","dongle EEPROM backups")]
+rows=[("vfos.json","dongle to VFO assignment"),("config.json","single-receiver settings, VFO template"),("config_A…D.json","settings of each VFO"),("memories.json","frequency memories"),("logs\\  server_logs\\","decoder logs (UTC), server log"),("wefax\\  sstv\\","saved images (PNG)"),("recordings\\","audio recordings (MP3)"),("tx_audio\\","optional FM test message"),("sat_*.json  sat_tle.txt","satellites: station, orbits, transmitters"),("satellites.json","AMSAT lists (SATELLITES tab)"),("rotor.json  location.json","station rotor and location"),("sonde_sites.json","SONDE launch sites (a week)"),("config_backup\\","previous vfos.json and configs"),("eeprom_backup\\","dongle EEPROM backups")]
 for i,(a,b) in enumerate(rows):
     y=954+i*20.5
     text(1880,y,a,14,weight=700,mono=True); text(2085,y,b,13.5,MUTE)
@@ -202,26 +202,26 @@ text(517,1686,"one per VFO",12.5,MUTE,anchor="middle")
 # Tools
 group(640,1285,1140,425,"Install, setup and build tools (run outside the receiver)",FILL["tool"])
 text(660,1336,"Install and run",15,weight=700)
-box(660,1348,230,60,"install.bat",["creates .venv, pip packages, PyFT8"])
+box(660,1348,230,60,"RADIMCOM_Setup.exe",["Python + packages inside,","drivers, DSD-FME, shortcut"],size=14)
 box(900,1348,240,60,"install_dsd.bat",["install_dsd.py downloads","DSD-FME to lib\\dsd-fme"])
-box(1150,1348,130,60,"start.bat",["starts app.py"])
+box(1150,1348,130,60,"RADIMCOM.exe",["window, tray,","starts app.py"],size=14)
 box(1290,1348,170,60,"zadig.exe",["installs WinUSB driver"])
 box(1470,1348,290,60,"drivers\\  INSTALL.txt  DRIVERS.txt",["USB drivers and installation guide"],size=14)
 text(660,1446,"Setup and maintenance",15,weight=700)
-box(660,1458,250,60,"setup.bat",["starts the wizard"])
-box(935,1458,300,60,"setup_sdr.py",["wizard: finds dongles, writes vfos.json"])
+box(660,1458,250,60,"setup_web.py",["SDR setup in a window","(static\\setup.html)"])
+box(935,1458,300,60,"setup_sdr.py",["finds dongles, writes vfos.json;","console wizard: setup.bat"])
 box(1260,1458,250,60,"eeprom_tool.py",["read, back up, write serial number"])
 path([(910,1488),(935,1488)],"ctl",sw=2)
 path([(1235,1488),(1260,1488)],"ctl",sw=2)
 text(660,1538,"setup_sdr.py and eeprom_tool.py open the dongles through sdr.py / lime.py; the receiver is stopped",13,MUTE)
 box(1525,1458,235,60,"update_check.py",["new version on","GitHub Releases"])
 text(660,1556,"Build (installer\\)",15,weight=700)
-box(660,1568,210,60,"make_installer.py",["install and upgrade zips"],size=14)
-box(880,1568,210,60,"make_sources.py",["GPL / LGPL source zip"],size=14)
+box(660,1568,210,60,"make_installer.py",["Inno Setup exe,","RADIMCOM.exe, Python"],size=14)
+box(880,1568,210,60,"make_sources.py",["GPL / LGPL sources","(on request)"],size=14)
 box(1100,1568,200,60,"make_world.py",["world.js, Natural Earth"],size=14)
 box(1310,1568,190,60,"build_dab.sh",["welle-cli (MSYS2)"],size=14)
-box(1510,1568,250,60,"dist\\",["zips for GitHub Releases"])
-text(660,1660,"Git-ignored and not in the repository: lib\\, apps\\, drivers\\, data\\, dist\\. The install zip contains lib\\, apps\\ and drivers\\, without DSD-FME.",14,MUTE)
+box(1510,1568,250,60,"dist\\",["setup for GitHub Releases"])
+text(660,1660,"Git-ignored and not in the repository: lib\\, apps\\, drivers\\, data\\, dist\\. The setup contains Python, lib\\ and drivers\\; DSD-FME only by its check box.",14,MUTE)
 text(660,1684,"Docs: README, CHANGELOG, NOTICE, CONTRIBUTING, SECURITY, ROADMAP; installer\\VDL2, DAB and ISM.txt give sources.",14,MUTE)
 
 # ---------- legend ----------
