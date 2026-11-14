@@ -219,12 +219,19 @@ def prune(keep_days, now=None):
     return gone
 
 
+HEAT_MAX_COLS = 14 * 24   # THIS SCAN timeline: at most the last 14 days of hours
+
+
 def heatmap(days=7, top=60, now=None, session=None):
-    """Occupancy: frequency × hour of the day (local time) from the log, seconds of activity.
-    {"days", "rows": [{"freq_hz", "name", "mode", "total", "count", "hours": [24 × s]}]}: the `top` busiest, by
-    frequency."""
+    """Occupancy from the log, seconds of activity per frequency; the `top` busiest, by frequency.
+    History (?days): {"days", "rows": [{"freq_hz", "name", "mode", "total", "count", "hours": [24 × s]}]}, hours of
+    the day (local time) summed over the days.
+    THIS SCAN (session): a timeline instead - "timeline": True, "start_ts" = start of the first hour (epoch, whole
+    hour), "hours" = one column per hour from the first activity to the last (at most HEAT_MAX_COLS, the newest),
+    so a scan longer than 24 h does not sum the same hours of different days."""
     import calendar
     acc = {}
+    timeline = session is not None
     for r in read_log(days, now=now, session=session):
         try:
             hz = int(round(float(r["freq_hz"])))
@@ -233,18 +240,30 @@ def heatmap(days=7, top=60, now=None, session=None):
         except (KeyError, ValueError, TypeError):
             continue
         row = acc.setdefault(hz, {"freq_hz": hz, "name": "", "mode": r.get("mode", ""), "total": 0.0, "count": 0,
-                                  "hours": [0.0] * 24})
+                                  "bins": {}})
         if r.get("name") and not row["name"]:
             row["name"] = r["name"]
-        row["hours"][time.localtime(t).tm_hour] += dur
+        b = t - t % 3600 if timeline else time.localtime(t).tm_hour
+        row["bins"][b] = row["bins"].get(b, 0.0) + dur
         row["total"] += dur
         row["count"] += 1
     rows = sorted(acc.values(), key=lambda x: -x["total"])[:top]
     rows.sort(key=lambda x: x["freq_hz"])
+    if timeline:
+        keys = [b for x in rows for b in x["bins"]]
+        last = max(keys) if keys else 0
+        start = max(min(keys), last - (HEAT_MAX_COLS - 1) * 3600) if keys else 0
+        cols = list(range(start, last + 1, 3600)) if keys else []
+    else:
+        cols = list(range(24))
     for row in rows:
+        bins = row.pop("bins")
         row["total"] = round(row["total"], 1)
-        row["hours"] = [round(x, 1) for x in row["hours"]]
-    return {"days": days, "rows": rows}
+        row["hours"] = [round(bins.get(c, 0.0), 1) for c in cols]
+    out = {"days": days, "rows": rows}
+    if timeline:
+        out.update(timeline=True, start_ts=cols[0] if cols else 0)
+    return out
 
 
 class Scanner:

@@ -21,6 +21,14 @@ from paths import BASE, data
 
 VFOS_PATH = data("vfos.json")
 
+# The output goes to data/server_logs/ (serverlog.py): a new log at the start, the VFO processes write into it.
+if __name__ == "__main__":
+    import serverlog
+    if "--vfo" in sys.argv:
+        serverlog.attach()
+    else:
+        serverlog.start()
+
 # Without arguments and with vfos.json: the launcher, which starts one receiver (process) per VFO.
 if __name__ == "__main__" and "--vfo" not in sys.argv and os.path.exists(VFOS_PATH):
     import launcher
@@ -40,9 +48,11 @@ except ImportError:
     sattrack = None
 from ft8 import FT8_FREQS, Ft8Decoder
 from cw import CwDecoder
-from rtty import RttyDecoder
+from rtty import RttyDecoder, station_list as rtty_station_list
 from packet import PacketDecoder
-from daylog import DayLog, TextLog
+from pocsag import PocsagDecoder
+from sonde import SondeDecoder
+from daylog import LOG_DIR, DayLog, TextLog
 import recorder as recorder_mod
 from recorder import Recorder
 import rotor as rotor_module
@@ -52,6 +62,7 @@ from acars import ACARS_FREQS, AcarsDecoder
 from vdl2 import VDL2_CENTER, VDL2_RATE, VDL2_REGIONS, Vdl2Decoder, region_freqs
 from dsd import PROTOCOLS as DSD_PROTOCOLS, SLOTS as DSD_SLOTS, DsdDecoder
 from dab import CHANNEL_HZ, DAB_CHANNELS, DAB_DEFAULT, DAB_RATE, DabDecoder
+import ism as ism_mod
 from ism import ISM_DEFAULT, ISM_FREQS, ISM_RATE, IsmDecoder
 import hfdl as hfdl_mod
 from hfdl import HfdlDecoder
@@ -60,7 +71,7 @@ from ais import AisDecoder
 import adsb as adsb_mod
 from adsb import RATE as ADSB_RATE, AdsbDecoder
 from tonesq import norm_ctcss, norm_dcs
-from sdr import (AFI_MAX_HZ, AFI_MIN_HZ, EXP_DEPTH_MAX_DB, EXP_DEPTH_MIN_DB, EXP_SENS_MAX, EXP_SENS_MIN, ASQ_MAX_DB, ASQ_MIN_DB, DECIM, DSD_MODE, HPF_MAX_HZ, HPF_MIN_HZ, LPF_MAX_HZ, LPF_MIN_HZ, MODES, SQUELCH_OFF,
+from sdr import (AFI_MAX_HZ, AFI_MIN_HZ, EXP_DEPTH_MAX_DB, EXP_DEPTH_MIN_DB, EXP_SENS_MAX, EXP_SENS_MIN, EXP_HOLD_MAX_MS, EXP_HOLD_MIN_MS, ASQ_MAX_DB, ASQ_MIN_DB, DECIM, DSD_MODE, HPF_MAX_HZ, HPF_MIN_HZ, LPF_MAX_HZ, LPF_MIN_HZ, MODES, SQUELCH_OFF,
                  SAGC_PARAMS, UPCONV_MAX_HZ, ZOOMS, Receiver, list_devices, lowpass, sagc_params)
 
 
@@ -197,9 +208,9 @@ def save_config_later():
 
 # ---------- daily decoder logs (turned on with LOG in the decoder card) ----------
 
-LOG_KEYS = ("ft8", "wefax", "cw", "rtty", "sstv", "acars", "dsd", "ism", "packet", "hfdl", "ais", "adsb")
+LOG_KEYS = ("ft8", "wefax", "cw", "rtty", "sstv", "acars", "dsd", "ism", "packet", "pocsag", "hfdl", "ais", "adsb")
 _tag = cfg.get("vfo") or ""
-logs = {"ft8": DayLog("ft8", _tag), "wefax": DayLog("wefax", _tag), "sstv": DayLog("sstv", _tag), "dsd": DayLog("dsd", _tag), "ism": DayLog("ism", _tag), "packet": DayLog("packet", _tag), "hfdl": DayLog("hfdl", _tag), "ais": DayLog("ais", _tag), "adsb": DayLog("adsb", _tag),
+logs = {"ft8": DayLog("ft8", _tag), "wefax": DayLog("wefax", _tag), "sstv": DayLog("sstv", _tag), "dsd": DayLog("dsd", _tag), "ism": DayLog("ism", _tag), "packet": DayLog("packet", _tag), "pocsag": DayLog("pocsag", _tag), "hfdl": DayLog("hfdl", _tag), "ais": DayLog("ais", _tag), "adsb": DayLog("adsb", _tag),
         "cw": TextLog("cw", _tag), "rtty": TextLog("rtty", _tag)}
 _saved_logged = {"wefax": None, "sstv": None}
 
@@ -277,6 +288,11 @@ def decoder_event(kind, data):
                               f"{' ' + nav if nav else ''}{' | ' + data['text'] if data['text'] else ''} | {data['nmea']}")
         elif kind == "packet" and log_on("packet"):
             logs["packet"].write(f"{_mhz(data['freq_hz'])} {data['baud']} Bd | {data['tnc2']}")
+        elif kind == "pocsag" and log_on("pocsag"):
+            text = data["text"].replace("\n", " / ")
+            q = f" ({data['bad']} lost)" if data["bad"] else ""
+            logs["pocsag"].write(f"{_mhz(data['freq_hz'])} {data['baud']} Bd RIC {data['ric']} F{data['func']} "
+                                 f"{data['kind']}{q}" + (f" | {text}" if text else ""))
         elif kind == "cwtext" and log_on("cw"):
             f = cw.dial + (cw.tone or 0.0)
             logs["cw"].add(data["t"], f"{_mhz(f)} {round(1200 / cw.dot_ms)} WPM")
@@ -311,7 +327,7 @@ def wefax_retune(old_hz, new_hz):
 
 
 wefax = WefaxDecoder(on_event=decoder_event, on_retune=wefax_retune)
-cw = CwDecoder(on_event=decoder_event)
+cw = CwDecoder(on_event=decoder_event, mode="skimmer")    # always the skimmer: all stations in the table
 # Peek CW decoder for the audio spectrum bubble (the CW decoder itself is off): runs only while a browser keeps
 # renewing it (POST /api/cw {"action": "peek"}); its text goes only to the bubble, not to the log or the CW card.
 cw_peek = CwDecoder(on_event=lambda kind, data: hub.event("cwpeek", data) if kind == "cwtext" else None)
@@ -334,6 +350,8 @@ def own_station():
 
 
 packet = PacketDecoder(on_event=decoder_event, station=own_station)
+pocsag = PocsagDecoder(on_event=decoder_event)
+sonde = SondeDecoder(on_event=decoder_event, station=own_station, log_dir=os.path.join(LOG_DIR, "radiosonde"), tag=_tag)
 sstv = SstvDecoder(on_event=decoder_event)
 acars = AcarsDecoder(on_event=hub.event, tag=_tag)
 acars.log_on = log_on("acars")
@@ -380,7 +398,7 @@ def audio_muted():
 
 def state():
     capable = tx_capable()
-    return dict(receiver.state(), ft8=ft8.enabled, ft8_error=ft8.error, wefax=wefax.enabled, cw=cw.enabled, rtty=rtty.enabled, packet=packet.enabled,
+    return dict(receiver.state(), ft8=ft8.enabled, ft8_error=ft8.error, wefax=wefax.enabled, cw=cw.enabled, rtty=rtty.enabled, packet=packet.enabled, pocsag=pocsag.enabled, sonde=sonde.enabled,
                 sstv=sstv.enabled, acars=acars.enabled, vdl2=vdl2.enabled, vdl2_error=vdl2.error, vdl2_region=vdl2.region, cpdlc=acars.cpdlc_on,
                 dsd=dsd.info(), dab=dab.enabled, dab_error=dab.error, dab_channel=dab.channel, dab_sids=cfg.get("dab_sids") or {}, ism=ism.enabled, ism_error=ism.error, ism_raw=ism.raw, hfdl=hfdl.enabled, hfdl_error=hfdl.error, ais=ais.enabled, ais_error=ais.error, adsb=adsb.enabled, adsb_error=adsb.error, ism_hz=cfg.get("ism_hz", ISM_DEFAULT), audio_muted=audio_muted(), recording=recorder.state(), logs={k: log_on(k) for k in LOG_KEYS},
                 **doppler_trsp(),
@@ -422,6 +440,10 @@ def on_baseband(base, fs, dial_hz):
         rtty.feed(base, fs, dial_hz, cw_band())
     if packet.enabled:
         packet.feed(base, fs, dial_hz)
+    if pocsag.enabled:
+        pocsag.feed(base, fs, dial_hz)
+    if sonde.enabled:
+        sonde.feed(base, fs, dial_hz)
     acars.feed(base, fs, dial_hz)
 
 
@@ -452,6 +474,7 @@ ft8.set_enabled(cfg.get("ft8", False))
 wefax.slant_ppm = float(cfg.get("wefax_slant_ppm", 0.0))
 wefax.afc_vfo = bool(cfg.get("wefax_afc_vfo", True))
 wefax.set_enabled(cfg.get("wefax", False))
+cw.set_options(span=(cfg.get("cw_opts") or {}).get("span"))
 cw.set_enabled(cfg.get("cw", False))
 try:
     rtty.set_options(cfg.get("rtty_opts") or {})
@@ -460,6 +483,9 @@ except (TypeError, ValueError):
 rtty.set_enabled(cfg.get("rtty", False))
 packet.set_options(cfg.get("packet_opts") or {})
 packet.set_enabled(cfg.get("packet", False))
+pocsag.set_options(cfg.get("pocsag_opts") or {})
+pocsag.set_enabled(cfg.get("pocsag", False))
+sonde.set_enabled(cfg.get("sonde", False))
 sstv.set_enabled(cfg.get("sstv", False))
 acars.set_enabled(cfg.get("acars", False) and not cfg.get("vdl2", False))
 
@@ -525,20 +551,16 @@ def index():
     return send_from_directory(app.static_folder, "index.html")
 
 
-@app.route("/api/update", methods=["GET", "POST"])
+@app.route("/api/update")
 def api_update():
-    """Newer version on GitHub Releases (update_check.py); POST {"upgrade": true} installs it.
-    With the launcher the page asks the launcher instead."""
-    if request.method == "POST":
-        if VFO:
-            return jsonify({"error": "the launcher does the upgrade"}), 409
-        if not update_check.same_host(request):
-            return jsonify({"error": "the upgrade is accepted only from this RADIMCOM page"}), 403
-        if (request.get_json(force=True, silent=True) or {}).get("upgrade"):
-            err = update_check.upgrade(shutdown_for_upgrade)
-            if err:
-                return jsonify({"error": err}), 409
+    """Newer version on GitHub Releases (update_check.py). With the launcher the page asks the launcher instead."""
     return jsonify(update_check.info())
+
+
+@app.route("/api/whatsnew", methods=["GET", "POST"])
+def api_whatsnew():
+    """What's new in this version (INSTALL.txt); POST = the window was closed, not shown again until the next version."""
+    return jsonify(update_check.whats_new_seen() if request.method == "POST" else update_check.whats_new())
 
 
 @app.route("/api/state")
@@ -684,6 +706,17 @@ def api_ft8():
     return jsonify(list(ft8.decodes))
 
 
+@app.route("/api/ft8/stations", methods=["GET", "DELETE"])
+def api_ft8_stations():
+    """Stations heard in the last 24 h (call, locator + lat/lon, newest message, SNR, frequency, time);
+    DELETE clears them (CLR of the station map)."""
+    if request.method == "DELETE":
+        ft8.clear_stations()
+        hub.event("ft8stclear", {})
+        return jsonify(ok=True)
+    return jsonify(ft8.station_list())
+
+
 @app.route("/api/wefax", methods=["GET"])
 def api_wefax():
     return jsonify(wefax.info())
@@ -747,6 +780,10 @@ def api_sstv_file(name):
 
 @app.route("/api/cw", methods=["GET"])
 def api_cw():
+    if request.args.get("id"):
+        # whole text of one station (its row opened in the table)
+        t = cw.channel_text(int(request.args["id"]))
+        return jsonify(t) if t else (jsonify({"error": "station gone"}), 404)
     return jsonify(cw.info())
 
 
@@ -757,6 +794,14 @@ def api_cw_cmd():
     action = body.get("action")
     if action == "clear":
         cw.clear()
+    elif action == "follow":
+        # station picked in the skimmer list (id) or back to automatic (null)
+        cw.follow(body.get("id"))
+    elif action == "options":
+        # the skimmer span (filter passband or WIDE), kept in the config
+        cw.set_options(span=body.get("span"))
+        cfg["cw_opts"] = {"span": cw.span}
+        save_config_later()
     elif action == "peek":
         # bubble open (on, renewed every ~2 s) / closed (off); a new opening starts with empty text
         if body.get("on") and not cw.enabled and cfg["mode"] == "CW":
@@ -773,7 +818,7 @@ def api_cw_cmd():
 
 @app.route("/api/rtty", methods=["GET"])
 def api_rtty():
-    return jsonify(rtty.info())
+    return jsonify(dict(rtty.info(), stations=rtty_station_list()))
 
 
 @app.route("/api/rtty", methods=["POST"])
@@ -781,6 +826,13 @@ def api_rtty_cmd():
     body = request.get_json(force=True)
     if body.get("action") == "clear":
         rtty.clear()
+    if body.get("action") == "viz":                 # renewed by the page every ~2 s while the RTTY page is open
+        rtty.want_viz()
+    if body.get("action") == "focus":               # click in the mini waterfall; hz null = the whole passband
+        try:
+            rtty.set_focus(None if body.get("hz") is None else float(body["hz"]))
+        except (TypeError, ValueError):
+            return jsonify({"error": "bad RTTY focus"}), 400
     if "opts" in body:
         try:
             rtty.set_options(body["opts"])
@@ -804,6 +856,52 @@ def api_packet_cmd():
         cfg["packet_opts"] = packet.opts
         save_config_later()
     return jsonify(packet.info(frames=False))
+
+
+@app.route("/api/pocsag", methods=["GET"])
+def api_pocsag():
+    return jsonify(pocsag.info())
+
+
+@app.route("/api/pocsag", methods=["POST"])
+def api_pocsag_cmd():
+    body = request.get_json(force=True)
+    pocsag.command(body)
+    if isinstance(body.get("opts"), dict):
+        cfg["pocsag_opts"] = pocsag.opts
+        save_config_later()
+    return jsonify(pocsag.info(msgs=False))
+
+
+@app.route("/api/sonde/sites")
+def api_sonde_sites():
+    """Radiosonde launch sites in Europe for the SONDE map (SondeHub list, cached a week, + data/sonde_sites_extra.json)."""
+    import sonde_sites
+    return jsonify(sonde_sites.sites())
+
+
+@app.route("/api/sonde", methods=["GET"])
+def api_sonde():
+    return jsonify(sonde.info())
+
+
+@app.route("/api/sonde/logs")
+def api_sonde_logs():
+    """Flights in the radiosonde log (data/logs/radiosonde), newest first."""
+    return jsonify(sonde.logs())
+
+
+@app.route("/api/sonde/log")
+def api_sonde_log():
+    """One logged flight as a sonde with its flight path (?file=YYYY-MM-DD_serial.jsonl)."""
+    s = sonde.log_sonde(request.args.get("file", ""))
+    return (jsonify(s), 200) if s else (jsonify({"error": "no such log"}), 404)
+
+
+@app.route("/api/sonde", methods=["POST"])
+def api_sonde_cmd():
+    sonde.command(request.get_json(force=True))
+    return jsonify(sonde.info(frames=False))
 
 
 @app.route("/api/acars", methods=["GET"])
@@ -906,7 +1004,9 @@ def set_dab(on, changes, channel=None):
 
 def set_ism(on, changes):
     """ISM on: rtl_433 starts, the audio is muted and the VFO goes to the last ISM frequency at 2.048 MS/s (ACARS, VDL2 and DAB off).
-    ISM off: the previous sample rate comes back. RTL-SDR only, not on a chained VFO."""
+    RTL AGC and tuner AGC go on (AGC+ and Remove DC peak off). ISM off: the previous sample rate, gain, RTL AGC, AGC+
+    and Remove DC peak come back.
+    RTL-SDR only, not on a chained VFO."""
     if on and (not RTL_DONGLE or OWNER):
         on = False
     if on == ism.enabled:
@@ -920,10 +1020,22 @@ def set_ism(on, changes):
         set_dab(False, changes)
         sync_cpdlc()
         cfg["ism_prev_rate"] = changes.pop("sample_rate", cfg["sample_rate"])
+        # short bursts at unknown levels: RTL2832 AGC + tuner AGC; the gain settings before come back at ISM off
+        cfg["ism_prev_gain"] = {"gain": changes.pop("gain", cfg.get("gain", "auto")),
+                                "rtl_agc": bool(changes.pop("rtl_agc", cfg.get("rtl_agc", False))),
+                                "smart_agc": bool(changes.pop("smart_agc", cfg.get("smart_agc", False))),
+                                "dc_remove": bool(changes.pop("dc_remove", cfg.get("dc_remove", False)))}
         f = float(cfg.get("ism_hz", ISM_DEFAULT))
-        changes.update(sample_rate=ISM_RATE, center_hz=f, tune_hz=f, mode="AM")
-    elif cfg.get("ism_prev_rate") in SAMPLE_RATES and cfg["ism_prev_rate"] != ISM_RATE:
-        changes["sample_rate"] = cfg.pop("ism_prev_rate")
+        changes.update(sample_rate=ISM_RATE, center_hz=f, tune_hz=f, mode="AM", gain="auto", rtl_agc=True, smart_agc=False,
+                       dc_remove=False)
+    else:
+        if cfg.get("ism_prev_rate") in SAMPLE_RATES and cfg["ism_prev_rate"] != ISM_RATE:
+            changes["sample_rate"] = cfg.pop("ism_prev_rate")
+        prev = cfg.pop("ism_prev_gain", None)
+        if isinstance(prev, dict):
+            for k in ("gain", "rtl_agc", "smart_agc", "dc_remove"):
+                if k in prev:
+                    changes.setdefault(k, prev[k])
     ism.set_enabled(on)
 
 
@@ -1023,13 +1135,35 @@ def set_adsb(on, changes):
 
 @app.route("/api/ism", methods=["GET"])
 def api_ism():
-    return jsonify(dict(ism.info(), messages=ism.messages()))
+    if request.args.get("dev"):                # one device with its 24 h history (its tab in DEVICES)
+        d = ism.device_history(request.args["dev"])
+        return jsonify(d) if d else (jsonify(error="unknown device"), 404)
+    return jsonify(dict(ism.info(), messages=ism.messages(), devices=ism.device_list(), names=ism_mod.load_names()))
 
 
 @app.route("/api/ism", methods=["POST"])
 def api_ism_cmd():
-    if request.get_json(force=True).get("action") == "clear":
+    body = request.get_json(force=True)
+    if body.get("action") == "clear":
         ism.clear()
+    elif body.get("action") == "name" and body.get("key"):
+        # name, pin or hide of one device (data/ism_devices.json, all VFOs): the other pages get it with the next load
+        try:
+            names = ism_mod.set_name(str(body["key"]), body.get("name"), body.get("pin"), body.get("hide"))
+        except OSError as e:
+            return jsonify(error=str(e)), 500
+        hub.event("ismnames", names)
+        return jsonify(names=names)
+    elif body.get("action") == "rawmark":
+        # a RAW signal (e.g. a car key) gets a name: its later packages are that device
+        try:
+            names = ism.mark_raw(int(body.get("id", -1)), str(body.get("name") or ""))
+        except (OSError, ValueError) as e:
+            return jsonify(error=str(e)), 500
+        if names is None:
+            return jsonify(error="the row is gone"), 404
+        hub.event("ismnames", names)
+        return jsonify(names=names)
     return jsonify(ism.info())
 
 
@@ -1626,6 +1760,8 @@ def api_set():
             changes["dyn_exp_db"] = min(max(float(body["dyn_exp_db"]), EXP_DEPTH_MIN_DB), EXP_DEPTH_MAX_DB)
         if "dyn_exp_sens" in body:
             changes["dyn_exp_sens"] = min(max(float(body["dyn_exp_sens"]), EXP_SENS_MIN), EXP_SENS_MAX)
+        if "dyn_exp_hold_ms" in body:
+            changes["dyn_exp_hold_ms"] = min(max(float(body["dyn_exp_hold_ms"]), EXP_HOLD_MIN_MS), EXP_HOLD_MAX_MS)
         if "afi" in body:
             changes["afi"] = bool(body["afi"])
         if "autotune" in body:
@@ -1764,6 +1900,16 @@ def api_set():
     if "packet" in body:
         cfg["packet"] = bool(body["packet"])
         packet.set_enabled(cfg["packet"])
+        save_config_later()
+        hub.event("status", state())
+    if "pocsag" in body:
+        cfg["pocsag"] = bool(body["pocsag"])
+        pocsag.set_enabled(cfg["pocsag"])
+        save_config_later()
+        hub.event("status", state())
+    if "sonde" in body:
+        cfg["sonde"] = bool(body["sonde"])
+        sonde.set_enabled(cfg["sonde"])
         save_config_later()
         hub.event("status", state())
     if "tx_enabled" in body:
@@ -2147,16 +2293,6 @@ def api_audio():
                              "X-Channels": "2"})
 
 
-def shutdown_for_upgrade():
-    """A receiver started without vfos.json ends itself for the upgrade."""
-    for stop in (recorder.stop_all, rotor_link.stop, receiver.stop):
-        try:
-            stop()
-        except Exception as e:
-            print(f"Upgrade: {e}")
-    os._exit(0)
-
-
 def exit_with_parent():
     """The VFO process ends when the launcher ends (its input is closed)."""
     sys.stdin.read()
@@ -2170,7 +2306,7 @@ def exit_with_parent():
 
 
 if __name__ == "__main__":
-    if VFO:
+    if VFO or os.environ.get("RADIMCOM_SHELL"):     # a receiver without vfos.json under RADIMCOM.exe ends the same way
         threading.Thread(target=exit_with_parent, daemon=True).start()
     if CHAINED:
         import iqshare

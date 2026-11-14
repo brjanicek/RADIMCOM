@@ -29,10 +29,38 @@ except Exception as e:  # without PyFT8 the receiver keeps running, only the FT8
     IMPORT_ERROR = f"FT8 decoder not available ({e})"
     pft8 = types.SimpleNamespace(AudioIn=object, Receiver=object, SAMP_RATE=12000)
 
+import re
+
+from location import locator_to_latlon
 from sdr import lowpass
 
 FT8_RATE = pft8.SAMP_RATE  # 12 000 Hz
 MAX_FREQ = 3100.0
+STATION_KEEP_S = 24 * 3600   # the station map shows up to the last 24 h
+STATION_MAX = 5000
+
+_CALL = re.compile(r"^(?=.*\d)(?=.*[A-Z])[A-Z0-9/]{3,11}$")
+_GRID = re.compile(r"^[A-R]{2}\d{2}$")
+
+
+def sender_of(msg):
+    """(callsign of the transmitting station, its 4-character locator or None) from an FT8 message, or (None, None).
+    "CQ [DX|POTA|290] CALL GRID" -> CALL; "TO FROM GRID|report|73" -> FROM; hashed calls <...> have no call."""
+    w = msg.split()
+    if not w:
+        return None, None
+    if w[0] == "CQ":
+        rest = w[1:]
+        if len(rest) >= 2 and not _CALL.match(rest[0].strip("<>")):   # CQ modifier (DX, POTA, EU…)
+            rest = rest[1:]
+        call = rest[0] if rest else None
+    else:
+        call = w[1] if len(w) >= 2 else None
+    call = (call or "").strip("<>")   # a resolved hashed call <PC40EUDXF> counts, <...> does not
+    if not _CALL.match(call):
+        return None, None
+    grid = w[-1] if len(w) >= 3 and _GRID.match(w[-1]) and w[-1] != "RR73" else None
+    return call, grid
 FT8_FREQS = (1840000, 3573000, 5357000, 7074000, 10136000, 14074000, 18100000, 21074000, 24915000, 28074000)
 
 
@@ -120,6 +148,7 @@ class Ft8Decoder:
         self.on_decode = on_decode
         self.on_cycle = on_cycle or (lambda info: None)
         self.decodes = collections.deque(maxlen=400)
+        self.stations = {}   # call -> newest data of the station heard (for the map), kept 24 h
         self.enabled = False
         self.error = None
         self.dial_hz = 0.0
@@ -175,6 +204,36 @@ class Ft8Decoder:
         else:
             self._t -= len(y) - 1
 
+    def _station(self, d):
+        """Station heard in decode d (with "call"): its newest message, SNR, frequency; the locator stays
+        from an earlier message when this one has none."""
+        with self.lock:
+            s = self.stations.get(d["call"])
+            if s is None:
+                s = self.stations[d["call"]] = {"call": d["call"], "first": d["ts"], "n": 0}
+            s.update(ts=d["ts"], snr=d["snr"], freq_hz=d["freq_hz"], msg=d["msg"], n=s["n"] + 1,
+                     cq=d["msg"].startswith("CQ "))
+            if "grid" in d:
+                s.update(grid=d["grid"], lat=d["lat"], lon=d["lon"])
+            if len(self.stations) > STATION_MAX:
+                self._prune(time.time())
+
+    def _prune(self, now):
+        old = [k for k, s in self.stations.items() if now - s["ts"] > STATION_KEEP_S]
+        for k in old:
+            del self.stations[k]
+        while len(self.stations) > STATION_MAX:   # still too many: the oldest go
+            del self.stations[min(self.stations, key=lambda k: self.stations[k]["ts"])]
+
+    def station_list(self):
+        with self.lock:
+            self._prune(time.time())
+            return [dict(s) for s in self.stations.values()]   # copies: the decoder thread updates them
+
+    def clear_stations(self):
+        with self.lock:
+            self.stations.clear()
+
     def _message(self, m):
         kind = m.get("mtype")
         if kind == "decode":
@@ -187,7 +246,15 @@ class Ft8Decoder:
                 "df": round(f),
                 "freq_hz": round(self.dial_hz + f),
                 "msg": " ".join(x for x in m["msg_tuple"] if x),
+                "ts": time.time(),
             }
+            call, grid = sender_of(d["msg"])
+            if call:
+                d["call"] = call
+                if grid:
+                    d["grid"] = grid
+                    d["lat"], d["lon"] = locator_to_latlon(grid)
+                self._station(d)
             self.decodes.append(d)
             self.on_decode(d)
         elif kind == "rollover":

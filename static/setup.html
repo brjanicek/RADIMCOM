@@ -1,0 +1,449 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RADIMCOM SDR setup</title>
+<link rel="icon" type="image/png" href="/static/favicon.png">
+<!-- SDR setup in a window (setup_web.py): the connected dongles are dragged onto VFO A–D, then ppm, upconverter and
+     the name are set per VFO; the same result as the console wizard setup_sdr.py -->
+<style>
+:root {
+  --bg: #07090c; --card: #0e1319; --card2: #121922; --line: #262c35; --line2: #343b46; --text: #e9edf2; --muted: #8d97a5; --dim: #5d6672;
+  --key-a: #3b4049; --key-b: #22262c; --key-on-a: #5a616c; --key-on-b: #3a4049;
+  --green: #3cf07c; --yellow: #ffd84a; --amber: #ffb547; --red: #ff4b3e; --blue: #6fb7ff;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 "Segoe UI", system-ui, sans-serif; }
+main { max-width: 1180px; margin: 0 auto; padding: 22px 20px 40px; }
+header { display: flex; align-items: center; gap: 14px; margin-bottom: 6px; }
+header img { width: 40px; height: 40px; }
+h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: .04em; }
+h1 span { color: var(--yellow); }
+.lead { color: var(--muted); margin: 0 0 18px; }
+section { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px 16px; margin-bottom: 14px; }
+h2 { margin: 0 0 10px; font-size: 13px; letter-spacing: .12em; color: var(--amber); font-weight: 700; display: flex; align-items: center; gap: 10px; }
+h2 .grow { flex: 1; }
+h2 .muted { letter-spacing: 0; font-weight: 400; font-size: 12px; }
+table { border-collapse: collapse; width: 100%; }
+th { text-align: left; font-size: 11px; letter-spacing: .08em; color: var(--muted); font-weight: 600; padding: 4px 8px; border-bottom: 1px solid var(--line2); }
+td { padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+tr:last-child td { border-bottom: 0; }
+.mono { font-family: Consolas, monospace; }
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+.key { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-width: 46px; padding: 6px 11px;
+  border-radius: 4px; cursor: pointer; user-select: none; font: 700 12px/1.1 system-ui, sans-serif; letter-spacing: .04em;
+  color: #eef1f5; white-space: nowrap; background: linear-gradient(180deg, var(--key-a), var(--key-b));
+  border: 1px solid #4a515c; border-bottom-color: #15181c; box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 1px 2px rgba(0,0,0,.6); }
+.key:hover { filter: brightness(1.18); }
+.key:active { transform: translateY(1px); }
+.key:disabled { opacity: .4; cursor: default; filter: none; transform: none; }
+.key.accent { color: #1a1400; background: linear-gradient(180deg, #ffe27a, #e8b928); border-color: #f3cf55; }
+.key.on { color: var(--yellow); background: linear-gradient(180deg, var(--key-on-a), var(--key-on-b)); box-shadow: inset 0 -2px 0 var(--yellow); }
+.key.small { padding: 4px 8px; min-width: 0; font-size: 11px; }
+input[type=text], input[type=number], select { background: #05070a; color: var(--text); border: 1px solid var(--line2); border-radius: 4px;
+  padding: 5px 7px; font: inherit; min-width: 0; }
+input:focus, select:focus { outline: 1px solid var(--yellow); }
+input:disabled, select:disabled { opacity: .45; }
+label.chk { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap; }
+.note-box { border-radius: 6px; padding: 9px 12px; margin: 10px 0 0; }
+.warn { background: rgba(255,181,71,.08); border: 1px solid rgba(255,181,71,.35); color: #ffd9a0; }
+.err { background: rgba(255,75,62,.1); border: 1px solid rgba(255,75,62,.45); color: #ffb3ab; }
+.ok { background: rgba(60,240,124,.08); border: 1px solid rgba(60,240,124,.35); color: #b6f7cb; }
+.info { background: rgba(111,183,255,.07); border: 1px solid rgba(111,183,255,.3); color: #cfe3fa; }
+.tag { display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 3px; border: 1px solid var(--line2); color: var(--muted); }
+.tag.rtl { color: var(--green); border-color: rgba(60,240,124,.4); }
+.tag.lime { color: var(--blue); border-color: rgba(111,183,255,.4); }
+.tag.airspy { color: var(--amber); border-color: rgba(255,181,71,.4); }
+.footer { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.footer .grow { flex: 1; }
+.spin { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--line2); border-top-color: var(--yellow); border-radius: 50%; animation: r 1s linear infinite; vertical-align: -2px; }
+@keyframes r { to { transform: rotate(360deg); } }
+.hidden { display: none !important; }
+
+/* dongles: cards that are dragged (or clicked, then a VFO clicked) */
+.pool { display: flex; flex-wrap: wrap; gap: 10px; min-height: 74px; padding: 8px; border: 1px dashed var(--line2); border-radius: 8px; }
+.pool.over { border-color: var(--yellow); background: rgba(255,216,74,.04); }
+.pool .empty { color: var(--dim); align-self: center; padding: 0 6px; }
+.chip { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; align-items: center; width: 230px; padding: 8px 10px 8px 8px;
+  background: linear-gradient(180deg, #1c232d, #141a22); border: 1px solid #3a4350; border-radius: 6px; cursor: grab; user-select: none;
+  box-shadow: 0 2px 6px rgba(0,0,0,.5); position: relative; }
+.chip:hover { border-color: #5a6575; }
+.chip.picked { border-color: var(--yellow); box-shadow: 0 0 0 1px var(--yellow), 0 0 14px rgba(255,216,74,.35); }
+.chip.found { animation: found 1s ease-in-out infinite; }
+@keyframes found { 50% { box-shadow: 0 0 0 2px var(--green), 0 0 18px rgba(60,240,124,.6); } }
+.chip.dragging { opacity: .4; }
+.chip .grip { grid-row: 1 / span 2; width: 8px; height: 26px; background: radial-gradient(circle, #5d6672 1.2px, transparent 1.5px) 0 0 / 4px 4px; opacity: .8; }
+.chip .ser { font: 700 14px Consolas, monospace; color: #fff; }
+.chip .sub { grid-column: 2; font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chip.missing { border-style: dashed; border-color: rgba(255,75,62,.6); background: rgba(255,75,62,.06); cursor: default; }
+.chip.missing .ser { color: #ffb3ab; }
+.chip .x { position: absolute; top: 3px; right: 5px; color: var(--muted); cursor: pointer; font-size: 14px; line-height: 1; padding: 2px; }
+.chip .x:hover { color: var(--red); }
+
+/* VFO slots */
+.slots { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 960px) { .slots { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.slot { background: var(--card2); border: 1px solid var(--line2); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 9px; }
+.slot h3 { margin: 0; display: flex; align-items: center; gap: 8px; font: 700 16px/1 system-ui; color: var(--yellow); letter-spacing: .04em; }
+.slot h3 .muted { font: 400 11px system-ui; letter-spacing: 0; }
+.slot.free h3 { color: var(--dim); }
+.drop { min-height: 66px; border: 1px dashed var(--line2); border-radius: 6px; display: flex; align-items: center; justify-content: center; padding: 6px; }
+.drop.over { border-color: var(--yellow); background: rgba(255,216,74,.05); }
+.drop.target { border-color: rgba(255,216,74,.5); cursor: pointer; }
+.drop .chip { width: 100%; }
+.drop .hint { color: var(--dim); font-size: 12px; text-align: center; }
+.shared { width: 100%; display: flex; align-items: center; gap: 8px; padding: 10px; border: 1px solid rgba(111,183,255,.35); border-radius: 6px; color: #cfe3fa; font-size: 13px; }
+.shared b { color: var(--blue); }
+.fields { display: grid; grid-template-columns: auto 1fr; gap: 6px 8px; align-items: center; font-size: 12px; }
+.fields > span { color: var(--muted); }
+.fields input[type=text], .fields input[type=number] { width: 100%; }
+.lo-line { display: flex; align-items: center; gap: 6px; }
+.lo-line input[type=text] { width: 100%; }
+.slot-tools { display: flex; gap: 6px; flex-wrap: wrap; }
+.slot-tools select { flex: 1; font-size: 12px; padding: 4px 6px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <img src="/static/favicon.png" alt="">
+    <h1>RADIMCOM <span>SDR SETUP</span></h1>
+  </header>
+  <p class="lead">Connect all your SDR dongles, drag each onto its VFO, then set its ppm, upconverter and name.
+    The receiver is stopped meanwhile, so the dongles are free.</p>
+
+  <section id="serialSec" class="hidden">
+    <h2>SERIAL NUMBERS</h2>
+    <p class="small" style="margin:0 0 8px">These RTL-SDR dongles have the same (or an empty) serial number, so RADIMCOM cannot tell them apart:
+      after replugging they could swap VFOs. A unique number can be written into their EEPROM (a backup of each goes to
+      <span class="mono">data\eeprom_backup</span>). It must keep the same length.</p>
+    <table><thead><tr><th>#</th><th>NOW</th><th>NEW SERIAL</th><th></th></tr></thead><tbody id="serialRows"></tbody></table>
+    <div class="footer" style="margin-top:10px">
+      <button class="key accent" id="writeSerials">WRITE TO EEPROM</button>
+      <span class="muted small">or leave them: such dongles are then opened by their USB order</span>
+    </div>
+    <div id="serialMsg"></div>
+  </section>
+
+  <section>
+    <h2>CONNECTED SDR DONGLES <span class="muted">drag onto a VFO below, or click a dongle and then a VFO</span>
+      <span class="grow"></span><button class="key" id="refresh">REFRESH</button></h2>
+    <div class="pool" id="pool"><span class="spin"></span>&nbsp;<span class="muted">looking for the SDRs…</span></div>
+    <div id="devMsg"></div>
+  </section>
+
+  <section>
+    <h2>VFO <span class="muted">the VFOs are used in order A, B, C, D; an empty one before a used one is skipped when saving</span></h2>
+    <div class="slots" id="slots"></div>
+    <div id="identMsg"></div>
+    <div class="note-box info small">
+      <b>Which dongle is which?</b> The serial number is not printed on the dongle. Click <b>IDENTIFY</b> on a VFO and
+      <b>unplug the dongle</b> you want there: it is found and placed by itself; then plug it back in.
+      <b>Share</b> lets one dongle serve more VFOs (they tune inside the band it receives; gain, ppm and sample rate are shared).
+      PPM = frequency correction of the dongle (0 if unknown). Upconverter: e.g. Ham It Up, LO 100 or 100.0021 MHz.
+    </div>
+  </section>
+
+  <section>
+    <div class="footer">
+      <button class="key accent" id="save">SAVE AND START RADIMCOM</button>
+      <button class="key" id="cancel">CANCEL</button>
+      <span class="grow"></span>
+      <span class="muted small">The previous VFO settings are moved to <span class="mono">data\config_backup</span>.</span>
+    </div>
+    <div id="saveMsg"></div>
+  </section>
+</main>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const wv = window.chrome && window.chrome.webview;      // in RADIMCOM.exe
+const NAMES = "ABCD";
+const TYPE = { rtl: "RTL-SDR", lime: "LimeSDR", airspy: "Airspy" };
+let devs = [], maxVfos = 4, slots = [], picked = "", found = "";
+
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const devKey = (d) => d.driver + "|" + d.serial;
+const isDev = (v) => !!v && v.includes("|");
+const isChain = (v) => !!v && v.startsWith("chain:");
+const connected = (k) => devs.some((d) => devKey(d) === k);
+const emptySlot = () => ({ dev: "", ppm: 0, up: false, lo: "100", note: "" });
+function box(id, cls, html) { $(id).innerHTML = html ? `<div class="note-box ${cls}">${html}</div>` : ""; }
+
+async function api(path, body) {
+  const r = await fetch(path, body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+
+async function load(keep) {
+  $("pool").innerHTML = '<span class="spin"></span>&nbsp;<span class="muted">looking for the SDRs…</span>';
+  let j;
+  try { j = await api("/api/devices"); } catch (e) { box("devMsg", "err", esc(e.message)); return; }
+  devs = j.devices; maxVfos = j.max_vfos;
+  box("devMsg", devs.length && !j.no_serials ? "" : "warn", !devs.length
+    ? `No SDR found. Check the USB connection and the driver (RTL-SDR and Airspy: WinUSB with Zadig, LimeSDR: FTDI D3XX;
+       see DRIVERS.txt), then REFRESH.`
+    : j.no_serials ? "No serial numbers could be read: is RADIMCOM still running (start.bat)? Close it and REFRESH." : "");
+  const bad = devs.filter((d) => d.rewrite);
+  $("serialSec").classList.toggle("hidden", !bad.length);
+  $("serialRows").innerHTML = bad.map((d) => `<tr><td>#${d.index}</td><td class="mono">${esc(d.serial) || '<span class="muted">(empty)</span>'}</td>
+    <td><input type="text" class="mono" data-index="${d.index}" value="${esc(d.suggest)}" maxlength="${(d.serial || d.suggest).length || 8}"></td>
+    <td class="muted small">${(d.serial || d.suggest).length} characters</td></tr>`).join("");
+  if (!keep) slots = fromCurrent(j.current);
+  draw();
+}
+
+// prefill from the saved vfos.json; a fresh setup: the dongles in the listed order
+function fromCurrent(cur) {
+  const out = [];
+  for (let i = 0; i < maxVfos; i++) {
+    const v = cur[i];
+    if (!v) { out.push(emptySlot()); continue; }
+    const i0 = v.init || {};
+    const up = !!i0.lo_offset_hz && i0.upconv !== "off";
+    out.push({ dev: v.chain ? "chain:" + v.chain : (v.driver || "rtl") + "|" + v.serial,
+               ppm: i0.ppm || 0, up, lo: up ? String(+(i0.lo_offset_hz / 1e6).toFixed(6)) : "100", note: v.note || "" });
+  }
+  if (!cur.length) devs.slice(0, maxVfos).forEach((d, i) => { out[i].dev = devKey(d); });
+  return out;
+}
+
+function defaultNote(s) {
+  if (isChain(s.dev)) return `chained to VFO ${s.dev.slice(6)}`;
+  const drv = s.dev.split("|")[0];
+  if (!drv) return "";
+  return s.up ? "HF via upconverter" : (drv === "rtl" ? "" : TYPE[drv] + ", ") + "VHF/UHF direct";
+}
+
+function chipHtml(k, where) {
+  const d = devs.find((x) => devKey(x) === k);
+  const [drv, ser] = k.split("|");
+  if (!d) {
+    return `<div class="chip missing" title="Saved for this VFO, but not connected now"><span class="grip"></span>
+      <span><span class="tag ${drv}">${TYPE[drv] || drv}</span> <span class="ser">${esc(ser)}</span></span>
+      <span class="sub">not connected — plug it in and REFRESH</span><span class="x" data-x="${where}" title="Remove">✕</span></div>`;
+  }
+  return `<div class="chip ${picked === k ? "picked" : ""} ${found === k ? "found" : ""}" draggable="true" data-key="${esc(k)}" data-from="${where}"
+      title="Drag onto a VFO (or click it, then click a VFO)"><span class="grip"></span>
+    <span><span class="tag ${d.driver}">${TYPE[d.driver]}</span> <span class="ser">${esc(d.serial) || "(no serial)"}</span></span>
+    <span class="sub">${esc(d.name)}${d.index != null ? " · #" + d.index : ""}</span>
+    ${where !== "pool" ? `<span class="x" data-x="${where}" title="Back to the dongles">✕</span>` : ""}</div>`;
+}
+
+function draw() {
+  const used = slots.map((s) => s.dev).filter(isDev);
+  const free = devs.filter((d) => !used.includes(devKey(d)));
+  $("pool").innerHTML = free.length ? free.map((d) => chipHtml(devKey(d), "pool")).join("")
+    : `<span class="empty">${devs.length ? "All dongles are on a VFO. Drag one back here to take it off." : "No dongle connected."}</span>`;
+  $("slots").innerHTML = slots.map((s, i) => {
+    const name = NAMES[i];
+    const owners = slots.slice(0, i).map((x, k) => [x, NAMES[k]]).filter(([x]) => isDev(x.dev));
+    const own = isDev(s.dev);
+    let body;
+    if (own) body = chipHtml(s.dev, i);
+    else if (isChain(s.dev)) body = `<div class="shared">⇄ shares the dongle of <b>VFO ${s.dev.slice(6)}</b>
+      <span class="grow" style="flex:1"></span><span class="x" data-x="${i}" style="cursor:pointer" title="Stop sharing">✕</span></div>`;
+    else body = `<div class="hint">${picked ? "click to put the dongle here" : "drop a dongle here"}</div>`;
+    return `<div class="slot ${s.dev ? "" : "free"}" data-i="${i}">
+      <h3>VFO ${name} <span class="muted">${s.dev ? "" : "no SDR"}</span></h3>
+      <div class="drop ${picked && !own ? "target" : ""}" data-drop="${i}">${body}</div>
+      ${s.dev ? "" : `<div class="slot-tools">
+        <button class="key small" data-ident="${i}" ${devs.length ? "" : "disabled"} title="Unplug the dongle for VFO ${name}: it is found and placed here">IDENTIFY</button>
+        ${owners.length ? `<select data-share="${i}"><option value="">or share a dongle…</option>${owners.map(([, n]) =>
+          `<option value="${n}">share the dongle of VFO ${n}</option>`).join("")}</select>` : ""}</div>`}
+      <div class="fields">
+        <span>PPM</span><input type="number" step="1" data-f="ppm" value="${esc(s.ppm)}" ${own ? "" : "disabled"}>
+        <span>Upconv.</span><label class="lo-line"><input type="checkbox" data-f="up" ${s.up ? "checked" : ""} ${own ? "" : "disabled"}>
+          <input type="text" class="mono" data-f="lo" value="${esc(s.lo)}" title="LO in MHz" ${own && s.up ? "" : "disabled"}><span class="muted">MHz</span></label>
+        <span>Name</span><input type="text" data-f="note" value="${esc(s.note)}" placeholder="${esc(defaultNote(s))}" ${s.dev ? "" : "disabled"}>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+// ---- moving dongles
+function release(i) {                       // the dongle of slot i goes back; VFOs sharing it stop sharing
+  slots[i].dev = "";
+  slots.forEach((x) => { if (x.dev === "chain:" + NAMES[i]) x.dev = ""; });
+}
+function place(k, to, from) {               // dongle k onto slot `to` (from "pool" or a slot index)
+  const target = slots[to];
+  if (target.dev === k) { picked = ""; draw(); return; }      // dropped where it already is
+  if (from !== "pool" && from !== undefined && +from !== to) {
+    const prev = target.dev;
+    release(+from);
+    if (isDev(prev)) slots[+from].dev = prev;     // two VFOs swap their dongles
+  }
+  if (isDev(target.dev) || isChain(target.dev)) release(to);
+  slots.forEach((x) => { if (x.dev === k) x.dev = ""; });
+  target.dev = k;
+  picked = "";
+  draw();
+}
+
+document.addEventListener("dragstart", (e) => {
+  const c = e.target.closest && e.target.closest(".chip[draggable]");
+  if (!c) return;
+  e.dataTransfer.setData("text/plain", JSON.stringify({ key: c.dataset.key, from: c.dataset.from }));
+  e.dataTransfer.effectAllowed = "move";
+  c.classList.add("dragging");
+});
+document.addEventListener("dragend", (e) => { if (e.target.classList) e.target.classList.remove("dragging"); });
+for (const ev of ["dragover", "dragenter"]) {
+  document.addEventListener(ev, (e) => {
+    const z = e.target.closest && (e.target.closest(".drop") || e.target.closest(".pool"));
+    if (!z) return;
+    e.preventDefault();
+    z.classList.add("over");
+  });
+}
+document.addEventListener("dragleave", (e) => {
+  const z = e.target.closest && (e.target.closest(".drop") || e.target.closest(".pool"));
+  if (z && !z.contains(e.relatedTarget)) z.classList.remove("over");
+});
+document.addEventListener("drop", (e) => {
+  const z = e.target.closest && (e.target.closest(".drop") || e.target.closest(".pool"));
+  if (!z) return;
+  e.preventDefault();
+  z.classList.remove("over");
+  let m;
+  try { m = JSON.parse(e.dataTransfer.getData("text/plain")); } catch (err) { return; }
+  if (z.classList.contains("pool")) { if (m.from !== "pool") { release(+m.from); draw(); } return; }
+  place(m.key, +z.dataset.drop, m.from);
+});
+
+// click a dongle, then a VFO (or the ✕ of a dongle on a VFO)
+document.addEventListener("click", (e) => {
+  const x = e.target.closest(".x");
+  if (x) {
+    const i = +x.dataset.x;
+    release(i);
+    draw();
+    return;
+  }
+  const c = e.target.closest(".chip[draggable]");
+  if (c) {
+    picked = picked === c.dataset.key ? "" : c.dataset.key;
+    pickedFrom = c.dataset.from;
+    draw();
+    return;
+  }
+  const d = e.target.closest(".drop");
+  if (d && picked) { place(picked, +d.dataset.drop, pickedFrom); return; }
+});
+let pickedFrom = "pool";
+
+$("slots").addEventListener("input", (e) => {
+  const slot = e.target.closest(".slot");
+  if (!slot) return;
+  const s = slots[+slot.dataset.i];
+  if (e.target.dataset.share !== undefined) {
+    if (e.target.value) { s.dev = "chain:" + e.target.value; draw(); }
+    return;
+  }
+  const f = e.target.dataset.f;
+  if (f === "up") { s.up = e.target.checked; draw(); }
+  else if (f) s[f] = e.target.value;
+});
+
+// IDENTIFY: wait until one free dongle disappears, place it on this VFO, wait until it is back
+$("slots").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-ident]");
+  if (!b) return;
+  const i = +b.dataset.ident, name = NAMES[i];
+  const used = slots.filter((x, k) => k !== i).map((x) => x.dev).filter(isDev);
+  const free = devs.filter((d) => !used.includes(devKey(d)));
+  if (!free.length) { box("identMsg", "warn", "All dongles are on other VFOs. Take one off first (✕)."); return; }
+  document.querySelectorAll("[data-ident]").forEach((x) => { x.disabled = true; });
+  b.classList.add("on");
+  box("identMsg", "info", `<span class="spin"></span> <b>Unplug the dongle for VFO ${name} now</b> (up to 30 s)…`);
+  try {
+    const j = await api("/api/unplug", { devices: free.map((d) => [d.driver, d.serial]) });
+    if (!j.gone) { box("identMsg", "warn", esc(j.error || "nothing was unplugged")); return; }
+    const k = j.gone.join("|");
+    found = k;
+    place(k, i, "pool");
+    box("identMsg", "info", `<span class="spin"></span> Found <b>${TYPE[j.gone[0]]} '${esc(j.gone[1])}'</b> → VFO ${name}. <b>Plug it back in</b>…`);
+    const back = await api("/api/back", { device: j.gone });
+    box("identMsg", back.back ? "ok" : "warn", back.back
+      ? `${TYPE[j.gone[0]]} '${esc(j.gone[1])}' is on VFO ${name} and connected again.`
+      : `VFO ${name} = ${TYPE[j.gone[0]]} '${esc(j.gone[1])}', but it is not back yet: plug it in before saving.`);
+    setTimeout(() => { found = ""; draw(); }, 4000);
+  } catch (err) {
+    box("identMsg", "err", esc(err.message));
+  } finally {
+    draw();
+  }
+});
+
+$("refresh").onclick = () => load(true);
+
+$("writeSerials").onclick = async () => {
+  const inputs = [...$("serialRows").querySelectorAll("input")];
+  const items = inputs.map((x) => ({ index: +x.dataset.index, serial: x.value.trim() }));
+  const bad = items.find((x, k) => x.serial.length !== inputs[k].maxLength);
+  if (bad) { box("serialMsg", "err", `#${bad.index}: the serial must keep its length`); return; }
+  $("writeSerials").disabled = true;
+  box("serialMsg", "info", '<span class="spin"></span> writing…');
+  try {
+    const j = await api("/api/serials", { items });
+    const failed = j.results.filter((r) => !r.ok);
+    box("serialMsg", failed.length ? "err" : "ok", (failed.length ? failed.map((r) => `#${r.index}: ${esc(r.error)}`).join("<br>") + "<br>" : "")
+      + "<b>Unplug all dongles, plug them back in</b>, then click REFRESH (the new numbers count only after that).");
+  } catch (e) {
+    box("serialMsg", "err", esc(e.message));
+  } finally { $("writeSerials").disabled = false; }
+};
+
+function done() {
+  if (wv) wv.postMessage("setup-done");          // RADIMCOM.exe stops this wizard and starts the receiver
+  else fetch("/api/quit", { method: "POST" }).catch(() => {});
+}
+
+$("save").onclick = async () => {
+  const missing = slots.map((s, i) => [s, NAMES[i]]).filter(([s]) => isDev(s.dev) && !connected(s.dev));
+  if (missing.length) {
+    box("saveMsg", "err", `Not connected: ${missing.map(([s, n]) => `VFO ${n} (${esc(s.dev.split("|")[1])})`).join(", ")}.
+      Plug it in and REFRESH, or remove it (✕).`);
+    return;
+  }
+  // the VFOs in order: empty ones are skipped, the letters of shared dongles follow
+  const used = slots.map((s, i) => [s, NAMES[i]]).filter(([s]) => s.dev);
+  const map = {};
+  used.forEach(([, n], k) => { map[n] = NAMES[k]; });
+  const list = used.map(([s]) => {
+    const v = { note: s.note.trim() || defaultNote(s) };
+    if (isChain(s.dev)) v.chain = map[s.dev.slice(6)];
+    else Object.assign(v, { device: s.dev.split("|"), ppm: s.ppm, lo: s.up ? s.lo : null });
+    return v;
+  });
+  if (!list.length) { box("saveMsg", "err", "No VFO has a dongle."); return; }
+  $("save").disabled = true;
+  box("saveMsg", "info", '<span class="spin"></span> saving…');
+  try {
+    const j = await api("/api/save", { vfos: list });
+    box("saveMsg", "ok", `Saved: ${j.vfos.map((v) => `VFO ${v.name} = ${esc(v.chain ? "VFO " + v.chain : v.serial)}`).join(", ")}.`
+      + (j.backup ? ` Previous settings: <span class="mono">${esc(j.backup)}</span>.` : "")
+      + (wv ? " Starting RADIMCOM…" : " Start RADIMCOM now; this page can be closed."));
+    setTimeout(done, 1200);
+  } catch (e) {
+    box("saveMsg", "err", esc(e.message));
+    $("save").disabled = false;
+  }
+};
+
+$("cancel").onclick = () => {
+  if (!confirm("Leave the SDR setup without saving? RADIMCOM starts with the settings it had.")) return;
+  done();
+};
+
+load(false);
+</script>
+</body>
+</html>

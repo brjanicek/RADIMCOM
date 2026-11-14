@@ -32,8 +32,7 @@ Memories (`data\memories.json`) are shared by all VFOs, so `/api/memories` gives
 |---|---|---|
 | GET | `/` | web page |
 | GET | `/api/vfos` | list of VFOs: `[{"name", "port", "serial", "note", "chain", "rotor"}]`; `chain` = name of the VFO whose dongle a chained VFO uses, otherwise `null`; `rotor` = true on the VFO whose receiver holds the rotor (the first one) |
-| GET | `/api/update` | newer version on GitHub Releases, checked once after start: `{"state": "checking" / "done" / "failed" / "off" / "downloading" / "installing", "current", "latest", "newer", "name", "url", "published", "can_upgrade", "why_not", "zip_url", "zip_size", "got", "upgrade_error"}`. Off with `"update_check": false` in `vfos.json`. A receiver started without `vfos.json` answers it itself (`"update_check"` in its config) |
-| POST | `/api/update` | `{"upgrade": true}`: downloads the upgrade zip of the newer release to `data\update\`, checks it, starts `upgrade_helper.py` and closes RADIMCOM; the helper unzips the program, runs `upgrade.bat` and starts `start.bat`. Only from a page of this RADIMCOM (Origin); 409 when no upgrade is possible (`why_not`) |
+| GET | `/api/update` | newer version on GitHub Releases, checked once after start: `{"state": "checking" / "done" / "failed" / "off", "current", "latest", "newer", "name", "url", "published", "kind" ("setup" / "zip" / "dev"), "folder", "setup_name", "setup_url", "setup_size"}`. Nothing is installed from the page: the page links the setup, the user runs it into the same folder. Off with `"update_check": false` in `vfos.json`. A receiver started without `vfos.json` answers it itself (`"update_check"` in its config) |
 
 ## Receiver: state and control
 
@@ -87,19 +86,19 @@ Main fields:
 | `autotune`, `autotune_info` | ATU on/off; last autotune job `{id, state: "listen" \| "done" \| "none" \| "", shift_hz, how: "carrier" \| "comb" \| "edge", mode}` |
 | `lpf`, `lpf_hz`, `hpf`, `hpf_hz` | audio low-pass and high-pass filter on/off and their cutoff frequencies in Hz |
 | `status`, `error`, `opened`, `dropped`, `hw` | device status, last error, open flag, dropped blocks, LimeSDR stream info |
-| `ft8`, `cw`, `rtty`, `wefax`, `sstv`, `packet`, `acars`, `vdl2`, `cpdlc` | decoders on/off |
+| `ft8`, `cw`, `rtty`, `wefax`, `sstv`, `packet`, `pocsag`, `sonde`, `acars`, `vdl2`, `cpdlc` | decoders on/off |
 | `ft8_error`, `vdl2_error` | decoder errors |
 | `vdl2_region` | selected VDL2 channel set, `"eu"` or `"us"` |
 | `audio_muted` | the audio of this VFO is muted because the ACARS, VDL2, HFDL, AIS or ISM decoder runs |
 | `recording` | `{"cont": {...}, "squelch": {...}, "dropped": n}`: REC and REC SQ, each with `on`, `open` (a file is being written), `file` (current or last file in `data\recordings`), `secs` (length of the current file), `saved` (files finished since switched on), `error`; `dropped` = audio blocks lost because the disk did not keep up |
 | `dab`, `dab_channel`, `dab_sids`, `dab_error` | DAB on/off, Band III channel (e.g. `12C`), last station of each channel (`{"12C": "0x5464"}`, `null` = stopped), welle-cli error |
-| `logs` | daily logs on/off: `{"ft8", "wefax", "cw", "rtty", "sstv", "acars", "dsd", "ism", "packet", "hfdl", "ais"}` (`acars` covers both the ACARS and the VDL2 log) |
+| `logs` | daily logs on/off: `{"ft8", "wefax", "cw", "rtty", "sstv", "acars", "dsd", "ism", "packet", "pocsag", "sonde", "hfdl", "ais"}` (`acars` covers both the ACARS and the VDL2 log) |
 | `trsp_name`, `trsp_sat` | transmitter and satellite of the Doppler correction (`/api/sat/doppler`) while it is on, empty otherwise |
 | `tx_capable`, `tx_enabled`, `can_tx`, `tx`, `tx_info` | transmitter (LimeSDR) |
 | `wf` | waterfall format: `bins`, `db_min`, `db_step`, `rows_per_s` |
 
 `/api/state` also returns the constants `sample_rates`, `modes`, `ft8_freqs`, `acars_freqs`, `vdl2_freqs` (channels of the
-selected region), `vdl2_region_freqs` (`{"eu": […], "us": […]}`), `vdl2_center`, `vdl2_rate`, `dab_channels` (`[[name, Hz], …]`), `ism_freqs`. The state has `ism`, `ism_error` and `ism_hz`; `GET /api/ism` gives the decoder state with the last `messages`, `POST /api/ism` with `{"action": "clear"}` clears them. HFDL: `hfdl_bands` (`[{lo, hi, center, n}]` in Hz) and
+selected region), `vdl2_region_freqs` (`{"eu": […], "us": […]}`), `vdl2_center`, `vdl2_rate`, `dab_channels` (`[[name, Hz], …]`), `ism_freqs`. The state has `ism`, `ism_error` and `ism_hz`; `GET /api/ism` gives the decoder state with the last `messages`, the `devices` (as in `ismdev`, up to 300) and the `names`; `GET /api/ism?dev=<key>` one device with its `hist` (`[[minute, messages, rssi, snr, {field: number}], …]`, one point per minute for 24 h; 404 for an unknown key). `POST /api/ism` with `{"action": "clear"}` clears the messages and devices, `{"action": "name", "key": …, "name": …, "pin": bool, "hide": bool}` changes one device (any of the three; empty name = the model name) and gives all `names`. `{"action": "rawmark", "id": <row id>, "name": …}` marks the signal of a RAW row: its device key `RAW|<MHz> <kind>|` gets the name and a `sig` (`f` Hz, `mod`, `guess`, `p` pulses) in the names, later RAW packages that match it carry `dev` and update that device; an empty name removes the mark (404 when the row is gone). HFDL: `hfdl_bands` (`[{lo, hi, center, n}]` in Hz) and
 `hfdl_stations` (`[{id, name, lat, lon, freqs_khz}]`); the state has `hfdl` and `hfdl_error`; `GET /api/hfdl` gives the decoder
 state (`channels` decoded now, `heard` ground stations, counters) with the last `messages`, `POST /api/hfdl` with `{"action": "clear"}` clears them. Each message has `ac` (ADS-B data, `{"found": false}` when not seen, `null` while
 `lookup` is true); the event `hfdlinfo` (`{id, ac}`) brings it later. AIS: `ais_center` (162000000) and `ais_channels` (`[161975000, 162025000]`);
@@ -148,13 +147,13 @@ Send any combination of these keys:
 | `auto_sql` | ASQ auto squelch on / off (AM, FM, WFM) |
 | `auto_sql_db` | auto squelch margin above the noise floor, 2 – 30 dB (default 6) |
 | `sample_rate` | 1024000, 1536000, 2048000, 2100000, 2400000; on an Airspy VFO 2500000 |
-| `zoom` | 1, 2, 4, 8, 16, 32 |
+| `zoom` | 1, 2, 4, 8, 16, 32, 64 |
 | `ppm` | frequency correction (integer) |
 | `upconv` | `auto`, `on`, `off` |
 | `lo_offset_hz` | upconverter LO, 0 to 1 000 000 000 Hz |
 | `device` | device index (single-receiver mode) |
 | `reset` | `true` = reset the dongle |
-| `ft8`, `cw`, `rtty`, `wefax`, `sstv`, `packet`, `acars`, `vdl2` | decoders on / off. `vdl2: true` switches the VFO to 2.1 MS/s around 136.500 MHz and turns ACARS off (RTL-SDR only); `acars: true` turns VDL2 off |
+| `ft8`, `cw`, `rtty`, `wefax`, `sstv`, `packet`, `pocsag`, `sonde`, `acars`, `vdl2` | decoders on / off. `vdl2: true` switches the VFO to 2.1 MS/s around 136.500 MHz and turns ACARS off (RTL-SDR only); `acars: true` turns VDL2 off |
 | `vdl2_region` | VDL2 channel set: `"eu"` or `"us"`. Restarts dumpvdl2 with the new channels |
 | `dab_sid` | remembers the station of the current DAB channel (`"0x5464"`, `null` = stopped) |
 | `dab`, `dab_channel` | DAB on / off and channel. `dab: true` starts welle-cli and switches the VFO to 2.048 MS/s on the channel centre (ACARS and VDL2 off, RTL-SDR only); `dab: false` restores the sample rate; `dab_channel` alone retunes a running DAB |
@@ -175,10 +174,13 @@ On connect a `status` event with the full state, then:
 | `status` | full state (as `/api/state`) after a change |
 | `wf` | waterfall row |
 | `meter` | S-meter level in dBFS, `{"db": -73.5}`, for every block of samples (as often as `wf`) |
-| `ft8`, `ft8cycle` | FT8 decode; start of a 15 s cycle |
-| `cwtext`, `cwstate` | CW text; CW decoder state (speed, tone, …) |
-| `rttytext`, `rttystate` | RTTY text; decoder state |
+| `ft8`, `ft8cycle`, `ft8stclear` | FT8 decode (with `ts`, and `call` / `grid` / `lat` / `lon` of the transmitting station when the message has them); start of a 15 s cycle; the station map was cleared |
+| `cwchan`, `cwtext`, `cwstate` | CW: new characters of a station (`id`, `t`, per-character confidence `c` 0–9); the same for the followed station only (`t`, `c`: log, audio bubble); decoder state once a second (followed station, `channels` with the end of their text and timing `profile`) |
+| `rttytext`, `rttystate` | RTTY text (`q`: one character per text character, "1" sure / "0" after recent framing errors); decoder state |
+| `rttyviz` | RTTY tuning indicator data, 10× a second, only for about 3 s after each `POST /api/rtty {"action": "viz"}` |
 | `packet`, `packetstate` | PACKET: one valid AX.25 frame (see `/api/packet`); decoder state (counters, AFC, error) |
+| `pocsag`, `pocsagstate` | POCSAG: one pager message (see `/api/pocsag`); decoder state (counters) |
+| `sonde`, `sondestate` | SONDE: one radiosonde frame (see `/api/sonde`); decoder state (counters, offset) |
 | `packetspec` | PACKET spectrum, 4× per second while asked for: `db` (2·`k`+1 values, dB relative to a full-scale carrier, the tuned frequency in the middle), `df` (Hz per value), `afc_live` (9600 Bd AFC, Hz, or null) |
 | `packeteye` | PACKET eye diagram, 4× per second while asked for: `rate`, `n` points per trace, `full` (full scale: Hz at 9600, 1.2 at 1200), `data` (base64 int8 traces, value/full·127), `open` and `open_frame` (eye opening % now / in the last good frame), `dev_hz`, `afc_live` (9600 only) |
 | `wefaxrow`, `wefaxstate`, `wefaxnew`, `wefaxtrim`, `wefaxreload` | WEFAX image rows, state, new image, trimmed image, image changed (slant correction: load it again) |
@@ -188,7 +190,9 @@ On connect a `status` event with the full state, then:
 | `vdl2state` | VDL2 decoder state |
 | `dabstate` | DAB state (channel, welle-cli connected, dongle on channel, error) |
 | `adsb`, `adsbstate` | ADS-B: changed aircraft and new messages once a second; decoder state (see `/api/adsb`) |
-| `ism`, `ismstate` | ISM device message (the same `id` again = the repeat count `n` of a message grew); decoder state (`enabled`, `error`, `count`, `dropped`, `running`, `raw`, `raw_count`, `channels` = centres of the 256 kS/s rtl_433 channels); a RAW row has `raw: true`, `view` (triq.org link) and `flex` |
+| `ism`, `ismstate` | ISM device message (the same `id` again = the repeat count `n` of a message grew); decoder state (`enabled`, `error`, `count`, `dropped`, `running`, `raw`, `raw_count`, `channels` = centres of the rtl_433 channels, `channel_rates` = their sample rates); a RAW row has `raw: true`, `view` (triq.org link) and `flex`. A decoded message has `fields` (its values, numbers as numbers) and `dev` (device key `model|id|channel`); `ismstate` has `rate` (messages per minute, the last 60 minutes, the oldest first) |
+| `ismdev` | an ISM device after a new message of it: `key`, `model`, `dev_id`, `channel`, `first`, `last`, `n`, `fields`, `freq_hz`, `rssi`, `snr`, `mod`, `protocol`, `mic`, `new` (not heard on this PC in 60 days), `times` (message times of the last hour), `series` ([t, °C, %] per 5 min, 24 h), `act` ([t, messages] per 5 min, 24 h) |
+| `ismnames` | names, pins and hidden ISM devices changed: `{key: {name, pin, hide}}` (`data\ism_devices.json`, all VFOs) |
 
 A comment line `: ping` is sent every 15 s when nothing else happens.
 
@@ -215,10 +219,16 @@ is removed. 0 dB is a sine at 75 kHz deviation. Outside WFM, `db` is empty and `
 | GET | `/api/dsd` | DSD mode: `enabled`, `installed`, `error`, `protocol`, `slot`, detected `proto` and `cc`, running calls in `active`, finished calls in `calls`, the allowed values in `protocols` and `slots` |
 | POST | `/api/dsd` | `{"protocol": "auto"}` and/or `{"slot": "both"}` (restarts the decoder), `{"action": "clear"}` |
 | GET | `/api/ft8` | recent FT8 decodes |
-| GET | `/api/cw` | CW decoder info and text |
-| POST | `/api/cw` | `{"action": "clear"}` |
-| GET | `/api/rtty` | RTTY decoder info and text |
-| POST | `/api/rtty` | `{"action": "clear"}` and/or `{"opts": {...}}` (decoder options, saved to the config) |
+| GET, DELETE | `/api/ft8/stations` | FT8 stations heard in the last 24 h (call, locator + lat/lon, newest message, SNR, frequency, `ts`, `n`); DELETE clears them |
+| GET | `/api/cw` | CW skimmer: `span`, the followed station (`cur`, `follow`, `station`, `tone_hz`, `freq_hz`, `wpm`, `snr_db`), all `channels` (tone, frequency, WPM, SNR, call, key type, the last 300 characters `text` with `conf`, timing profile), `text` of the followed station and its confidence `conf` (one digit 0–9 per character). `?id=3`: the whole text of one station (`text`, `conf`; 404 when it is gone) |
+| POST | `/api/cw` | `{"action": "clear"}`; `{"action": "follow", "id": 3}` follows a skimmer station (`null` = automatic, the strongest); `{"action": "options", "span": "filter" \| "wide"}` (saved to the config) |
+| GET | `/api/rtty` | RTTY decoder info and text; also `q`, `figs`, `sync`, `probing`, `frames_ok`, `focus_hz`, `station` (known transmission at the frequency) and `stations` (`[{name, group, kind, hz}]`, the KNOWN… list) |
+| POST | `/api/rtty` | `{"action": "clear"}` and/or `{"opts": {...}}` (decoder options, saved to the config); `{"action": "viz"}` sends `rttyviz` events for the next ~3 s (the page renews it every 2 s); `{"action": "focus", "hz": <Hz or null>}` looks for the tones only around that audio frequency (`null` = the whole passband) |
+| GET | `/api/pocsag` | POCSAG decoder: state (`ok` messages, `batches`, `corrected` bits, `bad` codewords, `rates`), the last 500 `messages` (`ric`, `func`, `baud`, `inverted`, `kind` = `alpha` / `numeric` / `tone`, `text`, both readings `alpha` and `numeric`, `corrected`, `bad`) and the `rics` (newest message of each address) |
+| GET | `/api/sonde` | radiosonde decoder: state (`ok` frames, `bad`, `headers` found, `fixed` bytes corrected, `offset_hz` of the signal from the dial, `last_rx`), the last 300 `frames` (`type` RS41 / DFM, `serial`, `frame`, `lat`, `lon`, `alt` m, `vh` m/s, `dir`, `vv` m/s, `sats`, `batt` V, `gps_time`, `dist` km, `az`, `el`, `ecc`, `inverted`, `encrypted`) and the `sondes` (newest data of each, `max_alt`, `burst`, `burst_alt`, flight path `pts` = [lat, lon, alt, time]) |
+| POST | `/api/sonde` | `{"action": "clear"}`; `{"action": "forget", "serial": "W1234567"}` removes one sonde |
+| GET | `/api/sonde/sites` | radiosonde launch sites in Europe: `sites` (`id`, `name`, `lat`, `lon`, `alt`, `types` [{`name`, `mhz`, `decoded`}], `times` ["day:hh:mm" UTC, day 0 = daily, 1–7 = Mon–Sun], `ascent_rate`, `descent_rate`, `burst_altitude`, own sites `own: true` and `note`), `fetched`, `loading` (download from SondeHub running), `error`, `extra_error` (a broken `data\sonde_sites_extra.json`), `source`. The SondeHub list is downloaded in the background when missing or older than a week |
+| POST | `/api/pocsag` | `{"action": "clear"}` and/or `{"opts": {"rate": "all" \| "512" \| "1200" \| "2400"}}` (saved to the config) |
 | GET | `/api/packet` | PACKET decoder: state, the last 500 `frames` and the APRS `stations` (newest first) |
 | POST | `/api/packet` | `{"action": "clear"}` and/or `{"opts": {"rate": "both" \| "1200" \| "9600", "scrambler": "auto" \| "on" \| "off"}}` (saved to the config); `{"action": "eye", "rate": 9600 \| 1200}` sends `packeteye` events for the next 4 s, `{"action": "spectrum"}` the same for `packetspec` (the page renews it every 2 s) |
 | GET | `/api/acars` | ACARS / VDL2 messages; VDL2 ones have `vdl2.gs` (ground station address) and `vdl2.gs_loc` (`BTS/LZIB`, `-` if not known), `vdl2.gs_city` (`Bratislava`, empty if not known) and `vdl2.gs_info` (entry in the ground station list, `LHBP Budapest Hungary 136.825`, empty if not there). A message with `lookup: true` gets an `acarsinfo` event with the ADS-B data; the web page shows its row after that |
@@ -242,7 +252,7 @@ is removed. 0 dB is a sine at 75 kHz deviation. Outside WFM, `db` is empty and `
 
 A memory: `{"id", "name", "group", "groups", "freq_hz", "mode", "bw", "fav", "decoder", "record", "note", "color", "tag"}`, and `"dab_channel"` (e.g. `"12C"`) on a DAB memory. Modes: `AM`, `FM`, `WFM`, `LSB`, `USB`, `CW`, `DAB`, `DSD`. A DAB memory has the mode `DAB` (older versions stored the DAB channel with another mode; such memories are read as `DAB`); `bw` is fixed for `DAB` (1536000) and `DSD` (12500).
 `groups` is the list of its groups (may be empty), `group` the first of them (kept for older clients). `decoder` is switched on
-when the memory is recalled in the page: `""` (none), `ft8`, `wefax`, `cw`, `rtty`, `sstv`, `packet`, `acars`, `vdl2` or `ism`.
+when the memory is recalled in the page: `""` (none), `ft8`, `wefax`, `cw`, `rtty`, `sstv`, `packet`, `pocsag`, `sonde`, `acars`, `vdl2` or `ism`.
 `note` up to 200 characters. `color` is the colour of its tag in the spectrum, `#rrggbb` or `""` (default green); `tag` false hides the tag.
 
 | Method | Path | Description |

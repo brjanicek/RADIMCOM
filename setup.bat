@@ -3,4 +3,5 @@ rem Wizard for the first configuration of the dongles (assignment to VFOs, seria
 cd /d "%~dp0"
 set "PY=python"
 if exist ".venv\Scripts\python.exe" set "PY=.venv\Scripts\python.exe"
+if exist "python\python.exe" set "PY=python\python.exe"
 "%PY%" setup_sdr.py

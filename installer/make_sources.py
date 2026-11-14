@@ -40,6 +40,8 @@ SOURCES = [
     ("FFTW 3.3.11", "GPL v2+", "mingw-w64-fftw-3.3.11-2.src.tar.zst", MINGW.format("mingw-w64-fftw-3.3.11-2")),
     ("mpg123 1.33.7", "LGPL v2.1", "mingw-w64-mpg123-1.33.7-1.src.tar.zst", MINGW.format("mingw-w64-mpg123-1.33.7-1")),
     ("LAME 4.0", "LGPL v2", "mingw-w64-lame-4.0-1.src.tar.zst", MINGW.format("mingw-w64-lame-4.0-1")),
+    # the setup bundles Python with lameenc (statically linked LAME 4.0, source above)
+    ("lameenc 1.9.0 (in the Python of the setup, with LAME 4.0)", "LGPL v3+", "lameenc-1.9.0.tar.gz", GITHUB.format("chrisstaite/lameenc", "v1.9.0")),
 ]
 BUILD_FILES = ["VDL2.txt", "DAB.txt", "ISM.txt", "HFDL.txt", "build_hfdl.sh", "build_dab.sh", "welle_radimcom.patch"]
 NOT_INCLUDED = """Not in this zip:

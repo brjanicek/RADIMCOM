@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark">
 <title>RADIMCOM</title>
+<link rel="icon" type="image/png" href="/static/favicon.png">
 <link rel="stylesheet" href="/static/style.css">
 <!-- SET → SKINS: the chosen finish is applied before the first paint (app.js keeps it up to date) -->
 <script>try { const d = document.documentElement, k = localStorage.getItem("skin"), c = localStorage.getItem("skinPaint");
@@ -133,6 +134,12 @@
               <stop offset=".78" stop-color="#0b3a1c"/>
               <stop offset="1" stop-color="#031a0b"/>
             </radialGradient>
+            <!-- the same ring in red: RADIMCOM.exe, mouse over the LED = MAIN switches RADIMCOM off -->
+            <radialGradient id="logoTubeRed" gradientUnits="userSpaceOnUse" cx="294" cy="-46" r="27">
+              <stop offset=".57" stop-color="#7a120d"/>
+              <stop offset=".78" stop-color="#ff4b3e"/>
+              <stop offset="1" stop-color="#7a120d"/>
+            </radialGradient>
           </defs>
           <!-- filter on the outer group: on the clipped one the clip would cut the extrusion off -->
           <g class="r-logo-letters">
@@ -147,7 +154,9 @@
               <path transform="translate(654)" d="M8 100V0L46 66L84 0V100"/>
             </g>
           </g>
-          <!-- ring LED raised from the panel: the unlit body (with its 3D side) stays, the lit ring over it pulses -->
+          <!-- ring LED raised from the panel: the unlit body (with its 3D side) stays, the lit ring over it pulses.
+               In RADIMCOM.exe the LED is the MAIN power switch (app.js appShell): red with "MAIN OFF" under the mouse -->
+          <g class="r-logo-led" id="logoLed">
           <g class="r-logo-led-body" fill="none">
             <circle cx="294" cy="-46" r="21" stroke="url(#logoTubeOff)" stroke-width="11"/>
           </g>
@@ -155,12 +164,18 @@
             <circle cx="294" cy="-46" r="21" stroke="url(#logoTube)" stroke-width="11"/>
             <path d="M275.8 -56.5A21 21 0 0 1 297.6 -66.7" stroke="#d6ffe3" stroke-width="3.5" stroke-linecap="round"/>
           </g>
+          <circle class="r-logo-led-hit" cx="294" cy="-46" r="32" fill="transparent"/>
+          <text class="r-logo-ledtip" x="334" y="-34">MAIN OFF</text>
+          </g>
         </svg>
         </a>
         <span class="r-tag">SDR COMMUNICATIONS RECEIVER</span>
-        <!-- version under the logo (installer and update_check read it from .r-ver); a newer one blinks beside it -->
-        <span class="r-vers"><span class="r-ver">Ver. 0.114</span><a class="r-upd" id="updLink" href="https://github.com/om2amr/RADIMCOM/releases" target="_blank" rel="noopener noreferrer" hidden></a></span>
+        <!-- version under the logo (installer and update_check read it from .r-ver); a newer one blinks beside it, DONATE under it -->
+        <span class="r-vers"><span class="r-ver">Ver. 0.115</span><a class="r-upd" id="updLink" href="https://github.com/om2amr/RADIMCOM/releases" target="_blank" rel="noopener noreferrer" hidden></a></span>
+        <button class="r-don" id="donBtn" type="button" title="Support RADIMCOM – buy us a coffee">☕ DONATE</button>
         </div>
+        <!-- only in RADIMCOM.exe (app window): full screen as a small engraved icon in the corner (MAIN is the LED of the logo) -->
+        <button class="app-fs" id="appFull" title="Full screen on / off (F11)" aria-label="Full screen" hidden><svg class="app-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></svg></button>
         <span id="status" class="pill" hidden><span class="dot"></span><span id="statusText"></span></span>
       <!-- volume: vertical sliders (CUE = other VFOs with CUE on, MAIN = active VFO) with the level meter at the left,
            the speaker and the REC keys beside them -->
@@ -209,7 +224,7 @@
       <button id="hpfKey" class="key pass-key" aria-label="HPF"><svg class="pass-icon" viewBox="60 180 680 440" aria-hidden="true"><path d="M100 576H150Q190 576 215 535L390 265Q415 228 460 228H695"/></svg><span id="hpfVal" class="pass-val"></span></button>
       <button id="lpfKey" class="key pass-key" aria-label="LPF"><svg class="pass-icon" viewBox="60 180 680 440" aria-hidden="true"><path d="M100 228H340Q390 228 415 270L580 540Q610 576 650 576H695"/></svg><span id="lpfVal" class="pass-val"></span></button>
       <button id="alcKey" class="key" title="Audio ALC (automatic audio level) in AM/LSB/USB/CW; off = fixed gain, set the level with MAIN">ALC</button>
-      <button id="dynKey" class="key" title="DYN – HF dynamics in AM/LSB/USB/CW: expander (EXP, the noise between words turned down, speech at full level) + soft limiter (LIM, rounded peaks, +4 dB with ALC); AGC threshold THR optional. Parts and levels in SETTINGS › VFO › AUDIO">DYN</button>
+      <button id="dynKey" class="key" title="DNR – Dynamic Noise Reduction in AM/LSB/USB/CW: expander (EXP, the noise between words turned down, speech at full level) + soft limiter (LIM, rounded peaks, +4 dB with ALC); AGC threshold THR optional. Parts and levels in SETTINGS › VFO › AUDIO">DNR</button>
       <button id="afiKey" class="key" title="AFI: audio frequency inversion – voice inversion scrambler / descrambler (all modes except WFM); the inversion frequency is set in SETTINGS">AFI</button>
       <button id="asqKey" class="key" title="ASQ: auto squelch in AM/FM/WFM – the level follows the noise floor (margin in SETTINGS › VFO › AUDIO). Also on by itself with AGC+ and the squelch set">ASQ</button>
       <button id="tsqcKey" class="key" title="TSQ-C: CTCSS tone squelch (FM)">TSQ-C</button>
@@ -218,7 +233,7 @@
       <button id="recsKey" class="key" aria-controls="recsPane" title="RECS: the RECORDINGS tab – the MP3 files recorded by REC / REC SQ (data\recordings), play them in the browser">RECS</button>
     </div></div>
     <div class="kgroup" data-g="DECODE"><span class="klabel">DECODE</span><div class="keys">
-      <button id="decKey" class="key" aria-controls="decPane" title="DEC: decoders on/off – shows or hides the DECODERS tab, one page for each decoder (CW, FT8, PACKET, RTTY, SSTV, WEFAX | ACARS, ADS-B, HFDL, VDL2 | AIS | ISM); DAB and DSD are modes with their own tabs">DEC</button>
+      <button id="decKey" class="key" aria-controls="decPane" title="DEC: decoders on/off – shows or hides the DECODERS tab, one page for each decoder (CW, FT8, PACKET, POCSAG, RTTY, SSTV, WEFAX | ACARS, ADS-B, HFDL, VDL2 | AIS | SONDE | ISM); DAB and DSD are modes with their own tabs">DEC</button>
     </div></div>
     <div class="kgroup" data-g="TRACKING"><span class="klabel">TRACKING</span><div class="keys">
       <button id="satKey" class="key sat-key" aria-label="Satellite tracking" aria-controls="amsatPane" title="Satellite tracking: the SATELLITES tab (passes, map, Doppler, rotor)"><svg class="sat-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.6 7C3.2 12.6 8.4 18.8 15 17.4Z"/><path d="M9.8 12.2L13.4 8.6"/><circle cx="14.6" cy="7.4" r="1.6"/><path d="M16.6 3.1A5 5 0 0 1 19 5.5"/><path d="M17.2.6A8 8 0 0 1 21.5 4.9"/><path d="M7.6 15.4L5.8 20.6M11 17.2L12.4 20.6M3.2 21.2H15"/></svg></button>
@@ -377,15 +392,26 @@
       <div id="decEmpty" class="ft8-empty" hidden></div>
     <!-- ===== decoders ===== -->
     <!-- text decoders (CW, RTTY): the text fills the rest of the tab -->
-    <section class="card ft8 txtdec" id="cwCard" data-dec="cw" hidden>
+    <section class="card ft8 txtdec cwdec" id="cwCard" data-dec="cw" hidden>
       <div class="ft8-head">
         <label class="key small toggle" data-dec-on="cw" title="CW decoder on/off"><input id="cwOn" type="checkbox">ON</label>
+        <label class="wf-opt" id="cwSpanWrap" title="Where to search for stations: in the filter passband, or ±3.4 kHz around the tuned frequency whatever the filter">SPAN
+          <select id="cwSpan"><option value="filter">Filter</option><option value="wide">Wide ±3.4 kHz</option></select>
+        </label>
         <span class="txt-info" id="cwInfo"></span>
-        <label class="wf-opt log-opt" title="Write to the daily log data\logs\cw_YYYY-MM-DD.txt (UTC, shared by all VFOs)"><input type="checkbox" data-log="cw">LOG</label>
-        <button id="cwTune" class="key small" title="Switches to CW and tunes exactly to the detected tone">TUNE</button>
-        <button id="cwClear" class="key small" title="Clear text">CLR</button>
+        <button id="cwAuto" class="key small" hidden title="The strongest station is the followed one again (automatic): its text goes to the log and the audio spectrum bubble">AUTO</button>
+        <label class="wf-opt log-opt" title="Write to the daily log data\logs\cw_YYYY-MM-DD.txt (UTC, shared by all VFOs); the text of the followed station"><input type="checkbox" data-log="cw">LOG</label>
+        <button id="cwTune" class="key small" title="Switches to CW and tunes exactly to the followed station (amber row)">TUNE</button>
+        <button id="cwClear" class="key small" title="Empty the table; stations still on the air come back within half a second with empty text">CLR</button>
       </div>
-      <div class="txt-out" id="cwText"><span id="cwEmpty" class="cw-empty">waiting for a CW signal…</span></div>
+      <div class="cw-list" id="cwList">
+        <table class="cw-st">
+          <colgroup><col class="c-f"><col class="c-call"><col class="c-n"><col class="c-n"><col></colgroup>
+          <thead><tr><th>kHz</th><th>CALL</th><th>WPM</th><th>SNR</th><th>TEXT</th></tr></thead>
+          <tbody id="cwStBody"></tbody>
+        </table>
+        <div id="cwEmpty" class="cw-empty cw-list-empty">waiting for CW stations…</div>
+      </div>
     </section>
 
     <section class="card ft8 txtdec" id="rttyCard" data-dec="rtty" hidden>
@@ -400,14 +426,38 @@
         <label class="wf-opt">POLARITY
           <select id="rttyPol"><option value="auto">Auto</option><option value="normal">Normal</option><option value="reverse">Reverse</option></select>
         </label>
-        <span class="txt-info" id="rttyInfo"></span>
+        <span class="rt-badges search" id="rttyBadges">
+          <span class="rt-badge" id="rtBaud" title="Speed (Bd)">— Bd</span>
+          <span class="rt-badge" id="rtShift" title="Shift between mark and space (Hz)">— Hz</span>
+          <span class="rt-badge" id="rtPol" title="Polarity: NORM = mark is the higher RF tone, REV = reversed">NORM</span>
+          <span class="rt-badge" id="rtFigs" title="Baudot shift: LTRS = letters, FIGS = figures. Text full of digits and punctuation = a lost LTRS (it comes back at the next space).">LTRS</span>
+          <span class="rt-badge rt-sync" id="rtSync" hidden></span>
+          <span class="rt-snr" id="rtSnr" title="SNR of the weaker tone"></span>
+        </span>
+        <select id="rttyGo" class="rt-go" title="Known RTTY transmissions: choose one to tune there (USB, the signal in the passband)"><option value="">KNOWN…</option></select>
+        <span class="rt-station" id="rttyStation"></span>
         <label class="wf-opt log-opt" title="Write to the daily log data\logs\rtty_YYYY-MM-DD.txt (UTC, shared by all VFOs)"><input type="checkbox" data-log="rtty">LOG</label>
         <button id="rttyClear" class="key small" title="Clear text">CLR</button>
       </div>
       <p class="note">Baudot (ITA2). Shift, speed and polarity are detected automatically from the two tones in the filter passband
         (any mode; use USB/LSB with a filter wide enough for both tones). Mark = the higher RF tone (normal).
-        E.g. amateur RTTY 45.45 Bd / 170 Hz, DWD weather 50 Bd / 450 Hz.</p>
-      <div class="txt-out" id="rttyText"><span id="rttyEmpty" class="cw-empty">waiting for an RTTY signal…</span></div>
+        E.g. amateur RTTY 45.45 Bd / 170 Hz, DWD weather 50 Bd / 450 Hz. Dim amber characters = recent framing errors.</p>
+      <div class="rt-main">
+        <div class="txt-out" id="rttyText"><span id="rttyEmpty" class="cw-empty">waiting for an RTTY signal…</span></div>
+        <div class="rt-ind">
+          <div class="bands" id="rttyView">
+            <button class="key small" data-view="cross" title="Crossed ellipses like on old RTTY terminals: mark = horizontal, space = vertical. A clean, well tuned signal draws a sharp +; round or tilted shapes = mistuning, wrong shift or noise.">CROSS</button>
+            <button class="key small" data-view="wf" title="Mini waterfall of the filter passband with the found tones (M = mark, S = space). Click a signal: the decoder looks for the tone pair only there (AUTO = the whole passband again).">WF</button>
+            <button class="key small" data-view="bars" title="Level of the mark and space tone above the noise (dB) and the tuning error (needle, ±50 Hz)">BARS</button>
+            <button class="key small" data-view="eye" title="Eye diagram: the demodulated signal from one bit before to one bit after each bit decision. Open eye = clean reception.">EYE</button>
+          </div>
+          <canvas id="rttyScope"></canvas>
+          <div class="rt-ind-foot">
+            <span class="rt-ind-info" id="rttyIndInfo">–</span>
+            <button id="rttyAuto" class="key small" hidden title="Forget the clicked signal: look for the tones in the whole passband again">AUTO</button>
+          </div>
+        </div>
+      </div>
     </section>
 
     <section class="card ft8 pkt" id="packetCard" data-dec="packet" hidden>
@@ -471,6 +521,47 @@
       </div>
     </section>
 
+    <section class="card ft8 pkt pocsag" id="pocsagCard" data-dec="pocsag" hidden>
+      <div class="ft8-head">
+        <label class="key small toggle" data-dec-on="pocsag" title="POCSAG pager decoder on/off"><input id="pocsagOn" type="checkbox">ON</label>
+        <label class="wf-opt" title="Speed: 512, 1200 and 2400 Bd all run at once by default, both polarities">BAUD
+          <select id="pocsagRate"><option value="all">512 + 1200 + 2400</option><option value="512">512</option><option value="1200">1200</option><option value="2400">2400</option></select>
+        </label>
+        <div class="bands" id="pocsagViews">
+          <button class="key small on" data-view="msgs" title="All received messages">MESSAGES</button>
+          <button class="key small" data-view="rics" title="Pager addresses (RIC): the newest message of each">ADDRESSES</button>
+        </div>
+        <label class="wf-opt" title="Hide messages without text (address only = a tone page)"><input type="checkbox" id="pocsagNoTone">NO TONE</label>
+        <input id="pocsagFilter" class="pkt-filter" type="search" placeholder="filter" title="Show only messages containing this text or RIC">
+        <span class="txt-info" id="pocsagInfo"></span>
+        <label class="wf-opt log-opt" title="Write to the daily log data\logs\pocsag_YYYY-MM-DD.txt (UTC, shared by all VFOs)"><input type="checkbox" data-log="pocsag">LOG</label>
+        <button id="pocsagClear" class="key small" title="Clear messages, addresses and counters">CLR</button>
+      </div>
+      <p class="note">POCSAG pagers from the baseband, independent of the listening mode and filter: tune onto the channel (12.5 kHz).
+        One or two wrong bits in a codeword are corrected; a codeword that cannot be corrected is shown as <b>?</b>.
+        Numeric or alphanumeric is not sent: it is guessed from the function bits (F) and the characters, the other reading is in the tooltip.</p>
+      <div class="pkt-body">
+      <div class="pkt-main">
+      <div class="ft8-table" id="pocsagMsgsBox">
+        <table>
+          <colgroup><col class="c-utc"><col class="c-bd"><col class="c-ric"><col class="c-fn"><col></colgroup>
+          <thead><tr><th>UTC</th><th title="Speed in Bd">Bd</th><th title="Pager address (RIC)">RIC</th><th title="Function bits 0–3 (often A–D: numeric 0, alphanumeric 3)">F</th><th>Message</th></tr></thead>
+          <tbody id="pocsagRows"></tbody>
+        </table>
+        <div id="pocsagEmpty" class="ft8-empty">No messages yet.</div>
+      </div>
+      <div class="ft8-table" id="pocsagRicsBox" hidden>
+        <table>
+          <colgroup><col class="c-utc"><col class="c-ric"><col class="c-n"><col class="c-fn"><col class="c-bd"><col></colgroup>
+          <thead><tr><th title="Last heard">UTC</th><th>RIC</th><th title="Number of messages">N</th><th title="Function bits of the last message">F</th><th title="Speed in Bd">Bd</th><th>Last message</th></tr></thead>
+          <tbody id="pocsagRicRows"></tbody>
+        </table>
+        <div id="pocsagRicEmpty" class="ft8-empty">No addresses yet.</div>
+      </div>
+      </div>
+      </div>
+    </section>
+
     <section class="card ft8" id="ft8Card" data-dec="ft8" hidden>
       <div class="ft8-head">
         <label class="key small toggle" data-dec-on="ft8" title="FT8 decoder on/off"><input id="ft8On" type="checkbox">ON</label>
@@ -480,12 +571,34 @@
         <button id="ft8Clear" class="key small">CLR</button>
       </div>
       <p class="note">Decodes the USB passband 0–3 kHz above the tuned frequency in 15 s cycles timed by the PC clock (must be accurate to ±1 s).</p>
+      <div class="ft8-split">
       <div class="ft8-table">
-        <table>
-          <thead><tr><th>UTC</th><th>dB</th><th>DT</th><th>Hz</th><th>Frequency</th><th>Message</th></tr></thead>
+        <table class="ft8-tbl">
+          <colgroup><col class="c-utc"><col class="c-snr"><col class="c-dt"><col class="c-hz"><col class="c-f"><col></colgroup>
+          <thead><tr><th>UTC</th><th title="Signal-to-noise ratio in 2.5 kHz">SNR dB</th><th class="num" title="Time offset from the PC clock">DT s</th>
+            <th title="Audio offset in the 0–3 kHz passband">Audio Hz</th><th class="num">kHz</th><th>Message</th></tr></thead>
           <tbody id="ft8Rows"></tbody>
         </table>
         <div id="ft8Empty" class="ft8-empty">No messages yet.</div>
+      </div>
+      <div class="ft8-map" id="ft8MapBox">
+        <div class="ft8-map-bar">
+          <b>STATIONS</b>
+          <div class="bands" id="ft8Win" title="Stations heard in the last …">
+            <button class="key small" data-win="600">10 min</button>
+            <button class="key small" data-win="1800">30 min</button>
+            <button class="key small" data-win="3600">1 h</button>
+            <button class="key small" data-win="43200">12 h</button>
+            <button class="key small" data-win="86400">24 h</button>
+          </div>
+          <span id="ft8MapInfo" class="muted"></span>
+          <button id="ft8MapClr" class="key small" title="Clear the stations of the map (also in the other tabs of this VFO)">CLR</button>
+        </div>
+        <div class="ft8-map-body">
+          <div class="ais-map-main"><div id="ft8Map"></div><div id="ft8MapNote" class="muted"></div></div>
+          <div class="ais-map-list ft8-ml-box" id="ft8MapList"></div>
+        </div>
+      </div>
       </div>
     </section>
 
@@ -672,6 +785,53 @@
       </div>
     </section>
 
+    <section class="card ft8 sonde" id="sondeCard" data-dec="sonde" hidden>
+      <div class="ft8-head">
+        <label class="key small toggle" data-dec-on="sonde" title="Radiosonde decoder (Vaisala RS41, 400–406 MHz) on/off"><input id="sondeOn" type="checkbox">ON</label>
+        <div class="bands"><button id="sondeGo" title="Tune the VFO to 403.000 MHz in FM, the middle of the radiosonde band 400–406 MHz, and switch the decoder on">403 MHz</button></div>
+        <button id="sondeInfoKey" class="key small" title="Show / hide the description of the decoder">INFO</button>
+        <div class="bands" id="sondeViews">
+          <button class="key small on" data-view="sondes" title="Sondes heard: the newest data of each">SONDES</button>
+          <button class="key small" data-view="map" title="Sondes and their flight paths on a map, next to it the temperature and humidity profile of the selected sonde">MAP</button>
+          <button class="key small" data-view="frames" title="All decoded frames">FRAMES</button>
+        </div>
+        <span class="txt-info" id="sondeInfo"></span>
+        <button id="sondeClear" class="key small" title="Clear the frames, the sondes and the counters">CLR</button>
+      </div>
+      <p class="note" id="sondeNote" hidden>Weather balloons: radiosondes send their GPS position, altitude, speed and climb once a second on
+        <b>400–406 MHz</b> while they rise to 30–35 km, burst and fall back on a parachute. Decoded here from the baseband,
+        independent of the listening mode and filter: tune the VFO onto the sonde (a few kHz off is fine, <b>Offset</b> in the status shows how far).
+        Type: <b>Vaisala RS41</b> (GFSK 4800 Bd), the sonde of most weather services around (Wien 11035, Prostějov, Budapest 403.2 MHz,
+        Poprad-Gánovce 400.6 MHz, Praha), launched at about 23:15 and 11:15 UTC. Reed–Solomon corrects up to 12 wrong bytes in each half of a frame.
+        Temperature and humidity (RS41): the sonde sends its calibration in 51 pieces, one a second, so the temperature appears
+        after up to a minute of reception and humidity soon after; humidity is approximate (a few %). Pressure (RS41-SGP) is not decoded.
+        Range: line of sight, a high sonde is heard 300–500 km away; on the ground only a few km.
+        Distance, azimuth and elevation are from the station location (MENU › SETUP › LOCATION).</p>
+      <div class="ft8-table" id="sondeListBox">
+        <table class="sonde-table">
+          <colgroup><col class="c-utc"><col class="c-type"><col class="c-ser"><col class="c-mhz"><col class="c-pos"><col class="c-alt"><col class="c-vv"><col class="c-vh"><col class="c-dir"><col class="c-dist"><col class="c-az"><col class="c-t"><col class="c-rh"><col class="c-sat"><col class="c-bat"><col class="c-n"><col></colgroup>
+          <thead><tr><th title="Last frame">UTC</th><th>Type</th><th title="Serial number; click to show it on the MAP">Serial</th><th title="Frequency the VFO was tuned to">MHz</th><th title="Newest GPS position; click for the MAP">Position</th><th title="Altitude (GPS, above the ellipsoid), m">Alt m</th><th title="Climb (+) or fall (−), m/s">Climb</th><th title="Horizontal speed, km/h">km/h</th><th title="Direction it drifts to">Dir</th><th title="Distance from the station, km">km</th><th title="Azimuth and elevation from the station">Az / El</th><th title="Air temperature, °C (after the calibration pieces 3–6 have come; the tooltip shows how much of the calibration is known)">T °C</th><th title="Relative humidity, % (approximate, empirical formula, a few % accurate)">RH %</th><th title="GPS satellites used">Sats</th><th title="Battery voltage">Batt</th><th title="Frames received">N</th><th>State</th></tr></thead>
+          <tbody id="sondeRows"></tbody>
+        </table>
+        <div id="sondeEmpty" class="ft8-empty">No sondes yet. Tune the VFO onto a sonde in 400–406 MHz (often 401–405 MHz); a sonde in flight sends a frame every second.</div>
+      </div>
+      <div class="ais-map" id="sondeMapBox" hidden>
+        <div class="ais-map-main"><div id="sondeMap"></div><div id="sondeMapNote" class="muted"></div><div id="sondeSitesNote" class="muted" title="Radiosonde launch sites in Europe from the SondeHub list (downloaded once a week into data\sonde_sites.json); own sites in data\sonde_sites_extra.json. A click on a site shows its sondes, frequencies, launch times and the next launch."></div></div>
+        <div class="sonde-prof" id="sondeProfBox">
+          <div class="sonde-prof-head"><select id="sondeProfSel" title="Sonde whose profile is shown (orange on the map); Auto = the one decoded on the tuned frequency"></select><span class="muted" id="sondeProfNote"></span></div>
+          <div class="sonde-prof-plot" id="sondeProf"></div>
+        </div>
+      </div>
+      <div class="ft8-table" id="sondeFrameBox" hidden>
+        <table class="sonde-frame-table">
+          <colgroup><col class="c-utc"><col class="c-type"><col class="c-ser"><col class="c-n"><col class="c-pos"><col class="c-alt"><col class="c-vv"><col class="c-vh"><col class="c-dir"><col class="c-t"><col class="c-rh"><col class="c-sat"><col></colgroup>
+          <thead><tr><th>UTC</th><th>Type</th><th>Serial</th><th title="Frame number">Frame</th><th>Position</th><th title="Altitude, m">Alt m</th><th title="Climb, m/s">Climb</th><th title="Horizontal speed, km/h">km/h</th><th>Dir</th><th title="Air temperature, °C">T °C</th><th title="Relative humidity, %">RH %</th><th title="GPS satellites">Sats</th><th title="GPS time of the frame, Reed–Solomon corrections, polarity">Details</th></tr></thead>
+          <tbody id="sondeFrameRows"></tbody>
+        </table>
+        <div id="sondeFrameEmpty" class="ft8-empty">No frames yet.</div>
+      </div>
+    </section>
+
     <section class="card ft8 adsb" id="adsbCard" data-dec="adsb" hidden>
       <div class="ft8-head">
         <label class="key small toggle" data-dec-on="adsb" title="ADS-B (aircraft, 1090 MHz) on/off. Takes the VFO to 1090 MHz at 2.4 MS/s and decodes Mode S / ADS-B from the raw samples; mutes the audio of the VFO"><input id="adsbOn" type="checkbox">ON</label>
@@ -773,15 +933,47 @@
       <div class="ft8-head">
         <button id="ismKey" class="key small" data-dec-on="ism" title="ISM: 433 / 868 MHz devices such as weather sensors and remote controls (rtl_433). Sets the VFO to 2.048 MS/s and mutes its audio; turns ACARS, VDL2 and DAB off. RTL-SDR only.">ON</button>
         <div class="bands" id="ismBands"></div>
+        <button id="ismInfoKey" class="key small" title="Show / hide the description of the decoder">INFO</button>
         <span id="ismInfo" class="muted"></span>
+        <div class="bands" id="ismViews">
+          <button class="key small on" data-view="msgs" title="All received messages, the latest activity on top">MESSAGES</button>
+          <button class="key small" data-view="devs" title="A card for each device: its latest values, a 24 h curve of temperature and humidity, battery, signal, how often it sends. Pin, name or hide a device with the keys on its card.">DEVICES</button>
+          <button class="key small" data-view="tl" title="When each device sent: at 1 h a dot for each message, at 6 h / 24 h a block for each 5 minutes with messages (brighter = more)">TIMELINE</button>
+          <button class="key small ism-devtab" id="ismDevTab" data-view="dev" title="The tab of one device: its values as charts over 1 h, 6 h or 24 h (a click on a card in DEVICES opens it, ✕ closes it). Drag over a chart to zoom all charts in, double click to zoom out." hidden></button>
+        </div>
+        <div class="bands" id="ismRange" title="Time shown: the curves and activity on the cards (DEVICES), the timeline (TIMELINE) and the charts of a device tab" hidden>
+          <button class="key small" data-h="1">1 h</button><button class="key small" data-h="6">6 h</button><button class="key small" data-h="24">24 h</button>
+        </div>
         <label class="wf-opt log-opt" title="Write to the daily log data\logs\ism_YYYY-MM-DD.txt (UTC, shared by all VFOs; a repeated message once)"><input type="checkbox" data-log="ism">LOG</label>
-        <label class="wf-opt" title="RAW: also show packages of pulses no decoder of rtl_433 could read (grey rows): modulation guess, pulses, length and the demodulated bits; ⧉ opens the pulses at triq.org/pdv. Many of them are noise or unknown devices. Not written to the log."><input type="checkbox" id="ismRaw">RAW</label>
-        <button id="ismClear" class="key small" title="Clear the list">CLR</button>
+        <label class="wf-opt" title="RAW: also show packages of pulses no decoder of rtl_433 could read (grey rows): modulation guess, pulses, length and the demodulated bits, with a small picture of the pulses; ⧉ opens them at triq.org/pdv. Many of them are noise or unknown devices. Not written to the log."><input type="checkbox" id="ismRaw">RAW</label>
+        <label class="wf-opt" title="Also show the devices hidden with ⊘ on their card"><input type="checkbox" id="ismHidden">HIDDEN</label>
+        <button id="ismClear" class="key small" title="Clear the list, the devices and the statistics">CLR</button>
       </div>
-      <p class="note">Devices on 433 and 868 MHz: weather sensors, remote controls, tyre sensors and more, decoded by rtl_433.
-        The VFO runs at 2.048 MS/s and its audio is muted; RADIMCOM cuts narrow channels of 256 kHz out of it for rtl_433 (433.92 and 433.42 MHz, or 868.30 MHz), which decodes about twice as many messages as the whole band at once. The buttons centre the VFO.
-        Gain stays the VFO's: a nearby sensor can overload the dongle at high gain. RTL-SDR only.</p>
-      <div class="ft8-table">
+      <div class="ism-bar">
+        <div class="ism-cats" id="ismCats"></div>
+        <input id="ismFilter" class="pkt-filter" type="search" placeholder="filter" title="Show only messages and devices containing this text (model, name, ID, values)">
+        <div class="ism-stats"><canvas id="ismRate"></canvas><span id="ismStatText"></span></div>
+      </div>
+      <p class="note" id="ismNote" hidden>Devices on 433 and 868 MHz: weather sensors, remote controls, tyre sensors and more, decoded by rtl_433.
+        The VFO runs at 2.048 MS/s and its audio is muted; RADIMCOM cuts narrow channels of 256 kHz out of it for rtl_433 (433.92, 433.42 and 434.42 MHz, or 868.30 and 868.95 MHz), which decodes about twice as many messages as the whole band at once. The buttons centre the VFO.
+        Gain stays the VFO's: a nearby sensor can overload the dongle at high gain. RTL-SDR only.
+        Names, pins and hidden devices are kept in data\ism_devices.json (all VFOs); NEW = a device never heard on this PC in the last 60 days (data\ism_known.json).</p>
+      <div class="ism-devs" id="ismDevBox" hidden>
+        <div class="ism-grid" id="ismDevGrid"></div>
+        <div id="ismDevEmpty" class="ft8-empty">No devices yet. Many sensors send only once a minute or less often.</div>
+      </div>
+      <div class="ism-det" id="ismDetBox" hidden>
+        <div class="ism-det-top">
+          <div class="ism-det-head" id="ismDetHead"></div>
+        </div>
+        <div class="ism-det-charts" id="ismDetCharts"></div>
+      </div>
+      <div class="ism-tl" id="ismTlBox" hidden>
+        <div class="ism-tl-axis" id="ismTlAxis"></div>
+        <div id="ismTlRows"></div>
+        <div id="ismTlEmpty" class="ft8-empty">No device heard in the last hour.</div>
+      </div>
+      <div class="ft8-table" id="ismMsgBox">
         <table>
           <colgroup><col class="c-utc"><col class="c-freq"><col class="c-dev"><col class="c-id"><col class="c-ch"><col class="c-level"><col></colgroup>
           <thead><tr><th>UTC</th><th title="Frequency in MHz">Freq</th><th>Device</th><th title="Device ID sent in the message; some devices pick a new one when the battery is changed">ID</th><th title="Channel set on the device">Ch</th><th title="Signal level and signal to noise ratio; the tooltip has the modulation">RSSI / SNR</th><th>Data</th></tr></thead>
@@ -915,7 +1107,7 @@
         </div>
       </div>
       <!-- 2. the keys and what the scan does now; HOLD / SKIP / ◀ ▶ only while scanning -->
-      <div class="scan-bar">
+      <div class="scan-bar" id="scanBar">
         <button id="scanGo" class="key accent scan-go" title="START / STOP the scan on this VFO">▶ START</button>
         <span class="scan-run" id="scanRun" hidden>
           <button id="scanPause" class="key" title="HOLD on the channel heard now / CONTINUE the scan">❚❚ HOLD</button>
@@ -952,6 +1144,10 @@
         <button class="key small on" data-scan-page="scan" role="tab">CHANNELS</button>
         <button class="key small" data-scan-page="log" role="tab">ACTIVITY <span id="scanActN"></span></button>
         <button class="key small" data-scan-page="heat" role="tab">HEATMAP</button>
+        <span class="scan-show" id="scanSelBox" hidden>
+          <button id="scanSelAll" class="key small" title="SCAN on for all the memories listed (the source chosen above)"><svg class="scan-sel-ico on" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="1.5" width="13" height="13" rx="2.5"/><path d="M4.5 8.3l2.4 2.4 4.6-5.2"/></svg>ALL</button>
+          <button id="scanSelNone" class="key small" title="SCAN off for all the memories listed (the source chosen above)"><svg class="scan-sel-ico" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="1.5" width="13" height="13" rx="2.5"/></svg>NONE</button>
+        </span>
         <span class="scan-show" id="scanShowBox" hidden>
           <label class="scan-opt" title="THIS SCAN = only what this scan heard (a START of another source or range, or CLR, begins a new one); the others = the history of all VFOs">SHOW
             <select id="scanShow"><option value="session">THIS SCAN</option><option value="1">TODAY (UTC)</option><option value="7">7 DAYS</option><option value="31">31 DAYS</option><option value="365">ALL KEPT</option></select></label>
@@ -989,8 +1185,9 @@
       </div>
       <!-- page HEATMAP -->
       <div class="amsat-body recs-body" data-scan-panel="heat" hidden>
-        <p class="amsat-info scan-heat-note">Seconds of activity per hour of the day (local time), the 60 busiest frequencies; yellow = most. A click on a row tunes it.</p>
-        <table class="recs-table scan-heat">
+        <p class="amsat-info scan-heat-note" id="scanHeatNote"></p>
+        <table class="recs-table scan-heat" id="scanHeatTable">
+          <colgroup id="scanHeatCols"></colgroup>
           <thead id="scanHeatHead"></thead>
           <tbody id="scanHeatRows"></tbody>
         </table>
@@ -1576,23 +1773,25 @@ ecordings, played in the browser -->
                   (f → 2·F − f, band 0 … 2·F). The same setting scrambles and descrambles. Default 1750 Hz (band up to 3500 Hz). 500–4000 Hz.</p>
               </div>
               <div class="setting set-dyn">
-                <div class="row"><span>DYN – HF dynamics (DYN key)</span></div>
+                <div class="row"><span>DNR – Dynamic Noise Reduction (DNR key)</span></div>
                 <label class="switch"><input id="dynExp" type="checkbox"><span></span> EXP – expander: quiet between words</label>
                 <label class="switch dyn-sub"><input id="dynExpAuto" type="checkbox"><span></span> AUTO – sets itself</label>
                 <div class="dyn-now dyn-sub"><span>Now</span><span id="dynExpInfo" class="value"></span></div>
                 <div class="set-cols dyn-sub">
                   <label class="set-field"><span>Depth (dB)</span><input id="dynExpDb" type="number" step="1" min="3" max="30" value="12"></label>
                   <label class="set-field"><span>Sensitivity (1–10)</span><input id="dynExpSens" type="number" step="1" min="1" max="10" value="5"></label>
+                  <label class="set-field"><span>Hold (ms)</span><input id="dynExpHold" type="number" step="10" min="20" max="1000" value="100"></label>
                 </div>
                 <label class="switch"><input id="dynLim" type="checkbox"><span></span> LIM – soft limiter</label>
-                <p class="note">The DYN key (AUDIO, beside ALC; AM/LSB/USB/CW) switches on the ticked parts.
+                <p class="note">The DNR key (AUDIO, beside ALC; AM/LSB/USB/CW) switches on the ticked parts.
                   <b>EXP</b> turns the noise between words down by the <i>depth</i>; speech stays at full level. A voice detector
                   looks at the spectrum every 8 ms (speech has harmonics standing out of the noise, the noise is flat), opens at
                   once on speech, holds a while and closes in 80 ms. In CW it watches only the CW passband.</p>
                 <p class="note"><b>AUTO</b> (default): a noise blip lowers the sensitivity, missed weak speech raises it, a chop
-                  (reopening soon after closing) makes the hold longer (80–250 ms), the depth follows the measured SNR (8–18 dB).
+                  (reopening soon after closing) makes the hold longer (180–350 ms), the depth follows the measured SNR (8–18 dB).
                   Settles in about 2–3 s, after a retune it starts again fast; <i>Now</i> shows the values in use. AUTO off: depth 3–30 dB (12),
-                  sensitivity 1–10 (5; chopped speech → raise, noise opening it → lower), hold 100 ms.</p>
+                  sensitivity 1–10 (5; chopped speech → raise, noise opening it → lower), hold 20–1000 ms (100; chopped words → longer).
+                  The SNR in <i>Now</i> (speech vs. noise between words) is measured in both modes.</p>
                 <p class="note"><b>LIM</b>: soft limiter instead of hard clipping; with ALC +4 dB, the peaks rounded, not cut.</p>
               </div>
               <div class="setting">

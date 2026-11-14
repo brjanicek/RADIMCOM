@@ -11,15 +11,52 @@ with a transceiver-style screen (S-meter, 7-segment displays, spectrum, waterfal
 
 What each part of the screen does: [annotated main screen](docs/images/main_annotated.png).
 
-## Quick start
+## Installation
 
-1. Download `RADIMCOM_install_v<version>.zip` from [Releases](https://github.com/om2amr/RADIMCOM/releases) and unzip it.
-2. Run **`install.bat`**: it installs the Python packages, offers the USB drivers and runs the SDR setup.
-3. Run **`start.bat`**.
-4. Open **http://localhost:8434** in the browser.
+RADIMCOM comes as one Windows setup, **`RADIMCOM_Setup_v<version>.exe`** (about 65 MB), from
+[Releases](https://github.com/om2amr/RADIMCOM/releases). Python and all its packages are inside it: there is nothing to
+install first, nothing is downloaded, and no administrator rights are needed.
 
-The DSD mode (digital voice) needs one extra step: run **`install_dsd.bat`** once, see [DSD](docs/decoders/dsd.md).
-Details, drivers and running from the git sources: [Installation](docs/installation.md).
+1. **Run the setup.** It installs to `C:\RADIMCOM` (or a folder you choose) in English, Slovak or Czech.
+   Windows SmartScreen may warn about an unsigned program: *More info* → *Run anyway*.
+2. **Tick what you need:** the USB driver for your SDR (Zadig for RTL-SDR and Airspy, FTDI D3XX for LimeSDR),
+   DSD-FME for digital voice ([DSD](docs/decoders/dsd.md)), a desktop shortcut, start with Windows.
+3. **SDR setup:** at the end the connected dongles appear as cards; drag each onto VFO A–D, set ppm and the HF
+   upconverter if you use one, SAVE. Later it is in the tray menu and the Start menu (*RADIMCOM SDR setup*).
+4. **RADIMCOM opens in its own window** with its icon on the taskbar (pin it there). Closing the window keeps the
+   receiver running in the tray (decoders and recordings go on); *Exit RADIMCOM* in the tray menu, or the green LED
+   of the logo (MAIN), switches it off. F11 toggles full screen.
+   The page also works in any browser at **http://localhost:8434**, also from another PC on your network.
+
+**System tray:** the RADIMCOM icon by the clock (under ˄ if Windows hides it; drag it out to keep it in view) stays
+while the receiver runs, also with the window closed. Left click opens the window; right click has the menu:
+
+| Menu item | What it does |
+|---|---|
+| Open RADIMCOM | brings the window up |
+| Open in the web browser | the page in your default browser (http://localhost:8434) |
+| Data folder | opens `data\` (settings, memories, logs, recordings) in Explorer |
+| Server log | the log of the running server (`data\server_logs`), useful when something does not work |
+| SDR setup… | the dongles → VFO A–D assignment; stops the receiver while it is open |
+| Start / Stop / Restart server | Stop frees the dongles (e.g. for another program) and RADIMCOM.exe stays in the tray; its window then offers START SERVER |
+| Exit RADIMCOM | stops the receivers gracefully and closes everything |
+
+With *start with Windows* ticked in the setup, RADIMCOM starts in the tray after login, without opening the window.
+
+**Upgrade:** nothing to sort out by hand. The RADIMCOM setup is also the upgrade: run the newer one into the same
+folder and it takes care of the rest. Your memories, VFO settings, logs and recordings live in the `data\` folder,
+which the setup never overwrites (DSD-FME stays too); only the program itself is replaced.
+RADIMCOM checks GitHub for a newer release and shows it beside the version under the logo, with *DOWNLOAD SETUP*;
+exit RADIMCOM (tray menu) before you run it.
+
+**From 0.114 or older (ZIP installation):** the old version also reports the new release, but it cannot upgrade itself
+any more (there is no upgrade ZIP); instead of *UPGRADE* it offers *RELEASE PAGE*. Download the setup there, close the
+RADIMCOM console window and install into the old folder. The setup recognizes the ZIP installation and turns it into
+the RADIMCOM app; `data\` stays.
+
+**Uninstall:** Windows Settings › Apps › RADIMCOM (it asks whether to delete `data\` too).
+
+More: [Installation](docs/installation.md) (drivers, RADIMCOM.exe, running from the git sources).
 
 ## Supported hardware
 
@@ -29,7 +66,7 @@ Details, drivers and running from the git sources: [Installation](docs/installat
 | Receiver bandwidth (sample rate) in RADIMCOM | up to 2.4 MS/s | up to 2.4 MS/s | up to 2.4 MS/s | 2.5 MS/s (fixed) |
 | HF through an upconverter | yes | built-in upconverter, used by its driver below 28.8 MHz | yes | yes |
 | Transmit | – | – | yes (optional, off by default) | – |
-| All audio modes and FT8, WEFAX, CW, RTTY, SSTV, PACKET, ACARS | yes | yes | yes | yes |
+| All audio modes and FT8, WEFAX, CW, RTTY, SSTV, PACKET, POCSAG, ACARS | yes | yes | yes | yes |
 | VDL2, DAB / DAB+, ISM | yes | yes | – | – |
 | Driver | WinUSB (Zadig) | WinUSB (Zadig) | FTDI D3XX | WinUSB |
 
@@ -43,16 +80,18 @@ Up to four SDRs at once, each assigned to a VFO by its serial number; one dongle
 ### Receiver
 
 - **Up to four SDRs as four VFOs (A–D)**, or one dongle shared by several VFOs (chaining). → [Configuration](docs/configuration.md)
-- **Modes** AM, FM, WFM (stereo + RDS), LSB, USB, CW, DAB and DSD, with notch, ALC, DYN (weak HF voices out of the noise), audio LPF / HPF and AFI (voice inversion). → [Function keys](docs/controls.md#function-keys)
+- **Modes** AM, FM, WFM (stereo + RDS), LSB, USB, CW, DAB and DSD, with notch, ALC, DNR (weak HF voices out of the noise), audio LPF / HPF and AFI (voice inversion). → [Function keys](docs/controls.md#function-keys)
 - **Squelch with ASQ (auto squelch)**: the level follows the measured noise floor plus a margin; **CTCSS / DCS tone squelch** (TSQ-C / TSQ-D) in FM. → [AUDIO keys](docs/controls.md#function-keys)
 - **AGC+**: tuner gain set from the A/D level, as high as possible without clipping. → [GAIN keys](docs/controls.md#function-keys)
 - **ATU (autotune, experimental)**: a click on an AM signal moves the tuning onto its carrier, on an SSB signal it puts the signal edge on the red line. → [TUNE keys](docs/controls.md#function-keys)
 - **Shortwave (HF)** through an upconverter, always showing the real frequency. → [HF upconverter](docs/hf-upconverter.md)
-- **Digital-mode decoders:** FT8, WEFAX, CW, RTTY, SSTV and PACKET (AX.25 1200 / 9600 Bd, APRS with map). → [DECODE](docs/controls.md#function-keys)
+- **Digital-mode decoders:** FT8 (with a map of the stations heard), WEFAX, CW, RTTY (terminal with tuning indicators: crossed ellipses, mini waterfall, eye), SSTV, PACKET (AX.25 1200 / 9600 Bd, APRS with map) and POCSAG (pagers, 512 / 1200 / 2400 Bd, error correction). → [DECODE](docs/controls.md#function-keys) · [POCSAG](docs/decoders/pocsag.md)
+- **CW skimmer:** up to 16 Morse stations decoded at once with soft decisions (Viterbi, beam search), the operator's timing learnt (bug, straight key, Farnsworth), calls in the spectrum. → [CW](docs/decoders/cw.md)
 - **Aircraft data link:** ACARS and VDL2 with CPDLC and ADS-C decoded to plain text and a map of the aircraft, and **HFDL** on HF (2.9–22 MHz, all channels of a band at once). → [Aircraft](docs/decoders/aircraft.md) · [HFDL](docs/decoders/hfdl.md)
 - **AIS** ships on 161.975 / 162.025 MHz (own decoder, both channels at once) with a map of ships, base stations and aids to navigation. → [AIS](docs/decoders/ais.md)
+- **Radiosondes** (weather balloons, 400–406 MHz): Vaisala RS41 with Reed–Solomon correction, Graw DFM (experimental); position, altitude, climb, temperature and humidity (RS41), burst and the flight path on a map with a prediction (+1/2/3 h, landing), temperature / humidity profile against altitude. → [SONDE](docs/decoders/sonde.md)
 - **ADS-B** aircraft on 1090 MHz (own Mode S / ADS-B decoder) with a list, a map with tracks and the raw messages. → [ADS-B](docs/decoders/adsb.md)
-- **DAB / DAB+ radio**, **digital voice** (DMR, P25, D-Star, YSF, …; test version) and **ISM** 433 / 868 MHz devices. → [DAB](docs/decoders/dab.md) · [DSD](docs/decoders/dsd.md) · [ISM](docs/decoders/ism.md)
+- **DAB / DAB+ radio**, **digital voice** (DMR, P25, D-Star, YSF, …; test version) and **ISM** 433 / 868 MHz devices (incl. Wireless M-Bus meters) with device cards, 24 h curves and a timeline. → [DAB](docs/decoders/dab.md) · [DSD](docs/decoders/dsd.md) · [ISM](docs/decoders/ism.md)
 - **Satellite tracking:** passes, world map, Doppler correction and a K3NG rotor, no other program needed. → [Satellites](docs/satellites.md)
 - **Rotor control map:** click a place or a memory channel with a location (LAT / LON) and the rotor turns there; channels shown by their MEMORIES groups; beam sector on the map turns with the antenna; page CONNECTION disconnects the SAT tracker, memory recall or the map from the rotor. → [Rotor control](docs/satellites.md#rotor-control-map)
 - **Scanner** (SCAN tab): memories, a frequency range or the FM broadcast band (FM BCAST, centred on each station) (all 2280 airband 8.33 kHz channels in ~4 s per pass at 1.536 MS/s), all channels in the band of the dongle checked at once from the spectrum; own squelch / ASQ / priority per channel, SKIP, LOCKOUT, carrier lockout, activity log with WAV recordings, search & store, occupancy heatmap. → [SCAN](docs/controls.md#scan)
@@ -61,8 +100,9 @@ Up to four SDRs at once, each assigned to a VFO by its serial number; one dongle
 ### User interface
 
 - **Transceiver-style screen** in brushed black anodized aluminium (other skins: black or light aluminium, mahogany, RAL paint): S-meter, recessed displays, 3D keys; every VFO is one dark display window with all its state, side by side, each waterfall keeps running. → [Controls](docs/controls.md)
-- **Spectrum and waterfall** with 1×–32× zoom and a waterfall speed bar; tune by click, drag, mouse wheel or the wheel over a digit. → [Tuning](docs/controls.md#tuning)
+- **Spectrum and waterfall** with 1×–64× zoom and a waterfall speed bar; tune by click, drag, mouse wheel or the wheel over a digit. → [Tuning](docs/controls.md#tuning)
 - **Band plan on the frequency axis**, audio spectrum bubble, seven S-meter layouts. → [Tuning](docs/controls.md#tuning)
+- **"What's new" window** on the first start of a new version, with the changes of that version.
 - **Memories** with favourites, spectrum tags and a memory editor (groups with notes, decoder and recording at recall, import from SDR# / JSON / CSV, export). → [MEM](docs/controls.md#function-keys), [Memory editor](docs/controls.md#memory-editor)
 - **CUE**: hear other VFOs while one is selected, with MAIN / CUE faders and a level meter. → [Function keys](docs/controls.md#function-keys)
 - **DECODERS**, **SATELLITES**, **MEMORIES** (memory list and memory editor) and **SETTINGS** tabs; SETTINGS has a **GENERAL** page (skins, S-meter, touchpad, location, the one rotor of the station) and a **VFO** page (VFO-A … D keys joined to the settings of that VFO). → [Controls](docs/controls.md)
@@ -97,7 +137,7 @@ Transmitting (LimeSDR) is off by default and legal only with a valid licence, se
 - [Shortwave (HF) with an upconverter](docs/hf-upconverter.md)
 - [Controls](docs/controls.md)
 - [Configuration](docs/configuration.md): `vfos.json`, chaining, setup, TX, EEPROM, SDR# import, HTTP API
-- Decoders: [Aircraft data link](docs/decoders/aircraft.md) · [DAB / DAB+](docs/decoders/dab.md) · [DSD](docs/decoders/dsd.md) · [ISM](docs/decoders/ism.md)
+- Decoders: [Aircraft data link](docs/decoders/aircraft.md) · [ADS-B](docs/decoders/adsb.md) · [HFDL](docs/decoders/hfdl.md) · [AIS](docs/decoders/ais.md) · [Radiosondes](docs/decoders/sonde.md) · [POCSAG](docs/decoders/pocsag.md) · [CW](docs/decoders/cw.md) · [DAB / DAB+](docs/decoders/dab.md) · [DSD](docs/decoders/dsd.md) · [ISM](docs/decoders/ism.md)
 - [Satellite tracking](docs/satellites.md)
 - [Development](docs/development.md): block diagram, files, `data\` folder, backup and upgrade
 - [HTTP API](API/API.md) · [Change log](CHANGELOG.md)
@@ -107,7 +147,11 @@ Transmitting (LimeSDR) is off by default and legal only with a valid licence, se
 - **Bugs and feature requests:** [issues](https://github.com/om2amr/RADIMCOM/issues/new/choose)
 - **Questions and help with setup:** [Discussions](https://github.com/om2amr/RADIMCOM/discussions)
 - **Contributing code:** [CONTRIBUTING.md](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md)
-- **Contributors:** Brano ([brjanicek](https://github.com/brjanicek)) – the memory editor (0.113)
+- **Contributors:** Brano ([brjanicek](https://github.com/brjanicek)) – the memory editor (0.113); ADS-B, ISM, DAB and DSD as modes (0.114);
+  the radiosonde and POCSAG decoders (0.115)
+- **Support the project:** RADIMCOM is open source and free, and it will stay that way. If you enjoy it,
+  [buy us a coffee on Ko-fi](https://ko-fi.com/radimcom) ☕ – even the smallest contribution tells us our effort makes sense.
+  The same from the app: **☕ DONATE** under the version below the logo.
 
 ## License
 

@@ -96,6 +96,8 @@ def unpack(path):
     if not os.path.exists(os.path.join(temp, "dsd-fme.exe")):
         shutil.rmtree(temp, ignore_errors=True)
         sys.exit("dsd-fme.exe is not in the archive; nothing was installed.")
+    with open(os.path.join(temp, "VERSION.txt"), "w") as f:     # the setup compares it with its VERSION
+        f.write(VERSION)
     replace_target(temp)
 
 

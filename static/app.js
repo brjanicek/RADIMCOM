@@ -55,6 +55,10 @@ function fitStage() {
     const k = Math.min(w / STAGE_W, h / STAGE_H);
     apply(k);
     if (widen()) apply(Math.min(k, w / baseW));
+    // the window keeps the ratio of the screen: the page looks like in full screen, only smaller
+    // (with STAGE_H the lower part would be lower than in full screen)
+    const sw = (window.screen && screen.width) || STAGE_W, sh = (window.screen && screen.height) || STAGE_H;
+    tellAspect(sw, sh);
     return;
   }
   // the head height depends on the stage width (compact keys): fit, measure again, fit once more
@@ -65,6 +69,16 @@ function fitStage() {
     stageH = hh;
     apply(Math.min(w / baseW, h / stageH));
   }
+  tellAspect(baseW, stageH);
+}
+// RADIMCOM.exe (WebView2 window): the window keeps the aspect ratio of the stage when it is resized
+let lastAspect = "";
+function tellAspect(w, h) {
+  const wv = window.chrome && window.chrome.webview;
+  const a = `${Math.round(w)}:${Math.round(h)}`;
+  if (!wv || !h || a === lastAspect) return;
+  lastAspect = a;
+  wv.postMessage("aspect:" + a);
 }
 fitStage();
 window.addEventListener("resize", fitStage);   // before the other resize handlers (redraw)
@@ -116,11 +130,11 @@ let vbase = ""; // receiver address of the active VFO ("" = server of this page,
 let vfos = []; // [{name, port, serial, note, base, st, rows, online}]
 let active = null; // active VFO
 
-// "?map=packet|hfdl|ais|adsb|acars&vfo=A": this tab shows only that map (opened by the □ key of the map) – no audio,
+// "?map=packet|hfdl|ais|adsb|acars|sonde&vfo=A": this tab shows only that map (opened by the □ key of the map) – no audio,
 // no spectrum, and it saves nothing to the browser, so the settings of the main window stay as they are
 const MAP_ONLY = (() => {
   const m = new URLSearchParams(location.search).get("map");
-  return ["packet", "hfdl", "ais", "adsb", "acars"].includes(m) ? m : null;
+  return ["packet", "hfdl", "ais", "adsb", "acars", "ft8", "sonde"].includes(m) ? m : null;
 })();
 
 function store(key, value) { if (MAP_ONLY) return; try { localStorage.setItem(key, value); } catch (e) { /* no storage */ } }
@@ -1140,6 +1154,9 @@ const WF_SCHEMES = {
   ice: { name: "Ice", bg: "#000000",           // black – deep blue – cyan – white (calm, signals stand out as light)
     stops: [[0, 0, 0, 0], [0.25, 0, 20, 45], [0.45, 0, 80, 130], [0.62, 0, 170, 210], [0.8, 120, 230, 255],
       [1, 255, 255, 255]] },
+  matrix: { name: "Matrix", bg: "#000000",     // black – deep green – phosphor green – pale green-white (like Ice, in green)
+    stops: [[0, 0, 0, 0], [0.25, 0, 35, 8], [0.45, 0, 100, 25], [0.62, 0, 190, 50], [0.8, 110, 255, 120],
+      [1, 230, 255, 230]] },
 };
 let wfScheme = WF_SCHEMES[recall("wfScheme")] ? recall("wfScheme") : "classic";
 const wfBg = () => WF_SCHEMES[wfScheme].bg;
@@ -1591,6 +1608,7 @@ function drawOverlays() {
     ctx.strokeStyle = "#ff5d5d";
     ctx.beginPath(); ctx.moveTo(xt, 0); ctx.lineTo(xt, h); ctx.stroke();
     if (spectrum) drawScanMarks(ctx, w, h);
+    if (spectrum) drawCwMarks(ctx, w, h);
     if (spectrum) {
       // Label above the passband: tuned frequency, then demodulator and bandwidth.
       const { txt: fTxt, unit } = freqDigits(st.tune_hz);
@@ -1977,9 +1995,11 @@ function drawAudioBubble() {
 for (const id of ["specOverlay", "wfOverlay"]) {
   const cv = $(id);
   const spectrum = id === "specOverlay";
-  // A click without movement tunes the point under the mouse. Dragging moves the whole waterfall: the passband stays in
-  // place on the screen and the frequency changes under it. Dragging from the passband in the spectrum is the opposite:
-  // the shown section stays in place and only the passband moves, up to the edge of the section.
+  // A click without movement tunes the point under the mouse. Dragging moves the whole spectrum and waterfall: the tuned
+  // frequency stays, so the passband moves on the screen with them; dragged further, the passband stays at the edge of
+  // the section and the frequency changes with the drag (it never leaves the section).
+  // Dragging from the passband in the spectrum is the opposite: the shown section stays in place and only the passband
+  // moves, up to the edge of the section.
   cv.addEventListener("pointerdown", (e) => {
     if (!st || e.button !== 0) return;
     cv.setPointerCapture(e.pointerId);
@@ -1990,7 +2010,7 @@ for (const id of ["specOverlay", "wfOverlay"]) {
     }
     const v = viewNow();
     const band = spectrum && inPassband(e.clientX - r.left, e.clientY - r.top, r.width);
-    drag = { x0: e.clientX, tune0: st.tune_hz, off: v.c - st.tune_hz, moved: false, band };
+    drag = { x0: e.clientX, tune0: st.tune_hz, c0: v.c, moved: false, band };
   });
   cv.addEventListener("pointermove", (e) => {
     const r = cv.getBoundingClientRect();
@@ -2019,19 +2039,35 @@ for (const id of ["specOverlay", "wfOverlay"]) {
       if (drag.band) cv.style.cursor = "grabbing";
     }
     const v = viewNow();
-    let t = drag.tune0 + (drag.band ? dx : -dx) / r.width * v.span;
-    t = Math.max(0, Math.round(t / stepHz) * stepHz);
-    if (drag.band) {
-      t = Math.max(t, Math.ceil((v.c - v.span / 2) / stepHz) * stepHz);
-      t = Math.min(t, Math.floor((v.c + v.span / 2) / stepHz) * stepHz);
+    if (!drag.band) {
+      // the section moves, the tuned frequency stays; dragged past it, the tuning is pinned to the edge of the section
+      // (the server drops a section without the tuned frequency)
+      const half = v.span / 2 * 0.97;
+      const c = Math.max(drag.c0 - dx / r.width * v.span, v.span / 2);
+      let t = st.tune_hz;
+      if (t < c - half) t = Math.ceil((c - half) / stepHz) * stepHz;
+      else if (t > c + half) t = Math.floor((c + half) / stepHz) * stepHz;
+      if (c === v.c && t === st.tune_hz) return;
+      viewLocalAt = Date.now();
+      if (view) setView(c);
+      if (t !== st.tune_hz) {
+        st.tune_hz = t;
+        drawOverlays();
+        renderTuner();
+        send({ tune_hz: t, view_hz: c });
+      } else send({ view_hz: c });
+      return;
     }
+    let t = drag.tune0 + dx / r.width * v.span;
+    t = Math.max(0, Math.round(t / stepHz) * stepHz);
+    t = Math.max(t, Math.ceil((v.c - v.span / 2) / stepHz) * stepHz);
+    t = Math.min(t, Math.floor((v.c + v.span / 2) / stepHz) * stepHz);
     if (t === st.tune_hz) return;
     st.tune_hz = t;
     viewLocalAt = Date.now();
-    if (drag.band) drawOverlays();
-    else if (view) setView(t + drag.off);
+    drawOverlays();
     renderTuner();
-    send({ tune_hz: t, view_hz: drag.band ? v.c : t + drag.off });
+    send({ tune_hz: t, view_hz: v.c });
   });
   const end = (e) => {
     if (!drag) return;
@@ -2042,7 +2078,7 @@ for (const id of ["specOverlay", "wfOverlay"]) {
       else if (st.autotune && ATU_MODES.includes(st.mode)) autotuneAt(xToFreq(e.clientX - r.left, r.width));
       else tune(xToFreq(e.clientX - r.left, r.width), true);
     }
-    if (drag.moved && !drag.bw) { viewLocalAt = Date.now(); atuSoon(drag.tune0); }
+    if (drag.moved && !drag.bw) { viewLocalAt = Date.now(); if (st.tune_hz !== drag.tune0) atuSoon(drag.tune0); }
     if (drag.band && drag.moved) cv.style.cursor = "grab";
     drag = null;
     if (cv.hasPointerCapture(e.pointerId)) cv.releasePointerCapture(e.pointerId);
@@ -2246,13 +2282,13 @@ function renderRds() {
   const expAuto = st.dyn_exp_auto !== false;
   $("dynExpAuto").checked = expAuto;
   $("dynExpAuto").disabled = !expOn;     // AUTO only sets the expander: nothing to do without EXP
-  for (const [id, key] of [["dynExpDb", "dyn_exp_db"], ["dynExpSens", "dyn_exp_sens"]]) {
+  for (const [id, key] of [["dynExpDb", "dyn_exp_db"], ["dynExpSens", "dyn_exp_sens"], ["dynExpHold", "dyn_exp_hold_ms"]]) {
     $(id).disabled = !expOn || expAuto;  // AUTO: the manual values are not used
     if (st[key] != null && document.activeElement !== $(id)) $(id).value = st[key];
   }
   const ei = st.dyn_exp_info;
   $("dynExpInfo").textContent = !expOn ? "EXP off" : !ei ? "" : `${ei.auto ? "AUTO" : "manual"} · sens ${ei.sens} · depth ${Math.round(ei.depth_db)} dB · hold ${ei.hold_ms} ms`
-    + (ei.auto ? ` · SNR ${ei.snr_db == null ? "…" : Math.round(ei.snr_db) + " dB"}` : "");
+    + ` · SNR ${ei.snr_db == null ? "…" : Math.round(ei.snr_db) + " dB"}`;
   $("agcSmooth").checked = st.agc_smooth !== false;
   const afiMode = st.mode !== "WFM" && st.mode !== "DSD";
   const atuMode = ATU_MODES.includes(st.mode);
@@ -2450,7 +2486,7 @@ $("dynKey").addEventListener("click", () => {
   renderRds();
   send({ dyn: st.dyn });
 });
-for (const [id, key, lo, hi, def] of [["dynExpDb", "dyn_exp_db", 3, 30, 12], ["dynExpSens", "dyn_exp_sens", 1, 10, 5]]) {
+for (const [id, key, lo, hi, def] of [["dynExpDb", "dyn_exp_db", 3, 30, 12], ["dynExpSens", "dyn_exp_sens", 1, 10, 5], ["dynExpHold", "dyn_exp_hold_ms", 20, 1000, 100]]) {
   $(id).addEventListener("change", () => {
     const v = Math.min(hi, Math.max(lo, Math.round(Number($(id).value)) || def));
     $(id).value = v;
@@ -2834,25 +2870,66 @@ function renderFt8Bands(freqs) {
     `<button data-f="${f}" title="${fmtKHz(f, 0)} kHz USB">${FT8_BANDS[f] || fmtMHz(f, 3)} m</button>`).join("");
 }
 
+// The message split into coloured tokens: CQ (+ its modifier), callsigns, grid locators, reports, 73 / RR73.
+const ft8Esc = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+function ft8MsgHtml(msg) {
+  const w = msg.trim().split(/\s+/);
+  return w.map((t, i) => {
+    let c = "";
+    if (i === 0 && t === "CQ") c = "t-cq";
+    else if (i === 1 && w[0] === "CQ" && /^([A-Z]{2,4}|\d{3})$/.test(t) && w.length > 3) c = "t-cqm";   // CQ DX / CQ POTA / CQ 290
+    else if (/^(RR73|RRR|73)$/.test(t)) c = "t-73";
+    else if (/^R?[+-]\d{2}$/.test(t)) c = "t-rep";
+    else if (/^[A-R]{2}\d{2}$/.test(t) && i === w.length - 1) c = "t-grid";
+    else if (/^<.*>$/.test(t)) c = "t-hash";
+    else if (/\d/.test(t) && /[A-Z]/.test(t)) c = "t-call";
+    return c ? `<span class="${c}">${ft8Esc(t)}</span>` : ft8Esc(t);
+  }).join(" ");
+}
+
+function ft8Kind(msg) {
+  if (/^CQ\b/.test(msg)) return "cq";
+  if (/\b(RR73|RRR|73)$/.test(msg)) return "end";
+  if (/\bR?[+-]\d{2}$/.test(msg)) return "rep";
+  return "qso";
+}
+
 function addFt8(d, fresh) {
   const tb = $("ft8Rows");
   $("ft8Empty").hidden = true;
   if (ft8Cycle !== d.time) {
     ft8Cycle = d.time;
     const sep = document.createElement("tr");
-    sep.className = "cycle";
-    sep.innerHTML = `<td colspan="6">── ${d.time} UTC</td>`;
+    const odd = Math.floor(Number(String(d.time).slice(-2)) / 15) % 2;   // 00/30 = even slot, 15/45 = odd
+    sep.className = "cycle " + (odd ? "odd" : "even");
+    sep.innerHTML = `<td colspan="6"><span class="cy-t">${d.time}</span><span class="cy-n">0</span>` +
+      `<span class="cy-s">${odd ? "2nd / odd" : "1st / even"}</span><i class="cy-strip"></i></td>`;
     tb.prepend(sep);
   }
+  const sep = tb.firstChild;
   const tr = document.createElement("tr");
+  tr.className = "k-" + ft8Kind(d.msg);
   if (/^CQ\b/.test(d.msg)) tr.classList.add("cq");
   if (fresh) tr.classList.add("new");
-  const esc = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
-  tr.innerHTML = `<td>${d.time}</td><td class="num">${d.snr > 0 ? "+" : ""}${d.snr}</td>` +
-    `<td class="num">${d.dt.toFixed(1)}</td><td class="num">${d.df}</td>` +
-    `<td class="num">${fmtKHz(d.freq_hz, 1)}</td><td class="msg">${esc(d.msg)}</td>`;
+  // SNR −24…+20 dB → bar length and colour (red → amber → green)
+  const lvl = Math.max(0, Math.min(1, (d.snr + 24) / 44));
+  const snrCls = d.snr >= 0 ? "s-hi" : d.snr >= -12 ? "s-mid" : "s-lo";
+  const dtCls = Math.abs(d.dt) > 1 ? "dt-bad" : Math.abs(d.dt) > 0.5 ? "dt-warn" : "";
+  const pos = Math.max(0, Math.min(100, d.df / 30));   // 0–3000 Hz → %
+  tr.innerHTML = `<td class="utc">${d.time}</td>` +
+    `<td class="snr ${snrCls}"><div class="cf"><span class="snr-v">${d.snr > 0 ? "+" : ""}${d.snr}</span><span class="snr-b"><i style="width:${(lvl * 100).toFixed(0)}%"></i></span></div></td>` +
+    `<td class="num ${dtCls}">${d.dt >= 0 ? "+" : ""}${d.dt.toFixed(1)}</td>` +
+    `<td class="hz"><div class="cf"><span class="hz-b"><i style="left:${pos.toFixed(1)}%"></i></span><span class="hz-v">${d.df}</span></div></td>` +
+    `<td class="num fq">${fmtKHz(d.freq_hz, 1)}</td><td class="msg">${ft8MsgHtml(d.msg)}</td>`;
   // New messages go to the top, right under the separator of their cycle.
-  tb.insertBefore(tr, tb.firstChild.nextSibling);
+  tb.insertBefore(tr, sep.nextSibling);
+  const n = sep.querySelector(".cy-n");
+  n.textContent = Number(n.textContent) + 1;
+  // the cycle strip: one tick per decode at its audio offset (0–3 kHz), coloured by the message kind
+  const tick = document.createElement("b");
+  tick.className = "k-" + ft8Kind(d.msg);
+  tick.style.left = pos.toFixed(1) + "%";
+  sep.querySelector(".cy-strip").append(tick);
   while (tb.rows.length > FT8_MAX_ROWS) tb.lastChild.remove();
   ft8Count++;
 }
@@ -2886,6 +2963,211 @@ $("ft8Clear").addEventListener("click", () => {
   ft8Cycle = null;
   ft8Count = 0;
 });
+
+// ---------- FT8 station map: the stations heard (by the locator in their messages), kept 24 h by the server ----------
+
+const ft8St = new Map();    // call -> {call, grid, lat, lon, ts, first, n, snr, freq_hz, msg, cq}
+let ft8Win = Number(recall("ft8Win")) || 3600;
+var ft8PageShown = false;   // var: renderDecTab can run before this line
+let ft8Map = null, ft8MapLay = null, ft8MapFitted = false, ft8Sel = null, ft8Qth = null, ft8MapTimer = null;
+
+const ft8Shown = () => MAP_ONLY === "ft8" || (bodyTab === "dec" && decPage === "ft8");
+const ft8BandOf = (hz) => FT8_BANDS[Object.keys(FT8_BANDS).find((f) => Math.abs(f - hz) < 5000)];
+function ft8Ago(ts) {
+  const s = Math.max(0, Date.now() / 1000 - ts);
+  return s < 60 ? `${Math.round(s)} s` : s < 3600 ? `${Math.round(s / 60)} min` : `${(s / 3600).toFixed(s < 36000 ? 1 : 0)} h`;
+}
+/** Distance (km) and azimuth (°) from the QTH, great circle. */
+function ft8DistAz(lat, lon) {
+  if (!ft8Qth) return null;
+  const r = Math.PI / 180, f1 = ft8Qth.lat * r, f2 = lat * r, dl = (lon - ft8Qth.lon) * r;
+  const d = Math.acos(Math.min(1, Math.sin(f1) * Math.sin(f2) + Math.cos(f1) * Math.cos(f2) * Math.cos(dl))) * 6371;
+  const az = (Math.atan2(Math.sin(dl) * Math.cos(f2), Math.cos(f1) * Math.sin(f2) - Math.sin(f1) * Math.cos(f2) * Math.cos(dl)) / r + 360) % 360;
+  return { km: Math.round(d), az: Math.round(az) };
+}
+/** A 4-character locator is 2° × 1°: the stations of one square are spread inside it (by a hash of the call),
+ *  so they do not lie on one point. */
+function ft8Spread(s) {
+  let h = 2166136261;
+  for (const c of s.call) h = Math.imul(h ^ c.charCodeAt(0), 16777619);
+  const a = ((h >>> 0) % 1000) / 1000 - 0.5, b = ((h >>> 10) % 1000) / 1000 - 0.5;
+  return [s.lat + a * 0.8, s.lon + b * 1.6];
+}
+
+function ft8StUpsert(d) {
+  if (!d.call) return;
+  let s = ft8St.get(d.call);
+  if (!s) { s = { call: d.call, first: d.ts, n: 0 }; ft8St.set(d.call, s); }
+  Object.assign(s, { ts: d.ts, snr: d.snr, freq_hz: d.freq_hz, msg: d.msg, n: s.n + 1, cq: /^CQ /.test(d.msg) });
+  if (d.grid) Object.assign(s, { grid: d.grid, lat: d.lat, lon: d.lon });
+  s.fresh = Date.now();
+  ft8MapLater();
+}
+
+function ft8MapLater() {
+  if (ft8MapTimer || !ft8Shown()) return;
+  ft8MapTimer = setTimeout(() => { ft8MapTimer = null; renderFt8Map(); }, 700);
+}
+
+async function ft8StLoad() {
+  const v = active;
+  try {
+    const list = await fetch(vbase + "/api/ft8/stations").then((r) => r.json());
+    if (v !== active) return;
+    ft8St.clear();
+    for (const s of list) ft8St.set(s.call, s);
+  } catch { /* server unreachable */ }
+  ft8MapFitted = false;
+  ft8MapLater();
+}
+
+async function ft8MapOpen() {
+  try {
+    await Promise.all([satAsset("/static/leaflet/leaflet.css"), satAsset("/static/leaflet/leaflet.js")]);
+  } catch (e) {
+    $("ft8MapNote").textContent = e.message;
+    return false;
+  }
+  if (!ft8Map) {
+    ft8Map = L.map($("ft8Map"), { worldCopyJump: true, minZoom: 2 }).setView([50, 15], 4);
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 12, className: "hfdl-dark",
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors',
+    }).addTo(ft8Map);
+    mapPopout(ft8Map, "ft8");
+    // a click on the map (not on a mark) drops the selection: the red mark and trail get their own colors back
+    ft8Map.on("click", () => { if (ft8Sel != null) { ft8Sel = null; renderFt8Map(); } });
+    ft8MapLay = { path: L.layerGroup().addTo(ft8Map), st: L.layerGroup().addTo(ft8Map), marks: new Map() };
+    // call labels only when zoomed in enough (a whole continent of labels is unreadable)
+    const lbl = () => $("ft8Map").classList.toggle("ft8-nolbl", ft8Map.getZoom() < 5);
+    ft8Map.on("zoomend", lbl);
+    lbl();
+    try {
+      const s = await satFetch("/api/location");
+      if (s && Number.isFinite(s.lat) && Number.isFinite(s.lon) && (s.lat || s.lon)) {
+        ft8Qth = { lat: s.lat, lon: s.lon };
+        L.circleMarker([s.lat, s.lon], { radius: 6, color: "#000", weight: 2, fillColor: "#ff5a3c", fillOpacity: 1 })
+          .bindTooltip(`QTH${s.locator ? " " + escHtml(s.locator) : ""}`).addTo(ft8Map);
+      }
+    } catch { /* server unreachable */ }
+  }
+  return true;
+}
+
+function ft8Icon(s, sel) {
+  const age = Date.now() / 1000 - s.ts;
+  const kind = sel ? "sel" : s.cq ? "cq" : "qso";
+  return `ft8-tri ${kind}${age > Math.min(ft8Win / 2, 1800) ? " old" : ""}${s.fresh && Date.now() - s.fresh < 20000 ? " fresh" : ""}`;
+}
+const ft8IconOf = (cls) => L.divIcon({ className: cls, html: '<svg viewBox="0 0 16 16"><path d="M8 1.5 15 14.5H1z"/></svg>', iconSize: [12, 12], iconAnchor: [6, 7.5] });
+
+/** Redraw of the map, at most one at a time: calls during a redraw are folded into one more after it. */
+const FT8_LIST_MAX = 300;
+let ft8Drawing = false, ft8DrawAgain = false;
+async function renderFt8Map() {
+  if (ft8Drawing) { ft8DrawAgain = true; return; }
+  ft8Drawing = true;
+  try {
+    do { ft8DrawAgain = false; await drawFt8Map(); } while (ft8DrawAgain);
+  } finally { ft8Drawing = false; }
+}
+
+function ft8Popup(s) {
+  const da = s.lat != null ? ft8DistAz(s.lat, s.lon) : null;
+  const band = ft8BandOf(s.freq_hz);
+  return `<b class="ft8-pop-call">${escHtml(s.call)}</b>${s.grid ? ` <span class="ft8-pop-grid">${escHtml(s.grid)}</span>` : ""}<br>` +
+    (da ? `${da.km.toLocaleString("en")} km · az ${da.az}°<br>` : "") +
+    `<span class="ft8-pop-msg">${ft8MsgHtml(s.msg)}</span><br>` +
+    `${s.snr > 0 ? "+" : ""}${s.snr} dB · ${fmtKHz(s.freq_hz, 1)} kHz${band ? ` (${band} m)` : ""}<br>` +
+    `${ft8Ago(s.ts)} ago · ${s.n} decode${s.n === 1 ? "" : "s"} · <a href="https://www.qrz.com/db/${encodeURIComponent(s.call)}" target="_blank" rel="noopener">QRZ</a>` +
+    ` · <a href="https://pskreporter.info/pskmap.html?callsign=${encodeURIComponent(s.call)}" target="_blank" rel="noopener">PSK Reporter</a>`;
+}
+
+async function drawFt8Map() {
+  if (!ft8Shown() || !(await ft8MapOpen())) return;
+  ft8Map.invalidateSize();
+  const now = Date.now() / 1000;
+  const all = [...ft8St.values()].filter((s) => now - s.ts <= ft8Win).sort((a, b) => b.ts - a.ts);
+  const list = all.filter((s) => s.lat != null);
+  const lay = ft8MapLay, keep = new Set();
+  lay.path.clearLayers();
+  for (const s of list) {
+    keep.add(s.call);
+    const sel = s.call === ft8Sel;
+    let mk = lay.marks.get(s.call);
+    const call = s.call, cls = ft8Icon(s, sel);
+    if (!mk) {
+      // the popup text is made only when it opens (from the newest data of the station)
+      mk = L.marker(ft8Spread(s), { icon: ft8IconOf(cls) })
+        .bindPopup(() => ft8Popup(ft8St.get(call) || s), { className: "ft8-popup" })
+        .bindTooltip(escHtml(call), { permanent: true, direction: "bottom", offset: [0, -1], className: "ft8-label" }).addTo(lay.st);
+      mk.on("click", () => ft8Select(call, false));
+      mk._ft8 = { cls, grid: s.grid };
+      lay.marks.set(call, mk);
+    }
+    // only what changed is touched (a new icon re-creates its element)
+    if (mk._ft8.grid !== s.grid) { mk.setLatLng(ft8Spread(s)); mk._ft8.grid = s.grid; }
+    if (mk._ft8.cls !== cls) { mk.setIcon(ft8IconOf(cls)); mk._ft8.cls = cls; mk.setZIndexOffset(sel ? 1000 : s.cq ? 500 : 0); mk._ft8.lbl = null; }
+    // the frame of the call label in the colour of the triangle
+    const tt = mk.getTooltip() && mk.getTooltip().getElement();
+    if (tt && mk._ft8.lbl !== cls) { tt.classList.toggle("cq", !sel && s.cq); tt.classList.toggle("sel", sel); mk._ft8.lbl = cls; }
+    if (mk.isPopupOpen()) mk.getPopup().update();
+    if (sel && ft8Qth) L.polyline([[ft8Qth.lat, ft8Qth.lon], ft8Spread(s)], { color: "#ff4b3c", weight: 1.5, dashArray: "4 4", opacity: 0.8, interactive: false }).addTo(lay.path);
+  }
+  for (const [k, mk] of lay.marks) if (!keep.has(k)) { mk.remove(); lay.marks.delete(k); }
+  if (!ft8MapFitted && lay.marks.size) {
+    ft8MapFitted = true;
+    const pts = [...lay.marks.values()].map((m) => m.getLatLng());
+    if (ft8Qth) pts.push(L.latLng(ft8Qth.lat, ft8Qth.lon));
+    ft8Map.fitBounds(L.latLngBounds(pts).pad(0.15), { maxZoom: 6 });
+  }
+  const far = list.reduce((m, s) => { const da = ft8DistAz(s.lat, s.lon); return da && da.km > m.km ? { km: da.km, call: s.call } : m; }, { km: 0 });
+  $("ft8MapInfo").textContent = `${all.length} station${all.length === 1 ? "" : "s"} · ${list.length} on the map` +
+    (far.km ? ` · farthest ${far.call} ${far.km.toLocaleString("en")} km` : "");
+  $("ft8MapList").innerHTML = `<div class="ais-ml-head">${all.length} heard · ${all.length - list.length} without a locator yet${all.length > FT8_LIST_MAX ? ` · newest ${FT8_LIST_MAX} listed` : ""}</div>` +
+    all.slice(0, FT8_LIST_MAX).map((s) => {
+      const da = s.lat != null ? ft8DistAz(s.lat, s.lon) : null;
+      const snrCls = s.snr >= 0 ? "s-hi" : s.snr >= -12 ? "s-mid" : "s-lo";
+      return `<div class="ft8-ml${s.call === ft8Sel ? " sel" : ""}${s.lat == null ? " nopos" : ""}${s.cq ? " cq" : ""}" data-call="${escHtml(s.call)}" title="${escHtml(s.msg)}">` +
+        `<i class="tri"></i><b>${escHtml(s.call)}</b><span class="grid">${escHtml(s.grid || "")}</span>` +
+        `<span class="km">${da ? da.km.toLocaleString("en") : ""}</span><span class="${snrCls}">${s.snr > 0 ? "+" : ""}${s.snr}</span>` +
+        `<span class="age">${ft8Ago(s.ts)}</span></div>`;
+    }).join("");
+  $("ft8MapNote").textContent = `▲ green = calling CQ · cyan = in a QSO · red = selected · pale = not heard lately · position = centre area of the locator ` +
+    `(4 characters: 2° × 1°, stations of one square spread inside it) · map © OpenStreetMap`;
+}
+
+function ft8Select(call, pan = true) {
+  ft8Sel = call;
+  renderFt8Map().then(() => {
+    const mk = ft8MapLay && ft8MapLay.marks.get(call);
+    if (!mk) return;
+    if (pan) ft8Map.setView(mk.getLatLng(), Math.max(ft8Map.getZoom(), 5));
+    mk.openPopup();
+  });
+}
+
+function setFt8Win(sec) {
+  ft8Win = sec;
+  store("ft8Win", String(sec));
+  for (const b of $("ft8Win").children) b.classList.toggle("on", Number(b.dataset.win) === sec);
+  renderFt8Map();
+}
+$("ft8Win").addEventListener("click", (e) => { const b = e.target.closest("[data-win]"); if (b) setFt8Win(Number(b.dataset.win)); });
+for (const b of $("ft8Win").children) b.classList.toggle("on", Number(b.dataset.win) === ft8Win);
+$("ft8MapList").addEventListener("click", (e) => { const r = e.target.closest("[data-call]"); if (r && !r.classList.contains("nopos")) ft8Select(r.dataset.call); });
+$("ft8MapClr").addEventListener("click", async () => {
+  try { await fetch(vbase + "/api/ft8/stations", { method: "DELETE" }); } catch { /* server unreachable */ }
+  ft8StClear();
+});
+function ft8StClear() {
+  ft8St.clear();
+  ft8Sel = null;
+  ft8MapFitted = false;
+  if (ft8MapLay) { ft8MapLay.st.clearLayers(); ft8MapLay.path.clearLayers(); ft8MapLay.marks.clear(); }
+  renderFt8Map();
+}
+setInterval(() => { if (ft8Shown()) renderFt8Map(); }, 15000);   // ages, window edge
 
 // ---------- SPECTRUM / DECODERS / SATELLITES tabs ----------
 // The decoders are not below the screen (scrolling to them was awkward) but in a tab that covers the spectrum and waterfall.
@@ -2964,12 +3246,13 @@ function setBodyTab(tab, save = true) {
 
 // ---------- DECODERS tab: a page for each decoder (like the pages of SATELLITES) ----------
 
-// order of the page keys; "|" = a vertical separator between the groups (HF digital, aircraft, ships, ISM)
+// order of the page keys; "|" = a vertical separator between the groups (HF digital, aircraft, ships, radiosondes, ISM)
 const DEC_LAYOUT = [
-  { key: "cw", title: "CW" }, { key: "ft8", title: "FT8" }, { key: "packet", title: "PACKET" }, { key: "rtty", title: "RTTY" },
+  { key: "cw", title: "CW" }, { key: "ft8", title: "FT8" }, { key: "packet", title: "PACKET" }, { key: "pocsag", title: "POCSAG" }, { key: "rtty", title: "RTTY" },
   { key: "sstv", title: "SSTV" }, { key: "wefax", title: "WEFAX" }, "|",
   { key: "acars", title: "ACARS" }, { key: "adsb", title: "ADS-B" }, { key: "hfdl", title: "HFDL" }, { key: "vdl2", title: "VDL2" }, "|",
   { key: "ais", title: "AIS" }, "|",
+  { key: "sonde", title: "SONDE" }, "|",
   { key: "ism", title: "ISM" },
 ];   // DAB and DSD are modes (MODE) with their own tabs
 const DEC_PAGES = DEC_LAYOUT.filter((p) => p !== "|");
@@ -3023,6 +3306,10 @@ function renderDecTab() {
   if (st) renderLinkBands();
   // the ACARS map was hidden (size 0); later: this also runs before the map variables are declared
   if (decPage === "acars" || decPage === "vdl2") setTimeout(() => { if (acarsMap) acarsMap.invalidateSize(); });
+  // the station map (hidden = size 0 until now): drawn when the page opens, not at each status message
+  const ft8Now = decPage === "ft8" && !na && bodyTab === "dec";
+  if (ft8Now && !ft8PageShown) setTimeout(renderFt8Map);
+  ft8PageShown = ft8Now;
   $("decEmpty").hidden = !na;
   $("decEmpty").classList.toggle("dec-na", !!na);
   $("decEmpty").textContent = na;
@@ -3153,7 +3440,7 @@ function renderScanKey() {
   $("scanTabDot").hidden = !(sc && sc.on);
 }
 $("scanKey").addEventListener("click", () => setScanOn(!scanTabShown()));
-for (const id of ["ft8On", "wefaxOn", "cwOn", "rttyOn", "sstvOn", "packetOn", "acarsOn", "vdl2On", "hfdlOn", "aisOn", "adsbOn"]) {
+for (const id of ["ft8On", "wefaxOn", "cwOn", "rttyOn", "sstvOn", "packetOn", "pocsagOn", "sondeOn", "acarsOn", "vdl2On", "hfdlOn", "aisOn", "adsbOn"]) {
   $(id).addEventListener("change", () => renderDecTab());
 }
 setBodyTab(bodyTab, false);
@@ -4144,12 +4431,28 @@ const SAT_EARTH_KM = 6371;
 
 /** Loads a script or stylesheet of static/ once (world map data, Leaflet). */
 const satAssets = {};
+// Every Leaflet map follows the size of its box: a map drawn while its pane was hidden (another VFO, another
+// view) had 0 × 0 px and stayed a small corner of tiles until the window was resized.
+function leafletAutoSize() {
+  if (!window.L || !L.Map || L.Map._autoSize) return;
+  L.Map._autoSize = true;
+  L.Map.addInitHook(function () {
+    const map = this, box = map.getContainer();
+    let w = box.clientWidth, h = box.clientHeight;
+    new ResizeObserver(() => {
+      if (!box.clientWidth || !box.clientHeight || (box.clientWidth === w && box.clientHeight === h)) return;
+      w = box.clientWidth; h = box.clientHeight;
+      map.invalidateSize();
+    }).observe(box);
+  });
+}
+
 function satAsset(url) {
   if (!satAssets[url]) {
     satAssets[url] = new Promise((ok, fail) => {
       const el = url.endsWith(".css") ? Object.assign(document.createElement("link"), { rel: "stylesheet", href: url })
         : Object.assign(document.createElement("script"), { src: url });
-      el.onload = ok;
+      el.onload = () => { if (url.endsWith("leaflet.js")) leafletAutoSize(); ok(); };
       el.onerror = () => { delete satAssets[url]; fail(new Error(`${url} did not load`)); };
       document.head.append(el);
     });
@@ -5047,6 +5350,8 @@ async function acarsMapOpen() {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors',
     }).addTo(acarsMap);
     mapPopout(acarsMap, "acars");
+    // a click on the map (not on a mark) drops the selection: the red mark and trail get their own colors back
+    acarsMap.on("click", () => { if (acarsSel != null) { acarsSel = null; renderAcarsMap(); } });
     acarsMapLayers = { gs: L.layerGroup().addTo(acarsMap), tracks: L.layerGroup().addTo(acarsMap), planes: L.layerGroup().addTo(acarsMap), marks: new Map() };
     try {
       const s = await satFetch("/api/location");
@@ -5215,7 +5520,7 @@ function renderDab(s) {
   const on = !!s.dab;
   renderControls();   // the DAB key of MODE
   renderModeTabs();
-  if (on && s.dab_channel && $("dabChannel").value !== s.dab_channel) $("dabChannel").value = s.dab_channel;
+  if (on && s.dab_channel && $("dabChannel").value !== s.dab_channel) { $("dabChannel").value = s.dab_channel; renderDabChannelMems(); }
   renderDabInfo({ enabled: on, error: s.dab_error });
   if (on && !dabTimer) { pollDab(); dabTimer = setInterval(pollDab, 1000); }
   if (!on && dabTimer) stopDab();
@@ -5438,7 +5743,22 @@ function dabSetChannel(ch) {
   st.dab_channel = ch;
   send({ dab_channel: ch });
 }
-$("dabChannel").addEventListener("change", () => dabSetChannel($("dabChannel").value));
+$("dabChannel").addEventListener("change", () => { dabSetChannel($("dabChannel").value); renderDabChannelMems(); });
+
+/** CHANNEL list of DAB: channels with a memory (a DAB memory of that channel) in green, their names in the tooltip;
+ *  the list itself green while such a channel is chosen. */
+function renderDabChannelMems() {
+  const sel = $("dabChannel"), by = new Map();
+  for (const m of mems) if (m.dab_channel) by.set(m.dab_channel, [...(by.get(m.dab_channel) || []), m.name || "(no name)"]);
+  for (const o of sel.options) {
+    const names = by.get(o.value);
+    o.classList.toggle("dab-mem", !!names);
+    o.title = names ? `In memory: ${names.join(", ")}` : "";
+  }
+  const cur = by.get(sel.value);
+  sel.classList.toggle("dab-mem", !!cur);
+  sel.title = cur ? `Channel ${sel.value} is in memory: ${cur.join(", ")}` : "";
+}
 /** A DAB memory: DAB on, on its channel. Where DAB cannot run, dabOn says why. */
 function dabRecall(ch) {
   if (!noRtlDongle(st) && !st.chain_owner) dabSetChannel(ch);
@@ -5948,6 +6268,824 @@ $("packetStRows").addEventListener("click", (e) => {
 });
 setPktView(pktView, false);   // filled by packetLoad()
 
+// ---------- POCSAG: pager messages and addresses (pocsag.py) ----------
+
+const POC_MAX_ROWS = 500;
+let pocView = recall("pocsagView") === "rics" ? "rics" : "msgs";
+const pocRics = new Map();       // RIC -> newest state (from the server)
+let pocRicTimer = null;
+
+const pocFilterText = () => $("pocsagFilter").value.trim().toUpperCase();
+const pocMatch = (text) => { const f = pocFilterText(); return !f || text.toUpperCase().includes(f); };
+const pocNoTone = () => $("pocsagNoTone").checked;
+
+/** Message text as HTML: lost codewords (?) in red, the tone pages in grey. */
+function pocTextHtml(kind, text) {
+  if (kind === "tone") return "tone only";
+  return escHtml(text).replace(/\?+/g, (q) => `<span class="lost">${q}</span>`);
+}
+
+function addPocsag(m) {
+  const tb = $("pocsagRows");
+  const tr = document.createElement("tr");
+  tr.dataset.search = `${m.ric} ${m.text}`;
+  tr.dataset.tone = m.kind === "tone" ? "1" : "";
+  const other = m.kind === "alpha" ? `numeric: ${m.numeric}` : m.kind === "numeric" ? `alphanumeric: ${m.alpha}` : "";
+  const q = [m.inverted ? "inverted" : "", m.corrected ? `${m.corrected} bits corrected` : "", m.bad ? `${m.bad} codewords lost` : ""]
+    .filter(Boolean).join(" · ");
+  tr.innerHTML = `<td title="${escHtml(fmtMHz(m.freq_hz, 4))} MHz">${pktTime(m.time)}</td><td>${m.baud}</td>` +
+    `<td class="ric" title="Show only this address">${m.ric}</td><td>${m.func}</td>` +
+    `<td class="data ${m.kind === "numeric" ? "num" : m.kind === "tone" ? "tone" : ""}" ` +
+    `title="${escHtml([m.kind, other, q].filter(Boolean).join("\n"))}">${pocTextHtml(m.kind, m.text)}` +
+    (m.bad ? `<span class="q">${m.bad} lost</span>` : "") + "</td>";
+  tr.hidden = !pocMatch(tr.dataset.search) || (pocNoTone() && m.kind === "tone");
+  tb.prepend(tr);
+  while (tb.rows.length > POC_MAX_ROWS) tb.lastChild.remove();
+  $("pocsagEmpty").hidden = true;
+}
+
+function pocRic(r) {
+  pocRics.set(r.ric, r);
+  if (pocView === "rics" && !pocRicTimer) pocRicTimer = setTimeout(() => { pocRicTimer = null; renderPocRics(); }, 500);
+}
+
+function renderPocRics() {
+  const rows = [...pocRics.values()].filter((r) => pocMatch(`${r.ric} ${r.text}`) && !(pocNoTone() && r.kind === "tone"))
+    .sort((a, b) => b.last - a.last);
+  $("pocsagRicRows").innerHTML = rows.map((r) =>
+    `<tr><td>${pktTime(r.last)}</td><td class="ric" title="Show only this address">${r.ric}</td><td>${r.count}</td><td>${r.func}</td><td>${r.baud}</td>` +
+    `<td class="data ${r.kind === "numeric" ? "num" : r.kind === "tone" ? "tone" : ""}">${pocTextHtml(r.kind, r.text)}</td></tr>`).join("");
+  $("pocsagRicEmpty").hidden = pocRics.size > 0;
+}
+
+function setPocView(v, save = true) {
+  pocView = v;
+  if (save) store("pocsagView", v);
+  for (const b of $("pocsagViews").children) b.classList.toggle("on", b.dataset.view === v);
+  $("pocsagMsgsBox").hidden = v !== "msgs";
+  $("pocsagRicsBox").hidden = v !== "rics";
+  if (v === "rics") renderPocRics();
+}
+
+function pocFilterRows() {
+  for (const tr of $("pocsagRows").rows) tr.hidden = !pocMatch(tr.dataset.search) || (pocNoTone() && !!tr.dataset.tone);
+  if (pocView === "rics") renderPocRics();
+}
+
+function renderPocsagInfo(i) {
+  $("pocsagRate").value = i.opts.rate;
+  const el = $("pocsagInfo");
+  if (!i.enabled) { el.textContent = ""; el.title = ""; return; }
+  el.textContent = `${i.ok} msg  ${i.batches} batches  ${i.bad} lost`;
+  el.title = `running: ${i.rates.join(" + ")} Bd, both polarities · ${i.corrected} wrong bits corrected · ` +
+    `${i.bad} codewords could not be corrected` + (i.last_rx ? ` · last message ${pktTime(i.last_rx)} UTC` : "");
+}
+
+function pocsagPost(body) {
+  return fetch(vbase + "/api/pocsag", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+    .then((r) => r.json());
+}
+
+function pocsagReset() {
+  $("pocsagRows").innerHTML = "";
+  $("pocsagEmpty").hidden = false;
+  pocRics.clear();
+  renderPocRics();
+}
+
+async function pocsagLoad() {
+  const v = active;
+  try {
+    const d = await fetch(vbase + "/api/pocsag").then((r) => r.json());
+    if (v !== active) return;
+    pocsagReset();
+    for (const m of d.messages) addPocsag(m);
+    for (const r of d.rics) pocRics.set(r.ric, r);
+    renderPocsagInfo(d);
+    setPocView(pocView, false);
+  } catch { /* an older receiver without POCSAG */ }
+}
+
+$("pocsagOn").addEventListener("change", () => {
+  st.pocsag = $("pocsagOn").checked;
+  $("pocsagCard").hidden = !st.pocsag;
+  send({ pocsag: st.pocsag });
+});
+$("pocsagRate").addEventListener("change", () => pocsagPost({ opts: { rate: $("pocsagRate").value } }).then(renderPocsagInfo));
+$("pocsagClear").addEventListener("click", () => { pocsagPost({ action: "clear" }).then(renderPocsagInfo); pocsagReset(); });
+$("pocsagViews").addEventListener("click", (e) => { const b = e.target.closest("button[data-view]"); if (b) setPocView(b.dataset.view); });
+$("pocsagFilter").addEventListener("input", pocFilterRows);
+$("pocsagNoTone").checked = recall("pocsagNoTone") === "1";
+$("pocsagNoTone").addEventListener("change", () => { store("pocsagNoTone", pocNoTone() ? "1" : "0"); pocFilterRows(); });
+// a click on a RIC: only that address (again: all)
+for (const id of ["pocsagRows", "pocsagRicRows"]) {
+  $(id).addEventListener("click", (e) => {
+    const td = e.target.closest("td.ric");
+    if (!td) return;
+    $("pocsagFilter").value = $("pocsagFilter").value.trim() === td.textContent ? "" : td.textContent;
+    if (id === "pocsagRicRows") setPocView("msgs");
+    pocFilterRows();
+  });
+}
+setPocView(pocView, false);   // filled by pocsagLoad()
+
+// ---------- SONDE: radiosondes (sonde.py): the newest data of each sonde, its flight path on a MAP, all frames ----------
+
+const SONDE_MAX_FRAMES = 500;
+const SONDE_OLD_S = 600;         // no frame for 10 min: lost (grey)
+const sondes = new Map();        // serial -> {…sonde from the server, pts: [[lat, lon, alt, t]]}
+let sondeView = recall("sondeView") === "profile" ? "map" : ["sondes", "map", "frames"].includes(recall("sondeView")) ? recall("sondeView") : "sondes";
+let sondeMap = null, sondeLayers = null, sondeFitted = false, sondeSel = null, sondeTimer = null;
+
+const sondeKmh = (v) => (v == null ? "" : (v * 3.6).toFixed(0));
+const sondeClimb = (v) => (v == null ? "" : `${v > 0 ? "+" : ""}${v.toFixed(1)}`);
+const sondeAlt = (v) => (v == null ? "" : String(Math.round(v)).replace(/\B(?=(\d{3})+$)/g, " "));
+const sondeOld = (s) => Date.now() / 1000 - s.last > SONDE_OLD_S;
+function sondeState(s) {
+  if (sondeOld(s)) return "lost";
+  if (s.vv == null) return "no GPS";
+  if (s.burst) return s.alt != null && s.alt < 3000 && Math.abs(s.vv) < 1 ? "landed" : `falling, burst at ${sondeAlt(s.burst_alt)} m`;
+  if (Math.abs(s.vv) < 1 && (s.alt ?? 0) < 3000) return "on the ground";
+  return s.vv > 0 ? "rising" : "falling";
+}
+
+function sondeUpdate(f) {
+  if (!f.serial) return;
+  let s = sondes.get(f.serial);
+  if (!s) { s = { serial: f.serial, type: f.type, first: f.time, n: 0, pts: [], max_alt: null, burst: false }; sondes.set(f.serial, s); }
+  s.n += 1;
+  s.last = f.time;
+  delete s.from_log;
+  for (const k of ["frame", "batt", "sats", "freq_hz", "encrypted", "gps_time", "dist", "az", "el", "temp", "rh", "temp_h", "cal_n", "subtype"]) if (f[k] != null) s[k] = f[k];
+  if (f.lat != null) {
+    for (const k of ["lat", "lon", "alt", "vh", "dir", "vv"]) s[k] = f[k];
+    s.pos_time = f.time;
+    if (s.max_alt == null || f.alt > s.max_alt) s.max_alt = f.alt;
+    if (!s.burst && f.vv < -8 && s.max_alt - f.alt > 200 && s.max_alt > 5000) { s.burst = true; s.burst_alt = s.max_alt; }
+    const last = s.pts[s.pts.length - 1];
+    if (!last || f.time - last[3] >= 2) { s.pts.push([f.lat, f.lon, f.alt, f.time, f.temp ?? null, f.rh ?? null]); if (s.pts.length > 6000) s.pts.splice(1, 1); }
+  }
+  sondeLater();
+}
+
+function sondeLater() {
+  if (sondeView === "frames" || sondeTimer) return;
+  sondeTimer = setTimeout(() => { sondeTimer = null; renderSondeView(); }, 400);
+}
+
+function renderSondeView() {
+  if (sondeView === "sondes") renderSondeTable();
+  else if (sondeView === "map") renderSondeMap();
+}
+
+const sondeList = () => [...sondes.values()].sort((a, b) => b.last - a.last);
+const sondePos = (s) => (s.lat == null ? "" : `${s.lat.toFixed(5)}, ${s.lon.toFixed(5)}`);
+const sondeDir = (v) => (v == null ? "" : `${Math.round(v)}°`);
+const sondeUpDown = (v) => (v > 0 ? "up" : v < 0 ? "down" : "");
+const sondeT = (v) => (v == null ? "" : v.toFixed(1));
+const sondeRh = (v) => (v == null ? "" : Math.round(v));
+const sondeCal = (s) => (s.cal_n == null ? "" : `calibration ${s.cal_n}/51${s.temp_h != null ? ` · humidity sensor ${s.temp_h.toFixed(1)} °C` : ""}`);
+
+function renderSondeTable() {
+  const list = sondeList();
+  $("sondeRows").innerHTML = list.map((s) =>
+    `<tr data-serial="${escHtml(s.serial)}" class="${sondeOld(s) ? "old" : ""}"><td>${aisUtc(s.last)}</td><td>${escHtml(s.type)}</td>` +
+    `<td class="ser"><a href="#" class="sonde-goto" title="Show on the MAP">${escHtml(s.serial)}</a></td><td>${s.freq_hz ? fmtMHz(s.freq_hz, 3) : ""}</td>` +
+    `<td>${s.lat != null ? `<a href="#" class="sonde-goto">${sondePos(s)}</a> <span class="muted">${aisAge(s.pos_time)}</span>` : ""}</td>` +
+    `<td class="num">${sondeAlt(s.alt)}</td><td class="num ${sondeUpDown(s.vv)}">${sondeClimb(s.vv)}</td>` +
+    `<td class="num">${sondeKmh(s.vh)}</td><td class="num">${sondeDir(s.dir)}</td>` +
+    `<td class="num">${s.dist == null ? "" : s.dist.toFixed(1)}</td><td class="num">${s.az == null ? "" : `${Math.round(s.az)}° / ${s.el.toFixed(1)}°`}</td>` +
+    `<td class="num" title="${sondeCal(s)}">${s.temp != null ? sondeT(s.temp) : s.cal_n != null && s.type === "RS41" ? `<span class="muted">${s.cal_n}/51</span>` : ""}</td><td class="num">${sondeRh(s.rh)}</td>` +
+    `<td class="num">${s.sats ?? ""}</td><td class="num">${s.batt == null ? "" : `${s.batt.toFixed(1)} V`}</td><td class="num">${s.n}</td>` +
+    `<td>${escHtml(sondeState(s))}${s.from_log ? ' <span class="muted" title="Read back from data\\logs\\radiosonde">from log</span>' : ""}${s.subtype ? ` <span class="muted">${escHtml(s.subtype)}</span>` : ""}${s.encrypted ? ' <span class="muted">encrypted</span>' : ""}</td></tr>`).join("");
+  $("sondeEmpty").hidden = list.length > 0;
+}
+
+function addSondeFrame(f) {
+  const tb = $("sondeFrameRows");
+  const tr = document.createElement("tr");
+  const det = [f.gps_time ? `GPS ${aisUtc(f.gps_time)}` : "", f.ecc ? `${f.ecc} bytes corrected` : "", f.blocks_bad ? `${f.blocks_bad} blocks bad` : "",
+    f.encrypted ? "encrypted" : "", f.inverted ? "inverted" : "", f.batt != null ? `batt ${f.batt.toFixed(1)} V` : "",
+    f.cal_n != null && f.cal_n < 51 ? `calibration ${f.cal_n}/51` : ""].filter(Boolean).join(" · ");
+  tr.innerHTML = `<td title="${escHtml(fmtMHz(f.freq_hz, 4))} MHz">${aisUtc(f.time)}</td><td>${escHtml(f.type)}</td><td class="ser">${escHtml(f.serial || "?")}</td>` +
+    `<td class="num">${f.frame ?? ""}</td><td>${sondePos(f)}</td><td class="num">${sondeAlt(f.alt)}</td>` +
+    `<td class="num ${sondeUpDown(f.vv)}">${sondeClimb(f.vv)}</td><td class="num">${sondeKmh(f.vh)}</td>` +
+    `<td class="num">${sondeDir(f.dir)}</td><td class="num">${sondeT(f.temp)}</td><td class="num">${sondeRh(f.rh)}</td>` +
+    `<td class="num">${f.sats ?? ""}</td><td class="muted">${escHtml(det)}</td>`;
+  tb.prepend(tr);
+  while (tb.rows.length > SONDE_MAX_FRAMES) tb.lastChild.remove();
+  $("sondeFrameEmpty").hidden = true;
+}
+
+/** Map icon: a balloon while rising, a parachute after the burst. */
+function sondeIcon(s, sel) {
+  const st = sondeOld(s) ? "old" : s.burst ? "fall" : "rise";
+  const svg = s.burst
+    ? '<svg viewBox="0 0 24 24"><path d="M3 10a9 7 0 0 1 18 0z"/><path class="ln" d="M4 10l8 9 8-9M12 10v9"/><rect x="10" y="18" width="4" height="4"/></svg>'
+    : '<svg viewBox="0 0 24 24"><ellipse cx="12" cy="8" rx="6.5" ry="7"/><path class="ln" d="M12 15v4"/><rect x="10" y="19" width="4" height="4"/></svg>';
+  return L.divIcon({ className: `sonde-mk ${st}${sel ? " sel" : ""}`, html: svg, iconSize: [22, 22], iconAnchor: [11, 21] });
+}
+
+function sondePopup(s) {
+  const lines = [`<b>${escHtml(s.serial)}</b> ${escHtml(s.type)}${s.freq_hz ? ` · ${fmtMHz(s.freq_hz, 3)} MHz` : ""}`];
+  if (s.lat != null) {
+    lines.push(`${sondeAlt(s.alt)} m · climb ${sondeClimb(s.vv)} m/s · ${sondeKmh(s.vh)} km/h to ${sondeDir(s.dir)}`);
+    lines.push(`position ${sondePos(s)} (${aisAge(s.pos_time)} ago)`);
+  }
+  if (s.temp != null) lines.push(`${s.temp.toFixed(1)} °C${s.rh != null ? ` · RH ${Math.round(s.rh)} %` : ""}`);
+  else if (s.cal_n != null && s.type === "RS41") lines.push(`<span class="muted">temperature: calibration ${s.cal_n}/51</span>`);
+  if (s.dist != null) lines.push(`${s.dist.toFixed(1)} km, azimuth ${Math.round(s.az)}°, elevation ${s.el.toFixed(1)}°`);
+  lines.push(escHtml(sondeState(s)) + (s.max_alt != null ? ` · highest ${sondeAlt(s.max_alt)} m` : ""));
+  lines.push(`last frame ${aisUtc(s.last)} UTC · ${s.n} frames · <a href="https://sondehub.org/${encodeURIComponent(s.serial)}" target="_blank" rel="noopener">SondeHub</a>`);
+  return lines.join("<br>");
+}
+
+async function sondeMapOpen() {
+  try {
+    await Promise.all([satAsset("/static/leaflet/leaflet.css"), satAsset("/static/leaflet/leaflet.js")]);
+  } catch (e) {
+    $("sondeMapNote").textContent = e.message;
+    return false;
+  }
+  if (!sondeMap) {
+    sondeMap = L.map($("sondeMap"), { worldCopyJump: true, minZoom: 2 }).setView([48.5, 17], 7);
+    // the same darkened OpenStreetMap tiles as the AIS and HFDL maps
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 16, className: "hfdl-dark",
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors',
+    }).addTo(sondeMap);
+    mapPopout(sondeMap, "sonde");
+    // a click on the map (not on a mark) drops the selection: the red mark and trail get their own colors back
+    sondeMap.on("click", () => { if (sondeSel != null) { sondeSel = null; renderSondeMap(); } });
+    sondeLayers = { tracks: L.layerGroup().addTo(sondeMap), marks: L.layerGroup().addTo(sondeMap), m: new Map() };
+    sondeSitesInit();
+    try {
+      const s = await satFetch("/api/location");
+      if (s && Number.isFinite(s.lat) && Number.isFinite(s.lon)) {
+        sondeQth = s;
+        L.circleMarker([s.lat, s.lon], { radius: 6, color: "#000", weight: 2, fillColor: "#ff5a3c", fillOpacity: 1 }).bindTooltip("QTH").addTo(sondeMap);
+        sondeMap.setView([s.lat, s.lon], 7);
+      }
+    } catch { /* server unreachable */ }
+  }
+  return true;
+}
+
+// ----- SONDE map: radiosonde launch sites in Europe (SondeHub list, /api/sonde/sites; own ones in data\sonde_sites_extra.json)
+// A site with a launch within the next hour is amber, one whose sonde is probably in the air now (up to 2.5 h after the
+// launch) green and pulsing. The times of the list are the synoptic times (UTC); the balloon goes up about 45 min before.
+let sondeSites = [], sondeSitesLayer = null, sondeQth = null, sondeSitesTimer = null;
+const SONDE_LAUNCH_BEFORE_S = 45 * 60;
+const SONDE_FLIGHT_S = 2.5 * 3600;
+const SONDE_DAYS = ["", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+/** Launches of a site around now: the last one (within the flight time) and the next one, as epoch seconds. */
+function sondeSiteLaunches(site, now = Date.now() / 1000) {
+  let last = null, next = null;
+  for (const t of site.times || []) {
+    const [d, h, m] = t.split(":").map(Number);
+    if (![d, h, m].every(Number.isFinite)) continue;
+    const base = new Date(now * 1000);
+    for (let k = -8; k <= 8; k++) {                      // the days around today
+      const day = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth(), base.getUTCDate() + k, h, m));
+      const wd = day.getUTCDay() || 7;                    // 1 = Monday … 7 = Sunday, like the list
+      if (d && d !== wd) continue;
+      const launch = day.getTime() / 1000 - SONDE_LAUNCH_BEFORE_S;
+      if (launch <= now && (last == null || launch > last)) last = launch;
+      if (launch > now && (next == null || launch < next)) next = launch;
+    }
+  }
+  return { last: last != null && now - last < SONDE_FLIGHT_S ? last : null, next };
+}
+
+function sondeSiteState(site) {
+  const l = sondeSiteLaunches(site), now = Date.now() / 1000;
+  return l.last != null ? "air" : l.next != null && l.next - now < 3600 ? "soon" : "";
+}
+
+const sondeHm = (t) => new Date(t * 1000).toISOString().slice(11, 16);
+const sondeIn = (s) => (s < 3600 ? `${Math.round(s / 60)} min` : `${Math.floor(s / 3600)} h ${Math.round((s % 3600) / 60)} min`);
+
+function sondeSitePopup(site) {
+  const l = sondeSiteLaunches(site), now = Date.now() / 1000;
+  const lines = [`<b>${escHtml(site.name)}</b>${site.own ? ' <span class="muted">(own)</span>' : ""}`,
+    `<span class="muted">${/^\d+$/.test(site.id) ? `WMO ${escHtml(site.id)}` : "no WMO number"}${site.alt != null ? ` · ${Math.round(site.alt)} m a.s.l.` : ""}</span>`];
+  if (site.note) lines.push(escHtml(site.note));
+  if (site.types && site.types.length) {
+    lines.push(`Sondes: ${site.types.map((t) => `<span class="${t.decoded ? "sonde-ok" : "muted"}" title="${t.decoded ? "decoded by RADIMCOM" : "not decoded by RADIMCOM"}">${escHtml(t.name)}${t.mhz ? ` ${t.mhz.toFixed(3)} MHz` : ""}</span>`).join(", ")}`);
+  }
+  if (site.times && site.times.length) {
+    const daily = site.times.filter((t) => t.startsWith("0:")).map((t) => t.slice(2)).sort();
+    const week = site.times.filter((t) => !t.startsWith("0:")).map((t) => { const [d, h, m] = t.split(":"); return `${SONDE_DAYS[+d] || d} ${h.padStart(2, "0")}:${m}`; });
+    lines.push(`Times (UTC): ${[daily.length ? `daily ${daily.join(", ")}` : "", week.join(", ")].filter(Boolean).join("; ")}`);
+    if (l.last != null) lines.push(`<span class="sonde-air">In the air: launched about ${sondeHm(l.last)} UTC (${sondeIn(now - l.last)} ago)</span>`);
+    if (l.next != null) lines.push(`Next launch about <b>${sondeHm(l.next)} UTC</b> (in ${sondeIn(l.next - now)})`);
+  } else lines.push('<span class="muted">Launch times not known</span>');
+  const st = [site.ascent_rate && `ascent ${site.ascent_rate} m/s`, site.burst_altitude && `burst ≈ ${Math.round(site.burst_altitude / 100) / 10} km`,
+    site.descent_rate && `descent ${site.descent_rate} m/s`].filter(Boolean);
+  if (st.length) lines.push(`<span class="muted">Usually ${st.join(", ")}</span>`);
+  if (sondeQth) {
+    const r = Math.PI / 180, f1 = sondeQth.lat * r, f2 = site.lat * r, dl = (site.lon - sondeQth.lon) * r;
+    const km = Math.acos(Math.min(1, Math.sin(f1) * Math.sin(f2) + Math.cos(f1) * Math.cos(f2) * Math.cos(dl))) * 6371;
+    const az = (Math.atan2(Math.sin(dl) * Math.cos(f2), Math.cos(f1) * Math.sin(f2) - Math.sin(f1) * Math.cos(f2) * Math.cos(dl)) / r + 360) % 360;
+    lines.push(`${Math.round(km)} km from the QTH, azimuth ${Math.round(az)}°`);
+  }
+  if (!site.own) lines.push('<span class="muted">Site list: <a href="https://sondehub.org" target="_blank" rel="noopener">SondeHub</a></span>');
+  return lines.join("<br>");
+}
+
+/** Colours of the site markers by their launch state (called once a minute). */
+function sondeSitesStyle() {
+  if (!sondeSitesLayer) return;
+  for (const mk of sondeSitesLayer.getLayers()) {
+    const s = sondeSiteState(mk.site);
+    mk.setStyle(s === "air" ? { color: "#3cf07c", fillColor: "#3cf07c", fillOpacity: 0.9, weight: 2, radius: 6 }
+      : s === "soon" ? { color: "#ffb547", fillColor: "#ffb547", fillOpacity: 0.9, weight: 2, radius: 6 }
+        : { color: "#9aa4b1", fillColor: "#e8ecf1", fillOpacity: 0.85, weight: 1.5, radius: 4 });
+    const el = mk.getElement && mk.getElement();
+    if (el) el.classList.toggle("sonde-site-air", s === "air");
+  }
+  const air = sondeSitesLayer.getLayers().filter((m) => sondeSiteState(m.site) === "air").length;
+  const soon = sondeSitesLayer.getLayers().filter((m) => sondeSiteState(m.site) === "soon").length;
+  $("sondeSitesNote").textContent = sondeSites.length
+    ? `Launch sites: ${sondeSites.length} · green = sonde probably in the air (${air}) · amber = launch within 1 h (${soon})` : "";
+}
+
+async function sondeSitesLoad() {
+  let d;
+  try { d = await satFetch("/api/sonde/sites"); } catch (e) { $("sondeSitesNote").textContent = `Launch sites: ${e.message}`; return; }
+  if (!d.sites.length && d.loading) { setTimeout(sondeSitesLoad, 5000); $("sondeSitesNote").textContent = "Launch sites: downloading from SondeHub…"; return; }
+  sondeSites = d.sites;
+  sondeSitesLayer.clearLayers();
+  for (const s of sondeSites) {
+    const mk = L.circleMarker([s.lat, s.lon], { radius: 4, weight: 1.5, pane: "sondeSitesPane" })
+      .bindTooltip(escHtml(s.name), { direction: "top", offset: [0, -4] });
+    mk.site = s;
+    mk.bindPopup(() => sondeSitePopup(s), { maxWidth: 340 });
+    mk.addTo(sondeSitesLayer);
+  }
+  sondeSitesStyle();
+  if (d.error && !d.sites.length) $("sondeSitesNote").textContent = d.error;
+  if (d.extra_error) $("sondeSitesNote").textContent += ` · ${d.extra_error}`;
+  if (!sondeSitesTimer) sondeSitesTimer = setInterval(sondeSitesStyle, 60000);
+}
+
+/** The sites layer with a switch on the map (remembered in the browser). */
+function sondeSitesInit() {
+  sondeMap.createPane("sondeSitesPane").style.zIndex = 390;   // under the sondes and their tracks
+  sondeSitesLayer = L.layerGroup();
+  if (recall("sondeSites") !== "0") sondeSitesLayer.addTo(sondeMap);
+  L.control.layers(null, { "Launch sites": sondeSitesLayer }, { collapsed: false, position: "topright" }).addTo(sondeMap);
+  sondeMap.on("overlayadd overlayremove", (e) => { if (e.layer === sondeSitesLayer) store("sondeSites", e.type === "overlayadd" ? "1" : "0"); });
+  sondeSitesLoad();
+}
+
+async function renderSondeMap() {
+  if (!(await sondeMapOpen())) return;
+  sondeMap.invalidateSize();
+  const lay = sondeLayers;
+  lay.tracks.clearLayers();
+  const list = sondeList().filter((s) => s.lat != null);
+  const shown = (sondeShown() || {}).serial;
+  const keep = new Set();
+  for (const s of list) {
+    keep.add(s.serial);
+    const sel = s.serial === shown;
+    if (s.pts.length > 1) {
+      L.polyline(s.pts.map((q) => [q[0], q[1]]), { color: "#6cff9c", weight: 1.8, opacity: 0.8 }).addTo(lay.tracks);
+      const p0 = s.pts[0];
+      L.circleMarker([p0[0], p0[1]], { radius: 3, color: "#6cff9c", weight: 1, fillOpacity: 1 })
+        .bindTooltip(`first frame ${aisUtc(p0[3])} UTC, ${sondeAlt(p0[2])} m`).addTo(lay.tracks);
+      if (s.burst) {
+        const top = s.pts.reduce((a, q) => (q[2] > a[2] ? q : a));
+        L.circleMarker([top[0], top[1]], { radius: 6, color: "#ffd84a", weight: 2, fill: false }).bindTooltip(`burst ${sondeAlt(top[2])} m`).addTo(lay.tracks);
+      }
+      sondeDrawPrediction(s, lay.tracks);   // also a sonde no longer heard: where it probably lands
+    }
+    let mk = lay.m.get(s.serial);
+    if (!mk) {
+      mk = L.marker([s.lat, s.lon]).bindPopup("").bindTooltip("", { permanent: true, direction: "bottom", offset: [0, 2], className: "ais-label" }).addTo(lay.marks);
+      mk.on("click", () => sondeSelect(s.serial, false));
+      lay.m.set(s.serial, mk);
+    }
+    mk.setLatLng([s.lat, s.lon]);
+    mk.setIcon(sondeIcon(s, sel));
+    mk.setTooltipContent(`${escHtml(s.serial)}<br>${sondeAlt(s.alt)} m ${sondeClimb(s.vv)}`);
+    mk.setPopupContent(sondePopup(s));
+  }
+  for (const [k, mk] of lay.m) if (!keep.has(k)) { mk.remove(); lay.m.delete(k); }
+  if (!sondeFitted && lay.m.size) {
+    sondeFitted = true;
+    sondeMap.fitBounds(L.latLngBounds(list.flatMap((s) => [[s.lat, s.lon], ...s.pts.map((q) => [q[0], q[1]])])).pad(0.3), { maxZoom: 10 });
+  }
+  renderSondeProfile();
+  $("sondeMapNote").textContent = `${list.length} with a position · balloon = rising · parachute = falling after the burst (yellow ring) · orange = selected (its profile on the right) · grey = no frame for 10 min · green line = flight path · red dashed = prediction from the last decoded point to the landing (✕, circle = 90 % landing area), from the sonde's own winds, +1 h / +2 h / +3 h after the launch · map © OpenStreetMap`;
+}
+
+// ----- SONDE PREDICTION: where the sonde will be 1, 2 and 3 h after its launch and where it lands. No weather model:
+// the wind comes from the sonde's own flight path (its drift between frames, averaged in 500 m layers; above the highest
+// layer heard the top one is kept, below the lowest one its speed falls off towards the ground), the ascent rate from
+// the last minutes of the climb, the burst at 33 km (or just above the current altitude), the fall from the measured
+// descent rate (mean of the last five steps) slowing down in thicker air (rate ∝ 1/√density, ISA).
+// Landing area: the same flight again SONDE_MC times with the inputs scattered by their likely errors (each wind layer,
+// the descent / ascent rate, the burst altitude, the ground); the circle holds 90 % of those landings.
+const SONDE_BURST = 33000, SONDE_GROUND = 400, SONDE_FALL0 = 5, SONDE_LAYER = 500, SONDE_MC = 60;
+const sondeRhoRatio = (h) => { const hh = Math.max(0, h); return (isaHpa(hh) / 1013.25) * (288.15 / (hh < 11000 ? 288.15 - 0.0065 * hh : 216.65)); };
+const sondePredCache = new Map();   // serial -> {key, res}: computed again only when a new point comes
+
+function sondeRandom(seed) {   // mulberry32 + Box-Muller: the same scatter for the same data, so the circle does not jump
+  let a = seed >>> 0;
+  const u = () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  return () => Math.sqrt(-2 * Math.log(u() || 1e-12)) * Math.cos(2 * Math.PI * u());
+}
+
+function sondePredict(s) {
+  const P = s.pts;
+  const last = P[P.length - 1];   // the prediction starts at the last decoded point
+  if (P.length < 10 || last[2] < SONDE_GROUND + 200) return null;
+  const key = `${P.length}:${last[3]}`, c = sondePredCache.get(s.serial);
+  if (c && c.key === key) return c.res;
+  const R = 111320, windUp = new Map(), windDown = new Map();
+  let iTop = 0;
+  for (let i = 1; i < P.length; i++) if (P[i][2] > P[iTop][2]) iTop = i;
+  for (let i = 1; i < P.length; i++) {
+    const a = P[i - 1], b = P[i], dt = b[3] - a[3];
+    if (dt < 1 || dt > 120) continue;
+    const ve = ((b[1] - a[1]) * R * Math.cos((a[0] * Math.PI) / 180)) / dt, vn = ((b[0] - a[0]) * R) / dt;
+    if (Math.hypot(ve, vn) > 150) continue;
+    const m = i > iTop ? windDown : windUp;
+    const k = Math.floor((a[2] + b[2]) / 2 / SONDE_LAYER), w = m.get(k) || [0, 0, 0, 0];
+    w[0] += ve; w[1] += vn; w[2]++; w[3] += ve * ve + vn * vn;
+    m.set(k, w);
+  }
+  // in a layer the sonde passed on the way down too, the wind of the fall wins: later and over the landing area
+  // (the ascent went through it maybe 1-2 h earlier and tens of km away)
+  const wind = new Map(windUp);
+  for (const [k, w] of windDown) if (w[2] >= 3 || !wind.has(k)) wind.set(k, w);
+  const ks = [...wind.keys()].sort((x, y) => x - y);
+  if (ks.length < 2) return null;
+  const kLo = ks[0], kHi = ks[ks.length - 1], hLow = (kLo + 0.5) * SONDE_LAYER;
+  // per layer: mean wind and its likely error (half the spread of the samples + 1.5 m/s for the change since it was
+  // measured; outside the layers heard much more: half of the speed + 2 m/s below, 0.4 of it + 3 m/s above)
+  const layer = (k) => {
+    let best = ks[0];
+    for (const x of ks) if (Math.abs(x - k) < Math.abs(best - k)) best = x;
+    const w = wind.get(best), me = w[0] / w[2], mn = w[1] / w[2];
+    const spread = Math.sqrt(Math.max(0, w[3] / w[2] - me * me - mn * mn));
+    const sp = Math.hypot(me, mn);
+    const sig = k < kLo ? 0.5 * sp + 2 : k > kHi ? 0.4 * sp + 3 : Math.min(spread, 10) * 0.5 + 1.5;
+    return [me, mn, sig];
+  };
+  const layers = new Map();
+  const windAt = (h, jit) => {
+    const k = Math.floor(h / SONDE_LAYER);
+    let L = layers.get(k);
+    if (!L) layers.set(k, (L = layer(k)));
+    // below the lowest layer heard the speed falls off linearly to a half at the ground, the direction is kept (checked
+    // on X1452225 2026-11-14 against a receiver that heard it down to 2.9 km: falling to 0.2 put it 3.8 km short)
+    const f = h >= hLow ? 1 : 0.5 + 0.5 * Math.min(1, Math.max(0, (h - SONDE_GROUND) / Math.max(1, hLow - SONDE_GROUND)));
+    const j = jit ? jit(k, L[2]) : [0, 0];
+    return [f * L[0] + j[0], f * L[1] + j[1]];
+  };
+  const t1 = last[3], recent = P.filter((q) => q[3] > t1 - 300);
+  const top = P.reduce((a, q) => (q[2] > a[2] ? q : a));
+  // vertical speed of the last five steps between decoded points (m/s, the mean of the five)
+  const vs = [];
+  for (let i = P.length - 1; i > 0 && vs.length < 5; i--) {
+    const dt = P[i][3] - P[i - 1][3];
+    if (dt >= 1 && dt <= 120) vs.push((P[i][2] - P[i - 1][2]) / dt);
+  }
+  const vNow = vs.length ? vs.reduce((x, y) => x + y, 0) / vs.length : s.vv || 0;
+  const vSd = vs.length > 1 ? Math.sqrt(vs.reduce((x, y) => x + (y - vNow) ** 2, 0) / (vs.length - 1)) : 0;
+  const rising = vNow > -1 && !s.burst;
+  let up = 5;
+  if (rising && recent.length > 1) up = (recent[recent.length - 1][2] - recent[0][2]) / Math.max(1, recent[recent.length - 1][3] - recent[0][3]);
+  else if (top[3] > P[0][3]) up = (top[2] - P[0][2]) / (top[3] - P[0][3]);
+  if (!(up > 1.5 && up < 12)) up = 5;
+  // falling: the measured descent rate taken back to sea level by the air density, so the parachute slows down as the
+  // air gets thicker; 5 m/s at sea level only while the sonde is still rising
+  let fall0 = SONDE_FALL0, fallErr = 0.25;
+  if (!rising && vNow < -0.5) { fall0 = -vNow * Math.sqrt(sondeRhoRatio(last[2])); fallErr = Math.max(0.15, vSd / -vNow); }
+  if (!(fall0 > 1 && fall0 < 60)) { fall0 = SONDE_FALL0; fallErr = 0.25; }
+  const burst = s.burst || !rising ? top[2] : Math.max(SONDE_BURST, last[2] + 500);
+  // launch: back from the first point heard at the ascent rate (from the ground)
+  const launch = P[0][3] - Math.max(0, P[0][2] - SONDE_GROUND) / up;
+
+  const fly = (prm, DT, keep) => {
+    let [lat, lon, h, t] = last, goingUp = rising;
+    const path = [[lat, lon]], marks = [];
+    let next = Math.max(1, Math.ceil((t - launch) / 3600 + 1e-6));
+    for (let n = 0; n < (6 * 3600) / DT; n++) {
+      const [ve, vn] = windAt(h, prm.jit);
+      lat += (vn * DT) / R;
+      lon += (ve * DT) / (R * Math.cos((lat * Math.PI) / 180));
+      if (goingUp) {
+        h += prm.up * DT;
+        if (h >= prm.burst) { h = prm.burst; goingUp = false; if (keep) marks.push({ lat, lon, t: t + DT, h, burst: true }); }
+      } else h -= (prm.fall0 / Math.sqrt(sondeRhoRatio(h))) * DT;
+      t += DT;
+      if (keep && n % 3 === 0) path.push([lat, lon]);
+      if (h <= prm.ground) { path.push([lat, lon]); return { path, marks, land: { lat, lon, t } }; }
+      if (keep && next <= 3 && t >= launch + next * 3600) { marks.push({ lat, lon, t, h, hour: next }); next++; }
+    }
+    return null;
+  };
+  const res = fly({ up, burst, fall0, ground: SONDE_GROUND }, 10, true);
+  if (res) {
+    res.launch = launch;
+    const g = sondeRandom(Math.floor(t1) ^ P.length), ds = [], ts = [];
+    const cosL = Math.cos((res.land.lat * Math.PI) / 180);
+    for (let i = 0; i < SONDE_MC; i++) {
+      const off = new Map();
+      const jit = (k, sig) => { let o = off.get(k); if (!o) off.set(k, (o = [g() * sig, g() * sig])); return o; };
+      const r = fly({
+        up: up * (1 + 0.1 * g()),
+        burst: rising && !s.burst ? Math.max(last[2] + 200, burst + 3000 * g()) : burst,
+        fall0: fall0 * Math.max(0.3, 1 + fallErr * g()),
+        ground: Math.max(0, SONDE_GROUND + 250 * g()),
+        jit,
+      }, 20, false);
+      if (!r) continue;
+      ds.push(Math.hypot((r.land.lat - res.land.lat) * R, (r.land.lon - res.land.lon) * R * cosL));
+      ts.push(r.land.t);
+    }
+    ds.sort((x, y) => x - y);
+    ts.sort((x, y) => x - y);
+    res.radius = ds.length ? Math.max(300, ds[Math.max(0, Math.ceil(ds.length * 0.9) - 1)]) : null;
+    res.tSpan = ts.length ? [ts[Math.floor(ts.length * 0.05)], ts[Math.min(ts.length - 1, Math.floor(ts.length * 0.95))]] : null;
+  }
+  sondePredCache.set(s.serial, { key, res });
+  return res;
+}
+
+function sondeDrawPrediction(s, layer) {
+  const p = sondePredict(s);
+  if (!p) return;
+  const c = "#ff4b3c", o = { color: c, weight: 2, opacity: 0.8, dashArray: "6 6", interactive: false };   // red dashed
+  L.polyline(p.path, o).addTo(layer);
+  const lbl = () => ({ permanent: true, direction: "right", offset: [6, 0], className: "ais-label sonde-pred-lbl" });
+  for (const m of p.marks) {
+    const mk = L.circleMarker([m.lat, m.lon], { radius: m.burst ? 5 : 4, color: m.burst ? "#ffd84a" : c, weight: 1.5, opacity: 0.55, fill: false });
+    mk.bindTooltip(m.burst ? `burst ≈ ${aisUtc(m.t)} UTC` : `+${m.hour} h ${sondeAlt(m.h)} m`, m.burst ? { opacity: 0.8 } : lbl());
+    mk.addTo(layer);
+  }
+  const km = (m) => (m < 1000 ? `${Math.round(m / 50) * 50} m` : `${(m / 1000).toFixed(1)} km`);
+  if (p.radius)
+    L.circle([p.land.lat, p.land.lon], { radius: p.radius, color: c, weight: 1.5, opacity: 0.7, dashArray: "3 5", fillColor: c, fillOpacity: 0.08, interactive: false }).addTo(layer);
+  const span = p.tSpan ? ` (${aisUtc(p.tSpan[0]).slice(0, 5)}–${aisUtc(p.tSpan[1]).slice(0, 5)})` : "";
+  L.marker([p.land.lat, p.land.lon], { icon: L.divIcon({ className: "sonde-land", html: "✕", iconSize: [16, 16], iconAnchor: [8, 8] }) })
+    .bindTooltip(`landing ≈ ${aisUtc(p.land.t)} UTC${span}${p.radius ? ` ± ${km(p.radius)}` : ""}`, lbl())
+    .addTo(layer);
+}
+
+// ----- SONDE PROFILE: temperature and humidity against altitude, one sonde; altitude is the vertical axis (tall plot),
+// two panels side by side share it (no second x scale in one panel). Pressure is not measured by the RS41-SG: the right
+// edge labels the altitude axis with the pressure of the standard atmosphere (ISA), only as an orientation.
+const SONDE_PROF_C = { temp: "#ff8c1a", rh: "#4fb6ff" };
+const isaHpa = (h) => (h < 11000 ? 1013.25 * Math.pow(1 - 2.25577e-5 * h, 5.25588) : 226.32 * Math.exp(-(h - 11000) / 6341.6));
+const isaAlt = (p) => (p > 226.32 ? (1 - Math.pow(p / 1013.25, 1 / 5.25588)) / 2.25577e-5 : 11000 - 6341.6 * Math.log(p / 226.32));
+let sondeProfGeom = null, sondeLogList = [];
+const SONDE_PROF_TOP = 41000;   // m: fixed top of the altitude axis (highest sondes burst at 35-40 km)
+
+function sondeNiceStep(span, n) {
+  const raw = span / n, m = Math.pow(10, Math.floor(Math.log10(raw)));
+  return [1, 2, 5, 10].map((k) => k * m).find((s) => s >= raw);
+}
+
+/** Sonde whose profile is shown (orange on the map): the chosen one, else the one decoded on the tuned frequency
+ *  (newest heard there), else the newest with a temperature. */
+function sondeShown() {
+  if (sondeSel && sondes.has(sondeSel)) return sondes.get(sondeSel);
+  const all = sondeList(), live = all.filter((s) => !s.from_log), hz = st && st.tune_hz;
+  return (hz && live.find((s) => s.freq_hz && Math.abs(s.freq_hz - hz) <= 15000)) || live.find((s) => s.pts.some((q) => q[4] != null)) ||
+    all.find((s) => s.pts.some((q) => q[4] != null)) || all[0] || null;
+}
+
+/** The list above the profile: Auto, the heard sondes, the flights in the log (not rebuilt while it is open). */
+function renderSondeProfSel(list, shown) {
+  const sel = $("sondeProfSel");
+  if (document.activeElement === sel) return;
+  const opt = (s) => `<option value="${escHtml(s.serial)}"${s.serial === sondeSel ? " selected" : ""}>${escHtml(s.serial)} · ${escHtml(s.type || "")}` +
+    `${s.alt != null ? ` · ${sondeAlt(s.alt)} m` : ""}${s.freq_hz ? ` · ${fmtMHz(s.freq_hz, 3)}` : ""}${s.from_log ? " · log" : ` · ${aisAge(s.last)}`}</option>`;
+  const logged = sondeLogList.filter((l) => !sondes.has(l.serial));
+  const html = `<option value=""${sondeSel ? "" : " selected"}>Auto${shown && !sondeSel ? `: ${escHtml(shown.serial)}` : ""} (tuned frequency)</option>` +
+    (list.length ? `<optgroup label="Heard">${list.map(opt).join("")}</optgroup>` : "") +
+    (logged.length ? `<optgroup label="Log (data\logs\radiosonde)">${logged.map((l) =>
+      `<option value="log:${escHtml(l.file)}">${escHtml(l.serial)} · ${escHtml(l.type || "")}${l.alt != null ? ` · ${sondeAlt(l.alt)} m` : ""} · ${new Date(l.first * 1000).toISOString().slice(0, 16).replace("T", " ")} UTC</option>`).join("")}</optgroup>` : "");
+  if (sel.dataset.html !== html) { sel.innerHTML = html; sel.dataset.html = html; }
+}
+
+function renderSondeProfile() {
+  const list = sondeList();
+  const box = $("sondeProf");
+  const s = sondeShown();
+  renderSondeProfSel(list, s);
+  const pts = s ? s.pts.filter((q) => q[4] != null) : [];
+  if (pts.length < 2) {
+    box.innerHTML = `<div class="ft8-empty">${!s ? "Temperature and humidity profile of the sonde chosen in the list above or on the map (also a flight from the log)." :
+      s.type !== "RS41" ? `No temperature from a ${escHtml(s.type)} sonde.` :
+      `No temperature yet${s.cal_n != null ? ` (calibration ${s.cal_n}/51)` : ""}. The profile grows every 2 s of the flight while the sonde is heard.`}</div>`;
+    $("sondeProfNote").textContent = s ? s.serial : "";
+    sondeProfGeom = null;
+    return;
+  }
+  // ascent up to the highest point, descent after it (fainter)
+  const top = pts.reduce((a, q, i) => (q[2] > pts[a][2] ? i : a), 0);
+  const W = Math.max(320, Math.min(560, box.clientWidth || 520)), H = Math.max(260, (box.clientHeight || 640) - 2);
+  const L = 54, R = 52, T = 26, B = 34, gap = 30, pw = (W - L - R - gap) / 2;
+  const alts = pts.map((q) => q[2]);
+  const aMin = 0, aMax = Math.max(SONDE_PROF_TOP, Math.ceil(Math.max(...alts) / 1000) * 1000);
+  const ty = (a) => T + (H - T - B) * (1 - (a - aMin) / (aMax - aMin));
+  const ts = pts.map((q) => q[4]), tLo = Math.floor((Math.min(...ts) - 3) / 10) * 10, tHi = Math.ceil((Math.max(...ts) + 3) / 10) * 10;
+  const panels = [
+    { key: "temp", i: 4, lo: tLo, hi: tHi, x0: L, title: "Temperature °C" },
+    { key: "rh", i: 5, lo: 0, hi: 100, x0: L + pw + gap, title: "Humidity %" },
+  ];
+  for (const p of panels) p.tx = (v) => p.x0 + pw * (v - p.lo) / (p.hi - p.lo);
+  let svg = "";
+  const aStep = sondeNiceStep(aMax - aMin, H > 420 ? 9 : 5);
+  for (let a = Math.ceil(aMin / aStep) * aStep; a <= aMax; a += aStep) {
+    const y = ty(a).toFixed(1);
+    svg += `<line class="g" x1="${L}" x2="${W - R}" y1="${y}" y2="${y}"/><text class="ax" x="${L - 6}" y="${y}" dy="4" text-anchor="end">${a >= 1000 ? `${a / 1000} km` : `${a} m`}</text>`;
+  }
+  for (const hpa of [1000, 850, 700, 500, 300, 200, 100, 50, 30, 20, 10, 5, 3]) {
+    const a = isaAlt(hpa);
+    if (a < aMin || a > aMax) continue;
+    const y = ty(a).toFixed(1);
+    svg += `<line class="tk" x1="${W - R}" x2="${W - R + 4}" y1="${y}" y2="${y}"/><text class="ax" x="${W - R + 7}" y="${y}" dy="4">${hpa}</text>`;
+  }
+  svg += `<text class="ax" x="${W - R + 7}" y="${T - 10}">hPa*</text>`;
+  for (const p of panels) {
+    const step = p.key === "rh" ? 20 : sondeNiceStep(p.hi - p.lo, 5);
+    for (let v = Math.ceil(p.lo / step) * step; v <= p.hi + 1e-9; v += step) {
+      const x = p.tx(v).toFixed(1);
+      svg += `<line class="g" x1="${x}" x2="${x}" y1="${T}" y2="${H - B}"/><text class="ax" x="${x}" y="${H - B + 16}" text-anchor="middle">${Math.round(v)}</text>`;
+    }
+    if (p.key === "temp" && p.lo < 0 && p.hi > 0) svg += `<line class="zero" x1="${p.tx(0)}" x2="${p.tx(0)}" y1="${T}" y2="${H - B}"/>`;
+    svg += `<rect class="frame" x="${p.x0}" y="${T}" width="${pw}" height="${H - T - B}"/>`;
+    svg += `<text class="ttl" x="${p.x0 + pw / 2}" y="${T - 10}" text-anchor="middle">${p.title}</text>`;
+    const path = (a, b) => pts.slice(a, b).filter((q) => q[p.i] != null)
+      .map((q, k) => `${k ? "L" : "M"}${p.tx(q[p.i]).toFixed(1)},${ty(q[2]).toFixed(1)}`).join("");
+    svg += `<path class="ln" d="${path(0, top + 1)}" stroke="${SONDE_PROF_C[p.key]}"/>`;
+    if (top < pts.length - 1) svg += `<path class="ln down" d="${path(top, pts.length)}" stroke="${SONDE_PROF_C[p.key]}"/>`;
+    const q = pts[pts.length - 1];
+    if (q[p.i] != null) svg += `<circle class="dot" cx="${p.tx(q[p.i]).toFixed(1)}" cy="${ty(q[2]).toFixed(1)}" r="4" fill="${SONDE_PROF_C[p.key]}"/>`;
+  }
+  svg += `<g id="sondeProfHover" visibility="hidden"><line class="hv" x1="${L}" x2="${W - R}"/><circle r="4" class="hd" data-k="temp"/><circle r="4" class="hd" data-k="rh"/></g>`;
+  box.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Temperature and humidity against altitude of ${escHtml(s.serial)}">${svg}</svg><div class="sonde-prof-tip" hidden></div>`;
+  sondeProfGeom = { pts, panels, ty, L, R, T, B, W, H };
+  const tmin = pts.reduce((a, q) => (q[4] < a[4] ? q : a));
+  $("sondeProfNote").textContent = `${s.serial} · ${pts.length} points · ${sondeAlt(Math.min(...alts))}–${sondeAlt(Math.max(...alts))} m · coldest ${tmin[4].toFixed(1)} °C at ${sondeAlt(tmin[2])} m` +
+    (top < pts.length - 1 ? " · fainter line = descent after the burst" : "") + " · *hPa: standard atmosphere for the altitude, not measured";
+  $("sondeProfNote").title = $("sondeProfNote").textContent;
+}
+
+async function sondeLogsLoad() {
+  try { sondeLogList = await fetch(vbase + "/api/sonde/logs").then((r) => r.json()); } catch { sondeLogList = []; }
+  if (sondeView === "map") renderSondeMap();
+}
+
+async function sondeLogOpen(file) {
+  try {
+    const s = await fetch(vbase + "/api/sonde/log?file=" + encodeURIComponent(file)).then((r) => (r.ok ? r.json() : null));
+    if (!s) return;
+    if (!sondes.has(s.serial)) sondes.set(s.serial, s);
+    sondeSelect(s.serial);
+  } catch { /* the log is gone */ }
+}
+
+new ResizeObserver(() => { if (sondeView === "map" && !$("sondeMapBox").hidden) renderSondeProfile(); }).observe($("sondeProf"));
+
+$("sondeProf").addEventListener("mousemove", (e) => {
+  const g = sondeProfGeom, svg = $("sondeProf").querySelector("svg");
+  if (!g || !svg) return;
+  const r = svg.getBoundingClientRect(), y = (e.clientY - r.top) * g.H / r.height;
+  const hov = svg.querySelector("#sondeProfHover"), tip = $("sondeProf").querySelector(".sonde-prof-tip");
+  if (y < g.T || y > g.H - g.B) { hov.setAttribute("visibility", "hidden"); tip.hidden = true; return; }
+  const q = g.pts.reduce((a, p) => (Math.abs(g.ty(p[2]) - y) < Math.abs(g.ty(a[2]) - y) ? p : a));
+  const yy = g.ty(q[2]), ln = hov.querySelector("line");
+  hov.setAttribute("visibility", "visible");
+  ln.setAttribute("y1", yy);
+  ln.setAttribute("y2", yy);
+  for (const p of g.panels) {
+    const c = hov.querySelector(`[data-k="${p.key}"]`);
+    if (q[p.i] == null) { c.setAttribute("visibility", "hidden"); continue; }
+    c.setAttribute("visibility", "visible");
+    c.setAttribute("cx", p.tx(q[p.i]));
+    c.setAttribute("cy", yy);
+    c.setAttribute("fill", SONDE_PROF_C[p.key]);
+  }
+  tip.hidden = false;
+  tip.innerHTML = `<b>${sondeAlt(q[2])} m</b> · ${aisUtc(q[3])} UTC<br>${q[4].toFixed(1)} °C${q[5] != null ? ` · RH ${Math.round(q[5])} %` : ""}` +
+    `<br><span class="muted">≈ ${Math.round(isaHpa(q[2]))} hPa (standard atmosphere)</span>`;
+  tip.style.top = `${Math.min(yy * r.height / g.H + 8, r.height - 60)}px`;
+  tip.style.left = `${(g.L + 8) * r.width / g.W}px`;
+});
+$("sondeProf").addEventListener("mouseleave", () => {
+  const hov = $("sondeProf").querySelector("#sondeProfHover"), tip = $("sondeProf").querySelector(".sonde-prof-tip");
+  if (hov) hov.setAttribute("visibility", "hidden");
+  if (tip) tip.hidden = true;
+});
+
+function sondeSelect(serial, pan = true) {
+  sondeSel = serial;
+  renderSondeMap().then(() => {
+    const mk = sondeLayers && sondeLayers.m.get(serial);
+    if (!mk) return;
+    if (pan) sondeMap.setView(mk.getLatLng(), Math.max(sondeMap.getZoom(), 9));
+    mk.openPopup();
+  });
+}
+
+function setSondeView(v, save = true) {
+  sondeView = v;
+  if (save) store("sondeView", v);
+  for (const b of $("sondeViews").children) b.classList.toggle("on", b.dataset.view === v);
+  $("sondeListBox").hidden = v !== "sondes";
+  $("sondeMapBox").hidden = v !== "map";
+  $("sondeFrameBox").hidden = v !== "frames";
+  if (v === "map") sondeLogsLoad();
+  renderSondeView();
+}
+
+function renderSondeInfo(i) {
+  const el = $("sondeInfo");
+  if (!i.enabled) { el.textContent = ""; el.title = ""; return; }
+  const off = i.offset_hz == null ? "" : `  offset ${i.offset_hz > 0 ? "+" : ""}${(i.offset_hz / 1000).toFixed(1)} kHz`;
+  el.textContent = `${i.ok} frames  ${i.bad} bad${i.last_rx ? off : ""}`;
+  el.title = `${i.headers} frame starts found · ${i.ok} frames decoded · ${i.bad} could not be read · ${i.fixed} bytes corrected by Reed–Solomon` +
+    (i.last_rx ? ` · last frame ${aisUtc(i.last_rx)} UTC` : "") + " · offset = how far the signal is from the dial";
+}
+
+function sondePost(body) {
+  return fetch(vbase + "/api/sonde", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+    .then((r) => r.json());
+}
+
+function sondeReset() {
+  $("sondeFrameRows").innerHTML = "";
+  $("sondeFrameEmpty").hidden = false;
+  sondes.clear();
+  sondeSel = null;
+  sondeFitted = false;
+  if (sondeLayers) { sondeLayers.marks.clearLayers(); sondeLayers.tracks.clearLayers(); sondeLayers.m.clear(); }
+  renderSondeView();
+}
+
+async function sondeLoad() {
+  const v = active;
+  try {
+    const d = await fetch(vbase + "/api/sonde").then((r) => r.json());
+    if (v !== active) return;
+    sondeReset();
+    for (const f of d.frames) addSondeFrame(f);
+    for (const s of d.sondes) sondes.set(s.serial, s);
+    renderSondeInfo(d);
+    setSondeView(sondeView, false);
+  } catch { /* an older receiver without the sonde decoder */ }
+}
+
+function setSondeNote(on) {
+  store("sondeNote", on ? "1" : "0");
+  $("sondeInfoKey").classList.toggle("on", on);
+  $("sondeNote").hidden = !on;
+  if (sondeMap) setTimeout(() => sondeMap.invalidateSize());
+}
+$("sondeInfoKey").addEventListener("click", () => setSondeNote($("sondeNote").hidden));
+setSondeNote(recall("sondeNote") !== "0");
+$("sondeOn").addEventListener("change", () => {
+  st.sonde = $("sondeOn").checked;
+  $("sondeCard").hidden = !st.sonde;
+  send({ sonde: st.sonde });
+});
+// 403 MHz: the middle of the sonde band in FM (the mode locally first, the frequency, then the mode to the server,
+// like the KNOWN… list of RTTY); the server moves the dongle when 403 MHz is outside its band; the decoder goes on
+const SONDE_MID_HZ = 403000000;
+$("sondeGo").addEventListener("click", () => {
+  if (!st) return;
+  const fm = st.mode !== "FM";
+  if (fm) { st.mode = "FM"; renderControls(); }
+  tune(SONDE_MID_HZ);
+  if (fm) send({ mode: "FM" });
+  if (!st.sonde) { $("sondeOn").checked = true; $("sondeOn").dispatchEvent(new Event("change")); }
+});
+$("sondeClear").addEventListener("click", () => { sondePost({ action: "clear" }).then(renderSondeInfo); sondeReset(); });
+$("sondeViews").addEventListener("click", (e) => { const b = e.target.closest("button[data-view]"); if (b) setSondeView(b.dataset.view); });
+$("sondeProfSel").addEventListener("change", (e) => {
+  const v = e.target.value;
+  e.target.blur();
+  if (v.startsWith("log:")) sondeLogOpen(v.slice(4));
+  else if (v) sondeSelect(v);
+  else { sondeSel = null; renderSondeMap(); }
+});
+$("sondeRows").addEventListener("click", (e) => {
+  if (!e.target.closest(".sonde-goto")) return;
+  e.preventDefault();
+  setSondeView("map");
+  sondeSelect(e.target.closest("tr").dataset.serial);
+});
+setTimeout(() => setSondeView(sondeView, false));   // after the declarations below; filled by sondeLoad()
+
 // graph right of the lists, SPECTRUM or EYE: the server sends its data only while the PACKET page asks for it
 // (renewed every 2 s)
 let pktGraph = recall("packetGraph") === "eye" ? "eye" : "spec";
@@ -6230,70 +7368,377 @@ function textOut(boxId, emptyId, max) {
 }
 
 let cwInfo = null;
-const cwOut = textOut("cwText", "cwEmpty", 6000);
-const cwAppend = (t) => cwOut.add(t);
+// CW skimmer table: one row per station. The text of each station is kept here: seeded from the state (its end),
+// the whole of it fetched when its row is opened, then extended by the cwchan events.
+const CW_TEXT_MAX = 4000, CW_ROW_CHARS = 400;
+const cwTexts = new Map();   // id -> { t: text, c: confidence digits 0–9 }
+const cwOpen = new Set();    // ids of the opened rows
+const cwRows = new Map();    // id -> { tr, cells, box, inner, det }
+const cwCls = (c) => (c >= 7 ? "" : c >= 4 ? "cq-mid" : "cq-lo");
+const cwPost = (body) => fetch(vbase + "/api/cw", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+  .then((r) => r.json()).then((i) => { if (i && i.channels) renderCwInfo(i); }).catch(() => {});
+const KEY_NAMES = { paddle: "paddle", bug: "bug", straight: "straight key" };
+
+/** Text into an element, each character coloured by its confidence (runs of one class in one span). */
+function cwPaint(el, t, c) {
+  el.textContent = "";
+  let run = "", k = null;
+  const flush = () => {
+    if (!run) return;
+    const s = document.createElement("span");
+    if (k) s.className = k;
+    s.textContent = run;
+    el.append(s);
+    run = "";
+  };
+  for (let i = 0; i < t.length; i++) {
+    const kk = cwCls(c && c[i] != null ? +c[i] : 9);
+    if (kk !== k) { flush(); k = kk; }
+    run += t[i];
+  }
+  flush();
+}
+
+function cwTextOf(id) {
+  let x = cwTexts.get(id);
+  if (!x) { x = { t: "", c: "" }; cwTexts.set(id, x); }
+  return x;
+}
+
+/** The text cell of a row: closed = one line ending with the newest characters, open = the whole text. */
+function cwRowText(id) {
+  const r = cwRows.get(id);
+  if (!r) return;
+  const x = cwTextOf(id), open = cwOpen.has(id);
+  const n = open ? x.t.length : CW_ROW_CHARS;
+  const stick = r.box.scrollTop + r.box.clientHeight >= r.box.scrollHeight - 4;
+  cwPaint(r.inner, x.t.slice(-n), x.c.slice(-n));
+  if (!x.t) r.inner.textContent = "…";
+  if (open && stick) r.box.scrollTop = r.box.scrollHeight;
+}
+
+/** cwchan: new characters of one station. */
+function cwChanAdd(d) {
+  const x = cwTextOf(d.id);
+  x.t = (x.t + d.t).slice(-CW_TEXT_MAX);
+  x.c = (x.c + d.c.join("")).slice(-CW_TEXT_MAX);
+  cwRowText(d.id);
+}
+
+function cwToggle(id) {
+  if (cwOpen.has(id)) {
+    cwOpen.delete(id);
+  } else {
+    cwOpen.add(id);
+    cwPost({ action: "follow", id });   // the opened station is the followed one (LOG, TUNE, audio bubble)
+    fetch(vbase + "/api/cw?id=" + id).then((r) => (r.ok ? r.json() : null)).then((d) => {
+      if (!d || d.text == null) return;
+      cwTexts.set(id, { t: d.text, c: d.conf });
+      cwRowText(id);
+    }).catch(() => {});
+  }
+  const r = cwRows.get(id);
+  if (r) r.tr.classList.toggle("open", cwOpen.has(id));
+  cwRowText(id);
+}
+
+function cwRow(id) {
+  let r = cwRows.get(id);
+  if (r) return r;
+  const tr = document.createElement("tr");
+  const cells = ["num", "call", "num", "num"].map((cl) => { const td = document.createElement("td"); td.className = cl; tr.append(td); return td; });
+  const td = document.createElement("td");
+  td.className = "txt";
+  const box = document.createElement("div"), inner = document.createElement("span"), det = document.createElement("div");
+  box.className = "cw-t"; inner.className = "cw-ti"; det.className = "cw-det";
+  box.append(inner);
+  td.append(box, det);
+  tr.append(td);
+  tr.addEventListener("click", (e) => {
+    // inside an opened text: selecting / scrolling, not closing
+    if (cwOpen.has(id) && (box.contains(e.target) || det.contains(e.target))) return;
+    if (String(window.getSelection() || "")) return;
+    cwToggle(id);
+  });
+  r = { tr, cells, box, inner, det };
+  cwRows.set(id, r);
+  return r;
+}
+
+function cwDetails(r, c) {
+  const p = c.profile;
+  const parts = [`${fmtKHz(c.freq_hz, 3)} kHz (${c.tone_hz > 0 ? "+" : ""}${c.tone_hz} Hz)`];
+  if (c.acquired) {
+    parts.push(`dot ${p.dot_ms} ms`, `dah/dit ${(p.dah / p.dit).toFixed(2)}`, `gaps ${p.ie} / ${p.ic} / ${p.iw} dots`);
+    if (c.key) parts.push(KEY_NAMES[c.key] || c.key);
+    if (c.farnsworth) parts.push(`Farnsworth: letters ${c.wpm} WPM, text ${c.eff_wpm} WPM`);
+  } else parts.push("learning the speed…");
+  r.det.textContent = "";
+  const span = document.createElement("span");
+  span.textContent = parts.join("  ·  ");
+  const tuneBtn = document.createElement("button");
+  tuneBtn.className = "key small";
+  tuneBtn.textContent = "TUNE";
+  tuneBtn.title = "Switch to CW and tune the VFO to this station";
+  tuneBtn.addEventListener("click", (e) => { e.stopPropagation(); cwTuneTo(c.freq_hz); });
+  r.det.append(tuneBtn, span);
+}
+
+function renderCwTable(i) {
+  const body = $("cwStBody"), ids = new Set();
+  let k = 0;
+  for (const c of i.channels) {
+    ids.add(c.id);
+    const fresh = !cwRows.has(c.id);
+    const r = cwRow(c.id);
+    if (fresh || !cwTexts.has(c.id)) cwTexts.set(c.id, { t: c.text, c: c.conf });   // seed with the end of its text
+    const [f, call, wpm, snr] = r.cells;
+    f.textContent = fmtKHz(c.freq_hz, 2);
+    call.textContent = c.call || "—";
+    wpm.textContent = c.acquired ? c.wpm : "…";
+    snr.textContent = Math.round(c.snr_db);
+    r.tr.className = [c.id === i.cur ? "cur" : "", c.present ? "" : "gone", cwOpen.has(c.id) ? "open" : ""].join(" ").trim();
+    r.tr.title = `${c.wpm} WPM · SNR ${c.snr_db} dB${c.key ? " · " + (KEY_NAMES[c.key] || c.key) : ""}`
+      + (c.id === i.cur ? (i.follow == null ? " · followed (the strongest)" : " · followed") : "")
+      + (cwOpen.has(c.id) ? " · click to close" : " · click to open the whole text");
+    cwDetails(r, c);
+    // rows in frequency order; moved only when out of place (moving resets the scroll of an opened text)
+    if (body.children[k] !== r.tr) body.insertBefore(r.tr, body.children[k] || null);
+    k++;
+    if (fresh) cwRowText(c.id);
+  }
+  for (const [id, r] of cwRows) {
+    if (ids.has(id)) continue;
+    r.tr.remove();
+    cwRows.delete(id); cwTexts.delete(id); cwOpen.delete(id);
+  }
+  $("cwEmpty").hidden = i.channels.length > 0;
+}
+
+function cwReset() {
+  for (const r of cwRows.values()) r.tr.remove();
+  cwRows.clear(); cwTexts.clear(); cwOpen.clear();
+  $("cwEmpty").hidden = false;
+}
 
 function renderCwInfo(i) {
+  const hadMarks = cwInfo && cwInfo.channels && cwInfo.channels.length;
   cwInfo = i;
-  // Short like on a station "WPM:25"; details in the tooltip.
-  $("cwInfo").textContent = i.tone_hz == null ? "WPM:--" : `${i.present ? "●" : "○"} WPM:${i.wpm}  ${Math.round(i.snr_db)} dB`;
-  $("cwInfo").title = i.tone_hz == null ? "searching for tone…"
-    : `tone ${fmtKHz(i.freq_hz, 2)} kHz (${i.tone_hz > 0 ? "+" : ""}${i.tone_hz} Hz) · SNR ${i.snr_db} dB`;
+  const s = i.station, n = (i.channels || []).filter((c) => c.present).length;
+  // Short like on a station; details in the tooltip.
+  $("cwInfo").textContent = !s ? "no station"
+    : `${n} stn  ${i.present ? "●" : "○"} ${s.call ? s.call + " " : ""}${i.wpm} WPM ${Math.round(i.snr_db)} dB`;
+  $("cwInfo").title = !s ? "searching for stations…"
+    : `${n} station(s) heard; followed: ${fmtKHz(i.freq_hz, 2)} kHz (${i.tone_hz > 0 ? "+" : ""}${i.tone_hz} Hz) · SNR ${i.snr_db} dB`;
   $("cwTune").disabled = i.tone_hz == null;
+  if (document.activeElement !== $("cwSpan")) $("cwSpan").value = i.span || "filter";
+  $("cwAuto").hidden = i.follow == null;
+  renderCwTable(i);
+  if (hadMarks || (i.channels && i.channels.length)) drawOverlays();   // stations in the spectrum
+}
+
+/** Skimmer stations in the spectrum (bandmap): a mark at the bottom edge and the call (or WPM) above it. */
+function drawCwMarks(ctx, w, h) {
+  const i = cwInfo;
+  if (!st || !st.cw || !i || !i.channels || !i.channels.length) return;
+  ctx.save();
+  ctx.font = "600 10px system-ui, sans-serif";
+  ctx.textBaseline = "middle";
+  ctx.textAlign = "left";
+  const used = [[], []];
+  for (const c of [...i.channels].sort((a, b) => (b.id === i.cur) - (a.id === i.cur))) {
+    const x = Math.round(freqToX(c.freq_hz, w)) + 0.5;
+    if (x < 0 || x > w) continue;
+    const color = c.id === i.cur ? "#ffb547" : c.present ? "#5fd7ff" : "#5f6b78";
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.moveTo(x, h - 9); ctx.lineTo(x - 4, h - 2); ctx.lineTo(x + 4, h - 2); ctx.closePath(); ctx.fill();
+    const label = c.call || (c.acquired ? `${c.wpm}` : "");
+    if (!label) continue;
+    const tw = ctx.measureText(label).width + 8;
+    const bx = Math.min(Math.max(x - tw / 2, 2), w - tw - 2);
+    const row = used.findIndex((u) => u.every(([a, b]) => bx + tw + 2 < a || bx - 2 > b));
+    if (row < 0) continue;
+    used[row].push([bx, bx + tw]);
+    const y0 = h - 25 - row * 16;
+    ctx.fillStyle = "rgba(8,12,14,.85)";
+    ctx.strokeStyle = color;
+    ctx.beginPath(); ctx.roundRect(bx, y0, tw, 13, 3); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = color;
+    ctx.fillText(label, bx + 4, y0 + 7);
+  }
+  ctx.restore();
+}
+
+function cwTuneTo(freq) {
+  if (freq == null) return;
+  const changes = {};
+  if (st.mode !== "CW") { st.mode = "CW"; renderControls(); changes.mode = "CW"; }
+  tune(freq);
+  if (changes.mode) send(changes);
 }
 
 $("cwOn").addEventListener("change", () => {
   st.cw = $("cwOn").checked;
   $("cwCard").hidden = !st.cw;
   send({ cw: st.cw });
+  drawOverlays();
 });
 $("cwClear").addEventListener("click", () => {
-  fetch(vbase + "/api/cw", { method: "POST", headers: { "Content-Type": "application/json" }, body: '{"action":"clear"}' });
-  cwOut.clear();
+  cwReset();   // the whole table; stations still on the air come back with empty text
+  cwPost({ action: "clear" });
 });
-$("cwTune").addEventListener("click", () => {
-  if (!cwInfo || cwInfo.freq_hz == null) return;
-  const changes = {};
-  if (st.mode !== "CW") { st.mode = "CW"; renderControls(); changes.mode = "CW"; }
-  tune(cwInfo.freq_hz);
-  if (changes.mode) send(changes);
-});
+$("cwTune").addEventListener("click", () => cwTuneTo(cwInfo && cwInfo.freq_hz));
+$("cwSpan").addEventListener("change", () => cwPost({ action: "options", span: $("cwSpan").value }));
+$("cwAuto").addEventListener("click", () => cwPost({ action: "follow", id: null }));
 
 // ---------- ISM: 433 / 868 MHz devices (rtl_433; the VFO feeds it through rtl_tcp) ----------
+// Three views: MESSAGES (every message, the latest activity on top), DEVICES (a card per device with its latest
+// values and a 24 h curve of temperature / humidity) and TIMELINE (a dot for each message of a device in the last
+// hour). The category chips, the filter and HIDDEN apply to all three. Names, pins and hidden devices are
+// station-wide (data\ism_devices.json).
 
-const ISM_MAX_ROWS = 300;
+const ISM_MAX_ROWS = 500;
 const ISM_TITLE = $("ismKey").title;   // tooltip from index.html (replaced on a device without ISM and a chained VFO)
 let ismLast = {};   // the status sends only on/off and the error; the counts come from ismstate
+const ismDevs = new Map();             // device key -> device from the server (latest values, message times, series)
+let ismNames = {};                     // device key -> {name, pin, hide}
+let ismView = recall("ismView") || "msgs";
+let ismCatsOff = new Set();
+try { ismCatsOff = new Set(JSON.parse(recall("ismCatsOff") || "[]")); } catch { /* an old value */ }
+let ismShowHidden = false;
+const ismFlash = new Set();            // device cards to flash at the next render
+let ismRange = [1, 6, 24].includes(Number(recall("ismRange"))) ? Number(recall("ismRange")) : 6;   // hours shown in DEVICES, TIMELINE and the device tab
 
-function ismRow(tr, m) {
-  tr.classList.toggle("raw", !!m.raw);
-  const level = m.rssi == null ? "-" : `${Number(m.rssi).toFixed(1)} / ${Number(m.snr).toFixed(1)} dB`;
-  tr.innerHTML = `<td>${new Date(m.time * 1000).toISOString().slice(11, 19)}</td><td>${fmtMHz(m.freq_hz, 3)}</td>` +
-    `<td class="dev" title="${escHtml(m.model)}${m.protocol ? ` · rtl_433 protocol ${escHtml(m.protocol)}` : ""}${(m.models || []).length > 1 ? " · the same packet read by more decoders of rtl_433" : ""}">${escHtml(m.model)}</td>` +
-    `<td class="id" title="${escHtml(m.dev_id)}">${escHtml(m.dev_id || "-")}</td><td>${escHtml(m.channel || "-")}</td>` +
-    `<td title="${escHtml(m.mod)}">${level}</td>` +
-    `<td class="data" title="${escHtml(m.raw ? `Not decoded${m.flex ? ` · rtl_433 flex decoder: ${m.flex}` : ""}` : m.mic ? `Check: ${m.mic}` : "")}">${escHtml(m.text)}` +
-    `${m.view ? `<a class="pdv" href="${escHtml(m.view)}" target="_blank" rel="noopener" title="Show the pulses at triq.org/pdv">⧉</a>` : ""}` +
-    `${m.n > 1 ? `<span class="rep" title="Same message received ${m.n} times">×${m.n}</span>` : ""}</td>`;
+// category: [key, icon, label]
+const ISM_CATS = [["weather", "🌡", "Weather"], ["tpms", "🚗", "TPMS"], ["remote", "🔑", "Remotes"],
+  ["security", "🚪", "Security"], ["alarm", "🔥", "Alarms"], ["meter", "⚡", "Meters"], ["other", "📡", "Other"],
+  ["raw", "❓", "RAW"]];
+const ISM_CAT = Object.fromEntries(ISM_CATS.map(([k, icon, label]) => [k, { icon, label }]));
+const ISM_WEATHER_KEYS = ["temperature_C", "humidity", "wind_avg_km_h", "wind_avg_m_s", "wind_max_km_h", "rain_mm",
+  "pressure_hPa", "light_lux", "uv", "moisture"];
+
+/** Category of a device from its model name and fields (rtl_433 has no categories of its own). */
+function ismCat(model, fields) {
+  model = model || "";
+  fields = fields || {};
+  const has = (keys) => keys.some((k) => k in fields);
+  if (model === "RAW") return "raw";
+  // rtl_433 marks tyre sensors with type TPMS; they report the tyre pressure in kPa / PSI (weather stations in hPa)
+  if (/TPMS|tyre|tire/i.test(model) || fields.type === "TPMS" || has(["pressure_kPa", "pressure_PSI"])) return "tpms";
+  if (/MBus|Meter|Energy|Power|Gas|Kamstrup|Itron|Efergy|CurrentCost|OWL|Elster/i.test(model)
+    || has(["power_W", "energy_kWh", "current_A", "volume_m3", "total_m3", "consumption"])) return "meter";
+  if (/Smoke|Fire|Alarm|Heat|Leak|Flood/i.test(model)) return "alarm";
+  if (has(ISM_WEATHER_KEYS)) return "weather";
+  if (/Door|Window|Contact|Motion|PIR|Secur|Magnet|Vibration/i.test(model)) return "security";
+  if (/Remote|Button|Switch|Key|Fob|Bell|Somfy|Nexa|Proove|Intertechno|Garage|Gate|Princeton|EV1527|Chuango|Smartwares|HT680|Opener|Silvercrest|Brennenstuhl|Elro|Car/i.test(model)
+    || has(["button", "cmd", "command", "state", "code", "event"])) return "remote";
+  return "other";
 }
 
-function addIsm(m) {
+const ismName = (key, model) => (ismNames[key] && ismNames[key].name) || model;
+const ismIsHidden = (key) => !!(key && ismNames[key] && ismNames[key].hide);
+const ismIsPinned = (key) => !!(key && ismNames[key] && ismNames[key].pin);
+
+/** Category chips, filter and HIDDEN: is this message / device shown? */
+function ismPass(cat, key, text) {
+  if (ismCatsOff.has(cat)) return false;
+  if (ismIsHidden(key) && !ismShowHidden) return false;
+  const q = $("ismFilter").value.trim().toLowerCase();
+  return !q || text.toLowerCase().includes(q);
+}
+
+/** Pulses of a RAW package as a small picture: from the rfraw code of the triq.org/pdv link (AAB1, nibble bit 3 =
+ *  high level, bits 0-2 = the duration bucket), else from the demodulated bits {n}hex. "" when there is neither. */
+function ismPulseSvg(view, text) {
+  let seg = [];
+  const r = ((view || "").split("#")[1] || "").split(/[+;:]/)[0].replace(/[^0-9A-Fa-f]/g, "").toUpperCase();
+  if (r.startsWith("AAB1") && r.length > 8) {
+    let p = 4;
+    const nb = parseInt(r.substr(p, 2), 16);
+    p += 2;
+    const bins = [];
+    for (let k = 0; k < nb; k++, p += 4) bins.push(parseInt(r.substr(p, 4), 16));
+    for (; p + 2 <= r.length && seg.length < 600; p += 2) {
+      const b = parseInt(r.substr(p, 2), 16);
+      if (b === 0x55) break;
+      for (const x of [b >> 4, b & 15]) seg.push([(x & 8) !== 0, bins[x & 7] || 0]);
+    }
+  }
+  if (!seg.length) {
+    const m = /\{(\d+)\}([0-9a-f]+)/i.exec(text || "");
+    if (m) {
+      const nbits = Math.min(Number(m[1]), m[2].length * 4, 256);
+      for (let i = 0; i < nbits; i++) seg.push([((parseInt(m[2][i >> 2], 16) >> (3 - (i & 3))) & 1) === 1, 1]);
+    }
+  }
+  if (!seg.length) return "";
+  const durs = seg.map((s) => s[1]).filter((d) => d > 0).sort((a, b) => a - b);
+  const cap = (durs[durs.length >> 1] || 1) * 8;      // long gaps would leave the pulses as hairlines
+  let x = 0;
+  const pts = [];
+  for (const [hi, d] of seg) {
+    const y = hi ? 1 : 11;
+    pts.push(`${x.toFixed(1)},${y}`);
+    x += Math.min(d || 0, cap);
+    pts.push(`${x.toFixed(1)},${y}`);
+  }
+  if (!x) return "";
+  return `<svg class="ism-pulse" viewBox="0 0 ${x.toFixed(1)} 12" preserveAspectRatio="none" aria-hidden="true">` +
+    `<polyline points="${pts.join(" ")}" vector-effect="non-scaling-stroke"/></svg>`;
+}
+
+function ismRow(tr, m) {
+  const key = m.dev || "";
+  const cat = ismCat(m.model, m.fields);
+  tr.classList.toggle("raw", !!m.raw);
+  tr.dataset.cat = cat;
+  tr.dataset.key = key;
+  const name = ismName(key, m.model);
+  tr.dataset.q0 = `${m.model} ${m.dev_id} ${m.channel} ${m.text}`;
+  tr.dataset.q = `${name} ${tr.dataset.q0}`;
+  tr.hidden = !ismPass(cat, key, tr.dataset.q);
+  const level = m.rssi == null ? "-" : `${Number(m.rssi).toFixed(1)} / ${Number(m.snr).toFixed(1)} dB`;
+  const utc = (t) => new Date(t * 1000).toISOString().slice(11, 19);
+  const pulses = m.raw ? ismPulseSvg(m.view, m.text) : "";
+  tr.innerHTML = `<td title="${m.n > 1 ? `first ${utc(m.time)} UTC, last ${utc(m.last || m.time)} UTC` : ""}">${utc(m.last || m.time)}</td><td>${fmtMHz(m.freq_hz, 3)}</td>` +
+    `<td class="dev" title="${escHtml(m.model)}${m.protocol ? ` · rtl_433 protocol ${escHtml(m.protocol)}` : ""}${(m.models || []).length > 1 ? " · the same packet read by more decoders of rtl_433" : ""} · ${ISM_CAT[cat].label}">` +
+    `<span class="ism-ico">${ISM_CAT[cat].icon}</span>${escHtml(name)}${name !== m.model ? ` <small>${escHtml(m.model)}</small>` : ""}</td>` +
+    `<td class="id" title="${escHtml(m.dev_id)}">${escHtml(m.dev_id || "-")}</td><td>${escHtml(m.channel || "-")}</td>` +
+    `<td title="${escHtml(m.mod)}">${ismBars(m.snr)} ${level}</td>` +
+    `<td class="data" title="${escHtml(m.raw ? `Not decoded${m.flex ? ` · rtl_433 flex decoder: ${m.flex}` : ""}` : m.mic ? `Check: ${m.mic}` : "")}">` +
+    `${m.mic ? `<span class="ism-mic" title="Message check passed: ${escHtml(m.mic)}">✓</span>` : ""}${pulses}${escHtml(m.text)}` +
+    `${m.view ? `<a class="pdv" href="${escHtml(m.view)}" target="_blank" rel="noopener" title="Show the pulses at triq.org/pdv">⧉</a>` : ""}` +
+    `${m.raw ? `<button class="ism-mark" data-mark="${m.id}" title="${key ? "Rename this marked signal" : "Mark this signal with a name (e.g. your car key): its later packages (same modulation, ±30 kHz, about the same number of pulses) become a device in DEVICES and TIMELINE"}">✎</button>` : ""}` +
+    `${m.n > 1 ? `<span class="rep" title="Same message received ${m.n} times, each within ${m.raw ? "10 s" : "1 min"} of the previous one">×${m.n}</span>` : ""}</td>`;
+}
+
+/** live: a new message (the row flashes); false while the list loads. */
+function addIsm(m, live = true) {
   const tb = $("ismRows");
   let tr = tb.querySelector(`tr[data-id="${m.id}"]`);   // a repeat or a second decoder of an earlier row
   if (!tr) {
     tr = document.createElement("tr");
     tr.dataset.id = m.id;
-    tb.prepend(tr);
-    while (tb.rows.length > ISM_MAX_ROWS) tb.lastChild.remove();
+    while (tb.rows.length >= ISM_MAX_ROWS) tb.lastChild.remove();
   }
+  if (tb.firstElementChild !== tr) tb.prepend(tr);      // the latest activity on top
   ismRow(tr, m);
   $("ismEmpty").hidden = true;
+  if (live) {
+    tr.classList.remove("flash");
+    void tr.offsetWidth;                                 // restarts the animation
+    tr.classList.add("flash");
+  }
 }
 
 function ismReset() {
   ismLast = {};
+  ismDevs.clear();
+  ismDet = null;
   $("ismRows").innerHTML = "";
   $("ismEmpty").hidden = false;
+  if (ismView === "dev") renderIsmDet();
+  ismRenderSoon();
 }
 
 async function ismLoad() {
@@ -6301,10 +7746,15 @@ async function ismLoad() {
   try {
     const d = await fetch(vbase + "/api/ism").then((r) => r.json());
     if (v !== active) return;
+    ismNames = d.names || {};
+    ismDevs.clear();
+    for (const x of d.devices || []) ismDevs.set(x.key, x);
     $("ismRows").innerHTML = "";
-    for (const m of d.messages) addIsm(m);
+    for (const m of d.messages) addIsm(m, false);
     $("ismEmpty").hidden = d.messages.length > 0;
     renderIsmInfo(d);
+    ismRenderSoon();
+    if (ismView === "dev") ismDetLoad();
   } catch { /* an older receiver without ISM */ }
 }
 
@@ -6315,7 +7765,8 @@ function renderIsmInfo(d) {
   if (i.error) { el.textContent = `ISM: ${i.error}`; return; }
   el.textContent = !i.enabled ? "" : i.running === false ? "starting rtl_433…"
     : `${i.count || 0} messages${i.raw_count ? ` · ${i.raw_count} raw` : ""}${i.dropped ? ` · ${i.dropped} blocks dropped` : ""}`;
-  if (i.channels && i.channels.length) el.title = `rtl_433 channels (256 kHz): ${i.channels.map((f) => fmtMHz(f, 3)).join(", ")} MHz`;
+  if (i.channels && i.channels.length) el.title = `rtl_433 channels: ${i.channels.map((f, k) => `${fmtMHz(f, 3)} MHz (${Math.round((i.channel_rates || [])[k] / 1000) || "?"} kS/s)`).join(", ")}`;
+  if (d.rate) ismStatsSoon();
 }
 
 function renderIsm(s) {
@@ -6361,6 +7812,615 @@ $("ismClear").addEventListener("click", () => {
   renderIsmInfo({ count: 0 });
 });
 
+// ----- ISM: devices, timeline, statistics -----
+
+/** Signal strength as 5 bars from the SNR (dB). */
+function ismBars(snr) {
+  const n = snr == null ? 0 : snr >= 24 ? 5 : snr >= 18 ? 4 : snr >= 12 ? 3 : snr >= 7 ? 2 : snr >= 3 ? 1 : 0;
+  let s = "";
+  for (let i = 1; i <= 5; i++) s += `<i class="${i <= n ? "on" : ""}" style="height:${20 + i * 16}%"></i>`;
+  return `<span class="ism-bars" title="${snr == null ? "no level" : `SNR ${Number(snr).toFixed(1)} dB`}">${s}</span>`;
+}
+
+/** Typical time between the messages of a device (median, s), null with fewer than 3 messages. */
+function ismInterval(times) {
+  const d = [];
+  for (let i = 1; i < (times || []).length; i++) { const x = times[i] - times[i - 1]; if (x > 2) d.push(x); }
+  if (d.length < 2) return null;
+  d.sort((a, b) => a - b);
+  return d[d.length >> 1];
+}
+const ismDur = (s) => s < 90 ? `${Math.round(s)} s` : s < 5400 ? `${(s / 60).toFixed(s < 600 ? 1 : 0)} min` : `${(s / 3600).toFixed(1)} h`;
+const ismAge = (t) => { const s = Math.max(0, Date.now() / 1000 - t); return s < 5 ? "now" : `${ismDur(s)} ago`; };
+
+/** Stale (a device that keeps sending went quiet: 3 intervals, at least 5 min) and gone (30 min). */
+function ismStaleClass(d) {
+  const age = Date.now() / 1000 - d.last, iv = ismInterval(d.times);
+  return age > 1800 ? "gone" : age > Math.max(300, 3 * (iv || 100)) ? "stale" : "";
+}
+
+function ismCompass(dir) {
+  if (dir == null) return "";
+  return `<svg class="ism-compass" viewBox="-20 -20 40 40" aria-hidden="true"><circle r="17"/><text y="-9">N</text>` +
+    `<path transform="rotate(${Number(dir) + 180})" d="M0,-14 L5,6 L0,2 L-5,6 Z"/></svg>`;
+}
+
+/** 24 h curve of temperature (yellow) and humidity (dashed blue) of a device. */
+/** Messages of a device in the last hour as ticks (the curve slot of a card without temperature / humidity). */
+/** Messages of a device in the shown time (the curve slot of a card without temperature / humidity):
+ *  1 h a tick per message, 6 h / 24 h a bar per 5 minutes as high as its message count. */
+function ismActivity(d) {
+  const R = ismRange * 3600, now = Date.now() / 1000, t0 = now - R, X = (t) => (((t - t0) / R) * 200).toFixed(1);
+  let marks = "", n = 0;
+  if (ismRange === 1) {
+    const t = (d.times || []).filter((x) => x >= t0);
+    n = t.length;
+    marks = t.map((x) => `<line x1="${X(x)}" x2="${X(x)}" y1="8" y2="38"/>`).join("");
+  } else {
+    const a = (d.act || []).filter((p) => p[0] + 300 > t0);
+    const max = Math.max(1, ...a.map((p) => p[1])), w = Math.max(0.6, (300 / R) * 200 - 0.4);
+    n = a.reduce((sum, p) => sum + p[1], 0);
+    marks = a.map(([t, c]) => { const h = 4 + (c / max) * 32; return `<rect x="${X(Math.max(t, t0))}" y="${(39 - h).toFixed(1)}" width="${w.toFixed(2)}" height="${h.toFixed(1)}"/>`; }).join("");
+  }
+  return `<svg class="ism-act-svg" viewBox="0 0 200 40" preserveAspectRatio="none"><title>Messages in the last ${ismRange} h: ${n}</title>` +
+    `<line class="base" x1="0" y1="39.5" x2="200" y2="39.5"/>${marks}</svg>` +
+    `<div class="ism-spark-lbl"><span>${ismRange} h</span><span>${n} message${n === 1 ? "" : "s"}</span></div>`;
+}
+
+function ismSpark(series) {
+  const R = ismRange * 3600, now = Date.now() / 1000, t0 = now - R;
+  series = (series || []).filter((p) => p[0] + 300 >= t0);    // 5 min points: 12 in 1 h
+  if (series.length < 2) return "";
+  const line = (k) => {
+    const pts = series.filter((p) => p[k] != null);
+    if (pts.length < 2) return ["", null, null];
+    const v = pts.map((p) => p[k]);
+    let lo = Math.min(...v), hi = Math.max(...v);
+    if (hi - lo < 2) { const c = (hi + lo) / 2; lo = c - 1; hi = c + 1; }
+    return [pts.map((p) => `${(((Math.max(p[0], t0) - t0) / R) * 200).toFixed(1)},${(36 - ((p[k] - lo) / (hi - lo)) * 32).toFixed(1)}`).join(" "),
+      Math.min(...v), Math.max(...v)];
+  };
+  const [tp, tlo, thi] = line(1), [hp, hlo, hhi] = line(2);
+  if (!tp && !hp) return "";
+  const tip = [tp && `temperature ${tlo.toFixed(1)} … ${thi.toFixed(1)} °C`, hp && `humidity ${Math.round(hlo)} … ${Math.round(hhi)} %`]
+    .filter(Boolean).join(", ");
+  return `<svg class="ism-spark" viewBox="0 0 200 40" preserveAspectRatio="none"><title>Last ${ismRange} h: ${tip}</title>` +
+    `<line x1="0" y1="39.5" x2="200" y2="39.5"/>${hp ? `<polyline class="hum" points="${hp}"/>` : ""}${tp ? `<polyline class="temp" points="${tp}"/>` : ""}</svg>` +
+    (tp ? `<div class="ism-spark-lbl"><span>${ismRange} h</span><span>${tlo.toFixed(1)} … ${thi.toFixed(1)} °C</span></div>` : "");
+}
+
+const ISM_BIG = [["temperature_C", "°C", 1, "temp"], ["humidity", "%", 0, "hum"], ["moisture", "%", 0, "hum"]];
+const ISM_SMALL = [["pressure_hPa", "hPa", 1], ["pressure_kPa", "kPa", 1], ["wind_max_km_h", "km/h gust", 1],
+  ["wind_max_m_s", "m/s gust", 1], ["rain_mm", "mm rain", 1], ["rain_rate_mm_h", "mm/h", 1], ["uv", "UV", 1],
+  ["light_lux", "lux", 0], ["power_W", "W", 0], ["energy_kWh", "kWh", 2], ["battery_mV", "mV", 0]];
+const ISM_SHOWN = new Set([...ISM_BIG, ...ISM_SMALL].map((x) => x[0]).concat(["battery_ok", "wind_avg_km_h", "wind_avg_m_s", "wind_dir_deg"]));
+
+function ismCard(d) {
+  const f = d.fields || {}, key = d.key, cat = ismCat(d.model, f);
+  const name = ismName(key, d.model), pin = ismIsPinned(key), hid = ismIsHidden(key);
+  const num = (v, dec) => (typeof v === "number" ? v.toFixed(dec) : escHtml(v));
+  let big = ISM_BIG.filter(([k]) => f[k] != null).map(([k, u, dec, cls]) => `<span class="v ${cls}">${num(f[k], dec)}<u>${u}</u></span>`).join("");
+  const wind = f.wind_avg_km_h ?? (f.wind_avg_m_s != null ? f.wind_avg_m_s * 3.6 : null);
+  if (wind != null) big += `<span class="v wind">${ismCompass(f.wind_dir_deg)}${Number(wind).toFixed(1)}<u>km/h</u></span>`;
+  const small = ISM_SMALL.filter(([k]) => f[k] != null).map(([k, u, dec]) => `<span>${num(f[k], dec)} ${u}</span>`)
+    .concat(Object.entries(f).filter(([k]) => !ISM_SHOWN.has(k))
+      .map(([k, v]) => `<span>${k === "type_string" || v === true ? escHtml(k === "type_string" ? v : k) : `${escHtml(k)}=${escHtml(v)}`}</span>`));
+  const batt = f.battery_ok == null ? "" : `<span class="ism-batt ${f.battery_ok ? "ok" : "low"}" title="Battery ${f.battery_ok ? "OK" : "LOW"}"></span>`;
+  const iv = ismInterval(d.times);
+  const isNew = d.new && Date.now() / 1000 - d.first < 600;
+  const sub = [d.model !== name ? d.model : "", d.dev_id && `ID ${d.dev_id}`, d.channel && `ch ${d.channel}`].filter(Boolean).join(" · ");
+  return `<div class="ism-dev cat-${cat}${pin ? " pin" : ""}${hid ? " hid" : ""}${isNew ? " new" : ""} ${ismStaleClass(d)}" data-key="${escHtml(key)}">` +
+    `<div class="ism-dh"><span class="ism-ico" title="${ISM_CAT[cat].label}">${ISM_CAT[cat].icon}</span>` +
+    `<div class="ism-dn"><b title="${escHtml(d.model)}">${escHtml(name)}</b><small>${escHtml(sub || " ")}</small></div>` +
+    `${isNew ? `<span class="ism-newtag" title="First heard on this PC ${ismAge(d.first)}">NEW</span>` : ""}` +
+    `<button class="ism-act${pin ? " on" : ""}" data-act="pin" title="${pin ? "Unpin" : "Pin on top"}">${pin ? "★" : "☆"}</button>` +
+    `<button class="ism-act" data-act="name" title="Give it a name (all VFOs)">✎</button>` +
+    `<button class="ism-act${hid ? " on" : ""}" data-act="hide" title="${hid ? "Show it again" : "Hide it (HIDDEN shows hidden devices)"}">⊘</button></div>` +
+    // fixed slots, so all cards are equally high: values, one line of other fields, curve (or activity), footer
+    `<div class="ism-big">${big || `<span class="ism-nobig">${escHtml(ISM_CAT[cat].label)}</span>`}</div>` +
+    `<div class="ism-more" title="${escHtml(small.map((x) => x.replace(/<[^>]*>/g, "")).join(" · "))}">${small.join("")}</div>` +
+    `<div class="ism-spark-box">${ismSpark(d.series) || ismActivity(d)}</div>` +
+    `<div class="ism-df"><span class="ism-age" data-t="${d.last}">${ismAge(d.last)}</span>` +
+    `${iv ? `<span title="Typical time between its messages">↻ ${ismDur(iv)}</span>` : ""}` +
+    `<span title="Messages since it was first heard (${ismAge(d.first)})">×${d.n}</span>` +
+    `<span title="${fmtMHz(d.freq_hz, 3)} MHz">${fmtMHz(d.freq_hz, 2)}</span>${batt}${ismBars(d.snr)}</div></div>`;
+}
+
+/** Devices passing the chips, filter and HIDDEN: pinned first, then by category and name (cards do not jump). */
+function ismDevList() {
+  const order = Object.fromEntries(ISM_CATS.map(([k], i) => [k, i]));
+  return [...ismDevs.values()]
+    .map((d) => ({ d, cat: ismCat(d.model, d.fields), name: ismName(d.key, d.model) }))
+    .filter((x) => ismPass(x.cat, x.d.key, `${x.d.model} ${x.name} ${x.d.dev_id} ${x.d.channel} ${Object.values(x.d.fields || {}).join(" ")}`))
+    .sort((a, b) => (ismIsPinned(b.d.key) - ismIsPinned(a.d.key)) || (order[a.cat] - order[b.cat])
+      || a.name.localeCompare(b.name) || String(a.d.dev_id).localeCompare(String(b.d.dev_id), undefined, { numeric: true }));
+}
+
+function renderIsmDevs() {
+  const list = ismDevList();
+  const box = $("ismDevGrid");
+  box.innerHTML = list.map((x) => ismCard(x.d)).join("");
+  $("ismDevEmpty").hidden = list.length > 0;
+  $("ismDevEmpty").textContent = ismDevs.size ? "No device passes the filter." : "No devices yet. Many sensors send only once a minute or less often.";
+  for (const k of ismFlash) {
+    const c = box.querySelector(`.ism-dev[data-key="${CSS.escape(k)}"]`);
+    if (c) c.classList.add("flash");
+  }
+}
+
+function renderIsmTimeline() {
+  // 1 h: a dot for each message; 6 h / 24 h: a block for each 5 minutes with messages, the brighter the more of them
+  const R = ismRange * 3600, now = Date.now() / 1000, t0 = now - R;
+  const list = ismDevList().filter((x) => x.d.last >= t0)
+    .sort((a, b) => (ismIsPinned(b.d.key) - ismIsPinned(a.d.key)) || (b.d.last - a.d.last));
+  let ticks = "";
+  for (let k = 6; k >= 0; k--) {
+    const ago = (k * R) / 6;
+    ticks += `<span style="left:${((6 - k) / 6) * 100}%">${!k ? "now" : ismRange === 1 ? `−${ago / 60} min` : `−${ago / 3600} h`}</span>`;
+  }
+  $("ismTlAxis").innerHTML = ticks;
+  const pc = (t) => (((t - t0) / R) * 100).toFixed(2);
+  $("ismTlRows").innerHTML = list.map(({ d, cat, name }) => {
+    const iv = ismInterval(d.times);
+    let dots;
+    if (ismRange === 1) dots = (d.times || []).filter((t) => t >= t0).map((t) => `<i style="left:${pc(t)}%"></i>`).join("");
+    else {
+      const a = (d.act || []).filter((p) => p[0] + 300 > t0), max = Math.max(1, ...a.map((p) => p[1]));
+      const w = ((300 / R) * 100).toFixed(3);
+      dots = a.map(([t, c]) => `<b style="left:${pc(Math.max(t, t0))}%;width:${w}%;opacity:${(0.3 + 0.7 * (c / max)).toFixed(2)}" title="${ismHm(t)}–${ismHm(t + 300)} UTC: ${c} message${c === 1 ? "" : "s"}"></b>`).join("");
+    }
+    return `<div class="ism-tl-row cat-${cat}" data-key="${escHtml(d.key)}">` +
+      `<span class="ism-tl-name" title="${escHtml(d.model)}${d.dev_id ? ` · ID ${escHtml(d.dev_id)}` : ""} · show its card">${ISM_CAT[cat].icon} ${escHtml(name)}${d.dev_id ? ` <small>${escHtml(d.dev_id)}</small>` : ""}</span>` +
+      `<div class="ism-tl-track">${dots}</div>` +
+      `<span class="ism-tl-int" title="Typical time between its messages">${iv ? `↻ ${ismDur(iv)}` : "–"}</span></div>`;
+  }).join("");
+  $("ismTlEmpty").hidden = list.length > 0;
+}
+
+let ismRenderTimer = null;
+function ismRenderSoon() {
+  if (ismRenderTimer) return;
+  ismRenderTimer = setTimeout(() => {
+    ismRenderTimer = null;
+    if (ismView === "devs") renderIsmDevs();
+    else if (ismView === "tl") renderIsmTimeline();
+    else if (ismView === "dev") renderIsmDevTab();
+    ismFlash.clear();
+    renderIsmCats();
+    ismStatsSoon();
+  }, 250);
+}
+
+/** A device from the server (a new message of it). */
+function ismDevUpdate(d) {
+  ismDevs.delete(d.key);
+  ismDevs.set(d.key, d);
+  ismFlash.add(d.key);
+  if (d.key === ismSel) ismDetSoon();
+  ismRenderSoon();
+}
+
+/** Messages and the views again after a change of the chips, filter, HIDDEN or names. */
+function ismApplyFilter() {
+  for (const tr of $("ismRows").rows) tr.hidden = !ismPass(tr.dataset.cat, tr.dataset.key, tr.dataset.q || "");
+  ismRenderSoon();
+}
+
+function renderIsmCats() {
+  const n = {};
+  for (const d of ismDevs.values()) { const c = ismCat(d.model, d.fields); n[c] = (n[c] || 0) + 1; }
+  const raw = $("ismRows").querySelectorAll("tr.raw").length;
+  if (raw) n.raw = raw;
+  $("ismCats").innerHTML = ISM_CATS.filter(([k]) => n[k] || ismCatsOff.has(k)).map(([k, icon, label]) =>
+    `<button class="ism-chip${ismCatsOff.has(k) ? "" : " on"}" data-cat="${k}" title="${label}: show / hide${k === "raw" ? " (RAW rows)" : " (devices)"}">${icon} ${label} <b>${n[k] || 0}</b></button>`).join("");
+}
+
+let ismStatsTimer = null;
+function ismStatsSoon() {
+  if (ismStatsTimer) return;
+  ismStatsTimer = setTimeout(() => { ismStatsTimer = null; renderIsmStats(); }, 400);
+}
+
+function renderIsmStats() {
+  const rate = ismLast.rate || [];
+  const cv = $("ismRate");
+  if (cv.offsetParent) {
+    const [ctx, w, h] = fitCanvas(cv);
+    ctx.clearRect(0, 0, w, h);
+    const max = Math.max(1, ...rate), bw = w / Math.max(rate.length, 1);
+    ctx.fillStyle = getComputedStyle(cv).color;
+    rate.forEach((v, i) => { const bh = (v / max) * (h - 2); if (v) ctx.fillRect(i * bw, h - bh, Math.max(1, bw - 1), bh); });
+  }
+  const last = rate.length ? rate[rate.length - 1] : 0;
+  cv.title = `Messages per minute, last hour (most ${Math.max(0, ...rate)}/min)`;
+  const by = {};
+  for (const d of ismDevs.values()) by[d.model] = (by[d.model] || 0) + d.n;
+  const top = Object.entries(by).sort((a, b) => b[1] - a[1]).slice(0, 3);
+  $("ismStatText").innerHTML = `<b>${last}</b>/min · <b>${ismDevs.size}</b> device${ismDevs.size === 1 ? "" : "s"}` +
+    (top.length ? ` · top: ${top.map(([m, c]) => `${escHtml(m)} <span class="muted">×${c}</span>`).join(", ")}` : "");
+}
+
+/** The ages on the cards each second, the timeline every 5 s, only while the ISM card is shown. */
+let ismTick = 0;
+setInterval(() => {
+  if (!$("ismCard").offsetParent) return;
+  ismTick++;
+  for (const el of document.querySelectorAll("#ismDevGrid .ism-age")) el.textContent = ismAge(Number(el.dataset.t));
+  if (ismView === "tl" && ismTick % 5 === 0) renderIsmTimeline();
+  if (ismView === "devs" && ismTick % 30 === 0) renderIsmDevs();     // stale / gone, NEW ends
+  if (ismView === "dev" && ismTick % 60 === 0) ismDetLoad();        // the time window moves on
+  if (ismTick % 60 === 0) ismStatsSoon();
+}, 1000);
+
+/** 1 h / 6 h / 24 h in the header: shown for DEVICES, TIMELINE and the device tab. */
+function renderIsmRange() {
+  $("ismRange").hidden = ismView === "msgs";
+  for (const b of $("ismRange").children) b.classList.toggle("on", Number(b.dataset.h) === ismRange);
+}
+
+function setIsmView(v) {
+  ismView = ["msgs", "devs", "tl"].includes(v) || (v === "dev" && ismSel) ? v : "msgs";
+  store("ismView", ismView);
+  for (const b of $("ismViews").children) b.classList.toggle("on", b.dataset.view === ismView);
+  $("ismMsgBox").hidden = ismView !== "msgs";
+  $("ismDevBox").hidden = ismView !== "devs";
+  $("ismTlBox").hidden = ismView !== "tl";
+  $("ismDetBox").hidden = ismView !== "dev";
+  renderIsmRange();
+  renderIsmDevTab();
+  if (ismView === "dev") { if (ismDet && ismDet.key === ismSel) renderIsmDet(); else ismDetLoad(); }
+  ismRenderSoon();
+}
+
+/** Pin, name or hide of a device (keys on its card and in its tab). */
+function ismAct(key, act) {
+  const cur = ismNames[key] || {};
+  if (act === "pin") ismSetName(key, { pin: !cur.pin });
+  else if (act === "hide") ismSetName(key, { hide: !cur.hide });
+  else if (act === "name") {
+    const d = ismDevs.get(key);
+    const name = prompt(`Name of ${d ? d.model : "the device"}${d && d.dev_id ? ` ID ${d.dev_id}` : ""} (empty = the model name):`, cur.name || "");
+    if (name !== null) ismSetName(key, { name });
+  }
+}
+
+function setIsmInfo(on) {
+  store("ismInfo", on ? "1" : "0");
+  $("ismInfoKey").classList.toggle("on", on);
+  $("ismNote").hidden = !on;
+}
+
+async function ismSetName(key, change) {
+  try {
+    const r = await fetch(vbase + "/api/ism", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "name", key, ...change }) }).then((x) => x.json());
+    if (r.names) { ismNames = r.names; ismRefreshNames(); }
+  } catch { /* the server is gone */ }
+}
+
+/** Names changed (here or on another VFO): the message rows show them too. */
+function ismRefreshNames() {
+  for (const tr of $("ismRows").rows) {
+    const k = tr.dataset.key;
+    if (!k) continue;
+    const d = ismDevs.get(k);
+    const dev = tr.querySelector("td.dev");
+    if (d && dev) {
+      const name = ismName(k, d.model);
+      dev.innerHTML = `<span class="ism-ico">${ISM_CAT[tr.dataset.cat].icon}</span>${escHtml(name)}${name !== d.model ? ` <small>${escHtml(d.model)}</small>` : ""}`;
+      tr.dataset.q = `${name} ${tr.dataset.q0 || ""}`;
+    }
+  }
+  if (ismView === "dev") renderIsmDet();
+  ismApplyFilter();
+}
+
+// ----- ISM: the tab of one device (a click on its card): its values over 1 h / 6 h / 24 h as charts -----
+
+let ismSel = recall("ismSel") || "";             // device key of the device tab
+let ismDet = null;                               // that device with its history from /api/ism?dev=
+let ismDetTimer = null;
+// field -> [title, unit, decimals, colour]: only these are charts. Other numbers of a device (switch or button IDs,
+// codes, rolling counters, flags…) are no measurements and stay as values in the head of its tab.
+const ISM_FIELD = {
+  temperature_C: ["Temperature", "°C", 1, "#ffcf6b"], humidity: ["Humidity", "%", 0, "#6fc3ff"],
+  moisture: ["Moisture", "%", 0, "#6fc3ff"], pressure_hPa: ["Pressure", "hPa", 1, "#9be37b"],
+  pressure_kPa: ["Tyre pressure", "kPa", 1, "#6db3ff"], pressure_PSI: ["Tyre pressure", "PSI", 1, "#6db3ff"],
+  wind_avg_km_h: ["Wind", "km/h", 1, "#cc66ff"], wind_avg_m_s: ["Wind", "m/s", 1, "#cc66ff"],
+  wind_dir_deg: ["Wind direction", "°", 0, "#cc66ff"], rain_mm: ["Rain (total)", "mm", 1, "#4fd6c8"],
+  rain_rate_mm_h: ["Rain rate", "mm/h", 1, "#4fd6c8"], uv: ["UV index", "", 1, "#e45cff"],
+  light_lux: ["Light", "lux", 0, "#ffe066"], power_W: ["Power", "W", 0, "#ffe066"],
+  energy_kWh: ["Energy", "kWh", 2, "#ffb547"], battery_mV: ["Battery", "mV", 0, "#3cf07c"],
+};
+const ISM_GUST = { wind_avg_km_h: "wind_max_km_h", wind_avg_m_s: "wind_max_m_s" };   // drawn into the wind chart
+
+function ismOpenDev(key) {
+  ismSel = key;
+  store("ismSel", key);
+  ismDet = null;
+  $("ismDetCharts").innerHTML = "";
+  setIsmView("dev");
+  ismDetLoad();
+}
+
+function ismCloseDev() {
+  ismSel = "";
+  store("ismSel", "");
+  ismDet = null;
+  setIsmView("devs");
+}
+
+async function ismDetLoad() {
+  const key = ismSel, v = active;
+  if (!key) return;
+  try {
+    const r = await fetch(`${vbase}/api/ism?dev=${encodeURIComponent(key)}`);
+    if (v !== active || key !== ismSel) return;
+    if (!r.ok) { ismDet = null; renderIsmDet(); return; }
+    ismDet = await r.json();
+    renderIsmDet();
+  } catch { /* the server is gone */ }
+}
+
+/** A new message of the open device: its history again (at most every 2 s). */
+function ismDetSoon() {
+  if (ismDetTimer) return;
+  ismDetTimer = setTimeout(() => { ismDetTimer = null; if (ismView === "dev") ismDetLoad(); }, 2000);
+}
+
+function renderIsmDevTab() {
+  const b = $("ismDevTab");
+  const d = ismDevs.get(ismSel) || ismDet;
+  b.hidden = !ismSel;
+  if (!ismSel) return;
+  const cat = d ? ismCat(d.model, d.fields) : "other";
+  b.innerHTML = `${ISM_CAT[cat].icon} ${escHtml(d ? ismName(ismSel, d.model) : ismSel.split("|")[0])} <span class="ism-tab-x" title="Close the device tab">✕</span>`;
+}
+
+const ismHm = (t) => new Date(t * 1000).toISOString().slice(11, 16);
+
+// Charts of the device tab: uPlot (static/uplot, loaded with the first device tab). All charts share the time axis:
+// one cursor for all, dragging over a chart zooms all of them in, a double click goes back to the whole 1 / 6 / 24 h.
+let ismPlots = [];            // {u, spec, stat (element)}
+let ismPlotSig = "";          // the charts shown (fields + range): the same ones only get new data, the zoom stays
+let ismZoom = null;           // [min, max] zoomed in, null = the whole time window
+let ismScaleBusy = false;     // set while the page itself moves the time axes
+const ismUplot = () => Promise.all([satAsset("/static/uplot/uPlot.min.css"), satAsset("/static/uplot/uPlot.iife.min.js")]);
+const ismWin = () => { const t1 = Date.now() / 1000; return [t1 - ismRange * 3600, t1]; };
+
+function ismPlotWidth() {
+  const w = $("ismDetCharts").clientWidth;
+  return Math.max(260, (w >= 760 ? Math.floor((w - 10) / 2) : w) - 2);
+}
+
+/** All charts to one time range (except `from`, which is there already). */
+function ismSetX(min, max, from) {
+  ismScaleBusy = true;
+  try { for (const p of ismPlots) if (p.u !== from) p.u.setScale("x", { min, max }); } finally { ismScaleBusy = false; }
+}
+
+/** Chart descriptions of a device from its history: fields, signal, messages per interval; data aligned for uPlot. */
+function ismChartSpecs(hist, iv, cat) {
+  const all = new Set();
+  for (const h of hist) for (const k of Object.keys(h[4])) all.add(k);
+  // known measurements only, in their order; a device of the category Other gets no field charts at all
+  const keys = cat === "other" ? [] : Object.keys(ISM_FIELD).filter((k) => all.has(k));
+  // one x for the curves: the minutes with messages, and a null row in each longer silence (no line across it)
+  const gap = Math.max(600, (iv || 60) * 4), rows = [];
+  for (const h of hist) {
+    const t = h[0] + 30;
+    if (rows.length && t - rows[rows.length - 1].t > gap) rows.push({ t: rows[rows.length - 1].t + gap / 2, h: null });
+    rows.push({ t, h });
+  }
+  const x = rows.map((r) => r.t);
+  const col = (get) => rows.map((r) => (r.h && typeof get(r.h) === "number" ? get(r.h) : null));
+  const specs = [];
+  for (const k of keys) {
+    const [title, unit, dec, color] = ISM_FIELD[k];
+    const series = [{ label: title, color, data: col((h) => h[4][k]) }];
+    if (ISM_GUST[k] && all.has(ISM_GUST[k])) {
+      series[0].label = "average";
+      series.push({ label: "gust", color: "#e8b8ff", dash: true, data: col((h) => h[4][ISM_GUST[k]]) });
+    }
+    specs.push({ id: k, title, unit, dec, series, x, dots: k === "wind_dir_deg", zero: /rain|power|energy|light|uv/.test(k) });
+  }
+  if (hist.some((h) => h[2] != null)) {
+    specs.push({ id: "signal", title: "Signal", unit: "dB", dec: 1, x,
+      series: [{ label: "RSSI", color: "#3cf07c", data: col((h) => h[2]) }, { label: "SNR", color: "#8d97a5", dash: true, data: col((h) => h[3]) }] });
+  }
+  const barS = ismRange <= 1 ? 60 : ismRange <= 6 ? 300 : 900;   // messages per 1 / 5 / 15 min
+  const cnt = new Map();
+  for (const h of hist) { const b = Math.floor(h[0] / barS) * barS + barS / 2; cnt.set(b, (cnt.get(b) || 0) + h[1]); }
+  const acc = getComputedStyle($("ismCard")).getPropertyValue("--yellow").trim() || "#ffd84a";
+  specs.push({ id: "msgs", title: `Messages per ${barS / 60} min`, unit: "", dec: 0, bars: true, x: [...cnt.keys()],
+    series: [{ label: "messages", color: acc, data: [...cnt.values()] }] });
+  return specs;
+}
+
+/** Latest value, min, average and max of the first series (header of a chart). */
+function ismStatText(s) {
+  const v = s.series[0].data.filter((x) => x != null);
+  if (!v.length) return "";
+  if (s.bars) return `${v.reduce((a, b) => a + b, 0)} in ${ismRange} h`;
+  const f = (x) => x.toFixed(s.dec), last = v[v.length - 1];
+  if (s.dots) return `${f(last)}°`;
+  return `<b style="color:${s.series[0].color}">${f(last)}</b> ${escHtml(s.unit)} · min ${f(Math.min(...v))} · avg ${f(v.reduce((a, b) => a + b, 0) / v.length)} · max ${f(Math.max(...v))}`;
+}
+
+function ismPlotOpts(s) {
+  const axis = { stroke: "#8d97a5", grid: { stroke: "rgba(255,255,255,.07)", width: 1 }, ticks: { stroke: "rgba(255,255,255,.12)", width: 1, size: 4 },
+    font: "10px ui-monospace, Consolas, monospace" };
+  const fmt = (v) => (v == null ? "–" : `${v.toFixed(s.dec)}${s.unit && !s.bars ? ` ${s.unit}` : ""}`);
+  const y = s.dots ? { range: [0, 360] }
+    : s.zero || s.bars ? { range: (u, mn, mx) => { const lo = Math.min(0, mn ?? 0), hi = Math.max(mx ?? 1, lo + 1); return [lo, hi + (hi - lo) * 0.08]; } }
+      : {};
+  return {
+    width: ismPlotWidth(), height: 160,
+    tzDate: (ts) => uPlot.tzDate(new Date(ts * 1e3), "Etc/UTC"),
+    cursor: {
+      sync: { key: "ism" }, drag: { x: true, y: false },
+      bind: { dblclick: () => () => { ismZoom = null; const [a, b] = ismWin(); ismSetX(a, b, null); return null; } },
+    },
+    scales: { x: { time: true }, y },
+    axes: [{ ...axis, size: 24, values: (u, v) => v.map((t) => (t == null ? "" : ismHm(t))) }, { ...axis, size: 46, ...(s.dots ? { splits: () => [0, 90, 180, 270, 360], values: (u, v) => v.map((d) => ["N", "E", "S", "W", "N"][d / 90]) } : {}) }],
+    series: [{ value: (u, v) => (v == null ? "–" : `${ismHm(v)} UTC`) },
+      ...s.series.map((x, i) => ({
+        label: x.label, stroke: x.color, width: 1.6, dash: x.dash ? [4, 3] : undefined, value: (u, v) => fmt(v),
+        fill: i === 0 && !s.dots && x.color.startsWith("#") ? `${x.color}${s.bars ? "cc" : "1c"}` : undefined,
+        paths: s.bars ? uPlot.paths.bars({ size: [0.85, 40] }) : s.dots ? () => null : undefined,
+        points: s.dots ? { show: true, size: 4, fill: x.color, stroke: x.color } : { show: false },
+      }))],
+    legend: { live: true },
+    hooks: {
+      setScale: [(u, key) => {
+        if (key !== "x" || ismScaleBusy) return;            // the user dragged: all charts follow
+        const { min, max } = u.scales.x, [a, b] = ismWin();
+        ismZoom = min - a > 60 || b - max > 60 ? [min, max] : null;
+        ismSetX(min, max, u);
+      }],
+    },
+  };
+}
+
+/** Charts of the open device: new charts when the fields or the range change, else only new data. */
+async function renderIsmCharts(d, iv) {
+  const box = $("ismDetCharts");
+  const [t0, t1] = ismWin();
+  const hist = (d.hist || []).filter((h) => h[0] >= t0 - 60);
+  if (!hist.length) {
+    for (const p of ismPlots) p.u.destroy();
+    ismPlots = [];
+    ismPlotSig = "";
+    box.innerHTML = `<div class="ft8-empty">No message in the last ${ismRange} h.</div>`;
+    return;
+  }
+  try { await ismUplot(); } catch (e) { box.innerHTML = `<div class="ft8-empty">${escHtml(e.message)}</div>`; return; }
+  if (ismDet !== d) return;                                  // another device or newer data in the meantime
+  const live = ismDevs.get(d.key) || d;
+  const specs = ismChartSpecs(hist, iv, ismCat(live.model, live.fields));
+  const sig = `${d.key}|${ismRange}|${specs.map((s) => s.id).join(",")}`;
+  const data = (s) => [s.x, ...s.series.map((x) => x.data)];
+  ismScaleBusy = true;
+  try {
+    if (sig === ismPlotSig && ismPlots.length === specs.length) {
+      specs.forEach((s, i) => { ismPlots[i].u.setData(data(s), true); ismPlots[i].stat.innerHTML = ismStatText(s); });
+    } else {
+      for (const p of ismPlots) p.u.destroy();
+      ismPlots = [];
+      ismZoom = null;
+      box.innerHTML = "";
+      for (const s of specs) {
+        const el = document.createElement("div");
+        el.className = "ism-chart";
+        el.innerHTML = `<div class="ism-ch-head"><b>${escHtml(s.title)}</b>${s.unit && !s.bars ? ` <span class="muted">${escHtml(s.unit)}</span>` : ""}<span class="ism-ch-stat"></span></div>`;
+        box.append(el);
+        const stat = el.querySelector(".ism-ch-stat");
+        stat.innerHTML = ismStatText(s);
+        ismPlots.push({ u: new uPlot(ismPlotOpts(s), data(s), el), spec: s, stat });
+      }
+      ismPlotSig = sig;
+    }
+  } finally { ismScaleBusy = false; }
+  const [a, b] = ismZoom || [t0, t1];
+  ismSetX(a, b, null);
+}
+
+function renderIsmDet() {
+  renderIsmDevTab();
+  const head = $("ismDetHead"), charts = $("ismDetCharts");
+  const d = ismDet;
+  if (!d) {
+    head.innerHTML = `<div class="ft8-empty">${ismSel && ismDevs.size ? "This device is not in the list of the receiver any more (CLR, a restart, or 300 newer devices)." : "Loading…"}</div>`;
+    for (const p of ismPlots) p.u.destroy();
+    ismPlots = [];
+    ismPlotSig = "";
+    charts.innerHTML = "";
+    return;
+  }
+  const live = ismDevs.get(d.key) || d;
+  const f = live.fields || {}, cat = ismCat(live.model, f), name = ismName(d.key, live.model), iv = ismInterval(live.times);
+  const pin = ismIsPinned(d.key), hid = ismIsHidden(d.key);
+  const big = ISM_BIG.filter(([k]) => f[k] != null).map(([k, u, dec, cls]) => `<span class="v ${cls}">${Number(f[k]).toFixed(dec)}<u>${u}</u></span>`).join("");
+  const info = [
+    ["Model", `${escHtml(live.model)}${live.protocol ? ` <span class="muted">(rtl_433 protocol ${escHtml(live.protocol)})</span>` : ""}`],
+    ["ID / channel", `${escHtml(live.dev_id || "–")} / ${escHtml(live.channel || "–")}`],
+    ["Frequency", `${fmtMHz(live.freq_hz, 3)} MHz · ${escHtml(live.mod || "")}`],
+    ["Signal", `${ismBars(live.snr)} ${live.rssi == null ? "–" : `${Number(live.rssi).toFixed(1)} dB · SNR ${Number(live.snr).toFixed(1)} dB`}`],
+    ["Heard", `${ismAge(live.last)} · first ${ismAge(live.first)} · ×${live.n}${iv ? ` · ↻ ${ismDur(iv)}` : ""}`],
+    ["Check", live.mic ? `<span class="ism-mic">✓</span>${escHtml(live.mic)}` : "–"],
+    ["Battery", f.battery_ok == null ? "–" : `<span class="ism-batt ${f.battery_ok ? "ok" : "low"}"></span> ${f.battery_ok ? "OK" : "LOW"}`],
+    ...(() => {   // fields without a chart (IDs, codes, counters…): their latest values
+      const other = Object.entries(f).filter(([k]) => k !== "battery_ok"
+        && (cat === "other" || (!(k in ISM_FIELD) && !Object.values(ISM_GUST).includes(k))));
+      return other.length ? [["Values", other.map(([k, v]) => `${escHtml(k)}=<b>${escHtml(v)}</b>`).join(" · ")]] : [];
+    })(),
+  ];
+  head.innerHTML = `<div class="ism-det-id cat-${cat}"><span class="ism-det-ico">${ISM_CAT[cat].icon}</span><div><b>${escHtml(name)}</b>` +
+    `<small>${ISM_CAT[cat].label}${name !== live.model ? ` · ${escHtml(live.model)}` : ""}</small></div>` +
+    `<button class="ism-act${pin ? " on" : ""}" data-act="pin" title="${pin ? "Unpin" : "Pin on top"}">${pin ? "★" : "☆"}</button>` +
+    `<button class="ism-act" data-act="name" title="Give it a name (all VFOs)">✎</button>` +
+    `<button class="ism-act${hid ? " on" : ""}" data-act="hide" title="${hid ? "Show it again" : "Hide it"}">⊘</button></div>` +
+    (big ? `<div class="ism-big">${big}</div>` : "") +
+    `<dl class="ism-det-info">${info.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>`;
+  renderIsmCharts(d, iv);
+}
+
+$("ismRange").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-h]");
+  if (!b) return;
+  ismRange = Number(b.dataset.h);
+  store("ismRange", String(ismRange));
+  renderIsmRange();
+  if (ismView === "dev") renderIsmDet();
+  else if (ismView === "devs") renderIsmDevs();
+  else if (ismView === "tl") renderIsmTimeline();
+});
+$("ismDetHead").addEventListener("click", (e) => { const b = e.target.closest("[data-act]"); if (b && ismSel) ismAct(ismSel, b.dataset.act); });
+new ResizeObserver(() => { const w = ismPlotWidth(); for (const p of ismPlots) if (p.u.width !== w) p.u.setSize({ width: w, height: 160 }); }).observe($("ismDetCharts"));
+
+$("ismViews").addEventListener("click", (e) => { const b = e.target.closest("button[data-view]"); if (b) setIsmView(b.dataset.view); });
+$("ismInfoKey").addEventListener("click", () => setIsmInfo($("ismNote").hidden));
+setIsmInfo(recall("ismInfo") === "1");
+$("ismCats").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-cat]");
+  if (!b) return;
+  const c = b.dataset.cat;
+  if (ismCatsOff.has(c)) ismCatsOff.delete(c); else ismCatsOff.add(c);
+  store("ismCatsOff", JSON.stringify([...ismCatsOff]));
+  ismApplyFilter();
+});
+$("ismFilter").addEventListener("input", ismApplyFilter);
+$("ismHidden").addEventListener("change", (e) => { ismShowHidden = e.target.checked; ismApplyFilter(); });
+$("ismDevGrid").addEventListener("click", (e) => {
+  const card = e.target.closest(".ism-dev");
+  if (!card) return;
+  const b = e.target.closest("[data-act]");
+  if (b) ismAct(card.dataset.key, b.dataset.act);
+  else ismOpenDev(card.dataset.key);                     // the card itself: the tab of the device with its charts
+});
+$("ismRows").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-mark]");
+  if (!b) return;
+  const key = b.closest("tr").dataset.key;
+  if (key) { ismAct(key, "name"); return; }              // already marked: its name, as on its card
+  const name = prompt("Name of this signal (e.g. My car key). Its later packages become a device in DEVICES:", "");
+  if (!name || !name.trim()) return;
+  try {
+    const r = await fetch(vbase + "/api/ism", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "rawmark", id: Number(b.dataset.mark), name }) }).then((x) => x.json());
+    if (r.names) { ismNames = r.names; ismRefreshNames(); }
+    else if (r.error) alert(r.error);
+  } catch { /* the server is gone */ }
+});
+$("ismDevTab").addEventListener("click", (e) => { if (e.target.closest(".ism-tab-x")) { e.stopPropagation(); ismCloseDev(); } }, true);
+$("ismTlRows").addEventListener("click", (e) => {
+  const r = e.target.closest(".ism-tl-name");
+  if (!r) return;
+  ismOpenDev(r.parentElement.dataset.key);
+});
+setTimeout(() => setIsmView(ismView));
+
+
 // ---------- HFDL: aircraft data link on HF (dumphfdl; all HFDL channels inside the received band) ----------
 
 const HFDL_MAX_ROWS = 500;
@@ -6398,7 +8458,8 @@ function addHfdl(m) {
   tr.dataset.pos = m.lat != null ? "1" : "";
   tr._msg = m;
   if (!m.crc_ok) tr.classList.add("bad");
-  tr.innerHTML = `<td>${new Date(m.time * 1000).toISOString().slice(11, 19)}</td><td>${fmtKhz0(m.freq_hz)}</td>` +
+  const utc = (t) => new Date(t * 1000).toISOString().slice(11, 19);
+  tr.innerHTML = `<td title="${m.n > 1 ? `first ${utc(m.time)} UTC, last ${utc(m.last || m.time)} UTC` : ""}">${utc(m.last || m.time)}</td><td>${fmtKhz0(m.freq_hz)}</td>` +
     `<td title="${m.noise != null ? `noise ${m.noise.toFixed(0)} dB` : ""}">${sig}${m.bitrate ? `<span class="sub">${m.bitrate} bit/s</span>` : ""}</td>` +
     `<td class="${up ? "up" : "down"}">${up ? "↑" : "↓"}</td>` +
     `<td class="gs" title="${escHtml(m.gs_id != null ? `${up ? "sent by" : "addressed to"} ground station ID ${m.gs_id} (HFDL frame header; name from the system table)` : "")}">${escHtml(m.gs || "-")}</td>` +
@@ -6646,6 +8707,8 @@ async function hfdlMapOpen() {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors',
     }).addTo(hfdlMap);
     mapPopout(hfdlMap, "hfdl");
+    // a click on the map (not on a mark) drops the selection: the red mark and trail get their own colors back
+    hfdlMap.on("click", () => { if (hfdlSel != null) { hfdlSel = null; renderHfdlMap(); } });
     hfdlMapLayers = { gs: L.layerGroup().addTo(hfdlMap), tracks: L.layerGroup().addTo(hfdlMap), planes: L.layerGroup().addTo(hfdlMap), marks: new Map() };
     try {
       const s = await satFetch("/api/location");
@@ -7108,6 +9171,8 @@ async function aisMapOpen() {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors',
     }).addTo(aisMap);
     mapPopout(aisMap, "ais");
+    // a click on the map (not on a mark) drops the selection: the red mark and trail get their own colors back
+    aisMap.on("click", () => { if (aisSel != null) { aisSel = null; renderAisMap(); } });
     aisMapLayers = { tracks: L.layerGroup().addTo(aisMap), ships: L.layerGroup().addTo(aisMap), marks: new Map() };
     try {
       const s = await satFetch("/api/location");
@@ -7522,6 +9587,8 @@ async function adsbMapOpen() {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors',
     }).addTo(adsbMap);
     mapPopout(adsbMap, "adsb");
+    // a click on the map (not on a mark) drops the selection: the red mark and trail get their own colors back
+    adsbMap.on("click", () => { if (adsbSel != null) { adsbSel = null; renderAdsbMap(); } });
     adsbMapLayers = { range: L.layerGroup().addTo(adsbMap), rings: L.layerGroup().addTo(adsbMap), tracks: L.layerGroup().addTo(adsbMap), planes: L.layerGroup().addTo(adsbMap), marks: new Map() };
     try {
       const s = await satFetch("/api/location");
@@ -7859,39 +9926,404 @@ function renderLogs(logs) {
 
 // ---------- RTTY ----------
 
-const rttyOut = textOut("rttyText", "rttyEmpty", 12000);
+/** RTTY terminal: the characters come out one by one at the speed of the signal (teletype) before a blinking cursor,
+ *  unsure ones (recent framing errors) dim amber, the UTC time in the left margin at each new line and after a pause.
+ *  The text loaded from the server (VFO switch, reload) is put in at once and without times. */
+const RTTY_MAX = 12000, RTTY_PAUSE_MS = 6000;
+let rttyBaudNow = 45.45;
+const rttyOut = (() => {
+  const box = $("rttyText"), empty = $("rttyEmpty");
+  const cur = document.createElement("span");
+  cur.className = "rt-cur";
+  cur.textContent = "█";
+  cur.hidden = true;
+  box.append(cur);
+  let queue = [], node = null, nodeLo = null, lineStart = true, lineEmpty = true, last = 0, count = 0, credit = 0;
+  const utc = () => new Date().toISOString().slice(11, 19);
+
+  function put(ch, lo, live) {
+    if (live && !lineEmpty && ch !== "\n" && Date.now() - last > RTTY_PAUSE_MS) put("\n", lo, false);   // after a pause: new line
+    if (ch !== "\n" && lineStart) {
+      lineStart = false;
+      if (live) {
+        const t = document.createElement("span");
+        t.className = "rt-ts";
+        t.textContent = utc();
+        box.insertBefore(t, cur);
+        node = null;
+      }
+    }
+    if (!node || nodeLo !== lo) {
+      const sp = document.createElement("span");
+      if (lo) sp.className = "rt-lo";
+      node = document.createTextNode("");
+      sp.append(node);
+      box.insertBefore(sp, cur);
+      nodeLo = lo;
+    }
+    node.appendData(ch);
+    if (ch === "\n") { lineStart = true; lineEmpty = true; } else lineEmpty = false;
+    if (live) last = Date.now();
+    if (++count > RTTY_MAX + 2000) trim();
+  }
+
+  // the oldest spans go so the page does not slow down during long listening
+  function trim() {
+    while (count > RTTY_MAX) {
+      const el = empty.nextSibling;
+      if (!el || el === cur) break;
+      if (!el.classList.contains("rt-ts")) count -= el.textContent.length;
+      if (el.firstChild === node) node = null;
+      el.remove();
+    }
+  }
+
+  function write(fn) {
+    const stick = box.scrollTop + box.clientHeight >= box.scrollHeight - 4;
+    empty.hidden = true;
+    fn();
+    if (stick) box.scrollTop = box.scrollHeight;
+  }
+
+  // teletype: 7.5 bits per character; a long queue (fast burst, a page in the background) is caught up at once
+  setInterval(() => {
+    if (!queue.length) { credit = 0; return; }
+    credit += 40 / (7500 / rttyBaudNow);
+    let n = Math.floor(credit);
+    if (queue.length > 30) n = queue.length - 10;
+    if (!n) return;
+    credit -= Math.min(credit, n);
+    write(() => { for (const [ch, lo] of queue.splice(0, n)) put(ch, lo, true); });
+  }, 40);
+
+  return {
+    add(t, q, instant = false) {
+      if (!t) return;
+      if (instant) { write(() => { for (let i = 0; i < t.length; i++) put(t[i], !!q && q[i] === "0", false); }); return; }
+      for (let i = 0; i < t.length; i++) queue.push([t[i], !!q && q[i] === "0"]);
+    },
+    clear() {
+      queue = [];
+      while (empty.nextSibling && empty.nextSibling !== cur) empty.nextSibling.remove();
+      node = null; lineStart = true; lineEmpty = true; count = 0;
+      empty.hidden = false;
+    },
+    cursor(on) { cur.hidden = !on; },
+  };
+})();
 
 function rttyPost(body) {
   return fetch(vbase + "/api/rtty", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
     .then((r) => r.json());
 }
 
+function rttyFigs(figs) {
+  $("rtFigs").textContent = figs ? "FIGS" : "LTRS";
+  $("rtFigs").classList.toggle("figs", !!figs);
+}
+
+const RTTY_SNR_SEGS = 10;   // 3 dB each
+$("rtSnr").innerHTML = "<i></i>".repeat(RTTY_SNR_SEGS);
+
 function renderRttyInfo(i) {
   const o = i.opts || {};
   $("rttyShift").value = String(o.shift ?? "auto");
   $("rttyBaud").value = String(o.baud ?? "auto");
   $("rttyPol").value = o.polarity || "auto";
-  if (i.shift_hz == null) {
-    $("rttyInfo").textContent = "searching…";
-    $("rttyInfo").title = "looking for two FSK tones in the passband";
-    return;
-  }
-  // Short "● 45.45 Bd 170 Hz N 12 dB", tones in the tooltip.
-  const pol = i.polarity === "reverse" ? "R" : "N";
-  $("rttyInfo").textContent = `${i.present ? "●" : "○"} ${i.baud} Bd  ${i.shift_hz} Hz  ${pol}  ${Math.round(i.snr_db)} dB`;
-  $("rttyInfo").title = `mark ${fmtKHz(i.mark_hz, 2)} kHz · space ${fmtKHz(i.space_hz, 2)} kHz · ${i.polarity}`
-    + (i.std_shift ? ` · standard shift ${i.std_shift} Hz` : "");
+  rttyBaudNow = i.baud || 45.45;
+  rttyOut.cursor(!!i.enabled);
+  const lock = i.shift_hz != null;
+  const bd = $("rttyBadges");
+  bd.classList.toggle("lock", lock && !!i.present);
+  bd.classList.toggle("search", !!i.enabled && !lock);
+  $("rtBaud").textContent = lock ? `${i.baud} Bd` : "— Bd";
+  $("rtShift").textContent = lock ? `${i.shift_hz} Hz` : "— Hz";
+  $("rtPol").textContent = i.polarity === "reverse" ? "REV" : "NORM";
+  rttyFigs(i.figs);
+  const sy = $("rtSync");
+  sy.hidden = !(lock && (i.sync || i.probing));
+  sy.classList.toggle("probe", !!i.probing);
+  sy.textContent = i.sync ? "NO BAUDOT" : "CHECKING Bd";
+  sy.title = i.sync
+    ? `A strong FSK signal whose characters keep failing the start / stop check (correct frames ${Math.round((i.frames_ok || 0) * 100)} %): `
+      + "synchronous or encrypted data, not Baudot text. Its text is not written; it comes back by itself when the frames fit again."
+    : "Too many framing errors: trying the other speeds before deciding whether this is Baudot at all";
+  bd.title = !i.enabled ? "decoder off" : !lock ? "searching: looking for two FSK tones in the passband"
+    : `mark ${fmtKHz(i.mark_hz, 2)} kHz · space ${fmtKHz(i.space_hz, 2)} kHz · ${i.polarity}`
+      + (i.std_shift ? ` · standard shift ${i.std_shift} Hz` : "");
+  const n = lock && i.present ? Math.max(0, Math.min(RTTY_SNR_SEGS, Math.round(i.snr_db / 3))) : 0;
+  [...$("rtSnr").children].forEach((el, k) => { el.className = k < n ? (k < 3 ? "on r" : k < 6 ? "on y" : "on") : ""; });
+  $("rtSnr").title = lock ? `SNR of the weaker tone ${Math.round(i.snr_db)} dB` : "SNR";
+  $("rttyStation").textContent = i.station || "";
+  $("rttyStation").title = i.station ? "Known RTTY transmission at this frequency" : "";
+  $("rttyAuto").hidden = i.focus_hz == null;
 }
+
+// known transmissions (from GET /api/rtty): choosing one tunes USB so that the signal is in the passband,
+// a single station in its middle, an amateur segment from its start
+let rttyStations = [];
+function renderRttyStations(list) {
+  if (!list || JSON.stringify(list) === JSON.stringify(rttyStations)) return;
+  rttyStations = list;
+  const sel = $("rttyGo");
+  sel.length = 1;
+  const groups = new Map();
+  list.forEach((s, k) => {
+    if (!groups.has(s.group)) {
+      const og = document.createElement("optgroup");
+      og.label = s.group;
+      groups.set(s.group, og);
+      sel.append(og);
+    }
+    const o = document.createElement("option");
+    o.value = String(k);
+    o.textContent = s.kind === "segment" ? `${s.name} (from ${fmtKHz(s.hz, 1)} kHz)` : s.name;
+    groups.get(s.group).append(o);
+  });
+}
+
+$("rttyGo").addEventListener("change", () => {
+  const s = rttyStations[Number($("rttyGo").value)];
+  $("rttyGo").value = "";
+  if (!s || !st) return;
+  const usb = st.mode !== "USB";   // like CW TUNE: the mode locally first, the frequency, then the mode to the server
+  if (usb) { st.mode = "USB"; renderControls(); }
+  const bw = (st.bandwidth && st.bandwidth.USB) || 3000;
+  tune(s.kind === "segment" ? s.hz : s.hz - Math.min(1500, bw / 2));
+  if (usb) send({ mode: "USB" });
+  if (!st.rtty) { $("rttyOn").checked = true; $("rttyOn").dispatchEvent(new Event("change")); }
+});
 
 $("rttyOn").addEventListener("change", () => {
   st.rtty = $("rttyOn").checked;
   $("rttyCard").hidden = !st.rtty;
   send({ rtty: st.rtty });
+  setTimeout(rttyAsk, 500);
 });
 $("rttyClear").addEventListener("click", () => { rttyPost({ action: "clear" }); rttyOut.clear(); });
 for (const [id, key] of [["rttyShift", "shift"], ["rttyBaud", "baud"], ["rttyPol", "polarity"]]) {
   $(id).addEventListener("change", () => rttyPost({ opts: { [key]: $(id).value } }).then(renderRttyInfo));
 }
+
+// ----- RTTY tuning indicators (CROSS / WF / BARS / EYE): the server sends their data only while the page asks (every 2 s)
+const RTTY_VIEWS = ["cross", "wf", "bars", "eye"];
+let rttyView = RTTY_VIEWS.includes(recall("rttyView")) ? recall("rttyView") : "cross";
+let rttyVizAt = 0, rttyWf = null, rttyErr = 0, rttyLast = null;
+const rttyShown = () => !MAP_ONLY && bodyTab === "dec" && decPage === "rtty" && !!(st && st.rtty);
+const b64u8 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+
+function rttyAsk() {
+  if (rttyShown()) rttyPost({ action: "viz" }).catch(() => { /* receiver restarting */ });
+}
+
+function rttyCanvas() {
+  const cv = $("rttyScope"), w = cv.clientWidth, h = cv.clientHeight, dpr = window.devicePixelRatio || 1;
+  if (!w || !h) return null;
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
+    cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  }
+  const g = cv.getContext("2d");
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.globalCompositeOperation = "source-over";
+  return { g, w, h };
+}
+
+function rttyScopeClear(note) {
+  const c = rttyCanvas();
+  if (c) { c.g.fillStyle = "#010402"; c.g.fillRect(0, 0, c.w, c.h); }
+  $("rttyIndInfo").textContent = note;
+}
+
+function setRttyView(v) {
+  rttyView = v;
+  store("rttyView", v);
+  for (const b of $("rttyView").children) b.classList.toggle("on", b.dataset.view === v);
+  $("rttyScope").classList.toggle("wf", v === "wf");
+  rttyWf = null;
+  rttyScopeClear(rttyShown() ? "waiting for data…" : "decoder off");
+  rttyAsk();
+}
+
+// phosphor persistence: the old picture fades, the new traces add up
+function rttyFade(c, a) {
+  c.g.globalCompositeOperation = "source-over";
+  c.g.fillStyle = `rgba(1, 4, 2, ${a})`;
+  c.g.fillRect(0, 0, c.w, c.h);
+}
+
+function rttyGrid(c, cross) {
+  const { g, w, h } = c;
+  g.strokeStyle = "rgba(57, 255, 106, .12)";
+  g.lineWidth = 1;
+  g.setLineDash([3, 4]);
+  g.beginPath();
+  if (cross) { g.moveTo(w / 2, 6); g.lineTo(w / 2, h - 6); }
+  g.moveTo(6, h / 2); g.lineTo(w - 6, h / 2);
+  g.stroke();
+  g.setLineDash([]);
+}
+
+function drawRttyCross(c, d) {
+  const { g, w, h } = c;
+  rttyFade(c, 0.28);
+  rttyGrid(c, true);
+  if (!d.m) return;
+  const m = b64u8(d.m), s = b64u8(d.s), R = Math.min(w, h) * 0.44;
+  g.globalCompositeOperation = "lighter";
+  g.strokeStyle = "rgba(57, 255, 106, .10)";
+  g.lineWidth = 1.4;
+  for (let i = 0; i < m.length; i++) {
+    g.beginPath();
+    g.ellipse(w / 2, h / 2, Math.max(0.5, (m[i] / 255) * R), Math.max(0.5, (s[i] / 255) * R), 0, 0, 2 * Math.PI);
+    g.stroke();
+  }
+  g.globalCompositeOperation = "source-over";
+  g.fillStyle = "rgba(57, 255, 106, .45)";
+  g.font = "10px ui-monospace, Consolas, monospace";
+  g.fillText("M", w - 14, h / 2 - 5);
+  g.fillText("S", w / 2 + 5, 14);
+}
+
+function drawRttyEye(c, d) {
+  const { g, w, h } = c;
+  rttyFade(c, 0.22);
+  rttyGrid(c, true);
+  if (!d.eye) return;
+  const n = d.eye.n, raw = b64u8(d.eye.data), cnt = Math.floor(raw.length / n), mid = h / 2, sp = h * 0.4;
+  g.globalCompositeOperation = "lighter";
+  g.strokeStyle = "rgba(57, 255, 106, .14)";
+  g.lineWidth = 1.3;
+  for (let t = 0; t < cnt; t++) {
+    g.beginPath();
+    for (let k = 0; k < n; k++) {
+      const v = ((raw[t * n + k] << 24) >> 24) / 127;
+      const x = 6 + (k / (n - 1)) * (w - 12), y = mid - v * sp;
+      if (k) g.lineTo(x, y); else g.moveTo(x, y);
+    }
+    g.stroke();
+  }
+  g.globalCompositeOperation = "source-over";
+  g.fillStyle = "rgba(57, 255, 106, .45)";
+  g.font = "10px ui-monospace, Consolas, monospace";
+  g.fillText("MARK", 6, 12);
+  g.fillText("SPACE", 6, h - 5);
+}
+
+function drawRttyWf(c, d) {
+  const { g, w, h } = c;
+  if (!d.spec) { rttyScopeClear("no signal data"); return; }
+  const row = b64u8(d.spec.data), nb = row.length, ROWS = 160, key = `${nb}:${d.spec.lo}:${d.spec.hi}`;
+  if (!rttyWf || rttyWf.key !== key) {
+    const off = document.createElement("canvas");
+    off.width = nb; off.height = ROWS;
+    const og = off.getContext("2d");
+    og.fillStyle = "#010402"; og.fillRect(0, 0, nb, ROWS);
+    rttyWf = { key, off, og, lo: d.spec.lo, hi: d.spec.hi };
+  }
+  const { off, og, lo, hi } = rttyWf;
+  og.drawImage(off, 0, 0, nb, ROWS - 1, 0, 1, nb, ROWS - 1);   // older rows down
+  const img = og.createImageData(nb, 1);
+  for (let i = 0; i < nb; i++) {
+    const v = row[i] / 255, a = Math.pow(v, 1.4);
+    img.data[i * 4] = Math.max(0, v - 0.75) * 4 * 255;
+    img.data[i * 4 + 1] = 20 + a * 235;
+    img.data[i * 4 + 2] = Math.max(0, v - 0.6) * 2.5 * 160 + 8;
+    img.data[i * 4 + 3] = 255;
+  }
+  og.putImageData(img, 0, 0);
+  g.imageSmoothingEnabled = true;
+  g.drawImage(off, 0, 0, w, h);
+  const X = (f) => ((f - lo) / (hi - lo)) * w;
+  g.font = "bold 10px ui-monospace, Consolas, monospace";
+  if (d.focus != null && d.focus >= lo && d.focus <= hi) {
+    g.fillStyle = "#5fd7ff";
+    const x = X(d.focus);
+    g.beginPath(); g.moveTo(x - 5, h); g.lineTo(x + 5, h); g.lineTo(x, h - 8); g.fill();
+  }
+  for (const [f, lab, col] of [[d.fm, "M", "#ffd84a"], [d.fs, "S", "#ffb547"]]) {
+    if (f == null) continue;
+    const x = X(f);
+    g.strokeStyle = col;
+    g.setLineDash([4, 3]);
+    g.beginPath(); g.moveTo(x, 14); g.lineTo(x, h); g.stroke();
+    g.setLineDash([]);
+    g.fillStyle = col;
+    g.fillText(lab, x - 3, 11);
+  }
+}
+
+function drawRttyBars(c, d) {
+  const { g, w, h } = c;
+  g.fillStyle = "#010402";
+  g.fillRect(0, 0, w, h);
+  const SEG = 16, top = 18, bot = h - 18, sh = (bot - top) / SEG, bw = 22;
+  g.font = "bold 10px ui-monospace, Consolas, monospace";
+  // LED columns: mark left, space right, 2.5 dB per segment (0–40 dB above the noise)
+  for (const [lv, x, lab] of [[d.lm, 10, "M"], [d.ls, w - 10 - bw, "S"]]) {
+    const on = d.lock ? Math.round(Math.max(0, lv || 0) / 2.5) : 0;
+    for (let k = 0; k < SEG; k++) {
+      const y = bot - (k + 1) * sh + 1, lit = k < on;
+      g.fillStyle = !lit ? "#0c1a10" : k >= 12 ? "#ffb547" : k >= 8 ? "#ffd84a" : "#3cf07c";
+      g.fillRect(x, y, bw, sh - 2);
+    }
+    g.fillStyle = "rgba(57, 255, 106, .6)";
+    g.fillText(lab, x + bw / 2 - 3, h - 5);
+  }
+  // tuning meter: arc ±50 Hz, needle smoothed
+  rttyErr = d.lock ? rttyErr * 0.6 + 0.4 * (d.err || 0) : rttyErr * 0.8;
+  const cx = w / 2, cy = h * 0.72, R = Math.min(w - 2 * (bw + 30), h * 1.1) / 2, A = (Math.PI * 5) / 12;
+  g.strokeStyle = "rgba(57, 255, 106, .35)";
+  g.lineWidth = 2;
+  g.beginPath(); g.arc(cx, cy, R, -Math.PI / 2 - A, -Math.PI / 2 + A); g.stroke();
+  g.lineWidth = 1;
+  g.fillStyle = "rgba(57, 255, 106, .55)";
+  for (const t of [-50, -25, 0, 25, 50]) {
+    const a = -Math.PI / 2 + (t / 50) * A, r1 = R + 2, r2 = R + (t ? 7 : 11);
+    g.beginPath(); g.moveTo(cx + r1 * Math.cos(a), cy + r1 * Math.sin(a)); g.lineTo(cx + r2 * Math.cos(a), cy + r2 * Math.sin(a)); g.stroke();
+  }
+  g.textAlign = "center";
+  g.fillText("−50", cx - R * Math.sin(A), cy - R * Math.cos(A) - 10);
+  g.fillText("+50", cx + R * Math.sin(A), cy - R * Math.cos(A) - 10);
+  g.fillText("Hz", cx, cy + 16);
+  g.textAlign = "start";
+  const e = Math.max(-50, Math.min(50, rttyErr)), a = -Math.PI / 2 + (e / 50) * A;
+  g.strokeStyle = Math.abs(e) < 10 && d.lock ? "#3cf07c" : "#ffb547";
+  g.lineWidth = 2;
+  g.shadowColor = g.strokeStyle; g.shadowBlur = 6;
+  g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + (R - 4) * Math.cos(a), cy + (R - 4) * Math.sin(a)); g.stroke();
+  g.shadowBlur = 0;
+  g.fillStyle = "#3cf07c";
+  g.beginPath(); g.arc(cx, cy, 3, 0, 2 * Math.PI); g.fill();
+}
+
+function drawRttyViz(d) {
+  rttyVizAt = Date.now();
+  rttyLast = d;
+  rttyFigs(d.figs);
+  $("rttyAuto").hidden = d.focus == null;
+  if (!rttyShown()) return;
+  const c = rttyCanvas();
+  if (!c) return;
+  ({ cross: drawRttyCross, wf: drawRttyWf, bars: drawRttyBars, eye: drawRttyEye })[rttyView](c, d);
+  const sg = (v) => (v >= 0 ? "+" : "−") + Math.abs(Math.round(v));
+  $("rttyIndInfo").textContent = !d.lock ? "searching…"
+    : `M ${sg(d.fm)} · S ${sg(d.fs)} Hz` + (rttyView === "bars" ? ` · err ${sg(rttyErr)} Hz` : "")
+      + (d.lm != null && rttyView === "bars" ? ` · ${Math.round(d.lm)}/${Math.round(d.ls)} dB` : "");
+}
+
+$("rttyView").addEventListener("click", (e) => { const b = e.target.closest("button[data-view]"); if (b) setRttyView(b.dataset.view); });
+$("rttyScope").addEventListener("click", (e) => {
+  if (rttyView !== "wf" || !rttyWf) return;
+  const r = $("rttyScope").getBoundingClientRect();
+  const hz = rttyWf.lo + ((e.clientX - r.left) / r.width) * (rttyWf.hi - rttyWf.lo);
+  rttyPost({ action: "focus", hz: Math.round(hz) }).then(renderRttyInfo).catch(() => {});
+});
+$("rttyAuto").addEventListener("click", () => rttyPost({ action: "focus", hz: null }).then(renderRttyInfo).catch(() => {}));
+setRttyView(rttyView);
+setInterval(() => {
+  rttyAsk();
+  if (rttyShown() && Date.now() - rttyVizAt > 3000) rttyScopeClear("no data");
+}, 2000);
 
 $("wefaxSave").addEventListener("click", () => {
   if (!wfx.rows) return;
@@ -8941,6 +11373,7 @@ function memDuplicates() {
 
 /** After a change of the memories: tags in the spectrum, names above the VFOs and the editor pages. */
 function renderMems() {
+  renderDabChannelMems();
   drawOverlays();   // memory tags in the spectrum
   renderVfoDisplays();   // memory name above each VFO
   renderMed();
@@ -9112,7 +11545,7 @@ $("medSaveCur").addEventListener("click", () => {   // the tuned frequency, mode
 // ---------- memory editor (MEM → ✎ EDITOR): channels, groups with notes, import and export with a list ----------
 
 const RECORD_NAMES = { off: "OFF", on: "ON", sq: "SQ", asq: "ASQ" };   // RECORD of a memory: recording at recall
-const DECODER_NAMES = { "": "—", ft8: "FT8", wefax: "WEFAX", cw: "CW", rtty: "RTTY", sstv: "SSTV", packet: "PACKET",
+const DECODER_NAMES = { "": "—", ft8: "FT8", wefax: "WEFAX", cw: "CW", rtty: "RTTY", sstv: "SSTV", packet: "PACKET", pocsag: "POCSAG", sonde: "SONDE",
   acars: "ACARS", vdl2: "VDL2", hfdl: "HFDL", ais: "AIS", adsb: "ADS-B", ism: "ISM" };
 const NO_GROUP = "\u0000none";   // value of "(no group)" in the group filters
 let memGroupList = [];           // [{name, note, count}] from /api/memory_groups
@@ -10201,7 +12634,7 @@ function onStatus(s) {
   const rateChanged = st && st.audio_rate !== s.audio_rate;
   // Shortly after a local change, do not let an older state from the server overwrite tuning and selection.
   if (st && Date.now() - localChangeAt < 700) {
-    for (const k of ["tune_hz", "mode", "bandwidth", "zoom", "gain", "rtl_agc", "smart_agc", "dc_remove", "dc_hz", "dc_db", "spur_on", "spur_hz", "spur_edge", "spur_shift", "spur_db", "spur_learning", "stereo_on", "notch", "autotune", "ft8", "wefax", "cw", "rtty", "sstv", "packet", "hfdl", "ais", "adsb", "acars", "cpdlc", "dab", "dab_channel", "dab_sids", "logs", "upconv", "device", "squelch_levels", "auto_sql", "auto_sql_on", "auto_sql_level", "ctcss", "ctcss_hz", "dcs", "dcs_code"]) s[k] = st[k];
+    for (const k of ["tune_hz", "mode", "bandwidth", "zoom", "gain", "rtl_agc", "smart_agc", "dc_remove", "dc_hz", "dc_db", "spur_on", "spur_hz", "spur_edge", "spur_shift", "spur_db", "spur_learning", "stereo_on", "notch", "autotune", "ft8", "wefax", "cw", "rtty", "sstv", "packet", "pocsag", "sonde", "hfdl", "ais", "adsb", "acars", "cpdlc", "dab", "dab_channel", "dab_sids", "logs", "upconv", "device", "squelch_levels", "auto_sql", "auto_sql_on", "auto_sql_level", "ctcss", "ctcss_hz", "dcs", "dcs_code"]) s[k] = st[k];
   }
   s.sample_rates = sampleRates;
   st = s;
@@ -10225,6 +12658,11 @@ function onStatus(s) {
   $("rttyCard").hidden = !s.rtty;
   $("packetOn").checked = !!s.packet;
   $("packetCard").hidden = !s.packet;
+  $("pocsagOn").checked = !!s.pocsag;
+  $("pocsagCard").hidden = !s.pocsag;
+  $("sondeOn").checked = !!s.sonde;
+  $("sondeGo").classList.toggle("active", s.tune_hz === SONDE_MID_HZ && s.mode === "FM");
+  $("sondeCard").hidden = !s.sonde;
   renderHfdl(s);
   renderAis(s);
   renderAdsb(s);
@@ -10255,6 +12693,8 @@ function onStatus(s) {
   } else if (Date.now() - localChangeAt >= 700) {
     renderControls();
     if (document.activeElement !== $("gainSlider")) renderGain();
+    $("dcRemove").checked = st.dc_remove !== false;    // the server may change it too (ISM on / off)
+    $("dcHz").disabled = $("dcDb").disabled = st.dc_remove === false;
   }
   if (rateChanged && audio) { stopAudio(); startAudio(); }
 }
@@ -10265,9 +12705,68 @@ function onStatus(s) {
 
 const VFO_ROWS_MAX = 1400;
 
+// The browser (and the WebView2 of RADIMCOM.exe) keeps at most 6 connections to one server for all its windows.
+// The main window holds the events and the audio of each VFO; if every map tab (□ key of a map) held its own
+// events too, a few map tabs used them all up: the audio of the main window stopped and its requests waited
+// for ever. So the main window passes the events on to the map tabs (BroadcastChannel, same origin); a map tab
+// opens its own event stream only while no main window answers.
+const EV_CH = (() => { try { return new BroadcastChannel("radimcom-events"); } catch (e) { return null; } })();
+const EV_NO_RELAY = new Set(["wf", "meter", "packeteye", "packetspec"]);   // many a second, not used by a map tab
+const EV_ID = Math.random().toString(36).slice(2);
+let evTabsAt = 0;          // main window: a map tab said hello (relay only while one listens)
+let evMain = null, evMainAt = 0;   // map tab: the main window it takes the events from
+
+/** The event stream of VFO v into its bus (v.bus), in the main window also relayed to the map tabs. */
+function evOpen(v) {
+  if (v.es) return;
+  const es = v.es = new EventSource(v.base + "/api/events");
+  for (const k of v.kinds) {
+    es.addEventListener(k, (e) => {
+      v.bus.dispatchEvent(new MessageEvent(k, { data: e.data }));
+      if (!MAP_ONLY && EV_CH && !EV_NO_RELAY.has(k) && Date.now() - evTabsAt < 6000) EV_CH.postMessage({ t: "ev", from: EV_ID, vfo: v.name, k, d: e.data });
+    });
+  }
+  es.onerror = () => v.bus.dispatchEvent(new Event("down"));
+}
+function evClose(v) { if (v.es) { v.es.close(); v.es = null; } }
+
+if (EV_CH) {
+  EV_CH.onmessage = (e) => {
+    const m = e.data || {};
+    if (!MAP_ONLY) {
+      if (m.t === "hello") { evTabsAt = Date.now(); EV_CH.postMessage({ t: "here", from: EV_ID }); }
+      return;
+    }
+    if (m.t === "here") {
+      if (!evMain || Date.now() - evMainAt > 5000) evMain = m.from;   // the first main window, or another one when it is gone
+      if (m.from === evMain) evMainAt = Date.now();
+    } else if (m.t === "ev" && m.from === evMain) {
+      const v = vfos.find((x) => x.name === m.vfo);
+      if (v && v.bus && !v.es && !EV_NO_RELAY.has(m.k)) v.bus.dispatchEvent(new MessageEvent(m.k, { data: m.d }));
+    }
+  };
+}
+/** Map tab: events from the main window while it answers, otherwise an own stream (only of its VFO). */
+function evMapTabWatch() {
+  const tick = () => {
+    if (EV_CH) EV_CH.postMessage({ t: "hello", from: EV_ID });
+    const relay = !!evMain && Date.now() - evMainAt < 5000;
+    for (const v of vfos) {
+      if (!v.bus) continue;
+      if (relay) evClose(v);
+      else if (v === active) evOpen(v);
+    }
+  };
+  if (EV_CH) EV_CH.postMessage({ t: "hello", from: EV_ID });
+  setTimeout(() => { tick(); setInterval(tick, 2000); }, 1200);   // give the main window a moment to answer
+}
+
 function connectEvents(v) {
-  const es = new EventSource(v.base + "/api/events");
-  const on = (kind, fn) => es.addEventListener(kind, (e) => { if (v === active) fn(JSON.parse(e.data)); });
+  const bus = v.bus = new EventTarget();
+  v.kinds = new Set();
+  const listen = (kind, fn) => { v.kinds.add(kind); bus.addEventListener(kind, fn); };
+  const es = { addEventListener: listen };
+  const on = (kind, fn) => listen(kind, (e) => { if (v === active) fn(JSON.parse(e.data)); });
   es.addEventListener("status", (e) => {
     const s = JSON.parse(e.data);
     // Inactive VFO retuned by the wheel: an older state from the server must not turn the display back.
@@ -10300,20 +12799,27 @@ function connectEvents(v) {
   on("sstvrow", (d) => { if (d.id === sstvImg.id) sstvAddRow(d.y, d.row); });
   on("sstvdone", (d) => { if (d.id === sstvImg.id) sstvReload(); });
   on("sstvstate", renderSstvInfo);
-  on("cwtext", (d) => { cwAppend(d.t); if (st && st.cw) cwBubbleAdd(d.t); });
+  on("cwtext", (d) => { if (st && st.cw) cwBubbleAdd(d.t); });
+  on("cwchan", cwChanAdd);
   on("cwpeek", (d) => { if (st && !st.cw) cwBubbleAdd(d.t); });
   on("cwstate", renderCwInfo);
-  on("rttytext", (d) => rttyOut.add(d.t));
+  on("rttytext", (d) => rttyOut.add(d.t, d.q));
+  on("rttyviz", drawRttyViz);
   on("rttystate", renderRttyInfo);
   on("packet", (m) => { addPacket(m); decActivity("packet"); });
   on("packetstate", renderPacketInfo);
+  on("pocsag", (m) => { addPocsag(m); if (m.ric !== undefined) pocRic({ ric: m.ric, last: m.time, count: (pocRics.get(m.ric)?.count || 0) + 1,
+    func: m.func, baud: m.baud, kind: m.kind, text: m.text }); decActivity("pocsag"); });
+  on("pocsagstate", renderPocsagInfo);
+  on("sonde", (f) => { addSondeFrame(f); sondeUpdate(f); decActivity("sonde"); });
+  on("sondestate", renderSondeInfo);
   on("packeteye", drawPktEye);
   on("packetspec", drawPktSpec);
   on("dsdcall", (c) => { addDsdCall(c); if (bodyTab !== "dsd") $("dsdTabDot").hidden = false; });
   on("acars", (m) => { acarsReceive(m); decActivity(st && st.vdl2 ? "vdl2" : "acars"); });
   on("cpdlc", (c) => { if (c.imi === "ATN") { addAtn(c, true); decActivity("vdl2"); } });   // others come inside "acars"
   on("ft8", () => decActivity("ft8"));
-  on("cwtext", () => decActivity("cw"));
+  on("cwchan", () => decActivity("cw"));
   on("rttytext", () => decActivity("rtty"));
   on("wefaxnew", () => decActivity("wefax"));
   on("sstvnew", () => decActivity("sstv"));
@@ -10322,6 +12828,8 @@ function connectEvents(v) {
   on("dabstate", (d) => { if (st) renderDabInfo(d); });
   on("ism", (m) => { addIsm(m); if (m.n === 1) decActivity("ism"); });
   on("ismstate", (d) => { if (st) renderIsmInfo(d); });
+  on("ismdev", (d) => ismDevUpdate(d));
+  on("ismnames", (n) => { ismNames = n || {}; ismRefreshNames(); });
   on("hfdl", (m) => { addHfdl(m); decActivity("hfdl"); });
   on("hfdlstate", (d) => { if (st) renderHfdlInfo(d); });
   on("hfdlinfo", onHfdlInfo);
@@ -10331,12 +12839,15 @@ function connectEvents(v) {
   on("adsbstate", (d) => { if (st) renderAdsbInfo(d); });
   on("acarsinfo", onAcarsInfo);
   on("acarspos", acarsPosUpdate);
+  on("ft8", ft8StUpsert);
+  on("ft8stclear", ft8StClear);
   on("ft8cycle", (d) => renderFt8Info(`cycle ${d.time} · decoding…`));
-  es.onerror = () => {
+  bus.addEventListener("down", () => {
     v.online = false;
     renderVfoDisplays();
     if (v === active) renderStatusPill();
-  };
+  });
+  if (!MAP_ONLY) evOpen(v);
 }
 
 // USB symbol (trident): circle, arrow, upper branch with a ring, lower one with a square.
@@ -10354,9 +12865,9 @@ const VFO_ANNS = [
   ["nf", "NF", "NF: automatic notch filter (AM/LSB/USB)"],
   ["sp", "SP", "SP: spur removal"],
   ["alc", "ALC", "ALC: automatic audio level (AM/LSB/USB/CW)"],
-  ["afi", "AFI", "AFI: audio frequency inversion"],
+  ["dnr", "DNR", "DNR: Dynamic Noise Reduction (AM/LSB/USB/CW)"],
   ["asq", "ASQ", "ASQ: auto squelch (AM/FM/WFM)"],
-  ["atu", "ATU", "ATU: autotune (USB/LSB/AM)"],
+  ["afi", "AFI", "AFI: audio frequency inversion"],
   ["sat", SAT_ANN_ICON, "SAT: frequency corrected for Doppler by satellite tracking"],
 ];
 const vfoAnnsHtml = (mode = "") => `<div class="vfo-anns"><span class="ann vfo-mode">${mode}</span>` +
@@ -10375,7 +12886,7 @@ function renderVfoAnns(row, s) {
   a("alc").classList.toggle("on", ["AM", "LSB", "USB", "CW"].includes(s.mode) && s.audio_agc !== false);
   a("afi").classList.toggle("on", s.mode !== "WFM" && s.mode !== "DSD" && !!s.afi);
   a("asq").classList.toggle("on", ["AM", "FM", "WFM"].includes(s.mode) && !!s.auto_sql_on);
-  a("atu").classList.toggle("on", ATU_MODES.includes(s.mode) && !!s.autotune);
+  a("dnr").classList.toggle("on", ["AM", "LSB", "USB", "CW"].includes(s.mode) && !!s.dyn);
   a("sat").classList.toggle("on", !!s.trsp_name);
 }
 // Info row under the frequency (was the flags beside the S-meter): RX/TX, filter width, audio HPF and LPF with their
@@ -10386,9 +12897,11 @@ const PASS_ICON = {
 };
 // Tone squelch row under the frequency: the set CTCSS tone and DCS code, dark (as an unlit annunciator) = off, orange = on (FM), glowing = received.
 const vfoToneHtml = () => `<div class="vfo-tone"><span class="ann tsq ctcss">CTCSS<b></b></span>` +
-  `<span class="ann tsq dcs">DCS<b></b></span></div>`;
+  `<span class="ann tsq dcs">DCS<b></b></span>` +
+  `<span class="ann atu" title="ATU: autotune (USB/LSB/AM)">ATU</span></div>`;
 function renderVfoTone(row, s) {
   const fm = s.mode === "FM";
+  row.querySelector(".vfo-tone .atu")?.classList.toggle("on", ATU_MODES.includes(s.mode) && !!s.autotune);
   for (const [c, on, val, name] of [["ctcss", s.ctcss, ctcssText(ctcssHz(s)), "TSQ-C: CTCSS tone squelch"],
     ["dcs", s.dcs, dcsCode(s), "TSQ-D: DCS code squelch"]]) {
     const el = row.querySelector(`.vfo-tone .${c}`);
@@ -10718,8 +13231,10 @@ async function selectVfo(v, keepTab) {
   adRotInfo = null; rotorInfo = null; rotorPendingOn = false;
   for (const id of ["modes", "bandwidths", "steps"]) $(id)._html = null;
   $("ft8Rows").innerHTML = ""; $("ft8Empty").hidden = false; ft8Cycle = null; ft8Count = 0;
-  cwOut.clear(); rttyOut.clear();
+  cwReset(); rttyOut.clear();
   packetReset();
+  pocsagReset();
+  sondeReset();
   acarsResume();
   acarsDropHeld();
   $("acarsRows").innerHTML = ""; $("acarsEmpty").hidden = false; renderAcarsFilter();
@@ -10762,17 +13277,20 @@ async function loadDecoders() {
   await aisLoad();
   await adsbLoad();
   await packetLoad();
+  await pocsagLoad();
+  await sondeLoad();
   const cwi = await fetch(vbase + "/api/cw").then((r) => r.json());
   if (v !== active) return;
   renderCwInfo(cwi);
-  if (cwi.text) cwAppend(cwi.text);
   const rti = await fetch(vbase + "/api/rtty").then((r) => r.json());
   if (v !== active) return;
   renderRttyInfo(rti);
-  if (rti.text) rttyOut.add(rti.text);
+  renderRttyStations(rti.stations);
+  if (rti.text) rttyOut.add(rti.text, rti.q, true);
   const decodes = await fetch(vbase + "/api/ft8").then((r) => r.json());
   if (v !== active) return;
   for (const d of decodes) addFt8(d, false);
+  await ft8StLoad();
   const ac = await fetch(vbase + "/api/acars").then((r) => r.json());
   const cp = await fetch(vbase + "/api/cpdlc").then((r) => r.json());
   if (v !== active) return;
@@ -11162,10 +13680,10 @@ let scanRowsKey = "";
 let scanRowsHover = false;    // the mouse is over the CHANNELS table: no rebuild (the rows stay under the pointer)
 // HEARD in the State column: a speaker (what is heard now), not ▶ (that looks like a play key)
 const SCAN_SPK = `<svg class="scan-spk" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a7.5 7.5 0 0 1 0 11"/></svg>`;         // the rows are rebuilt only when the memories / channels change (inputs keep focus)
-let scanPolling = false;
+let scanPolling = null;       // the VFO whose /api/scan is being read (a poll of another VFO does not block)
 let scanPage = "scan";
 let scanLogRows = [];
-let scanSession = "";         // session of THIS SCAN
+let scanSession = null;       // session of THIS SCAN of the active VFO (null = not read yet)
 const SCAN_RANGE_SRC = ["range", "view", "fmbc"];
 const SCAN_MODES = ["AM", "FM"];           // a squelch scan needs AM or FM (WFM: the FM BCAST tile)
 const SCAN_FM = { from_hz: 88e6, to_hz: 108e6, step_hz: 50000 };   // FM BCAST (scanner.py FMBC_*)
@@ -11321,6 +13839,12 @@ async function scanPaneOpened() {
   else await loadMemGroups();
   scanData = null;
   scanRowsKey = "";
+  // another VFO (or the pane opened again): nothing of the previous one stays; THIS SCAN = the session of this VFO
+  scanSession = null;
+  scanLogRows = [];
+  renderScanLog();
+  $("scanHeatRows").innerHTML = "";
+  $("scanHeatHead").innerHTML = "";
   await scanPoll();
   if (scanData) {
     scanPresets = scanData.presets || [];
@@ -11342,6 +13866,7 @@ function setScanPage(page, save = true) {
   for (const b of $("scanPages").querySelectorAll("button[data-scan-page]")) b.classList.toggle("on", b.dataset.scanPage === page);
   for (const el of $("scanPane").querySelectorAll("[data-scan-panel]")) el.hidden = el.dataset.scanPanel !== page;
   $("scanShowBox").hidden = page === "scan";
+  if (page !== "scan") $("scanSelBox").hidden = true;
   scanHistoryReload();
   renderScanRows();
 }
@@ -11351,15 +13876,18 @@ $("scanPages").addEventListener("click", (e) => {
 });
 
 async function scanPoll() {
-  if (scanPolling) return;
-  scanPolling = true;
+  const v = active;
+  if (scanPolling === v) return;
+  scanPolling = v;
+  let r;
   try {
-    const r = await memApi("/api/scan", undefined, "GET");
-    scanData = r.ok ? r.data : null;
-    if (!r.ok) $("scanInfo").textContent = `Scan: ${r.error}`;
+    r = await memApi("/api/scan", undefined, "GET");
   } finally {
-    scanPolling = false;
+    if (scanPolling === v) scanPolling = null;
   }
+  if (v !== active) return;   // the answer of the VFO switched away from
+  scanData = r.ok ? r.data : null;
+  if (!r.ok) $("scanInfo").textContent = `Scan: ${r.error}`;
   if (scanData && scanData.session_id !== scanSession) {   // another source / range started, or CLR (any page of this VFO)
     scanSession = scanData.session_id;
     scanHistoryReload();
@@ -11378,6 +13906,7 @@ function renderScanRows() {
   const key = scanTile() + "|" + (range ? list.map((c) => c.id).join(",")
     : list.map((m) => [m.id, m.name, m.freq_hz, m.mode, m.bw, m.scan, m.scan_sq, m.scan_asq, m.scan_prio].join(",")).join(";"));
   const body = $("scanRows");
+  $("scanSelBox").hidden = range || !list.length;
   body.parentElement.classList.toggle("grid", range);   // a band / range: no memory columns (SCAN, Name, BW, SQ, ASQ, PRIO)
   // while the mouse is over the table the rows are not rebuilt (a new channel heard would move the row under the
   // pointer and the ✕ aimed at would be missed); only the live cells change, the rebuild comes when it leaves
@@ -11544,6 +14073,19 @@ $("scanRows").addEventListener("change", async (e) => {
   await memChanged(mems.map((x) => (x.id === r.data.id ? r.data : x)));
   renderScanRows();
 });
+// ☑ ALL / ☐ NONE: SCAN on / off for every memory of the source chosen (only those that change are sent)
+async function scanSelectAll(on) {
+  const ids = scanMems().filter((m) => (m.scan !== false) !== on).map((m) => m.id);
+  if (!ids.length) return;
+  const r = await memApi("/api/memories/bulk", { ids, changes: { scan: on } });
+  if (!r.ok) { adError(`SCAN: ${r.error}`); return; }
+  await memChanged();
+  scanRowsKey = "";
+  scanTilesShown();
+  renderScanRows();
+}
+$("scanSelAll").addEventListener("click", () => scanSelectAll(true));
+$("scanSelNone").addEventListener("click", () => scanSelectAll(false));
 // ✕ of a row: lock the channel out until STOP / back in. On pointerdown: a click (down + up) is lost when the row
 // changes between the two while scanning.
 $("scanRows").addEventListener("pointerdown", (e) => {
@@ -11558,6 +14100,29 @@ $("scanRows").addEventListener("pointerdown", (e) => {
 $("scanRows").addEventListener("pointerenter", () => { scanRowsHover = true; });
 $("scanRows").addEventListener("pointerleave", () => { scanRowsHover = false; renderScanRows(); });
 setInterval(() => { if (bodyTab === "scan" && !document.hidden) scanPoll(); }, 500);
+// the tab scrolls, the key bar stays on top: the page (CHANNELS / ACTIVITY / HEATMAP) is as high as what is left
+// under the bar, the ⚙ options and the page keys, so once the tiles are scrolled away it fills the tab
+function scanFit() {
+  const p = $("scanPane");
+  if (p.hidden) return;
+  const gap = parseFloat(getComputedStyle(p).rowGap) || 0, cfg = $("scanCfg");
+  const h = p.clientHeight - parseFloat(getComputedStyle(p).paddingBottom) - ($("scanBar").offsetHeight - 12)
+    - $("scanPages").offsetHeight - 2 * gap - (cfg.hidden ? 0 : cfg.offsetHeight + gap);
+  p.style.setProperty("--scan-fill", `${Math.max(160, Math.floor(h))}px`);
+}
+{
+  const ro = new ResizeObserver(scanFit);
+  for (const id of ["scanPane", "scanBar", "scanCfg", "scanPages"]) ro.observe($(id));
+}
+// wheel down over the page: first the tiles scroll away, then the rows (up: the rows first, then the tiles come back)
+$("scanPane").addEventListener("wheel", (e) => {
+  const p = $("scanPane");
+  if (e.deltaY <= 0 || e.shiftKey || !e.target.closest("[data-scan-panel]")) return;
+  const room = p.scrollHeight - p.clientHeight - p.scrollTop;
+  if (room < 1) return;
+  e.preventDefault();
+  p.scrollTop += Math.min(room, e.deltaMode === 1 ? e.deltaY * 40 : e.deltaY);
+}, { passive: false });
 
 // ACTIVITY and HEATMAP: THIS SCAN (session of this VFO) or the history of all VFOs
 function scanShowQuery() {
@@ -11601,7 +14166,10 @@ function scanLogMem(r) {
 }
 async function loadScanLog() {
   if (!mems.length) await loadMems();
+  if (scanSession === null && $("scanShow").value === "session") return;   // session of this VFO not known yet (scanPoll reloads)
+  const v = active;
   const r = await memApi(`/api/scan/log?${scanShowQuery()}`, undefined, "GET");
+  if (v !== active) return;
   scanLogRows = r.ok ? r.data.rows.map(scanLogMem) : [];
   if (!r.ok) adError(`SCAN activity: ${r.error}`);
   renderScanLog();
@@ -11645,18 +14213,54 @@ $("scanLogCsv").addEventListener("click", () => {
 });
 setInterval(() => { if (bodyTab === "scan" && !document.hidden) scanHistoryReload(); }, 5000);
 
+// THIS SCAN = a timeline: one column per hour from the start of the scan (the server bins by hour, start_ts), a row
+// of days above the hours, scrolled sideways (Frequency / Name / Total stay in place), the newest hour in view.
+// Older history = the hours of the day 0–23 summed over the days.
+const HEAT_DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 async function loadScanHeat() {
+  if (scanSession === null && $("scanShow").value === "session") return;   // session of this VFO not known yet (scanPoll reloads)
+  const v = active;
   const r = await memApi(`/api/scan/heatmap?${scanShowQuery()}`, undefined, "GET");
-  const rows = r.ok ? r.data.rows : [];
+  if (v !== active) return;
+  const rows = (r.ok ? r.data.rows : []).sort((a, b) => b.total - a.total);   // the busiest frequency first
   if (!r.ok) adError(`SCAN heatmap: ${r.error}`);
+  const tl = !!(r.ok && r.data.timeline);
+  const n = rows.length ? rows[0].hours.length : 24;
+  const cols = Array.from({ length: n }, (_, i) => (tl ? new Date((r.data.start_ts + i * 3600) * 1000) : null));
+  const hourOf = (i) => (tl ? cols[i].getHours() : i);
   const max = Math.max(1, ...rows.flatMap((x) => x.hours));
-  $("scanHeatHead").innerHTML = `<tr><th>Frequency</th><th>Name</th><th>Total</th>${Array.from({ length: 24 }, (_, h) => `<th class="hh">${h}</th>`).join("")}</tr>`;
+  const box = $("scanHeatTable").parentElement;
+  const atEnd = box.scrollLeft + box.clientWidth >= box.scrollWidth - 4;   // follow the newest hour unless scrolled back
+  $("scanHeatNote").textContent = tl
+    ? "Seconds of activity in each hour since the start of this scan (local time), the 60 busiest frequencies; yellow = most. Scroll sideways for older hours. A click on a row tunes it."
+    : "Seconds of activity per hour of the day (local time), summed over the days, the 60 busiest frequencies; yellow = most. A click on a row tunes it.";
+  $("scanHeatCols").innerHTML = `<col class="cf"><col class="cn"><col class="ct">${"<col>".repeat(n)}`;
+  $("scanHeatTable").style.minWidth = `${400 + n * 22}px`;
+  let days = "";
+  if (tl) {
+    for (let i = 0; i < n;) {
+      let k = i + 1;
+      while (k < n && cols[k].getDate() === cols[i].getDate()) k++;
+      const d = cols[i];
+      days += `<th class="hd" colspan="${k - i}" title="${d.toLocaleDateString()}">${k - i >= 3 ? `${HEAT_DAYS[d.getDay()]} ${d.getDate()}.${d.getMonth() + 1}.` : ""}</th>`;
+      i = k;
+    }
+  }
+  const span = tl ? ' rowspan="2"' : "";
+  $("scanHeatHead").innerHTML = `<tr><th class="sl sl1"${span}>Frequency</th><th class="sl sl2"${span}>Name</th><th class="sl sl3"${span}>Total</th>${
+    tl ? `${days}</tr><tr class="hh-row">` : ""}${cols.map((_, i) => `<th class="hh${tl && i && !hourOf(i) ? " d0" : ""}">${hourOf(i)}</th>`).join("")}</tr>`;
   $("scanHeatRows").innerHTML = rows.map((x) => `<tr data-hz="${x.freq_hz}" data-mode="${escHtml(x.mode)}">
-    <td class="num">${fmtMemFreq(x.freq_hz)}</td><td class="scan-name" title="${escHtml(x.name || "")}">${escHtml(x.name || "")}</td><td class="num">${x.total >= 60 ? (x.total / 60).toFixed(1) + " min" : x.total.toFixed(0) + " s"}</td>
-    ${x.hours.map((s, h) => {
+    <td class="num sl sl1">${fmtMemFreq(x.freq_hz)}</td><td class="scan-name sl sl2" title="${escHtml(x.name || "")}">${escHtml(x.name || "")}</td><td class="num sl sl3">${x.total >= 60 ? (x.total / 60).toFixed(1) + " min" : x.total.toFixed(0) + " s"}</td>
+    ${x.hours.map((s, i) => {
+      const h = hourOf(i);
       const k = s ? Math.log1p(s) / Math.log1p(max) : 0;   // log scale: a few seconds still show
-      return `<td class="hc" style="background:${s ? `hsla(${48 - 48 * (1 - k)}, 100%, ${18 + 40 * k}%, ${0.35 + 0.65 * k})` : "transparent"}" title="${h}:00–${h}:59 · ${s.toFixed(0)} s"></td>`;
+      const when = tl ? `${cols[i].toLocaleDateString()} ${h}:00–${h}:59` : `${h}:00–${h}:59`;
+      return `<td class="hc${tl && i && !h ? " d0" : ""}" style="background:${s ? `hsla(${48 - 48 * (1 - k)}, 100%, ${18 + 40 * k}%, ${0.35 + 0.65 * k})` : "transparent"}" title="${when} · ${s.toFixed(0)} s"></td>`;
     }).join("")}</tr>`).join("");
+  // the hour row sticks right under the row of days
+  const top = tl ? $("scanHeatHead").rows[0].querySelector(".hd")?.offsetHeight || 0 : 0;
+  for (const th of $("scanHeatHead").querySelectorAll(".hh")) th.style.top = `${top}px`;
+  if (atEnd) box.scrollLeft = box.scrollWidth;
   $("scanHeatHead").hidden = !rows.length;
   $("scanHeatEmpty").hidden = rows.length > 0;
   $("scanHeatEmpty").textContent = scanEmptyText();
@@ -11665,6 +14269,12 @@ $("scanHeatRows").addEventListener("click", (e) => {
   const tr = e.target.closest("tr");
   if (tr) send({ tune_hz: +tr.dataset.hz, mode: tr.dataset.mode });
 });
+
+// ACTIVITY: the column heads stick right under the sticky filter + player bar (its height changes when it wraps)
+new ResizeObserver(([e]) => {
+  const head = e.target;
+  head.closest(".recs-body")?.style.setProperty("--slh", `${head.offsetHeight}px`);
+}).observe(document.querySelector(".scan-log-head"));
 
 // ---------- stereo level meter next to the sliders ----------
 // LEDs from the bottom up: 10 green up to 0 dB, then yellow (+3 dB) and red (+6 dB = 0 dBFS, clipping).
@@ -11740,7 +14350,7 @@ $("muteBtn").addEventListener("click", () => {
 renderVolume();
 
 /** After start: a newer version on GitHub Releases (update_check.py on the server) shown beside the own one,
- *  and a small window offering the upgrade. LATER hides it until RADIMCOM is started again, SKIP until a still newer one. */
+ *  and a small window with the link to the setup of the new version (nothing is installed from the page). LATER hides it until RADIMCOM is started again, SKIP until a still newer one. */
 let updInfo = null;
 async function updFetch(opts) {
   const r = await fetch("/api/update", opts);
@@ -11780,19 +14390,22 @@ function showUpdate() {
     w.setAttribute("aria-label", "New version");
     document.querySelector(".stage").append(w);
   }
-  const mb = u.zip_size ? ` (${(u.zip_size / 1e6).toFixed(1)} MB)` : "";
+  const mb = u.setup_size ? ` (${(u.setup_size / 1e6).toFixed(0)} MB)` : "";
+  const how = u.kind === "dev"
+    ? `<p class="muted small">This is a development copy (git): update it with git.</p>`
+    : `<p class="muted small">Download the setup${mb}, close RADIMCOM (tray icon: Exit RADIMCOM${u.kind === "zip" ? ", or the console window" : ""})
+        and run the setup. Install it into the <b>same folder</b>${u.folder ? `, <b>${escHtml(u.folder)}</b>` : ""}: your settings,
+        memories, logs and recordings (the data folder) stay.${u.kind === "zip"
+          ? " This installation is from a zip: the setup replaces it with the RADIMCOM app (its own window and tray icon, own Python)."
+          : ""}</p>`;
   w.innerHTML = `<div class="drawer-head"><b>New version ${escHtml(u.latest)}</b><button class="key small" id="updX">✕</button></div>
     <div class="drawer-body">
       <p>RADIMCOM <b>${escHtml(u.latest)}</b> is out${u.published ? ` (${u.published.slice(0, 10)})` : ""}; this one is ${escHtml(u.current)}.
         <a href="${escHtml(u.url)}" target="_blank" rel="noopener noreferrer">What is new</a></p>
-      ${u.can_upgrade
-        ? `<p class="muted small">UPGRADE downloads the upgrade zip${mb}, closes the receiver, installs it in its own window
-            (with upgrade.bat) and starts RADIMCOM again; this page then reloads. The data folder and the settings stay.
-            It takes about a minute.</p>`
-        : `<p class="note warn">No automatic upgrade here: ${escHtml(u.why_not || "")}.</p>`}
-      <p class="note error" id="updErr" hidden></p>
+      ${how}
       <div class="upd-keys">
-        ${u.can_upgrade ? '<button class="key" id="updGo">UPGRADE</button>' : `<a class="key" href="${escHtml(u.url)}" target="_blank" rel="noopener noreferrer">RELEASE PAGE</a>`}
+        ${u.setup_url && u.kind !== "dev" ? `<a class="key" href="${escHtml(u.setup_url)}" target="_blank" rel="noopener noreferrer">DOWNLOAD SETUP</a>` : ""}
+        <a class="key" href="${escHtml(u.url)}" target="_blank" rel="noopener noreferrer">RELEASE PAGE</a>
         <button class="key" id="updLater" title="Ask again at the next start of RADIMCOM">LATER</button>
         <button class="key" id="updSkip" title="Do not ask again for ${escHtml(u.latest)}; the note beside the version stays">SKIP THIS VERSION</button>
       </div>
@@ -11802,40 +14415,67 @@ function showUpdate() {
   $("updX").onclick = close;
   $("updLater").onclick = () => { store("updLater", String(u.checked)); close(); };
   $("updSkip").onclick = () => { store("updSkip", u.latest); close(); };
-  if ($("updGo")) $("updGo").onclick = () => updStart(u);
 }
 
-async function updStart(u) {
-  const body = $("updWin").querySelector(".drawer-body");
-  const say = (html) => { body.innerHTML = `<p>${html}</p>`; };
-  try {
-    await updFetch({ method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ upgrade: true }) });
-  } catch (e) {
-    $("updErr").textContent = e.message;
-    $("updErr").hidden = false;
-    return;
+/** "What's new": on the first start of a new version a window with its part of INSTALL.txt; MORE INFO opens the
+ *  CHANGELOG on GitHub, CLOSE (or ✕) tells the server (data\\whatsnew.json) not to show it again until the next version. */
+async function whatsNew() {
+  let w;
+  try { w = await fetch("/api/whatsnew").then((r) => (r.ok ? r.json() : null)); } catch { return; }
+  if (!w || !w.show) return;
+  // INSTALL.txt: "Main Features" / "Changes"… headings, "- " items with indented continuation lines
+  const items = [];
+  for (const ln of w.text.split("\n")) {
+    if (!ln.trim()) continue;
+    if (ln.startsWith("- ")) items.push({ li: ln.slice(2) });
+    else if (/^\s/.test(ln) && items.length && items[items.length - 1].li != null) items[items.length - 1].li += " " + ln.trim();
+    else items.push({ h: ln.trim() });
   }
-  say("Downloading…");
-  const t0 = Date.now();
-  let down = false;
-  const poll = async () => {
-    let s = null;
-    try { s = await updFetch(); } catch (e) { down = true; }
-    if (s && s.current && s.current !== u.current) { location.reload(); return; }     // the new version answers
-    if (s && s.upgrade_error) { say(`<span class="error">Upgrade failed: ${escHtml(s.upgrade_error)}</span>`); return; }
-    if (s && s.state === "downloading") {
-      say(`Downloading… ${s.got ? (s.got / 1e6).toFixed(1) : 0}${u.zip_size ? ` of ${(u.zip_size / 1e6).toFixed(1)}` : ""} MB`);
-    } else if (down || (s && s.state === "installing")) {
-      say(`Installing ${escHtml(u.latest)} in the window "RADIMCOM upgrade"… This page reloads when RADIMCOM runs again.`);
-    }
-    if (Date.now() - t0 > 600000) {
-      say("RADIMCOM did not come back within 10 minutes: look at the window \"RADIMCOM upgrade\", then start RADIMCOM by hand.");
-      return;
-    }
-    setTimeout(poll, down ? 3000 : 1000);
-  };
-  setTimeout(poll, 1000);
+  let html = "", open = false;
+  for (const it of items) {
+    if (it.li != null) { if (!open) { html += "<ul>"; open = true; } html += `<li>${escHtml(it.li)}</li>`; continue; }
+    if (open) { html += "</ul>"; open = false; }
+    html += /^\(.*\)$/.test(it.h) ? `<p class="muted">${escHtml(it.h)}</p>` : `<h4>${escHtml(it.h)}</h4>`;
+  }
+  if (open) html += "</ul>";
+  const win = document.createElement("aside");
+  win.className = "drawer wn-win";
+  win.id = "wnWin";
+  win.setAttribute("aria-label", "What's new");
+  win.innerHTML = `<div class="drawer-head"><b>What's new in RADIMCOM ${escHtml(w.version)}</b><button class="key small" id="wnX" title="Close">✕</button></div>
+    <div class="drawer-body"><div class="wn-text">${html}</div>
+      <div class="upd-keys"><a class="key" href="${escHtml(w.url)}" target="_blank" rel="noopener noreferrer" title="The whole CHANGELOG on GitHub">MORE INFO</a>
+        <button class="key" id="wnDon" title="Support RADIMCOM – buy us a coffee">☕ DONATE</button>
+        <button class="key" id="wnClose" title="Close; shown again only after the next version is installed">CLOSE</button></div></div>`;
+  document.querySelector(".stage").append(win);
+  const close = () => { win.remove(); fetch("/api/whatsnew", { method: "POST" }).catch(() => {}); };
+  $("wnX").onclick = close;
+  $("wnClose").onclick = close;
+  $("wnDon").onclick = donateWin;
 }
+
+/** DONATE (left of the version, also in "What's new"): a window about supporting RADIMCOM; the key opens Ko-fi. */
+const KOFI_URL = "https://ko-fi.com/radimcom";
+function donateWin() {
+  if ($("donWin")) return;
+  const win = document.createElement("aside");
+  win.className = "drawer don-win";
+  win.id = "donWin";
+  win.setAttribute("aria-label", "Support RADIMCOM");
+  win.innerHTML = `<div class="drawer-head"><b>☕ Support RADIMCOM</b><button class="key small" id="donX" title="Close">✕</button></div>
+    <div class="drawer-body">
+      <p>RADIMCOM is built in our spare time on many years of amateur radio experience: we know what we want from
+        a receiver and how it should behave. Today AI helps us a lot to turn those ideas into working software.</p>
+      <p>RADIMCOM is open source and free, and it will stay that way.</p>
+      <p>If you enjoy it, we'd be very grateful for a coffee ☕ :-) Even the smallest contribution tells us our effort
+        makes sense.</p>
+      <p class="don-sign">73 de OM2AMR &amp; Brano</p>
+      <div class="upd-keys"><a class="key" href="${KOFI_URL}" target="_blank" rel="noopener noreferrer" title="Our page on Ko-fi (opens in the web browser)">☕ BUY US A COFFEE</a>
+        <button class="key" id="donClose">CLOSE</button></div></div>`;
+  document.querySelector(".stage").append(win);
+  $("donX").onclick = $("donClose").onclick = () => win.remove();
+}
+$("donBtn").onclick = donateWin;
 
 /** "?map=…" tab: the map box alone over the whole window, the map view of its decoder. */
 function mapOnlySetup() {
@@ -11843,8 +14483,8 @@ function mapOnlySetup() {
   document.body.append(box);
   box.classList.add("map-only-box");
   document.body.classList.add("map-only");
-  document.title = `${({ packet: "APRS", acars: "ACARS / VDL2", adsb: "ADS-B" })[MAP_ONLY] || MAP_ONLY.toUpperCase()} map${active && active.name ? ` · VFO ${active.name}` : ""} · RADIMCOM`;
-  ({ packet: setPktView, hfdl: setHfdlView, ais: setAisView, adsb: setAdsbView, acars: setAcarsView })[MAP_ONLY]("map");
+  document.title = `${({ packet: "APRS", acars: "ACARS / VDL2", adsb: "ADS-B", ft8: "FT8 stations", sonde: "Radiosonde" })[MAP_ONLY] || MAP_ONLY.toUpperCase()} map${active && active.name ? ` · VFO ${active.name}` : ""} · RADIMCOM`;
+  ({ packet: setPktView, hfdl: setHfdlView, ais: setAisView, adsb: setAdsbView, acars: setAcarsView, ft8: () => renderFt8Map(), sonde: setSondeView })[MAP_ONLY]("map");
 }
 
 /** □ key in the top right corner of a map: the same map in a new browser tab. */
@@ -11871,7 +14511,7 @@ function mapPopout(map, kind) {
 }
 
 async function init() {
-  if (!MAP_ONLY) checkUpdate();
+  if (!MAP_ONLY) { checkUpdate(); whatsNew(); }
   // With the VFO launcher the page gets the VFO list; a standalone receiver has no list (one VFO without the bar).
   let list = null;
   try {
@@ -11902,6 +14542,7 @@ async function init() {
   renderFt8Bands(info.ft8_freqs);
   dabChannelList = info.dab_channels || [];
   $("dabChannel").innerHTML = (info.dab_channels || []).map(([n, f]) => `<option value="${n}">${n} · ${fmtMHz(f, 3)}</option>`).join("");
+  renderDabChannelMems();
   renderHfdlBands(info.hfdl_bands || [], info.hfdl_stations || []);
   renderAisBands(info.ais_center, info.ais_channels);
   renderAdsbBands(info.adsb_freq);
@@ -11913,7 +14554,36 @@ async function init() {
   renderLinkBands();
   loadMems();
   for (const v of vfos) connectEvents(v);
+  if (MAP_ONLY) evMapTabWatch();
   startAudio();
   await loadDecoders();
 }
 init();
+
+// RADIMCOM.exe (the page in its WebView2 window): full screen (small icon in the corner of the master section)
+// and MAIN = the green LED of the logo (red with "MAIN OFF" under the mouse; a click switches RADIMCOM off).
+// The page asks the app through window.chrome.webview; the app answers "fullscreen:1" / "fullscreen:0".
+(function appShell() {
+  const wv = window.chrome && window.chrome.webview;
+  if (!wv) return;                     // in a normal browser: no icon, the LED is part of the logo (link to GitHub)
+  document.documentElement.classList.add("app-shell");
+  $("appFull").hidden = false;
+  $("appFull").onclick = () => wv.postMessage("fullscreen");
+  const led = $("logoLed");
+  const tip = document.createElementNS("http://www.w3.org/2000/svg", "title");
+  tip.textContent = "MAIN: switch RADIMCOM off – this stops the whole RADIMCOM server: all VFOs, their receivers, " +
+    "decoders and recordings, and closes the app (nothing stays in the tray; the dongles are free)";
+  led.prepend(tip);
+  led.addEventListener("click", (e) => {
+    e.preventDefault(); e.stopPropagation();          // the logo link (GitHub) stays for the letters only
+    if (confirm("MAIN: switch RADIMCOM off?\n\nThis stops the whole RADIMCOM server: all VFOs, their receivers, decoders " +
+      "and recordings. The app closes and nothing stays running in the tray.")) wv.postMessage("power-off");
+  });
+  wv.addEventListener("message", (e) => {
+    if (typeof e.data === "string" && e.data.startsWith("fullscreen:")) $("appFull").classList.toggle("on", e.data.endsWith("1"));
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "F11") { e.preventDefault(); wv.postMessage("fullscreen"); }
+  }, true);
+  wv.postMessage("hello");             // the app answers with the full screen state
+})();

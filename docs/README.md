@@ -4,7 +4,7 @@
 
 | Page | Contents |
 |---|---|
-| [Installation and running](installation.md) | requirements, drivers (Zadig, D3XX), running from the sources, third-party DLLs |
+| [Installation and running](installation.md) | the setup and RADIMCOM.exe (app window, tray), requirements, drivers (Zadig, D3XX), running from the sources, third-party DLLs |
 | [Features](features.md) | the complete feature list |
 | [Shortwave (HF) with an upconverter](hf-upconverter.md) | LO of common upconverters, CONV / BYPASS, setup |
 | [Controls](controls.md) | tuning, VFO window, frequency display, function keys, SETTINGS, MEM |
@@ -16,8 +16,11 @@ Decoders:
 
 | Page | Contents |
 |---|---|
+| [CW](decoders/cw.md) | Morse decoder and skimmer (up to 16 stations at once), soft decisions |
 | [Aircraft data link](decoders/aircraft.md) | ACARS, VDL2, CPDLC, ADS-C |
+| [POCSAG](decoders/pocsag.md) | pager messages, 512 / 1200 / 2400 Bd, error correction |
 | [HFDL](decoders/hfdl.md) | aircraft data link on HF (2.9–22 MHz) via dumphfdl |
+| [SONDE](decoders/sonde.md) | radiosondes (weather balloons) on 400–406 MHz: RS41, DFM, map |
 | [AIS](decoders/ais.md) | ships on 161.975 / 162.025 MHz, own GMSK decoder, map |
 | [ADS-B](decoders/adsb.md) | aircraft on 1090 MHz, own Mode S / ADS-B decoder, map |
 | [DAB / DAB+](decoders/dab.md) | digital broadcast radio via welle-cli |
