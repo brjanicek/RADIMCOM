@@ -131,7 +131,8 @@ D3XX_EXE = "FTD3XXDriver_WHQLCertified_v1.3.0.4_Installer.exe"
 FORBIDDEN = [b"OM2AMR", b"om2amr", "OM2AMR".encode("utf-16-le")]
 # signature, public repository link, copyright line in LICENSE (wanted by the author)
 ALLOWED = [b"By Radim Mutina OM2AMR", b"github.com/om2amr/RADIMCOM", b"api.github.com/repos/om2amr/RADIMCOM", b"Copyright (c) 2026 Radim Mutina (OM2AMR)",
-           b"img.shields.io/github/v/release/om2amr/RADIMCOM", b"img.shields.io/github/license/om2amr/RADIMCOM"]   # README badges
+           b"img.shields.io/github/v/release/om2amr/RADIMCOM", b"img.shields.io/github/license/om2amr/RADIMCOM",   # README badges
+           b"73 de OM2AMR &amp; Brano"]   # signature in the DONATE window
 
 
 def copy(src, dst_rel, build):
