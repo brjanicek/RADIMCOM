@@ -4413,12 +4413,28 @@ const SAT_EARTH_KM = 6371;
 
 /** Loads a script or stylesheet of static/ once (world map data, Leaflet). */
 const satAssets = {};
+// Every Leaflet map follows the size of its box: a map drawn while its pane was hidden (another VFO, another
+// view) had 0 × 0 px and stayed a small corner of tiles until the window was resized.
+function leafletAutoSize() {
+  if (!window.L || !L.Map || L.Map._autoSize) return;
+  L.Map._autoSize = true;
+  L.Map.addInitHook(function () {
+    const map = this, box = map.getContainer();
+    let w = box.clientWidth, h = box.clientHeight;
+    new ResizeObserver(() => {
+      if (!box.clientWidth || !box.clientHeight || (box.clientWidth === w && box.clientHeight === h)) return;
+      w = box.clientWidth; h = box.clientHeight;
+      map.invalidateSize();
+    }).observe(box);
+  });
+}
+
 function satAsset(url) {
   if (!satAssets[url]) {
     satAssets[url] = new Promise((ok, fail) => {
       const el = url.endsWith(".css") ? Object.assign(document.createElement("link"), { rel: "stylesheet", href: url })
         : Object.assign(document.createElement("script"), { src: url });
-      el.onload = ok;
+      el.onload = () => { if (url.endsWith("leaflet.js")) leafletAutoSize(); ok(); };
       el.onerror = () => { delete satAssets[url]; fail(new Error(`${url} did not load`)); };
       document.head.append(el);
     });
@@ -6612,10 +6628,11 @@ async function renderSondeMap() {
   const lay = sondeLayers;
   lay.tracks.clearLayers();
   const list = sondeList().filter((s) => s.lat != null);
+  const shown = (sondeShown() || {}).serial;
   const keep = new Set();
   for (const s of list) {
     keep.add(s.serial);
-    const sel = s.serial === sondeSel;
+    const sel = s.serial === shown;
     if (s.pts.length > 1) {
       L.polyline(s.pts.map((q) => [q[0], q[1]]), { color: "#6cff9c", weight: 1.8, opacity: 0.8 }).addTo(lay.tracks);
       const p0 = s.pts[0];
@@ -6625,6 +6642,7 @@ async function renderSondeMap() {
         const top = s.pts.reduce((a, q) => (q[2] > a[2] ? q : a));
         L.circleMarker([top[0], top[1]], { radius: 6, color: "#ffd84a", weight: 2, fill: false }).bindTooltip(`burst ${sondeAlt(top[2])} m`).addTo(lay.tracks);
       }
+      sondeDrawPrediction(s, lay.tracks);   // also a sonde no longer heard: where it probably lands
     }
     let mk = lay.m.get(s.serial);
     if (!mk) {
@@ -6642,17 +6660,164 @@ async function renderSondeMap() {
     sondeFitted = true;
     sondeMap.fitBounds(L.latLngBounds(list.flatMap((s) => [[s.lat, s.lon], ...s.pts.map((q) => [q[0], q[1]])])).pad(0.3), { maxZoom: 10 });
   }
-  $("sondeMapList").innerHTML = `<div class="ais-ml-head">${list.length} sonde${list.length === 1 ? "" : "s"} with a position${sondes.size > list.length ? ` (${sondes.size - list.length} without)` : ""}</div>` +
-    list.map((s) => `<div class="ais-ml sonde-ml${s.serial === sondeSel ? " sel" : ""}${sondeOld(s) ? " old" : ""}" data-serial="${escHtml(s.serial)}">` +
-      `<b>${escHtml(s.serial)}</b><span class="stype">${escHtml(s.type)}</span><span>${sondeAlt(s.alt)} m</span>` +
-      `<span class="${sondeUpDown(s.vv)}">${sondeClimb(s.vv)}</span><span class="age">${aisAge(s.last)}</span></div>`).join("");
-  const logged = sondeLogList.filter((l) => !sondes.has(l.serial));
-  if (logged.length)
-    $("sondeMapList").innerHTML += `<div class="ais-ml-head sonde-ml-log" title="Flights in data\\logs\\radiosonde; a click draws the flight on the map and its profile">Log: ${logged.length} earlier flight${logged.length === 1 ? "" : "s"}</div>` +
-      logged.map((l) => `<div class="ais-ml sonde-ml old" data-log="${escHtml(l.file)}" title="${escHtml(l.file)}"><b>${escHtml(l.serial)}</b><span class="stype">${escHtml(l.type || "")}</span>` +
-        `<span>${l.alt != null ? `${sondeAlt(l.alt)} m` : ""}</span><span>${new Date(l.first * 1000).toISOString().slice(5, 10)}</span><span class="age">${new Date(l.first * 1000).toISOString().slice(11, 16)}</span></div>`).join("");
   renderSondeProfile();
-  $("sondeMapNote").textContent = `${list.length} with a position · balloon = rising · parachute = falling after the burst (yellow ring) · orange = selected (its profile on the right) · grey = no frame for 10 min · green line = flight path · map © OpenStreetMap`;
+  $("sondeMapNote").textContent = `${list.length} with a position · balloon = rising · parachute = falling after the burst (yellow ring) · orange = selected (its profile on the right) · grey = no frame for 10 min · green line = flight path · red dashed = prediction from the last decoded point to the landing (✕, circle = 90 % landing area), from the sonde's own winds, +1 h / +2 h / +3 h after the launch · map © OpenStreetMap`;
+}
+
+// ----- SONDE PREDICTION: where the sonde will be 1, 2 and 3 h after its launch and where it lands. No weather model:
+// the wind comes from the sonde's own flight path (its drift between frames, averaged in 500 m layers; above the highest
+// layer heard the top one is kept, below the lowest one its speed falls off towards the ground), the ascent rate from
+// the last minutes of the climb, the burst at 33 km (or just above the current altitude), the fall from the measured
+// descent rate (mean of the last five steps) slowing down in thicker air (rate ∝ 1/√density, ISA).
+// Landing area: the same flight again SONDE_MC times with the inputs scattered by their likely errors (each wind layer,
+// the descent / ascent rate, the burst altitude, the ground); the circle holds 90 % of those landings.
+const SONDE_BURST = 33000, SONDE_GROUND = 400, SONDE_FALL0 = 5, SONDE_LAYER = 500, SONDE_MC = 60;
+const sondeRhoRatio = (h) => { const hh = Math.max(0, h); return (isaHpa(hh) / 1013.25) * (288.15 / (hh < 11000 ? 288.15 - 0.0065 * hh : 216.65)); };
+const sondePredCache = new Map();   // serial -> {key, res}: computed again only when a new point comes
+
+function sondeRandom(seed) {   // mulberry32 + Box-Muller: the same scatter for the same data, so the circle does not jump
+  let a = seed >>> 0;
+  const u = () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  return () => Math.sqrt(-2 * Math.log(u() || 1e-12)) * Math.cos(2 * Math.PI * u());
+}
+
+function sondePredict(s) {
+  const P = s.pts;
+  const last = P[P.length - 1];   // the prediction starts at the last decoded point
+  if (P.length < 10 || last[2] < SONDE_GROUND + 200) return null;
+  const key = `${P.length}:${last[3]}`, c = sondePredCache.get(s.serial);
+  if (c && c.key === key) return c.res;
+  const R = 111320, windUp = new Map(), windDown = new Map();
+  let iTop = 0;
+  for (let i = 1; i < P.length; i++) if (P[i][2] > P[iTop][2]) iTop = i;
+  for (let i = 1; i < P.length; i++) {
+    const a = P[i - 1], b = P[i], dt = b[3] - a[3];
+    if (dt < 1 || dt > 120) continue;
+    const ve = ((b[1] - a[1]) * R * Math.cos((a[0] * Math.PI) / 180)) / dt, vn = ((b[0] - a[0]) * R) / dt;
+    if (Math.hypot(ve, vn) > 150) continue;
+    const m = i > iTop ? windDown : windUp;
+    const k = Math.floor((a[2] + b[2]) / 2 / SONDE_LAYER), w = m.get(k) || [0, 0, 0, 0];
+    w[0] += ve; w[1] += vn; w[2]++; w[3] += ve * ve + vn * vn;
+    m.set(k, w);
+  }
+  // in a layer the sonde passed on the way down too, the wind of the fall wins: later and over the landing area
+  // (the ascent went through it maybe 1-2 h earlier and tens of km away)
+  const wind = new Map(windUp);
+  for (const [k, w] of windDown) if (w[2] >= 3 || !wind.has(k)) wind.set(k, w);
+  const ks = [...wind.keys()].sort((x, y) => x - y);
+  if (ks.length < 2) return null;
+  const kLo = ks[0], kHi = ks[ks.length - 1], hLow = (kLo + 0.5) * SONDE_LAYER;
+  // per layer: mean wind and its likely error (half the spread of the samples + 1.5 m/s for the change since it was
+  // measured; outside the layers heard much more: half of the speed + 2 m/s below, 0.4 of it + 3 m/s above)
+  const layer = (k) => {
+    let best = ks[0];
+    for (const x of ks) if (Math.abs(x - k) < Math.abs(best - k)) best = x;
+    const w = wind.get(best), me = w[0] / w[2], mn = w[1] / w[2];
+    const spread = Math.sqrt(Math.max(0, w[3] / w[2] - me * me - mn * mn));
+    const sp = Math.hypot(me, mn);
+    const sig = k < kLo ? 0.5 * sp + 2 : k > kHi ? 0.4 * sp + 3 : Math.min(spread, 10) * 0.5 + 1.5;
+    return [me, mn, sig];
+  };
+  const layers = new Map();
+  const windAt = (h, jit) => {
+    const k = Math.floor(h / SONDE_LAYER);
+    let L = layers.get(k);
+    if (!L) layers.set(k, (L = layer(k)));
+    // below the lowest layer heard the speed falls off linearly to a half at the ground, the direction is kept (checked
+    // on X1452225 2026-11-14 against a receiver that heard it down to 2.9 km: falling to 0.2 put it 3.8 km short)
+    const f = h >= hLow ? 1 : 0.5 + 0.5 * Math.min(1, Math.max(0, (h - SONDE_GROUND) / Math.max(1, hLow - SONDE_GROUND)));
+    const j = jit ? jit(k, L[2]) : [0, 0];
+    return [f * L[0] + j[0], f * L[1] + j[1]];
+  };
+  const t1 = last[3], recent = P.filter((q) => q[3] > t1 - 300);
+  const top = P.reduce((a, q) => (q[2] > a[2] ? q : a));
+  // vertical speed of the last five steps between decoded points (m/s, the mean of the five)
+  const vs = [];
+  for (let i = P.length - 1; i > 0 && vs.length < 5; i--) {
+    const dt = P[i][3] - P[i - 1][3];
+    if (dt >= 1 && dt <= 120) vs.push((P[i][2] - P[i - 1][2]) / dt);
+  }
+  const vNow = vs.length ? vs.reduce((x, y) => x + y, 0) / vs.length : s.vv || 0;
+  const vSd = vs.length > 1 ? Math.sqrt(vs.reduce((x, y) => x + (y - vNow) ** 2, 0) / (vs.length - 1)) : 0;
+  const rising = vNow > -1 && !s.burst;
+  let up = 5;
+  if (rising && recent.length > 1) up = (recent[recent.length - 1][2] - recent[0][2]) / Math.max(1, recent[recent.length - 1][3] - recent[0][3]);
+  else if (top[3] > P[0][3]) up = (top[2] - P[0][2]) / (top[3] - P[0][3]);
+  if (!(up > 1.5 && up < 12)) up = 5;
+  // falling: the measured descent rate taken back to sea level by the air density, so the parachute slows down as the
+  // air gets thicker; 5 m/s at sea level only while the sonde is still rising
+  let fall0 = SONDE_FALL0, fallErr = 0.25;
+  if (!rising && vNow < -0.5) { fall0 = -vNow * Math.sqrt(sondeRhoRatio(last[2])); fallErr = Math.max(0.15, vSd / -vNow); }
+  if (!(fall0 > 1 && fall0 < 60)) { fall0 = SONDE_FALL0; fallErr = 0.25; }
+  const burst = s.burst || !rising ? top[2] : Math.max(SONDE_BURST, last[2] + 500);
+  // launch: back from the first point heard at the ascent rate (from the ground)
+  const launch = P[0][3] - Math.max(0, P[0][2] - SONDE_GROUND) / up;
+
+  const fly = (prm, DT, keep) => {
+    let [lat, lon, h, t] = last, goingUp = rising;
+    const path = [[lat, lon]], marks = [];
+    let next = Math.max(1, Math.ceil((t - launch) / 3600 + 1e-6));
+    for (let n = 0; n < (6 * 3600) / DT; n++) {
+      const [ve, vn] = windAt(h, prm.jit);
+      lat += (vn * DT) / R;
+      lon += (ve * DT) / (R * Math.cos((lat * Math.PI) / 180));
+      if (goingUp) {
+        h += prm.up * DT;
+        if (h >= prm.burst) { h = prm.burst; goingUp = false; if (keep) marks.push({ lat, lon, t: t + DT, h, burst: true }); }
+      } else h -= (prm.fall0 / Math.sqrt(sondeRhoRatio(h))) * DT;
+      t += DT;
+      if (keep && n % 3 === 0) path.push([lat, lon]);
+      if (h <= prm.ground) { path.push([lat, lon]); return { path, marks, land: { lat, lon, t } }; }
+      if (keep && next <= 3 && t >= launch + next * 3600) { marks.push({ lat, lon, t, h, hour: next }); next++; }
+    }
+    return null;
+  };
+  const res = fly({ up, burst, fall0, ground: SONDE_GROUND }, 10, true);
+  if (res) {
+    res.launch = launch;
+    const g = sondeRandom(Math.floor(t1) ^ P.length), ds = [], ts = [];
+    const cosL = Math.cos((res.land.lat * Math.PI) / 180);
+    for (let i = 0; i < SONDE_MC; i++) {
+      const off = new Map();
+      const jit = (k, sig) => { let o = off.get(k); if (!o) off.set(k, (o = [g() * sig, g() * sig])); return o; };
+      const r = fly({
+        up: up * (1 + 0.1 * g()),
+        burst: rising && !s.burst ? Math.max(last[2] + 200, burst + 3000 * g()) : burst,
+        fall0: fall0 * Math.max(0.3, 1 + fallErr * g()),
+        ground: Math.max(0, SONDE_GROUND + 250 * g()),
+        jit,
+      }, 20, false);
+      if (!r) continue;
+      ds.push(Math.hypot((r.land.lat - res.land.lat) * R, (r.land.lon - res.land.lon) * R * cosL));
+      ts.push(r.land.t);
+    }
+    ds.sort((x, y) => x - y);
+    ts.sort((x, y) => x - y);
+    res.radius = ds.length ? Math.max(300, ds[Math.max(0, Math.ceil(ds.length * 0.9) - 1)]) : null;
+    res.tSpan = ts.length ? [ts[Math.floor(ts.length * 0.05)], ts[Math.min(ts.length - 1, Math.floor(ts.length * 0.95))]] : null;
+  }
+  sondePredCache.set(s.serial, { key, res });
+  return res;
+}
+
+function sondeDrawPrediction(s, layer) {
+  const p = sondePredict(s);
+  if (!p) return;
+  const c = "#ff4b3c", o = { color: c, weight: 2, opacity: 0.8, dashArray: "6 6", interactive: false };   // red dashed
+  L.polyline(p.path, o).addTo(layer);
+  const lbl = () => ({ permanent: true, direction: "right", offset: [6, 0], className: "ais-label sonde-pred-lbl" });
+  for (const m of p.marks) {
+    const mk = L.circleMarker([m.lat, m.lon], { radius: m.burst ? 5 : 4, color: m.burst ? "#ffd84a" : c, weight: 1.5, opacity: 0.55, fill: false });
+    mk.bindTooltip(m.burst ? `burst ≈ ${aisUtc(m.t)} UTC` : `+${m.hour} h ${sondeAlt(m.h)} m`, m.burst ? { opacity: 0.8 } : lbl());
+    mk.addTo(layer);
+  }
+  const km = (m) => (m < 1000 ? `${Math.round(m / 50) * 50} m` : `${(m / 1000).toFixed(1)} km`);
+  if (p.radius)
+    L.circle([p.land.lat, p.land.lon], { radius: p.radius, color: c, weight: 1.5, opacity: 0.7, dashArray: "3 5", fillColor: c, fillOpacity: 0.08, interactive: false }).addTo(layer);
+  const span = p.tSpan ? ` (${aisUtc(p.tSpan[0]).slice(0, 5)}–${aisUtc(p.tSpan[1]).slice(0, 5)})` : "";
+  L.marker([p.land.lat, p.land.lon], { icon: L.divIcon({ className: "sonde-land", html: "✕", iconSize: [16, 16], iconAnchor: [8, 8] }) })
+    .bindTooltip(`landing ≈ ${aisUtc(p.land.t)} UTC${span}${p.radius ? ` ± ${km(p.radius)}` : ""}`, lbl())
+    .addTo(layer);
 }
 
 // ----- SONDE PROFILE: temperature and humidity against altitude, one sonde; altitude is the vertical axis (tall plot),
@@ -6669,13 +6834,37 @@ function sondeNiceStep(span, n) {
   return [1, 2, 5, 10].map((k) => k * m).find((s) => s >= raw);
 }
 
+/** Sonde whose profile is shown (orange on the map): the chosen one, else the one decoded on the tuned frequency
+ *  (newest heard there), else the newest with a temperature. */
+function sondeShown() {
+  if (sondeSel && sondes.has(sondeSel)) return sondes.get(sondeSel);
+  const all = sondeList(), live = all.filter((s) => !s.from_log), hz = st && st.tune_hz;
+  return (hz && live.find((s) => s.freq_hz && Math.abs(s.freq_hz - hz) <= 15000)) || live.find((s) => s.pts.some((q) => q[4] != null)) ||
+    all.find((s) => s.pts.some((q) => q[4] != null)) || all[0] || null;
+}
+
+/** The list above the profile: Auto, the heard sondes, the flights in the log (not rebuilt while it is open). */
+function renderSondeProfSel(list, shown) {
+  const sel = $("sondeProfSel");
+  if (document.activeElement === sel) return;
+  const opt = (s) => `<option value="${escHtml(s.serial)}"${s.serial === sondeSel ? " selected" : ""}>${escHtml(s.serial)} · ${escHtml(s.type || "")}` +
+    `${s.alt != null ? ` · ${sondeAlt(s.alt)} m` : ""}${s.freq_hz ? ` · ${fmtMHz(s.freq_hz, 3)}` : ""}${s.from_log ? " · log" : ` · ${aisAge(s.last)}`}</option>`;
+  const logged = sondeLogList.filter((l) => !sondes.has(l.serial));
+  const html = `<option value=""${sondeSel ? "" : " selected"}>Auto${shown && !sondeSel ? `: ${escHtml(shown.serial)}` : ""} (tuned frequency)</option>` +
+    (list.length ? `<optgroup label="Heard">${list.map(opt).join("")}</optgroup>` : "") +
+    (logged.length ? `<optgroup label="Log (data\logs\radiosonde)">${logged.map((l) =>
+      `<option value="log:${escHtml(l.file)}">${escHtml(l.serial)} · ${escHtml(l.type || "")}${l.alt != null ? ` · ${sondeAlt(l.alt)} m` : ""} · ${new Date(l.first * 1000).toISOString().slice(0, 16).replace("T", " ")} UTC</option>`).join("")}</optgroup>` : "");
+  if (sel.dataset.html !== html) { sel.innerHTML = html; sel.dataset.html = html; }
+}
+
 function renderSondeProfile() {
   const list = sondeList();
   const box = $("sondeProf");
-  const s = sondes.get(sondeSel) || list.find((x) => x.pts.some((q) => q[4] != null)) || list[0];
+  const s = sondeShown();
+  renderSondeProfSel(list, s);
   const pts = s ? s.pts.filter((q) => q[4] != null) : [];
   if (pts.length < 2) {
-    box.innerHTML = `<div class="ft8-empty">${!s ? "Temperature and humidity profile of the sonde selected on the map or in the list (also a flight from the log in the list)." :
+    box.innerHTML = `<div class="ft8-empty">${!s ? "Temperature and humidity profile of the sonde chosen in the list above or on the map (also a flight from the log)." :
       s.type !== "RS41" ? `No temperature from a ${escHtml(s.type)} sonde.` :
       `No temperature yet${s.cal_n != null ? ` (calibration ${s.cal_n}/51)` : ""}. The profile grows every 2 s of the flight while the sonde is heard.`}</div>`;
     $("sondeProfNote").textContent = s ? s.serial : "";
@@ -6864,11 +7053,12 @@ $("sondeGo").addEventListener("click", () => {
 });
 $("sondeClear").addEventListener("click", () => { sondePost({ action: "clear" }).then(renderSondeInfo); sondeReset(); });
 $("sondeViews").addEventListener("click", (e) => { const b = e.target.closest("button[data-view]"); if (b) setSondeView(b.dataset.view); });
-$("sondeMapList").addEventListener("click", (e) => {
-  const lg = e.target.closest("[data-log]");
-  if (lg) { sondeLogOpen(lg.dataset.log); return; }
-  const r = e.target.closest("[data-serial]");
-  if (r) sondeSelect(r.dataset.serial);
+$("sondeProfSel").addEventListener("change", (e) => {
+  const v = e.target.value;
+  e.target.blur();
+  if (v.startsWith("log:")) sondeLogOpen(v.slice(4));
+  else if (v) sondeSelect(v);
+  else { sondeSel = null; renderSondeMap(); }
 });
 $("sondeRows").addEventListener("click", (e) => {
   if (!e.target.closest(".sonde-goto")) return;

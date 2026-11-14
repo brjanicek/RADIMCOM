@@ -817,10 +817,9 @@
       <div class="ais-map" id="sondeMapBox" hidden>
         <div class="ais-map-main"><div id="sondeMap"></div><div id="sondeMapNote" class="muted"></div><div id="sondeSitesNote" class="muted" title="Radiosonde launch sites in Europe from the SondeHub list (downloaded once a week into data\sonde_sites.json); own sites in data\sonde_sites_extra.json. A click on a site shows its sondes, frequencies, launch times and the next launch."></div></div>
         <div class="sonde-prof" id="sondeProfBox">
-          <div class="sonde-prof-head"><span class="muted" id="sondeProfNote"></span></div>
+          <div class="sonde-prof-head"><select id="sondeProfSel" title="Sonde whose profile is shown (orange on the map); Auto = the one decoded on the tuned frequency"></select><span class="muted" id="sondeProfNote"></span></div>
           <div class="sonde-prof-plot" id="sondeProf"></div>
         </div>
-        <div class="ais-map-list" id="sondeMapList"></div>
       </div>
       <div class="ft8-table" id="sondeFrameBox" hidden>
         <table class="sonde-frame-table">

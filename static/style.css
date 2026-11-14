@@ -3120,4 +3120,6 @@ html.app-shell .r-logo-led:hover .r-logo-ledtip { display: inline; }
 .sonde-prof-plot .dot, .sonde-prof-plot .hd { stroke: #000; stroke-width: 2; }
 .sonde-prof-plot .hv { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 2 3; }
 .sonde-prof-tip { position: absolute; pointer-events: none; background: rgba(10, 13, 17, .95); border: 1px solid var(--line2); border-radius: 5px; padding: 4px 8px; font-size: 12px; line-height: 1.4; white-space: nowrap; }
-.ais-ml-head.sonde-ml-log { position: static; margin-top: 6px; }   /* SONDE map list: header of the logged flights */
+.sonde-prof-head select { width: 100%; }   /* SONDE MAP: which sonde the profile shows (Auto = the tuned frequency) */
+.sonde-pred-lbl { opacity: 0.8; }   /* SONDE MAP: labels of the predicted points (+1 h, landing) */
+.sonde-land { color: #ff4b3c; opacity: 0.9; font: bold 15px/16px system-ui, sans-serif; text-align: center; text-shadow: 0 0 3px #000; }   /* predicted landing */

@@ -68,15 +68,23 @@ map. The coordinates in the example are only an illustration – use the real po
   are known, e.g. *12/51*) and humidity right after it. Temperature as in rs41mod (rs1729): reference resistors →
   sensor resistance → polynomial; humidity with its simple empirical formula (approximate, a few %). The sonde type
   (RS41-SG / RS41-SGP) also comes from the calibration. Pressure of the RS41-SGP is not decoded.
-  **Profile** in MAP, between the map and the list: the selected sonde (orange icon; click on the map clears it; without a selection the first one), altitude on the vertical axis, two panels side by side – temperature °C
+  **Profile** in MAP, on the right of the map: the sonde chosen in the list above it (orange icon; Auto = the one decoded on the tuned frequency; a click on a sonde on the map chooses it, a click on the map goes back to Auto), altitude on the vertical axis, two panels side by side – temperature °C
   and humidity % (descent after the burst fainter); the right edge labels the altitude with the pressure of the
   standard atmosphere (hPa, orientation only). Hover shows altitude, time, T, RH, hPa. The altitude axis is fixed
   0–41 km and the plot fills the page height.
 - **Radiosonde log** `data\logs\radiosonde\<YYYY-MM-DD>_<serial>.jsonl` (UTC date of the first frame): every frame
   of every sonde, written automatically whatever the LOG key, one JSON line (time, position, speeds, T, RH, sats,
   battery, frequency, VFO). After a server restart the sondes of the last 24 h of that VFO are read back with their
-  flight paths (*from log* in SONDES); the list on the right of the MAP also offers older logged flights, drawn in the profile and on
+  flight paths (*from log* in SONDES); the list above the profile also offers older logged flights, drawn in the profile and on
   the map.
+- **Flight prediction** in MAP (red dashed line from the last decoded point, every sonde in the air, also one no longer
+  heard): +1 h, +2 h, +3 h after the launch, burst (yellow ring) and landing (✕, time UTC). Wind from the sonde's own flight path in 500 m layers (above the highest one heard the top
+  layer is kept, below the lowest one its speed falls off to a half at the ground; a layer heard during the fall
+  takes the wind of the fall), ascent rate from the last 5 min, burst assumed at 33 km until it happens, fall from the measured
+  descent rate (mean of the last five steps), slowing down in thicker air (5 m/s at sea level before the burst), ground at 400 m. No weather model: only an estimate, best after the burst.
+  The circle around the ✕ is the landing area: 60 more runs with the inputs scattered by their likely errors (wind of
+  each layer, descent / ascent rate, burst altitude, ground), the circle holds 90 % of them; the label gives the landing
+  time span and the radius.
 - **Graw DFM** (DFM-06 / 09 / 17), *experimental*: 2500 Bd Manchester (1250 bit/s). Position, altitude, speed,
   direction, climb, frame counter. The serial number is not decoded yet: the sonde is shown as `DFM-<frequency>`.
 - Meteomodem M10 / M20 and others are not decoded.
