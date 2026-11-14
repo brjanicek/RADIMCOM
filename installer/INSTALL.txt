@@ -183,6 +183,8 @@ Main Features
   - AFC prefers standard shifts and keeps the followed station while it listens (contest 18-34 % -> 4-7 %).
   - Each over (or another station) starts a new line with its UTC time.
 Changes
+- Dragging the spectrum / waterfall keeps the tuned frequency: only the view moves, the passband moves
+  with the signals (up to the edge). Dragging the passband still tunes.
 - "What's new" window on the first start of a new version (MORE INFO = CHANGELOG on GitHub, CLOSE).
 - Maps (SONDE, ADS-B, ACARS, HFDL, AIS, FT8): a click on the map drops the selection (red mark and trail
   get their own colors back).

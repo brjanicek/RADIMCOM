@@ -1995,9 +1995,10 @@ function drawAudioBubble() {
 for (const id of ["specOverlay", "wfOverlay"]) {
   const cv = $(id);
   const spectrum = id === "specOverlay";
-  // A click without movement tunes the point under the mouse. Dragging moves the whole waterfall: the passband stays in
-  // place on the screen and the frequency changes under it. Dragging from the passband in the spectrum is the opposite:
-  // the shown section stays in place and only the passband moves, up to the edge of the section.
+  // A click without movement tunes the point under the mouse. Dragging moves the whole spectrum and waterfall: the tuned
+  // frequency stays, so the passband moves on the screen with them (up to the edge of the section, it never leaves it).
+  // Dragging from the passband in the spectrum is the opposite: the shown section stays in place and only the passband
+  // moves, up to the edge of the section.
   cv.addEventListener("pointerdown", (e) => {
     if (!st || e.button !== 0) return;
     cv.setPointerCapture(e.pointerId);
@@ -2008,7 +2009,7 @@ for (const id of ["specOverlay", "wfOverlay"]) {
     }
     const v = viewNow();
     const band = spectrum && inPassband(e.clientX - r.left, e.clientY - r.top, r.width);
-    drag = { x0: e.clientX, tune0: st.tune_hz, off: v.c - st.tune_hz, moved: false, band };
+    drag = { x0: e.clientX, tune0: st.tune_hz, c0: v.c, moved: false, band };
   });
   cv.addEventListener("pointermove", (e) => {
     const r = cv.getBoundingClientRect();
@@ -2037,19 +2038,28 @@ for (const id of ["specOverlay", "wfOverlay"]) {
       if (drag.band) cv.style.cursor = "grabbing";
     }
     const v = viewNow();
-    let t = drag.tune0 + (drag.band ? dx : -dx) / r.width * v.span;
-    t = Math.max(0, Math.round(t / stepHz) * stepHz);
-    if (drag.band) {
-      t = Math.max(t, Math.ceil((v.c - v.span / 2) / stepHz) * stepHz);
-      t = Math.min(t, Math.floor((v.c + v.span / 2) / stepHz) * stepHz);
+    if (!drag.band) {
+      // only the section moves; the tuned frequency stays inside it (the server drops a section without it)
+      const half = v.span / 2 * 0.97;
+      let c = drag.c0 - dx / r.width * v.span;
+      c = Math.min(Math.max(c, st.tune_hz - half), st.tune_hz + half);
+      c = Math.max(c, v.span / 2);
+      if (c === v.c) return;
+      viewLocalAt = Date.now();
+      if (view) setView(c);
+      send({ view_hz: c });
+      return;
     }
+    let t = drag.tune0 + dx / r.width * v.span;
+    t = Math.max(0, Math.round(t / stepHz) * stepHz);
+    t = Math.max(t, Math.ceil((v.c - v.span / 2) / stepHz) * stepHz);
+    t = Math.min(t, Math.floor((v.c + v.span / 2) / stepHz) * stepHz);
     if (t === st.tune_hz) return;
     st.tune_hz = t;
     viewLocalAt = Date.now();
-    if (drag.band) drawOverlays();
-    else if (view) setView(t + drag.off);
+    drawOverlays();
     renderTuner();
-    send({ tune_hz: t, view_hz: drag.band ? v.c : t + drag.off });
+    send({ tune_hz: t, view_hz: v.c });
   });
   const end = (e) => {
     if (!drag) return;
@@ -2060,7 +2070,7 @@ for (const id of ["specOverlay", "wfOverlay"]) {
       else if (st.autotune && ATU_MODES.includes(st.mode)) autotuneAt(xToFreq(e.clientX - r.left, r.width));
       else tune(xToFreq(e.clientX - r.left, r.width), true);
     }
-    if (drag.moved && !drag.bw) { viewLocalAt = Date.now(); atuSoon(drag.tune0); }
+    if (drag.moved && !drag.bw) { viewLocalAt = Date.now(); if (drag.band) atuSoon(drag.tune0); }
     if (drag.band && drag.moved) cv.style.cursor = "grab";
     drag = null;
     if (cv.hasPointerCapture(e.pointerId)) cv.releasePointerCapture(e.pointerId);
