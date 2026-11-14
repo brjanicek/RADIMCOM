@@ -1996,7 +1996,8 @@ for (const id of ["specOverlay", "wfOverlay"]) {
   const cv = $(id);
   const spectrum = id === "specOverlay";
   // A click without movement tunes the point under the mouse. Dragging moves the whole spectrum and waterfall: the tuned
-  // frequency stays, so the passband moves on the screen with them (up to the edge of the section, it never leaves it).
+  // frequency stays, so the passband moves on the screen with them; dragged further, the passband stays at the edge of
+  // the section and the frequency changes with the drag (it never leaves the section).
   // Dragging from the passband in the spectrum is the opposite: the shown section stays in place and only the passband
   // moves, up to the edge of the section.
   cv.addEventListener("pointerdown", (e) => {
@@ -2039,15 +2040,22 @@ for (const id of ["specOverlay", "wfOverlay"]) {
     }
     const v = viewNow();
     if (!drag.band) {
-      // only the section moves; the tuned frequency stays inside it (the server drops a section without it)
+      // the section moves, the tuned frequency stays; dragged past it, the tuning is pinned to the edge of the section
+      // (the server drops a section without the tuned frequency)
       const half = v.span / 2 * 0.97;
-      let c = drag.c0 - dx / r.width * v.span;
-      c = Math.min(Math.max(c, st.tune_hz - half), st.tune_hz + half);
-      c = Math.max(c, v.span / 2);
-      if (c === v.c) return;
+      const c = Math.max(drag.c0 - dx / r.width * v.span, v.span / 2);
+      let t = st.tune_hz;
+      if (t < c - half) t = Math.ceil((c - half) / stepHz) * stepHz;
+      else if (t > c + half) t = Math.floor((c + half) / stepHz) * stepHz;
+      if (c === v.c && t === st.tune_hz) return;
       viewLocalAt = Date.now();
       if (view) setView(c);
-      send({ view_hz: c });
+      if (t !== st.tune_hz) {
+        st.tune_hz = t;
+        drawOverlays();
+        renderTuner();
+        send({ tune_hz: t, view_hz: c });
+      } else send({ view_hz: c });
       return;
     }
     let t = drag.tune0 + dx / r.width * v.span;
@@ -2070,7 +2078,7 @@ for (const id of ["specOverlay", "wfOverlay"]) {
       else if (st.autotune && ATU_MODES.includes(st.mode)) autotuneAt(xToFreq(e.clientX - r.left, r.width));
       else tune(xToFreq(e.clientX - r.left, r.width), true);
     }
-    if (drag.moved && !drag.bw) { viewLocalAt = Date.now(); if (drag.band) atuSoon(drag.tune0); }
+    if (drag.moved && !drag.bw) { viewLocalAt = Date.now(); if (st.tune_hz !== drag.tune0) atuSoon(drag.tune0); }
     if (drag.band && drag.moved) cv.style.cursor = "grab";
     drag = null;
     if (cv.hasPointerCapture(e.pointerId)) cv.releasePointerCapture(e.pointerId);
@@ -14437,12 +14445,37 @@ async function whatsNew() {
   win.innerHTML = `<div class="drawer-head"><b>What's new in RADIMCOM ${escHtml(w.version)}</b><button class="key small" id="wnX" title="Close">✕</button></div>
     <div class="drawer-body"><div class="wn-text">${html}</div>
       <div class="upd-keys"><a class="key" href="${escHtml(w.url)}" target="_blank" rel="noopener noreferrer" title="The whole CHANGELOG on GitHub">MORE INFO</a>
+        <button class="key" id="wnDon" title="Support RADIMCOM – buy us a coffee">☕ DONATE</button>
         <button class="key" id="wnClose" title="Close; shown again only after the next version is installed">CLOSE</button></div></div>`;
   document.querySelector(".stage").append(win);
   const close = () => { win.remove(); fetch("/api/whatsnew", { method: "POST" }).catch(() => {}); };
   $("wnX").onclick = close;
   $("wnClose").onclick = close;
+  $("wnDon").onclick = donateWin;
 }
+
+/** DONATE (left of the version, also in "What's new"): a window about supporting RADIMCOM; the key opens Ko-fi. */
+const KOFI_URL = "https://ko-fi.com/radimcom";
+function donateWin() {
+  if ($("donWin")) return;
+  const win = document.createElement("aside");
+  win.className = "drawer don-win";
+  win.id = "donWin";
+  win.setAttribute("aria-label", "Support RADIMCOM");
+  win.innerHTML = `<div class="drawer-head"><b>☕ Support RADIMCOM</b><button class="key small" id="donX" title="Close">✕</button></div>
+    <div class="drawer-body">
+      <p>RADIMCOM is built in our spare time on many years of amateur radio experience: we know what we want from
+        a receiver and how it should behave. Today AI helps us a lot to turn those ideas into working software.</p>
+      <p>RADIMCOM is open source and free, and it will stay that way.</p>
+      <p>If you enjoy it, we'd be very grateful for a coffee ☕ :-) Even the smallest contribution tells us our effort
+        makes sense.</p>
+      <p class="don-sign">73 de OM2AMR &amp; Brano</p>
+      <div class="upd-keys"><a class="key" href="${KOFI_URL}" target="_blank" rel="noopener noreferrer" title="Our page on Ko-fi (opens in the web browser)">☕ BUY US A COFFEE</a>
+        <button class="key" id="donClose">CLOSE</button></div></div>`;
+  document.querySelector(".stage").append(win);
+  $("donX").onclick = $("donClose").onclick = () => win.remove();
+}
+$("donBtn").onclick = donateWin;
 
 /** "?map=…" tab: the map box alone over the whole window, the map view of its decoder. */
 function mapOnlySetup() {

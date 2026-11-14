@@ -175,6 +175,15 @@ body {
 @keyframes upd-blink { 50% { opacity: .25; } }
 .r-upd:hover { animation: none; }   /* steady while pointed at */
 .r-upd[hidden] { display: none; }
+/* DONATE centred under the version; opens the support window */
+.r-don { margin: 0; padding: 0 3px;
+  font: 700 8px/1.2 system-ui, sans-serif; letter-spacing: .1em; white-space: nowrap; color: var(--ink-dim, var(--muted));
+  background: none; border: 1px solid transparent; border-radius: 3px; cursor: pointer; }
+.r-don:hover { color: var(--orange); border-color: var(--orange); }
+.don-win { left: calc(50% - 250px); top: 14%; width: 500px; z-index: 32; }
+.don-win .drawer-head { cursor: default; }
+.don-win p { margin: 0 0 10px; line-height: 1.5; font-size: 13px; }
+.don-win .don-sign { color: var(--yellow); }
 .freq {
   display: flex; align-items: flex-end; gap: .04em; cursor: text; font-size: 64px; line-height: 1;
   padding: 2px 6px;

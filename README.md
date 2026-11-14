@@ -147,6 +147,9 @@ Transmitting (LimeSDR) is off by default and legal only with a valid licence, se
 - **Questions and help with setup:** [Discussions](https://github.com/om2amr/RADIMCOM/discussions)
 - **Contributing code:** [CONTRIBUTING.md](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md)
 - **Contributors:** Brano ([brjanicek](https://github.com/brjanicek)) – the memory editor (0.113)
+- **Support the project:** RADIMCOM is open source and free, and it will stay that way. If you enjoy it,
+  [buy us a coffee on Ko-fi](https://ko-fi.com/radimcom) ☕ – even the smallest contribution tells us our effort makes sense.
+  The same from the app: **☕ DONATE** under the version below the logo.
 
 ## License
 

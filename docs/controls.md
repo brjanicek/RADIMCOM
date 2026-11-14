@@ -14,7 +14,7 @@
 | Next memory | ↑ ↓ arrow keys recall the next memory above / below the tuned frequency, among those visible in the spectrum |
 | Tune by a digit | mouse wheel over a digit of a VFO display tunes by that digit's place (1 Hz … 1 GHz); works on inactive VFOs too, without switching |
 | Tune to a point | click in the spectrum or waterfall |
-| Move the band | drag with the mouse in the waterfall, or in the spectrum outside the passband: the tuned frequency stays, the passband moves with the spectrum (it stays inside the shown section) |
+| Move the band | drag with the mouse in the waterfall, or in the spectrum outside the passband: the tuned frequency stays, the passband moves with the spectrum; dragged further, it stays at the left / right edge of the section and the frequency changes |
 | Move the passband | drag the passband or its label in the spectrum: the spectrum stays in place and the frequency changes |
 | Filter width | drag the filter edge in the spectrum |
 | Band | buttons in the groups HF HAM, HF BROADCAST, VHF / UHF HAM, OTHER (FM BCAST tunes the last FM station listened to, DAB turns on DAB radio) |
