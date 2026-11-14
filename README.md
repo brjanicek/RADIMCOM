@@ -102,6 +102,7 @@ Up to four SDRs at once, each assigned to a VFO by its serial number; one dongle
 - **Transceiver-style screen** in brushed black anodized aluminium (other skins: black or light aluminium, mahogany, RAL paint): S-meter, recessed displays, 3D keys; every VFO is one dark display window with all its state, side by side, each waterfall keeps running. → [Controls](docs/controls.md)
 - **Spectrum and waterfall** with 1×–64× zoom and a waterfall speed bar; tune by click, drag, mouse wheel or the wheel over a digit. → [Tuning](docs/controls.md#tuning)
 - **Band plan on the frequency axis**, audio spectrum bubble, seven S-meter layouts. → [Tuning](docs/controls.md#tuning)
+- **"What's new" window** on the first start of a new version, with the changes of that version.
 - **Memories** with favourites, spectrum tags and a memory editor (groups with notes, decoder and recording at recall, import from SDR# / JSON / CSV, export). → [MEM](docs/controls.md#function-keys), [Memory editor](docs/controls.md#memory-editor)
 - **CUE**: hear other VFOs while one is selected, with MAIN / CUE faders and a level meter. → [Function keys](docs/controls.md#function-keys)
 - **DECODERS**, **SATELLITES**, **MEMORIES** (memory list and memory editor) and **SETTINGS** tabs; SETTINGS has a **GENERAL** page (skins, S-meter, touchpad, location, the one rotor of the station) and a **VFO** page (VFO-A … D keys joined to the settings of that VFO). → [Controls](docs/controls.md)
@@ -136,7 +137,7 @@ Transmitting (LimeSDR) is off by default and legal only with a valid licence, se
 - [Shortwave (HF) with an upconverter](docs/hf-upconverter.md)
 - [Controls](docs/controls.md)
 - [Configuration](docs/configuration.md): `vfos.json`, chaining, setup, TX, EEPROM, SDR# import, HTTP API
-- Decoders: [Aircraft data link](docs/decoders/aircraft.md) · [DAB / DAB+](docs/decoders/dab.md) · [DSD](docs/decoders/dsd.md) · [ISM](docs/decoders/ism.md)
+- Decoders: [Aircraft data link](docs/decoders/aircraft.md) · [ADS-B](docs/decoders/adsb.md) · [HFDL](docs/decoders/hfdl.md) · [AIS](docs/decoders/ais.md) · [Radiosondes](docs/decoders/sonde.md) · [POCSAG](docs/decoders/pocsag.md) · [CW](docs/decoders/cw.md) · [DAB / DAB+](docs/decoders/dab.md) · [DSD](docs/decoders/dsd.md) · [ISM](docs/decoders/ism.md)
 - [Satellite tracking](docs/satellites.md)
 - [Development](docs/development.md): block diagram, files, `data\` folder, backup and upgrade
 - [HTTP API](API/API.md) · [Change log](CHANGELOG.md)
@@ -146,7 +147,8 @@ Transmitting (LimeSDR) is off by default and legal only with a valid licence, se
 - **Bugs and feature requests:** [issues](https://github.com/om2amr/RADIMCOM/issues/new/choose)
 - **Questions and help with setup:** [Discussions](https://github.com/om2amr/RADIMCOM/discussions)
 - **Contributing code:** [CONTRIBUTING.md](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md)
-- **Contributors:** Brano ([brjanicek](https://github.com/brjanicek)) – the memory editor (0.113)
+- **Contributors:** Brano ([brjanicek](https://github.com/brjanicek)) – the memory editor (0.113); ADS-B, ISM, DAB and DSD as modes (0.114);
+  the radiosonde and POCSAG decoders (0.115)
 - **Support the project:** RADIMCOM is open source and free, and it will stay that way. If you enjoy it,
   [buy us a coffee on Ko-fi](https://ko-fi.com/radimcom) ☕ – even the smallest contribution tells us our effort makes sense.
   The same from the app: **☕ DONATE** under the version below the logo.

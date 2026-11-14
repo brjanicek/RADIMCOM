@@ -1,8 +1,8 @@
 # Changelog
 
-## Ver. 0.115rc1
+## Ver. 0.115
 
-Release candidate (GitHub branch `0.115rc1`; continues the test beta `0.115beta1`).
+Released after the test beta (GitHub branch `0.115beta1`) and the release candidate (`0.115rc1`). Many parts are contributed by **Brano, [brjanicek](https://github.com/brjanicek)** (marked *by Brano*).
 
 ### Extra: setup instead of ZIP – easier installation and upgrades
 
@@ -80,7 +80,6 @@ Details:
 
 ### Changes
 
-- **☕ DONATE** under the version below the logo and in the "What's new" window: a window about the project with a key to our Ko-fi page ([ko-fi.com/radimcom](https://ko-fi.com/radimcom), opens in the web browser). RADIMCOM stays open source and free; the GitHub page shows a Sponsor button too (`.github/FUNDING.yml`).
 - **Dragging the spectrum / waterfall keeps the tuned frequency:** a drag outside the passband moves only the shown section, the passband moves on the screen with the signals (dragged further, it stays at the left / right edge of the section and the frequency changes with the drag). Before, the passband stayed in place and the frequency changed under it. Dragging the passband itself tunes as before.
 - **"What's new" window** on the first start of a new version: the changes of this version (its part of INSTALL.txt), **MORE INFO** opens the whole CHANGELOG on GitHub, **CLOSE** (or ✕) hides it until the next version (`data\whatsnew.json`, `/api/whatsnew` on the launcher and the receiver).
 - **Maps: a click on the map drops the selection** (SONDE, ADS-B, ACARS / VDL2, HFDL, AIS, FT8): the selected mark and its trail were red until another one was chosen; a click anywhere on the map (not on a mark) now gives them their own colors back.

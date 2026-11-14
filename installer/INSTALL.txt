@@ -80,8 +80,8 @@ Change log
 ----------
 (also in CHANGELOG.md)
 
-Ver. 0.115rc1
-(release candidate, GitHub branch 0.115rc1; continues the test beta 0.115beta1)
+Ver. 0.115
+(after the test beta 0.115beta1 and the release candidate 0.115rc1; many parts by Brano, github.com/brjanicek)
 Extra: setup instead of ZIP - easier installation and upgrades
 - Until 0.114 RADIMCOM was a ZIP: install.bat needed Python on the PC, created .venv and downloaded about
   60 MB of Python packages from the internet - the most common source of problems.
@@ -183,8 +183,6 @@ Main Features
   - AFC prefers standard shifts and keeps the followed station while it listens (contest 18-34 % -> 4-7 %).
   - Each over (or another station) starts a new line with its UTC time.
 Changes
-- DONATE (under the version below the logo, also in this window): support RADIMCOM with a coffee on
-  Ko-fi (ko-fi.com/radimcom). RADIMCOM stays open source and free.
 - Dragging the spectrum / waterfall keeps the tuned frequency: only the view moves, the passband moves
   with the signals; past the edge it stays there and the frequency changes. Dragging the passband still tunes.
 - "What's new" window on the first start of a new version (MORE INFO = CHANGELOG on GitHub, CLOSE).

@@ -77,7 +77,7 @@ def chain(x0, y, w, h, gap, items, kind, fill="#fff"):
 # ---------- title ----------
 text(40, 50, "RADIMCOM: how the CW decoder works", 32, weight=700)
 text(40, 78, "cw.py (skimmer, up to 16 stations at once) and where it takes the signal from the receiver chain of a VFO "
-             "(sdr.py). Ver. 0.115rc1", 16, MUTE)
+             "(sdr.py). Ver. 0.115", 16, MUTE)
 
 # ---------- receiver chain (row A) ----------
 BY, BH = 175, 104
