@@ -10,11 +10,19 @@ whitened with a 64-byte mask. Bytes 8–55 are the Reed–Solomon parity of two 
 the frame from byte 56 (12 wrong bytes of each can be corrected). From byte 57 on, the frame is a chain of blocks
 (id, length, data, CRC-16): 0x79 status (frame number, serial number, battery), 0x7C GPS time, 0x7B GPS position
 and velocity (ECEF), 0x7A raw measurements, 0x7D raw GPS, 0x7E extra sensors (ozone…), 0x80 encrypted (RS41-SGM).
-Temperature and humidity need the calibration that is sent in 51 pieces over the status blocks: not decoded.
+Temperature and humidity: the raw frequencies of the sensors (block 0x7A) are turned into °C and % with the calibration
+the sonde sends in 51 pieces of 16 bytes over the status blocks (one a frame, so the first values come after up to 51 s,
+temperature after pieces 3–6). Temperature as in rs41mod (rs1729): reference resistors -> sensor resistance ->
+polynomial; humidity: the simple empirical formula of rs41mod (a few % accurate). Pressure (RS41-SGP) is not decoded.
 """
 import collections
 import datetime
+import glob
+import json
 import math
+import os
+import re
+import struct
 import threading
 import time
 
@@ -27,7 +35,13 @@ CHAN_HZ = 10000.0            # channel filter: the sonde can be a few kHz off, d
 ENV_TAU = 0.15               # s: smoothing of the envelope (slicer threshold)
 MAX_FRAMES = 300
 MAX_SONDES = 50
-MAX_TRACK = 3000             # track points kept for each sonde
+MAX_TRACK = 6000             # track points kept for each sonde (every 2 s: 3.3 h, a whole flight)
+RESTORE_SEC = 24 * 3600      # at the start the sondes of logs written in this time are read back
+LOG_SAME_SEC = 6 * 3600      # a sonde heard again within this time goes on in the same log file
+LOG_LIST = 200               # logged flights listed
+LOG_KEYS = ("time", "type", "serial", "frame", "lat", "lon", "alt", "vh", "dir", "vv", "temp", "rh", "temp_h",
+            "sats", "batt", "freq_hz", "dist", "az", "el", "encrypted", "subtype", "cal_n", "gps_time")
+LOG_NAME = re.compile(r"^\d{4}-\d\d-\d\d_[\w.-]+\.jsonl$")
 TRACK_SEC = 2.0              # a track point at most this often
 OLD_SEC = 600                # a sonde not heard for this long is shown as lost
 GPS_LEAP = 18                # GPS - UTC, seconds
@@ -46,6 +60,12 @@ RS41_MASK = bytes((
     0xD0, 0xBC, 0xB4, 0xB6, 0x06, 0xAA, 0xF4, 0x23, 0x78, 0x6E, 0x3B, 0xAE, 0xBF, 0x7B, 0x4C, 0xC1))
 RS41_PARPOS, RS41_MSGPOS, RS41_BLKPOS = 0x08, 0x38, 0x39
 RS_R = 24                    # parity bytes of each codeword
+
+CAL_FRAGS, CAL_LEN = 51, 16   # calibration: 51 pieces of 16 bytes, one in each status block
+CAL_T = {3, 4, 5, 6}           # pieces with the reference resistors and the coefficients of the temperature sensor
+CAL_TH = {3, 4, 18, 19}        # ... of the temperature sensor of the humidity sensor
+CAL_RH = CAL_T | {7}           # ... of the humidity sensor
+CAL_TYPE = {33, 34}            # sonde type ("RS41-SG", "RS41-SGP")
 
 BLK_STATUS, BLK_MEAS, BLK_GPSPOS, BLK_GPSINFO, BLK_GPSRAW, BLK_XDATA, BLK_EMPTY, BLK_ENCRYPTED = \
     0x79, 0x7A, 0x7B, 0x7C, 0x7D, 0x7E, 0x76, 0x80
@@ -248,6 +268,69 @@ def _i32(b, i):
     return v - 0x100000000 if v & 0x80000000 else v
 
 
+def _u24(b, i):
+    return b[i] | b[i + 1] << 8 | b[i + 2] << 16
+
+
+def _f32(b, i):
+    return struct.unpack_from("<f", b, i)[0]
+
+
+def _rs41_temp(cal, f, f1, f2, co, ct):
+    """°C of a platinum sensor: f = its measurement, f1, f2 = the reference resistors rf1, rf2 (cal 0x3D, 0x41);
+    co = polynomial at cal[co], ct = calibration at cal[ct] (rs41mod get_T)."""
+    rf1, rf2 = _f32(cal, 0x3D), _f32(cal, 0x41)
+    if f2 == f1 or rf2 == rf1:
+        return None
+    p = [_f32(cal, co + 4 * k) for k in range(3)]
+    c = [_f32(cal, ct + 4 * k) for k in range(3)]
+    g = (f2 - f1) / (rf2 - rf1)
+    rb = (f1 * rf2 - f2 * rf1) / (f2 - f1)
+    r = (f / g - rb) * c[0]
+    t = (p[0] + p[1] * r + p[2] * r * r + c[1]) * (1.0 + c[2])
+    return t if math.isfinite(t) and -120.0 < t < 80.0 else None
+
+
+def _rs41_rh(cal, f, f1, f2, t):
+    """Relative humidity, % (rs41mod get_RH: empirical, with a temperature compensation)."""
+    h0 = _f32(cal, 0x75)
+    if f2 == f1 or not h0 or not math.isfinite(h0):
+        return None
+    rh = 100.0 * (350.0 / h0 * (f - f1) / (f2 - f1) - 7.5)
+    rh -= t / 5.5
+    if t < -25.0:
+        rh *= 1.0 + (-25.0 - t) / 90.0
+    return min(100.0, max(0.0, rh)) if math.isfinite(rh) else None
+
+
+def rs41_ptu(cal, have, meas):
+    """{"temp", "rh", "temp_h"} from the 12 raw values of block 0x7A and the calibration bytes (816) of which the
+    pieces in `have` are known; a value is left out while its calibration is missing."""
+    out = {}
+    t = th = None
+    if CAL_T <= have:
+        t = _rs41_temp(cal, meas[0], meas[1], meas[2], 0x4D, 0x59)
+        if t is not None:
+            out["temp"] = round(t, 1)
+    if CAL_TH <= have:
+        th = _rs41_temp(cal, meas[6], meas[7], meas[8], 0x125, 0x131)
+        if th is not None:
+            out["temp_h"] = round(th, 1)
+    if t is not None and CAL_RH <= have:
+        rh = _rs41_rh(cal, meas[3], meas[4], meas[5], t)
+        if rh is not None:
+            out["rh"] = round(rh, 1)
+    return out
+
+
+def rs41_subtype(cal, have):
+    """Sonde type from the calibration ("RS41-SG", "RS41-SGP" = with a pressure sensor) or None."""
+    if not CAL_TYPE <= have:
+        return None
+    t = bytes(cal[0x218:0x220]).split(b"\x00")[0].decode("ascii", "replace").strip()
+    return t if t.startswith("RS41") and t.isprintable() else None
+
+
 def rs41_ecc(frame):
     """Reed–Solomon correction of a descrambled frame (bytearray, changed in place).
     Returns the number of corrected bytes, or -1 when a codeword cannot be corrected."""
@@ -301,8 +384,11 @@ def rs41_parse(frame):
             if serial.isalnum():
                 d["serial"] = serial
             d["batt"] = data[10] / 10.0
-            if len(data) >= 40:
+            if len(data) >= 40 and data[23] < CAL_FRAGS:
                 d["cal_frag"] = data[23]
+                d["_cal"] = (data[23], bytes(data[24:40]))
+        elif bid == BLK_MEAS and len(data) >= 36:
+            d["_meas"] = [_u24(data, 3 * k) for k in range(12)]
         elif bid == BLK_GPSINFO and len(data) >= 6:
             week, tow = _u16(data, 0), _u32(data, 2)
             if 1000 < week < 4000:
@@ -334,8 +420,14 @@ def rs41_build(fields, extended=False):
     st[0:2] = fields.get("frame", 1).to_bytes(2, "little")
     st[2:10] = fields.get("serial", "S1234567").encode().ljust(8, b"\0")[:8]
     st[10] = int(round(fields.get("batt", 2.9) * 10))
+    if "cal" in fields:
+        st[23] = fields["cal"][0]
+        st[24:40] = fields["cal"][1]
     blocks.append((BLK_STATUS, bytes(st)))
-    meas = bytes(42)
+    meas = bytearray(42)
+    for k, v in enumerate(fields.get("meas", ())):
+        meas[3 * k:3 * k + 3] = int(v).to_bytes(3, "little")
+    meas = bytes(meas)
     blocks.append((BLK_MEAS, meas))
     gi = bytearray(30)
     gi[0:2] = fields.get("week", 2400).to_bytes(2, "little")
@@ -560,13 +652,17 @@ def _s16(v):
 class SondeDecoder:
     """Radiosonde decoder of one VFO. Frames go to on_event("sonde", ...), the state to on_event("sondestate", ...)."""
 
-    def __init__(self, on_event, station=None, max_frames=MAX_FRAMES):
+    def __init__(self, on_event, station=None, max_frames=MAX_FRAMES, log_dir=None, tag=""):
         self.on_event = on_event
+        self.log_dir = log_dir       # radiosonde log: <log_dir>/<YYYY-MM-DD>_<serial>.jsonl, every frame (JSON lines)
+        self.tag = tag               # VFO name: the logs are shared by all VFOs, each reads back only its own lines
+        self.log_files = {}          # serial -> file name
         self.station = station or (lambda: None)
         self.enabled = False
         self.lock = threading.Lock()
         self.frames = collections.deque(maxlen=max_frames)
         self.sondes = {}
+        self.cal = {}                # serial -> [calibration bytes, pieces known]
         self.next_id = 1
         self.ok = 0
         self.bad = 0
@@ -582,6 +678,8 @@ class SondeDecoder:
         self.dfm = {}
         self.offset_path = None
         self.since_state = 0.0
+        if log_dir:
+            self.restore()
 
     # ---------- control ----------
 
@@ -595,6 +693,7 @@ class SondeDecoder:
         with self.lock:
             self.frames.clear()
             self.sondes.clear()
+            self.cal.clear()
             self.ok = self.bad = self.fixed = 0
             self.base_headers = self._headers()
 
@@ -604,6 +703,7 @@ class SondeDecoder:
         elif body.get("action") == "forget" and body.get("serial"):
             with self.lock:
                 self.sondes.pop(str(body["serial"]), None)
+                self.cal.pop(str(body["serial"]), None)
 
     def _headers(self):
         return sum(p.headers for p in self.paths)
@@ -666,7 +766,30 @@ class SondeDecoder:
         if e > 0:
             self.fixed += e
         d["ecc"] = e
+        self._ptu(d)
         return self._publish(d, inv, now)
+
+    def _ptu(self, d):
+        """Calibration piece of the frame into the store of its sonde, temperature and humidity when known."""
+        cal, meas = d.pop("_cal", None), d.pop("_meas", None)
+        serial = d.get("serial")
+        if not serial:
+            return
+        c = self.cal.get(serial)
+        if c is None:
+            if len(self.cal) >= MAX_SONDES:
+                del self.cal[next(iter(self.cal))]
+            c = self.cal[serial] = [bytearray(CAL_FRAGS * CAL_LEN), set()]
+        if cal is not None:
+            i, data = cal
+            c[0][i * CAL_LEN:(i + 1) * CAL_LEN] = data
+            c[1].add(i)
+        d["cal_n"] = len(c[1])
+        st = rs41_subtype(c[0], c[1])
+        if st:
+            d["subtype"] = st
+        if meas is not None and any(meas):
+            d.update(rs41_ptu(c[0], c[1], meas))
 
     def _dfm(self, fr, inv, now):
         """DFM: the fields come in data blocks 0-15 spread over the frames of a second; a position is published
@@ -717,36 +840,143 @@ class SondeDecoder:
         serial = d.get("serial")
         if serial:
             self._sonde(serial, d, now)
+            self._log(serial, d)
         return d
 
+    # ---------- radiosonde log ----------
+
+    def _log(self, serial, d):
+        """Every frame of a sonde into its log, whatever the LOG key (to read the flight back after a restart)."""
+        if not self.log_dir:
+            return
+        try:
+            name = self.log_files.get(serial)
+            if name is None:
+                safe = re.sub(r"[^\w.-]", "_", serial)
+                old = [f for f in glob.glob(os.path.join(self.log_dir, f"*_{safe}.jsonl"))
+                       if time.time() - os.path.getmtime(f) < LOG_SAME_SEC]
+                name = os.path.basename(max(old, key=os.path.getmtime)) if old else \
+                    f"{time.strftime('%Y-%m-%d', time.gmtime(d['time']))}_{safe}.jsonl"
+                self.log_files[serial] = name
+            rec = {k: d[k] for k in LOG_KEYS if d.get(k) is not None}
+            rec["time"] = round(rec["time"], 2)
+            rec["vfo"] = self.tag
+            os.makedirs(self.log_dir, exist_ok=True)
+            with open(os.path.join(self.log_dir, name), "a", encoding="utf-8") as f:
+                f.write(json.dumps(rec, separators=(",", ":")) + "\n")
+        except OSError:
+            pass                     # a full disk / locked file must not stop the decoder
+
+    def restore(self):
+        """At the start: the sondes of this VFO from the logs of the last RESTORE_SEC, with their flight paths."""
+        try:
+            files = [f for f in glob.glob(os.path.join(self.log_dir, "*.jsonl"))
+                     if time.time() - os.path.getmtime(f) < RESTORE_SEC]
+        except OSError:
+            return
+        for path in sorted(files, key=os.path.getmtime)[-MAX_SONDES:]:
+            for rec in read_log(path):
+                if rec.get("vfo", "") == self.tag and rec.get("serial") and rec.get("type"):
+                    self._sonde(rec["serial"], rec, rec["time"])
+                    self.log_files.setdefault(rec["serial"], os.path.basename(path))
+        for s in self.sondes.values():
+            s["from_log"] = True
+
+    def logs(self):
+        """Logged flights, newest first: file, serial, type, first / last time, frames, highest altitude."""
+        out = []
+        try:
+            files = sorted(glob.glob(os.path.join(self.log_dir or "", "*.jsonl")), key=os.path.getmtime, reverse=True)
+        except OSError:
+            return out
+        for path in files[:LOG_LIST]:
+            name = os.path.basename(path)
+            if not LOG_NAME.match(name):
+                continue
+            recs = read_log(path, head_tail=True)
+            if not recs:
+                continue
+            a, b = recs[0], recs[-1]
+            out.append({"file": name, "serial": a.get("serial"), "type": a.get("type"), "first": a.get("time"),
+                        "last": b.get("time"), "alt": b.get("alt"), "size": os.path.getsize(path)})
+        return out
+
+    def log_sonde(self, name):
+        """One logged flight as a sonde (as in info()["sondes"]), or None."""
+        if not self.log_dir or not LOG_NAME.match(name or ""):
+            return None
+        path = os.path.join(self.log_dir, name)
+        if not os.path.isfile(path):
+            return None
+        tmp = {}
+        for rec in read_log(path):
+            if rec.get("serial") and rec.get("type"):
+                _sonde_add(tmp, rec["serial"], rec, rec["time"])
+        if not tmp:
+            return None
+        s = max(tmp.values(), key=lambda x: x["n"])
+        s["from_log"] = name
+        return s
+
     def _sonde(self, serial, d, now):
-        s = self.sondes.get(serial)
-        if s is None:
-            if len(self.sondes) >= MAX_SONDES:
-                del self.sondes[min(self.sondes, key=lambda k: self.sondes[k]["last"])]
-            s = {"serial": serial, "type": d["type"], "first": now, "n": 0, "pts": [], "max_alt": None,
-                 "burst": False}
-            self.sondes[serial] = s
-        s["n"] += 1
-        s["last"] = now
-        for k in ("frame", "batt", "sats", "freq_hz", "encrypted", "gps_time", "dist", "az", "el"):
-            if d.get(k) is not None:
-                s[k] = d[k]
-        if d.get("lat") is not None:
-            for k in ("lat", "lon", "alt", "vh", "dir", "vv"):
-                s[k] = d[k]
-            s["pos_time"] = now
-            if s["max_alt"] is None or d["alt"] > s["max_alt"]:
-                s["max_alt"] = d["alt"]
-            # burst: falling fast well below the highest point
-            if not s["burst"] and d["vv"] < -8 and s["max_alt"] - d["alt"] > 200 and s["max_alt"] > 5000:
-                s["burst"] = True
-                s["burst_alt"] = s["max_alt"]
-            pts = s["pts"]
-            if not pts or now - pts[-1][3] >= TRACK_SEC:
-                pts.append([d["lat"], d["lon"], d["alt"], now])
-                if len(pts) > MAX_TRACK:
-                    del pts[1:len(pts) - MAX_TRACK + 1]
+        _sonde_add(self.sondes, serial, d, now)
 
     def _emit_state(self):
         self.on_event("sondestate", self.info(frames=False))
+
+
+def read_log(path, head_tail=False):
+    """Records of a radiosonde log (broken lines skipped); head_tail: only the first and the last one."""
+    out = []
+    try:
+        with open(path, "rb") as f:
+            if head_tail:
+                first = f.readline()
+                f.seek(0, os.SEEK_END)
+                f.seek(max(0, f.tell() - 4096))
+                lines = [first] + f.read().splitlines()[-1:]
+            else:
+                lines = f.read().splitlines()
+    except OSError:
+        return out
+    for ln in lines:
+        try:
+            rec = json.loads(ln)
+        except ValueError:
+            continue
+        if isinstance(rec, dict) and isinstance(rec.get("time"), (int, float)):
+            out.append(rec)
+    return out
+
+
+def _sonde_add(sondes, serial, d, now):
+    """Frame d of a sonde into the dict of sondes: the newest values, highest point, burst, flight path."""
+    s = sondes.get(serial)
+    if s is None:
+        if len(sondes) >= MAX_SONDES:
+            del sondes[min(sondes, key=lambda k: sondes[k]["last"])]
+        s = {"serial": serial, "type": d["type"], "first": now, "n": 0, "pts": [], "max_alt": None,
+             "burst": False}
+        sondes[serial] = s
+    s.pop("from_log", None)
+    s["n"] += 1
+    s["last"] = now
+    for k in ("frame", "batt", "sats", "freq_hz", "encrypted", "gps_time", "dist", "az", "el", "temp", "rh",
+              "temp_h", "cal_n", "subtype"):
+        if d.get(k) is not None:
+            s[k] = d[k]
+    if d.get("lat") is not None:
+        for k in ("lat", "lon", "alt", "vh", "dir", "vv"):
+            s[k] = d[k]
+        s["pos_time"] = now
+        if s["max_alt"] is None or d["alt"] > s["max_alt"]:
+            s["max_alt"] = d["alt"]
+        # burst: falling fast well below the highest point
+        if not s["burst"] and d["vv"] < -8 and s["max_alt"] - d["alt"] > 200 and s["max_alt"] > 5000:
+            s["burst"] = True
+            s["burst_alt"] = s["max_alt"]
+        pts = s["pts"]
+        if not pts or now - pts[-1][3] >= TRACK_SEC:
+            pts.append([d["lat"], d["lon"], d["alt"], now, d.get("temp"), d.get("rh")])   # + profile
+            if len(pts) > MAX_TRACK:
+                del pts[1:len(pts) - MAX_TRACK + 1]

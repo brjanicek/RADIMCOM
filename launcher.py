@@ -122,6 +122,11 @@ def main():
         """Newer version on GitHub (update_check.py): the page shows it with the link to its setup."""
         return jsonify(update_check.info())
 
+    @app.route("/api/whatsnew", methods=["GET", "POST"])
+    def api_whatsnew():
+        """What's new in this version (INSTALL.txt); POST = the window was closed (data\\whatsnew.json)."""
+        return jsonify(update_check.whats_new_seen() if request.method == "POST" else update_check.whats_new())
+
     update_check.start(setup.get("update_check", True))
 
     port = int(setup.get("port", 8434))

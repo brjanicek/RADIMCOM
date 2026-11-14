@@ -14,7 +14,7 @@ import threading
 import time
 import urllib.request
 
-from paths import BASE
+from paths import BASE, data
 
 LATEST_URL = "https://api.github.com/repos/om2amr/RADIMCOM/releases/latest"     # drafts and pre-releases are left out
 RELEASES_URL = "https://github.com/om2amr/RADIMCOM/releases"
@@ -90,3 +90,53 @@ def start(enabled=True):
 def info():
     with _lock:
         return dict(_state)
+
+
+# ---------- "What's new": a window on the first start of a new version ----------
+
+CHANGELOG_URL = "https://github.com/om2amr/RADIMCOM/blob/main/CHANGELOG.md"
+SEEN_FILE = "whatsnew.json"     # in data\: the version whose window was closed
+
+
+def whats_new_text(ver):
+    """The section of version `ver` in INSTALL.txt (package root, or installer/ in a development copy), or ""."""
+    for p in (os.path.join(BASE, "INSTALL.txt"), os.path.join(BASE, "installer", "INSTALL.txt")):
+        try:
+            with open(p, encoding="utf-8") as f:
+                lines = f.read().splitlines()
+        except OSError:
+            continue
+        out, on = [], False
+        for ln in lines:
+            if re.match(r"^Ver\. \S", ln):
+                if on:
+                    break
+                on = ln.strip() == f"Ver. {ver}"
+                continue
+            if on:
+                out.append(ln.rstrip())
+        if out:
+            return "\n".join(out).strip()
+    return ""
+
+
+def whats_new():
+    """{"version", "seen", "show", "text", "url"}: show = this version's window was not closed yet."""
+    ver = own_version()
+    try:
+        with open(data(SEEN_FILE), encoding="utf-8") as f:
+            seen = json.load(f).get("seen")
+    except (OSError, ValueError, AttributeError):
+        seen = None
+    text = whats_new_text(ver) if ver else ""
+    return {"version": ver, "seen": seen, "show": bool(ver and text and seen != ver), "text": text, "url": CHANGELOG_URL}
+
+
+def whats_new_seen():
+    ver = own_version()
+    try:
+        with open(data(SEEN_FILE), "w", encoding="utf-8") as f:
+            json.dump({"seen": ver}, f)
+    except OSError:
+        pass
+    return whats_new()

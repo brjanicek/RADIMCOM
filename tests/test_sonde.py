@@ -163,5 +163,99 @@ class Chain(unittest.TestCase):
         self.assertEqual(out, [])
 
 
+def calibration():
+    """816 calibration bytes: reference resistors 750 / 1100 Ω, Pt1000-like polynomial, type RS41-SG."""
+    import struct
+    cal = bytearray(sonde.CAL_FRAGS * sonde.CAL_LEN)
+    put = lambda pos, *v: cal.__setitem__(slice(pos, pos + 4 * len(v)), struct.pack(f"<{len(v)}f", *v))
+    put(0x3D, 750.0, 1100.0)
+    put(0x4D, -243.911, 0.187654, 8.2e-06)
+    put(0x59, 1.0, 0.0, 0.0)
+    put(0x75, 47.5, 50.0)
+    put(0x125, -243.911, 0.187654, 8.2e-06)
+    put(0x131, 1.0, 0.0, 0.0)
+    cal[0x218:0x220] = b"RS41-SG\0"
+    return cal
+
+
+def frame_bytes(bits):
+    """Bits of rs41_build -> the descrambled frame, as the framer gives it."""
+    raw = bytes(sum(bits[i * 8 + k] << k for k in range(8)) for i in range(len(bits) // 8))
+    return bytearray(b ^ sonde.RS41_MASK[i % 64] for i, b in enumerate(raw))
+
+
+class Telemetry(unittest.TestCase):
+    R_T, R_TH = 1100.0, 1000.0           # sensor resistances, Ω
+
+    def meas(self):
+        g, rb = 100.0, 20.0               # gain and offset of the measuring circuit
+        f = lambda r: g * (r + rb)
+        # humidity: (f - f1) / (f2 - f1) = 1.05
+        return [f(self.R_T), f(750), f(1100), 110500, 100000, 110000, f(self.R_TH), f(750), f(1100), 0, 0, 0]
+
+    def expect(self, r):
+        return -243.911 + 0.187654 * r + 8.2e-06 * r * r
+
+    def test_ptu(self):
+        cal = calibration()
+        have = set(range(sonde.CAL_FRAGS))
+        p = sonde.rs41_ptu(cal, have, self.meas())
+        self.assertAlmostEqual(p["temp"], self.expect(self.R_T), delta=0.06)
+        self.assertAlmostEqual(p["temp_h"], self.expect(self.R_TH), delta=0.06)
+        rh = 100 * (350 / 47.5 * 1.05 - 7.5) - p["temp"] / 5.5
+        rh *= 1 + (-25 - p["temp"]) / 90 if p["temp"] < -25 else 1
+        self.assertAlmostEqual(p["rh"], rh, delta=0.2)
+        self.assertEqual(sonde.rs41_subtype(cal, have), "RS41-SG")
+        self.assertEqual(sonde.rs41_ptu(cal, have - {5}, self.meas()).get("temp"), None)
+
+    def test_decoder_collects_calibration(self):
+        cal = calibration()
+        out = []
+        d = sonde.SondeDecoder(lambda k, m: None)
+        for i in range(sonde.CAL_FRAGS):
+            piece = (i, bytes(cal[i * 16:(i + 1) * 16]))
+            out.append(d._frame(frame_bytes(sonde.rs41_build(dict(FIELDS, frame=i, cal=piece, meas=self.meas()))), False, 1.0 + i))
+        self.assertNotIn("temp", out[2])
+        self.assertIn("temp", out[6])
+        last = out[-1]
+        self.assertEqual(last["cal_n"], 51)
+        self.assertEqual(last["subtype"], "RS41-SG")
+        self.assertAlmostEqual(last["temp"], self.expect(self.R_T), delta=0.06)
+        self.assertIn("rh", last)
+        s = d.info()["sondes"][0]
+        self.assertEqual(s["temp"], last["temp"])
+        self.assertNotIn("_cal", last)
+
+
+class Log(unittest.TestCase):
+    def test_log_restore_and_read(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            d = sonde.SondeDecoder(lambda k, m: None, log_dir=tmp, tag="D")
+            for i in range(5):
+                f = dict(FIELDS, frame=i, alt=1000.0 + 50 * i)
+                d._frame(frame_bytes(sonde.rs41_build(f)), False, 1000.0 + 3 * i)
+            with open(os.path.join(tmp, os.listdir(tmp)[0]), "a") as fh:
+                fh.write("broken line\n")
+            # other VFO: nothing of D; same VFO: the sonde with its path
+            self.assertEqual(sonde.SondeDecoder(lambda k, m: None, log_dir=tmp, tag="A").sondes, {})
+            os.utime(os.path.join(tmp, os.listdir(tmp)[0]))
+            r = sonde.SondeDecoder(lambda k, m: None, log_dir=tmp, tag="D")
+            s = r.sondes["W1234567"]
+            self.assertEqual(s["n"], 5)
+            self.assertEqual(len(s["pts"]), 5)
+            self.assertEqual(s["max_alt"], d.sondes["W1234567"]["max_alt"])
+            self.assertTrue(s["from_log"])
+            logs = r.logs()
+            self.assertEqual(len(logs), 1)
+            self.assertEqual(logs[0]["serial"], "W1234567")
+            self.assertEqual(r.log_sonde(logs[0]["file"])["n"], 5)
+            self.assertIsNone(r.log_sonde("../x.jsonl"))
+            # a new frame of a restored sonde goes on in the same file
+            r._frame(frame_bytes(sonde.rs41_build(dict(FIELDS, frame=9))), False, 2000.0)
+            self.assertEqual(len(os.listdir(tmp)), 1)
+            self.assertNotIn("from_log", r.sondes["W1234567"])
+
+
 if __name__ == "__main__":
     unittest.main()

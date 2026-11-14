@@ -3017,6 +3017,8 @@ async function ft8MapOpen() {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors',
     }).addTo(ft8Map);
     mapPopout(ft8Map, "ft8");
+    // a click on the map (not on a mark) drops the selection: the red mark and trail get their own colors back
+    ft8Map.on("click", () => { if (ft8Sel != null) { ft8Sel = null; renderFt8Map(); } });
     ft8MapLay = { path: L.layerGroup().addTo(ft8Map), st: L.layerGroup().addTo(ft8Map), marks: new Map() };
     // call labels only when zoomed in enough (a whole continent of labels is unreadable)
     const lbl = () => $("ft8Map").classList.toggle("ft8-nolbl", ft8Map.getZoom() < 5);
@@ -5314,6 +5316,8 @@ async function acarsMapOpen() {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors',
     }).addTo(acarsMap);
     mapPopout(acarsMap, "acars");
+    // a click on the map (not on a mark) drops the selection: the red mark and trail get their own colors back
+    acarsMap.on("click", () => { if (acarsSel != null) { acarsSel = null; renderAcarsMap(); } });
     acarsMapLayers = { gs: L.layerGroup().addTo(acarsMap), tracks: L.layerGroup().addTo(acarsMap), planes: L.layerGroup().addTo(acarsMap), marks: new Map() };
     try {
       const s = await satFetch("/api/location");
@@ -6356,7 +6360,7 @@ setPocView(pocView, false);   // filled by pocsagLoad()
 const SONDE_MAX_FRAMES = 500;
 const SONDE_OLD_S = 600;         // no frame for 10 min: lost (grey)
 const sondes = new Map();        // serial -> {…sonde from the server, pts: [[lat, lon, alt, t]]}
-let sondeView = ["sondes", "map", "frames"].includes(recall("sondeView")) ? recall("sondeView") : "sondes";
+let sondeView = recall("sondeView") === "profile" ? "map" : ["sondes", "map", "frames"].includes(recall("sondeView")) ? recall("sondeView") : "sondes";
 let sondeMap = null, sondeLayers = null, sondeFitted = false, sondeSel = null, sondeTimer = null;
 
 const sondeKmh = (v) => (v == null ? "" : (v * 3.6).toFixed(0));
@@ -6377,14 +6381,15 @@ function sondeUpdate(f) {
   if (!s) { s = { serial: f.serial, type: f.type, first: f.time, n: 0, pts: [], max_alt: null, burst: false }; sondes.set(f.serial, s); }
   s.n += 1;
   s.last = f.time;
-  for (const k of ["frame", "batt", "sats", "freq_hz", "encrypted", "gps_time", "dist", "az", "el"]) if (f[k] != null) s[k] = f[k];
+  delete s.from_log;
+  for (const k of ["frame", "batt", "sats", "freq_hz", "encrypted", "gps_time", "dist", "az", "el", "temp", "rh", "temp_h", "cal_n", "subtype"]) if (f[k] != null) s[k] = f[k];
   if (f.lat != null) {
     for (const k of ["lat", "lon", "alt", "vh", "dir", "vv"]) s[k] = f[k];
     s.pos_time = f.time;
     if (s.max_alt == null || f.alt > s.max_alt) s.max_alt = f.alt;
     if (!s.burst && f.vv < -8 && s.max_alt - f.alt > 200 && s.max_alt > 5000) { s.burst = true; s.burst_alt = s.max_alt; }
     const last = s.pts[s.pts.length - 1];
-    if (!last || f.time - last[3] >= 2) { s.pts.push([f.lat, f.lon, f.alt, f.time]); if (s.pts.length > 3000) s.pts.splice(1, 1); }
+    if (!last || f.time - last[3] >= 2) { s.pts.push([f.lat, f.lon, f.alt, f.time, f.temp ?? null, f.rh ?? null]); if (s.pts.length > 6000) s.pts.splice(1, 1); }
   }
   sondeLater();
 }
@@ -6403,6 +6408,9 @@ const sondeList = () => [...sondes.values()].sort((a, b) => b.last - a.last);
 const sondePos = (s) => (s.lat == null ? "" : `${s.lat.toFixed(5)}, ${s.lon.toFixed(5)}`);
 const sondeDir = (v) => (v == null ? "" : `${Math.round(v)}°`);
 const sondeUpDown = (v) => (v > 0 ? "up" : v < 0 ? "down" : "");
+const sondeT = (v) => (v == null ? "" : v.toFixed(1));
+const sondeRh = (v) => (v == null ? "" : Math.round(v));
+const sondeCal = (s) => (s.cal_n == null ? "" : `calibration ${s.cal_n}/51${s.temp_h != null ? ` · humidity sensor ${s.temp_h.toFixed(1)} °C` : ""}`);
 
 function renderSondeTable() {
   const list = sondeList();
@@ -6413,8 +6421,9 @@ function renderSondeTable() {
     `<td class="num">${sondeAlt(s.alt)}</td><td class="num ${sondeUpDown(s.vv)}">${sondeClimb(s.vv)}</td>` +
     `<td class="num">${sondeKmh(s.vh)}</td><td class="num">${sondeDir(s.dir)}</td>` +
     `<td class="num">${s.dist == null ? "" : s.dist.toFixed(1)}</td><td class="num">${s.az == null ? "" : `${Math.round(s.az)}° / ${s.el.toFixed(1)}°`}</td>` +
+    `<td class="num" title="${sondeCal(s)}">${s.temp != null ? sondeT(s.temp) : s.cal_n != null && s.type === "RS41" ? `<span class="muted">${s.cal_n}/51</span>` : ""}</td><td class="num">${sondeRh(s.rh)}</td>` +
     `<td class="num">${s.sats ?? ""}</td><td class="num">${s.batt == null ? "" : `${s.batt.toFixed(1)} V`}</td><td class="num">${s.n}</td>` +
-    `<td>${escHtml(sondeState(s))}${s.encrypted ? ' <span class="muted">encrypted</span>' : ""}</td></tr>`).join("");
+    `<td>${escHtml(sondeState(s))}${s.from_log ? ' <span class="muted" title="Read back from data\\logs\\radiosonde">from log</span>' : ""}${s.subtype ? ` <span class="muted">${escHtml(s.subtype)}</span>` : ""}${s.encrypted ? ' <span class="muted">encrypted</span>' : ""}</td></tr>`).join("");
   $("sondeEmpty").hidden = list.length > 0;
 }
 
@@ -6422,11 +6431,13 @@ function addSondeFrame(f) {
   const tb = $("sondeFrameRows");
   const tr = document.createElement("tr");
   const det = [f.gps_time ? `GPS ${aisUtc(f.gps_time)}` : "", f.ecc ? `${f.ecc} bytes corrected` : "", f.blocks_bad ? `${f.blocks_bad} blocks bad` : "",
-    f.encrypted ? "encrypted" : "", f.inverted ? "inverted" : "", f.batt != null ? `batt ${f.batt.toFixed(1)} V` : ""].filter(Boolean).join(" · ");
+    f.encrypted ? "encrypted" : "", f.inverted ? "inverted" : "", f.batt != null ? `batt ${f.batt.toFixed(1)} V` : "",
+    f.cal_n != null && f.cal_n < 51 ? `calibration ${f.cal_n}/51` : ""].filter(Boolean).join(" · ");
   tr.innerHTML = `<td title="${escHtml(fmtMHz(f.freq_hz, 4))} MHz">${aisUtc(f.time)}</td><td>${escHtml(f.type)}</td><td class="ser">${escHtml(f.serial || "?")}</td>` +
     `<td class="num">${f.frame ?? ""}</td><td>${sondePos(f)}</td><td class="num">${sondeAlt(f.alt)}</td>` +
     `<td class="num ${sondeUpDown(f.vv)}">${sondeClimb(f.vv)}</td><td class="num">${sondeKmh(f.vh)}</td>` +
-    `<td class="num">${sondeDir(f.dir)}</td><td class="num">${f.sats ?? ""}</td><td class="muted">${escHtml(det)}</td>`;
+    `<td class="num">${sondeDir(f.dir)}</td><td class="num">${sondeT(f.temp)}</td><td class="num">${sondeRh(f.rh)}</td>` +
+    `<td class="num">${f.sats ?? ""}</td><td class="muted">${escHtml(det)}</td>`;
   tb.prepend(tr);
   while (tb.rows.length > SONDE_MAX_FRAMES) tb.lastChild.remove();
   $("sondeFrameEmpty").hidden = true;
@@ -6447,6 +6458,8 @@ function sondePopup(s) {
     lines.push(`${sondeAlt(s.alt)} m · climb ${sondeClimb(s.vv)} m/s · ${sondeKmh(s.vh)} km/h to ${sondeDir(s.dir)}`);
     lines.push(`position ${sondePos(s)} (${aisAge(s.pos_time)} ago)`);
   }
+  if (s.temp != null) lines.push(`${s.temp.toFixed(1)} °C${s.rh != null ? ` · RH ${Math.round(s.rh)} %` : ""}`);
+  else if (s.cal_n != null && s.type === "RS41") lines.push(`<span class="muted">temperature: calibration ${s.cal_n}/51</span>`);
   if (s.dist != null) lines.push(`${s.dist.toFixed(1)} km, azimuth ${Math.round(s.az)}°, elevation ${s.el.toFixed(1)}°`);
   lines.push(escHtml(sondeState(s)) + (s.max_alt != null ? ` · highest ${sondeAlt(s.max_alt)} m` : ""));
   lines.push(`last frame ${aisUtc(s.last)} UTC · ${s.n} frames · <a href="https://sondehub.org/${encodeURIComponent(s.serial)}" target="_blank" rel="noopener">SondeHub</a>`);
@@ -6468,6 +6481,8 @@ async function sondeMapOpen() {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors',
     }).addTo(sondeMap);
     mapPopout(sondeMap, "sonde");
+    // a click on the map (not on a mark) drops the selection: the red mark and trail get their own colors back
+    sondeMap.on("click", () => { if (sondeSel != null) { sondeSel = null; renderSondeMap(); } });
     sondeLayers = { tracks: L.layerGroup().addTo(sondeMap), marks: L.layerGroup().addTo(sondeMap), m: new Map() };
     sondeSitesInit();
     try {
@@ -6602,7 +6617,7 @@ async function renderSondeMap() {
     keep.add(s.serial);
     const sel = s.serial === sondeSel;
     if (s.pts.length > 1) {
-      L.polyline(s.pts.map((q) => [q[0], q[1]]), { color: sel ? "#ff4b3c" : "#6cff9c", weight: sel ? 2.5 : 1.8, opacity: 0.8 }).addTo(lay.tracks);
+      L.polyline(s.pts.map((q) => [q[0], q[1]]), { color: "#6cff9c", weight: 1.8, opacity: 0.8 }).addTo(lay.tracks);
       const p0 = s.pts[0];
       L.circleMarker([p0[0], p0[1]], { radius: 3, color: "#6cff9c", weight: 1, fillOpacity: 1 })
         .bindTooltip(`first frame ${aisUtc(p0[3])} UTC, ${sondeAlt(p0[2])} m`).addTo(lay.tracks);
@@ -6631,8 +6646,139 @@ async function renderSondeMap() {
     list.map((s) => `<div class="ais-ml sonde-ml${s.serial === sondeSel ? " sel" : ""}${sondeOld(s) ? " old" : ""}" data-serial="${escHtml(s.serial)}">` +
       `<b>${escHtml(s.serial)}</b><span class="stype">${escHtml(s.type)}</span><span>${sondeAlt(s.alt)} m</span>` +
       `<span class="${sondeUpDown(s.vv)}">${sondeClimb(s.vv)}</span><span class="age">${aisAge(s.last)}</span></div>`).join("");
-  $("sondeMapNote").textContent = `${list.length} with a position · balloon = rising · parachute = falling after the burst (yellow ring) · red = selected · grey = no frame for 10 min · green line = flight path · map © OpenStreetMap`;
+  const logged = sondeLogList.filter((l) => !sondes.has(l.serial));
+  if (logged.length)
+    $("sondeMapList").innerHTML += `<div class="ais-ml-head sonde-ml-log" title="Flights in data\\logs\\radiosonde; a click draws the flight on the map and its profile">Log: ${logged.length} earlier flight${logged.length === 1 ? "" : "s"}</div>` +
+      logged.map((l) => `<div class="ais-ml sonde-ml old" data-log="${escHtml(l.file)}" title="${escHtml(l.file)}"><b>${escHtml(l.serial)}</b><span class="stype">${escHtml(l.type || "")}</span>` +
+        `<span>${l.alt != null ? `${sondeAlt(l.alt)} m` : ""}</span><span>${new Date(l.first * 1000).toISOString().slice(5, 10)}</span><span class="age">${new Date(l.first * 1000).toISOString().slice(11, 16)}</span></div>`).join("");
+  renderSondeProfile();
+  $("sondeMapNote").textContent = `${list.length} with a position · balloon = rising · parachute = falling after the burst (yellow ring) · orange = selected (its profile on the right) · grey = no frame for 10 min · green line = flight path · map © OpenStreetMap`;
 }
+
+// ----- SONDE PROFILE: temperature and humidity against altitude, one sonde; altitude is the vertical axis (tall plot),
+// two panels side by side share it (no second x scale in one panel). Pressure is not measured by the RS41-SG: the right
+// edge labels the altitude axis with the pressure of the standard atmosphere (ISA), only as an orientation.
+const SONDE_PROF_C = { temp: "#ff8c1a", rh: "#4fb6ff" };
+const isaHpa = (h) => (h < 11000 ? 1013.25 * Math.pow(1 - 2.25577e-5 * h, 5.25588) : 226.32 * Math.exp(-(h - 11000) / 6341.6));
+const isaAlt = (p) => (p > 226.32 ? (1 - Math.pow(p / 1013.25, 1 / 5.25588)) / 2.25577e-5 : 11000 - 6341.6 * Math.log(p / 226.32));
+let sondeProfGeom = null, sondeLogList = [];
+const SONDE_PROF_TOP = 41000;   // m: fixed top of the altitude axis (highest sondes burst at 35-40 km)
+
+function sondeNiceStep(span, n) {
+  const raw = span / n, m = Math.pow(10, Math.floor(Math.log10(raw)));
+  return [1, 2, 5, 10].map((k) => k * m).find((s) => s >= raw);
+}
+
+function renderSondeProfile() {
+  const list = sondeList();
+  const box = $("sondeProf");
+  const s = sondes.get(sondeSel) || list.find((x) => x.pts.some((q) => q[4] != null)) || list[0];
+  const pts = s ? s.pts.filter((q) => q[4] != null) : [];
+  if (pts.length < 2) {
+    box.innerHTML = `<div class="ft8-empty">${!s ? "Temperature and humidity profile of the sonde selected on the map or in the list (also a flight from the log in the list)." :
+      s.type !== "RS41" ? `No temperature from a ${escHtml(s.type)} sonde.` :
+      `No temperature yet${s.cal_n != null ? ` (calibration ${s.cal_n}/51)` : ""}. The profile grows every 2 s of the flight while the sonde is heard.`}</div>`;
+    $("sondeProfNote").textContent = s ? s.serial : "";
+    sondeProfGeom = null;
+    return;
+  }
+  // ascent up to the highest point, descent after it (fainter)
+  const top = pts.reduce((a, q, i) => (q[2] > pts[a][2] ? i : a), 0);
+  const W = Math.max(320, Math.min(560, box.clientWidth || 520)), H = Math.max(260, (box.clientHeight || 640) - 2);
+  const L = 54, R = 52, T = 26, B = 34, gap = 30, pw = (W - L - R - gap) / 2;
+  const alts = pts.map((q) => q[2]);
+  const aMin = 0, aMax = Math.max(SONDE_PROF_TOP, Math.ceil(Math.max(...alts) / 1000) * 1000);
+  const ty = (a) => T + (H - T - B) * (1 - (a - aMin) / (aMax - aMin));
+  const ts = pts.map((q) => q[4]), tLo = Math.floor((Math.min(...ts) - 3) / 10) * 10, tHi = Math.ceil((Math.max(...ts) + 3) / 10) * 10;
+  const panels = [
+    { key: "temp", i: 4, lo: tLo, hi: tHi, x0: L, title: "Temperature °C" },
+    { key: "rh", i: 5, lo: 0, hi: 100, x0: L + pw + gap, title: "Humidity %" },
+  ];
+  for (const p of panels) p.tx = (v) => p.x0 + pw * (v - p.lo) / (p.hi - p.lo);
+  let svg = "";
+  const aStep = sondeNiceStep(aMax - aMin, H > 420 ? 9 : 5);
+  for (let a = Math.ceil(aMin / aStep) * aStep; a <= aMax; a += aStep) {
+    const y = ty(a).toFixed(1);
+    svg += `<line class="g" x1="${L}" x2="${W - R}" y1="${y}" y2="${y}"/><text class="ax" x="${L - 6}" y="${y}" dy="4" text-anchor="end">${a >= 1000 ? `${a / 1000} km` : `${a} m`}</text>`;
+  }
+  for (const hpa of [1000, 850, 700, 500, 300, 200, 100, 50, 30, 20, 10, 5, 3]) {
+    const a = isaAlt(hpa);
+    if (a < aMin || a > aMax) continue;
+    const y = ty(a).toFixed(1);
+    svg += `<line class="tk" x1="${W - R}" x2="${W - R + 4}" y1="${y}" y2="${y}"/><text class="ax" x="${W - R + 7}" y="${y}" dy="4">${hpa}</text>`;
+  }
+  svg += `<text class="ax" x="${W - R + 7}" y="${T - 10}">hPa*</text>`;
+  for (const p of panels) {
+    const step = p.key === "rh" ? 20 : sondeNiceStep(p.hi - p.lo, 5);
+    for (let v = Math.ceil(p.lo / step) * step; v <= p.hi + 1e-9; v += step) {
+      const x = p.tx(v).toFixed(1);
+      svg += `<line class="g" x1="${x}" x2="${x}" y1="${T}" y2="${H - B}"/><text class="ax" x="${x}" y="${H - B + 16}" text-anchor="middle">${Math.round(v)}</text>`;
+    }
+    if (p.key === "temp" && p.lo < 0 && p.hi > 0) svg += `<line class="zero" x1="${p.tx(0)}" x2="${p.tx(0)}" y1="${T}" y2="${H - B}"/>`;
+    svg += `<rect class="frame" x="${p.x0}" y="${T}" width="${pw}" height="${H - T - B}"/>`;
+    svg += `<text class="ttl" x="${p.x0 + pw / 2}" y="${T - 10}" text-anchor="middle">${p.title}</text>`;
+    const path = (a, b) => pts.slice(a, b).filter((q) => q[p.i] != null)
+      .map((q, k) => `${k ? "L" : "M"}${p.tx(q[p.i]).toFixed(1)},${ty(q[2]).toFixed(1)}`).join("");
+    svg += `<path class="ln" d="${path(0, top + 1)}" stroke="${SONDE_PROF_C[p.key]}"/>`;
+    if (top < pts.length - 1) svg += `<path class="ln down" d="${path(top, pts.length)}" stroke="${SONDE_PROF_C[p.key]}"/>`;
+    const q = pts[pts.length - 1];
+    if (q[p.i] != null) svg += `<circle class="dot" cx="${p.tx(q[p.i]).toFixed(1)}" cy="${ty(q[2]).toFixed(1)}" r="4" fill="${SONDE_PROF_C[p.key]}"/>`;
+  }
+  svg += `<g id="sondeProfHover" visibility="hidden"><line class="hv" x1="${L}" x2="${W - R}"/><circle r="4" class="hd" data-k="temp"/><circle r="4" class="hd" data-k="rh"/></g>`;
+  box.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Temperature and humidity against altitude of ${escHtml(s.serial)}">${svg}</svg><div class="sonde-prof-tip" hidden></div>`;
+  sondeProfGeom = { pts, panels, ty, L, R, T, B, W, H };
+  const tmin = pts.reduce((a, q) => (q[4] < a[4] ? q : a));
+  $("sondeProfNote").textContent = `${s.serial} · ${pts.length} points · ${sondeAlt(Math.min(...alts))}–${sondeAlt(Math.max(...alts))} m · coldest ${tmin[4].toFixed(1)} °C at ${sondeAlt(tmin[2])} m` +
+    (top < pts.length - 1 ? " · fainter line = descent after the burst" : "") + " · *hPa: standard atmosphere for the altitude, not measured";
+  $("sondeProfNote").title = $("sondeProfNote").textContent;
+}
+
+async function sondeLogsLoad() {
+  try { sondeLogList = await fetch(vbase + "/api/sonde/logs").then((r) => r.json()); } catch { sondeLogList = []; }
+  if (sondeView === "map") renderSondeMap();
+}
+
+async function sondeLogOpen(file) {
+  try {
+    const s = await fetch(vbase + "/api/sonde/log?file=" + encodeURIComponent(file)).then((r) => (r.ok ? r.json() : null));
+    if (!s) return;
+    if (!sondes.has(s.serial)) sondes.set(s.serial, s);
+    sondeSelect(s.serial);
+  } catch { /* the log is gone */ }
+}
+
+new ResizeObserver(() => { if (sondeView === "map" && !$("sondeMapBox").hidden) renderSondeProfile(); }).observe($("sondeProf"));
+
+$("sondeProf").addEventListener("mousemove", (e) => {
+  const g = sondeProfGeom, svg = $("sondeProf").querySelector("svg");
+  if (!g || !svg) return;
+  const r = svg.getBoundingClientRect(), y = (e.clientY - r.top) * g.H / r.height;
+  const hov = svg.querySelector("#sondeProfHover"), tip = $("sondeProf").querySelector(".sonde-prof-tip");
+  if (y < g.T || y > g.H - g.B) { hov.setAttribute("visibility", "hidden"); tip.hidden = true; return; }
+  const q = g.pts.reduce((a, p) => (Math.abs(g.ty(p[2]) - y) < Math.abs(g.ty(a[2]) - y) ? p : a));
+  const yy = g.ty(q[2]), ln = hov.querySelector("line");
+  hov.setAttribute("visibility", "visible");
+  ln.setAttribute("y1", yy);
+  ln.setAttribute("y2", yy);
+  for (const p of g.panels) {
+    const c = hov.querySelector(`[data-k="${p.key}"]`);
+    if (q[p.i] == null) { c.setAttribute("visibility", "hidden"); continue; }
+    c.setAttribute("visibility", "visible");
+    c.setAttribute("cx", p.tx(q[p.i]));
+    c.setAttribute("cy", yy);
+    c.setAttribute("fill", SONDE_PROF_C[p.key]);
+  }
+  tip.hidden = false;
+  tip.innerHTML = `<b>${sondeAlt(q[2])} m</b> · ${aisUtc(q[3])} UTC<br>${q[4].toFixed(1)} °C${q[5] != null ? ` · RH ${Math.round(q[5])} %` : ""}` +
+    `<br><span class="muted">≈ ${Math.round(isaHpa(q[2]))} hPa (standard atmosphere)</span>`;
+  tip.style.top = `${Math.min(yy * r.height / g.H + 8, r.height - 60)}px`;
+  tip.style.left = `${(g.L + 8) * r.width / g.W}px`;
+});
+$("sondeProf").addEventListener("mouseleave", () => {
+  const hov = $("sondeProf").querySelector("#sondeProfHover"), tip = $("sondeProf").querySelector(".sonde-prof-tip");
+  if (hov) hov.setAttribute("visibility", "hidden");
+  if (tip) tip.hidden = true;
+});
 
 function sondeSelect(serial, pan = true) {
   sondeSel = serial;
@@ -6651,6 +6797,7 @@ function setSondeView(v, save = true) {
   $("sondeListBox").hidden = v !== "sondes";
   $("sondeMapBox").hidden = v !== "map";
   $("sondeFrameBox").hidden = v !== "frames";
+  if (v === "map") sondeLogsLoad();
   renderSondeView();
 }
 
@@ -6717,7 +6864,12 @@ $("sondeGo").addEventListener("click", () => {
 });
 $("sondeClear").addEventListener("click", () => { sondePost({ action: "clear" }).then(renderSondeInfo); sondeReset(); });
 $("sondeViews").addEventListener("click", (e) => { const b = e.target.closest("button[data-view]"); if (b) setSondeView(b.dataset.view); });
-$("sondeMapList").addEventListener("click", (e) => { const r = e.target.closest("[data-serial]"); if (r) sondeSelect(r.dataset.serial); });
+$("sondeMapList").addEventListener("click", (e) => {
+  const lg = e.target.closest("[data-log]");
+  if (lg) { sondeLogOpen(lg.dataset.log); return; }
+  const r = e.target.closest("[data-serial]");
+  if (r) sondeSelect(r.dataset.serial);
+});
 $("sondeRows").addEventListener("click", (e) => {
   if (!e.target.closest(".sonde-goto")) return;
   e.preventDefault();
@@ -8347,6 +8499,8 @@ async function hfdlMapOpen() {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors',
     }).addTo(hfdlMap);
     mapPopout(hfdlMap, "hfdl");
+    // a click on the map (not on a mark) drops the selection: the red mark and trail get their own colors back
+    hfdlMap.on("click", () => { if (hfdlSel != null) { hfdlSel = null; renderHfdlMap(); } });
     hfdlMapLayers = { gs: L.layerGroup().addTo(hfdlMap), tracks: L.layerGroup().addTo(hfdlMap), planes: L.layerGroup().addTo(hfdlMap), marks: new Map() };
     try {
       const s = await satFetch("/api/location");
@@ -8809,6 +8963,8 @@ async function aisMapOpen() {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors',
     }).addTo(aisMap);
     mapPopout(aisMap, "ais");
+    // a click on the map (not on a mark) drops the selection: the red mark and trail get their own colors back
+    aisMap.on("click", () => { if (aisSel != null) { aisSel = null; renderAisMap(); } });
     aisMapLayers = { tracks: L.layerGroup().addTo(aisMap), ships: L.layerGroup().addTo(aisMap), marks: new Map() };
     try {
       const s = await satFetch("/api/location");
@@ -9223,6 +9379,8 @@ async function adsbMapOpen() {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors',
     }).addTo(adsbMap);
     mapPopout(adsbMap, "adsb");
+    // a click on the map (not on a mark) drops the selection: the red mark and trail get their own colors back
+    adsbMap.on("click", () => { if (adsbSel != null) { adsbSel = null; renderAdsbMap(); } });
     adsbMapLayers = { range: L.layerGroup().addTo(adsbMap), rings: L.layerGroup().addTo(adsbMap), tracks: L.layerGroup().addTo(adsbMap), planes: L.layerGroup().addTo(adsbMap), marks: new Map() };
     try {
       const s = await satFetch("/api/location");
@@ -14051,6 +14209,41 @@ function showUpdate() {
   $("updSkip").onclick = () => { store("updSkip", u.latest); close(); };
 }
 
+/** "What's new": on the first start of a new version a window with its part of INSTALL.txt; MORE INFO opens the
+ *  CHANGELOG on GitHub, CLOSE (or ✕) tells the server (data\\whatsnew.json) not to show it again until the next version. */
+async function whatsNew() {
+  let w;
+  try { w = await fetch("/api/whatsnew").then((r) => (r.ok ? r.json() : null)); } catch { return; }
+  if (!w || !w.show) return;
+  // INSTALL.txt: "Main Features" / "Changes"… headings, "- " items with indented continuation lines
+  const items = [];
+  for (const ln of w.text.split("\n")) {
+    if (!ln.trim()) continue;
+    if (ln.startsWith("- ")) items.push({ li: ln.slice(2) });
+    else if (/^\s/.test(ln) && items.length && items[items.length - 1].li != null) items[items.length - 1].li += " " + ln.trim();
+    else items.push({ h: ln.trim() });
+  }
+  let html = "", open = false;
+  for (const it of items) {
+    if (it.li != null) { if (!open) { html += "<ul>"; open = true; } html += `<li>${escHtml(it.li)}</li>`; continue; }
+    if (open) { html += "</ul>"; open = false; }
+    html += /^\(.*\)$/.test(it.h) ? `<p class="muted">${escHtml(it.h)}</p>` : `<h4>${escHtml(it.h)}</h4>`;
+  }
+  if (open) html += "</ul>";
+  const win = document.createElement("aside");
+  win.className = "drawer wn-win";
+  win.id = "wnWin";
+  win.setAttribute("aria-label", "What's new");
+  win.innerHTML = `<div class="drawer-head"><b>What's new in RADIMCOM ${escHtml(w.version)}</b><button class="key small" id="wnX" title="Close">✕</button></div>
+    <div class="drawer-body"><div class="wn-text">${html}</div>
+      <div class="upd-keys"><a class="key" href="${escHtml(w.url)}" target="_blank" rel="noopener noreferrer" title="The whole CHANGELOG on GitHub">MORE INFO</a>
+        <button class="key" id="wnClose" title="Close; shown again only after the next version is installed">CLOSE</button></div></div>`;
+  document.querySelector(".stage").append(win);
+  const close = () => { win.remove(); fetch("/api/whatsnew", { method: "POST" }).catch(() => {}); };
+  $("wnX").onclick = close;
+  $("wnClose").onclick = close;
+}
+
 /** "?map=…" tab: the map box alone over the whole window, the map view of its decoder. */
 function mapOnlySetup() {
   const box = $(`${MAP_ONLY}MapBox`);
@@ -14085,7 +14278,7 @@ function mapPopout(map, kind) {
 }
 
 async function init() {
-  if (!MAP_ONLY) checkUpdate();
+  if (!MAP_ONLY) { checkUpdate(); whatsNew(); }
   // With the VFO launcher the page gets the VFO list; a standalone receiver has no list (one VFO without the bar).
   let list = null;
   try {

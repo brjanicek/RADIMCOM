@@ -11,10 +11,10 @@ horizontal speed, direction and climb of the sonde, its flight path on a map, th
    (the dongle moves there when 403 MHz is outside its band).
 2. Switch **ON** on the SONDE page. RS41 and DFM run at once, in both polarities.
 3. **SONDES**: the newest data of each sonde (serial, frequency, position, altitude, climb, km/h, direction, distance,
-   azimuth / elevation from the station, GPS satellites, battery, state: rising, falling after the burst, landed, lost).
+   azimuth / elevation from the station, RS41 temperature and humidity, GPS satellites, battery, state: rising, falling after the burst, landed, lost).
    A click on the serial or position opens the **MAP**: a balloon while it rises, a parachute after the burst (yellow ring
    at the highest point), the flight path in green, the station as a red dot; the □ key opens the map in a new tab
-   (`?map=sonde`). **FRAMES**: every decoded frame. **LOG** writes `data\logs\sonde_YYYY-MM-DD.txt`.
+   (`?map=sonde`). **FRAMES**: every decoded frame. Every frame goes to the radiosonde log `data\logs\radiosonde\` automatically (no LOG key; see below).
 
 Around Bratislava (station JN88NC): Wien Hohe Warte (11035, 56 km, RS41, launched at about 23:00 and 11:00 UTC),
 Prostějov, Budapest (403.2 MHz), Poprad-Gánovce (400.6 MHz), Praha, Graz, Linz, Zagreb – all RS41.
@@ -62,7 +62,21 @@ map. The coordinates in the example are only an illustration – use the real po
 - **Vaisala RS41** (RS41-SG, -SGP, -SGM): GFSK 4800 Bd, a frame a second. Fully decoded: serial number, frame number,
   battery voltage, GPS time, ECEF position and velocity → latitude, longitude, altitude (above the WGS84 ellipsoid),
   horizontal speed, direction, climb; satellites. RS41-SGM (military) frames with the encrypted block are marked
-  *encrypted*. Temperature and humidity are not decoded (they need the calibration sent in 51 pieces).
+  *encrypted*. **Temperature and humidity**: the raw sensor frequencies (block 0x7A) are converted with the
+  calibration the sonde sends in 51 pieces of 16 bytes, one per frame; the decoder collects them per serial, so the
+  temperature appears after up to 51 s of reception (pieces 3–6 needed; until then the T column shows how many pieces
+  are known, e.g. *12/51*) and humidity right after it. Temperature as in rs41mod (rs1729): reference resistors →
+  sensor resistance → polynomial; humidity with its simple empirical formula (approximate, a few %). The sonde type
+  (RS41-SG / RS41-SGP) also comes from the calibration. Pressure of the RS41-SGP is not decoded.
+  **Profile** in MAP, between the map and the list: the selected sonde (orange icon; click on the map clears it; without a selection the first one), altitude on the vertical axis, two panels side by side – temperature °C
+  and humidity % (descent after the burst fainter); the right edge labels the altitude with the pressure of the
+  standard atmosphere (hPa, orientation only). Hover shows altitude, time, T, RH, hPa. The altitude axis is fixed
+  0–41 km and the plot fills the page height.
+- **Radiosonde log** `data\logs\radiosonde\<YYYY-MM-DD>_<serial>.jsonl` (UTC date of the first frame): every frame
+  of every sonde, written automatically whatever the LOG key, one JSON line (time, position, speeds, T, RH, sats,
+  battery, frequency, VFO). After a server restart the sondes of the last 24 h of that VFO are read back with their
+  flight paths (*from log* in SONDES); the list on the right of the MAP also offers older logged flights, drawn in the profile and on
+  the map.
 - **Graw DFM** (DFM-06 / 09 / 17), *experimental*: 2500 Bd Manchester (1250 bit/s). Position, altitude, speed,
   direction, climb, frame counter. The serial number is not decoded yet: the sonde is shown as `DFM-<frequency>`.
 - Meteomodem M10 / M20 and others are not decoded.

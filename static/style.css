@@ -1694,6 +1694,14 @@ body.map-only .ft8-map.map-only-box { flex-direction: column; }
 .upd-win p { margin: 0; line-height: 1.45; }
 .upd-win a:not(.key) { color: var(--yellow); }
 .upd-keys { display: flex; gap: 8px; flex-wrap: wrap; }
+/* "What's new" window on the first start of a new version */
+.wn-win { left: calc(50% - 330px); top: 8%; width: 660px; z-index: 31; }
+.wn-win .drawer-head { cursor: default; }
+.wn-text { max-height: 60vh; overflow: auto; margin-bottom: 10px; padding-right: 6px; font-size: 13px; line-height: 1.45; }
+.wn-text h4 { margin: 10px 0 4px; color: var(--yellow); font-size: 13px; }
+.wn-text p { margin: 0 0 6px; }
+.wn-text ul { margin: 0; padding-left: 18px; }
+.wn-text li { margin: 2px 0; }
 .upd-keys a.key { text-decoration: none; display: inline-flex; align-items: center; }
 .set-tabs { flex-wrap: wrap; }
 .set-error { margin: 0; }
@@ -3070,12 +3078,12 @@ html.app-shell .r-logo-led:hover .r-logo-ledtip { display: inline; }
 .sonde-air { color: var(--green); }
 #sondeMap .leaflet-control-layers { background: rgba(10, 13, 18, .9); color: #dfe4ea; border: 1px solid var(--line2); }
 .sonde table { table-layout: fixed; }
-.sonde table.sonde-table { min-width: 1250px; }
-.sonde table.sonde-frame-table { min-width: 1050px; }
-.sonde .c-utc { width: 74px; } .sonde .c-type { width: 52px; } .sonde .c-ser { width: 96px; } .sonde .c-mhz { width: 70px; }
+.sonde table.sonde-table { min-width: 1390px; }
+.sonde table.sonde-frame-table { min-width: 1190px; }
+.sonde .c-utc { width: 92px; } .sonde .c-type { width: 52px; } .sonde .c-ser { width: 96px; } .sonde .c-mhz { width: 70px; }
 .sonde .c-pos { width: 200px; } .sonde .c-alt { width: 70px; } .sonde .c-vv { width: 58px; } .sonde .c-vh { width: 54px; }
-.sonde .c-dir { width: 46px; } .sonde .c-dist { width: 56px; } .sonde .c-az { width: 104px; } .sonde .c-sat { width: 44px; }
-.sonde .c-bat { width: 54px; } .sonde .c-n { width: 54px; }
+.sonde .c-dir { width: 58px; } .sonde .c-dist { width: 56px; } .sonde .c-az { width: 104px; } .sonde .c-sat { width: 44px; }
+.sonde .c-t { width: 58px; } .sonde .c-rh { width: 50px; } .sonde .c-bat { width: 54px; } .sonde .c-n { width: 54px; }
 .sonde td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sonde td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .sonde td.ser, .sonde td.ser a { color: var(--amber); }
@@ -3090,7 +3098,26 @@ html.app-shell .r-logo-led:hover .r-logo-ledtip { display: inline; }
 .sonde-mk svg .ln { fill: none; stroke: #6cff9c; stroke-width: 1.4; }
 .sonde-mk.fall svg { fill: #ffd84a; } .sonde-mk.fall svg .ln { stroke: #ffd84a; }      /* yellow parachute after the burst */
 .sonde-mk.old svg { fill: #8a929c; } .sonde-mk.old svg .ln { stroke: #8a929c; }
-.sonde-mk.sel svg { fill: #ff4b3c; } .sonde-mk.sel svg .ln { stroke: #ff4b3c; }
+.sonde-mk.sel svg { fill: #ff8c1a; } .sonde-mk.sel svg .ln { stroke: #ff8c1a; }   /* orange = selected (profile shown) */
 /* DAB CHANNEL list: channels saved in a memory in green (also the list while such a channel is chosen) */
 #dabChannel option.dab-mem, #dabChannel.dab-mem { color: var(--green); font-weight: 600; }
 #dabChannel option:not(.dab-mem) { color: var(--text, #e6e9ee); font-weight: 400; }
+/* SONDE PROFILE: temperature and humidity against altitude (tall plot) */
+.sonde-prof { display: flex; flex-direction: column; gap: 6px; }
+.ais-map .sonde-prof { flex: none; width: 440px; min-height: 0; }   /* in MAP between the map and the list, its full height */
+.sonde-prof-head { display: flex; flex-direction: column; gap: 3px; font-size: 12px; flex: none; }
+#sondeProfNote { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sonde-prof-plot { position: relative; flex: 1 1 0; min-height: 0; max-width: 560px; overflow: hidden; }
+.sonde-prof-plot svg { display: block; background: #000; border: 1px solid var(--line); border-radius: 6px; font: 11px system-ui, sans-serif; }
+.sonde-prof-plot .g { stroke: #1c222a; stroke-width: 1; }
+.sonde-prof-plot .zero { stroke: var(--line2); stroke-width: 1; stroke-dasharray: 3 3; }
+.sonde-prof-plot .frame { fill: none; stroke: var(--line2); }
+.sonde-prof-plot .tk { stroke: var(--muted); }
+.sonde-prof-plot .ax { fill: var(--muted); }
+.sonde-prof-plot .ttl { fill: var(--text); font-weight: 600; font-size: 12px; }
+.sonde-prof-plot .ln { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.sonde-prof-plot .ln.down { opacity: .45; }
+.sonde-prof-plot .dot, .sonde-prof-plot .hd { stroke: #000; stroke-width: 2; }
+.sonde-prof-plot .hv { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 2 3; }
+.sonde-prof-tip { position: absolute; pointer-events: none; background: rgba(10, 13, 17, .95); border: 1px solid var(--line2); border-radius: 5px; padding: 4px 8px; font-size: 12px; line-height: 1.4; white-space: nowrap; }
+.ais-ml-head.sonde-ml-log { position: static; margin-top: 6px; }   /* SONDE map list: header of the logged flights */

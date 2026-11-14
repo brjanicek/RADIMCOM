@@ -52,7 +52,7 @@ from rtty import RttyDecoder, station_list as rtty_station_list
 from packet import PacketDecoder
 from pocsag import PocsagDecoder
 from sonde import SondeDecoder
-from daylog import DayLog, TextLog
+from daylog import LOG_DIR, DayLog, TextLog
 import recorder as recorder_mod
 from recorder import Recorder
 import rotor as rotor_module
@@ -208,9 +208,9 @@ def save_config_later():
 
 # ---------- daily decoder logs (turned on with LOG in the decoder card) ----------
 
-LOG_KEYS = ("ft8", "wefax", "cw", "rtty", "sstv", "acars", "dsd", "ism", "packet", "pocsag", "sonde", "hfdl", "ais", "adsb")
+LOG_KEYS = ("ft8", "wefax", "cw", "rtty", "sstv", "acars", "dsd", "ism", "packet", "pocsag", "hfdl", "ais", "adsb")
 _tag = cfg.get("vfo") or ""
-logs = {"ft8": DayLog("ft8", _tag), "wefax": DayLog("wefax", _tag), "sstv": DayLog("sstv", _tag), "dsd": DayLog("dsd", _tag), "ism": DayLog("ism", _tag), "packet": DayLog("packet", _tag), "pocsag": DayLog("pocsag", _tag), "sonde": DayLog("sonde", _tag), "hfdl": DayLog("hfdl", _tag), "ais": DayLog("ais", _tag), "adsb": DayLog("adsb", _tag),
+logs = {"ft8": DayLog("ft8", _tag), "wefax": DayLog("wefax", _tag), "sstv": DayLog("sstv", _tag), "dsd": DayLog("dsd", _tag), "ism": DayLog("ism", _tag), "packet": DayLog("packet", _tag), "pocsag": DayLog("pocsag", _tag), "hfdl": DayLog("hfdl", _tag), "ais": DayLog("ais", _tag), "adsb": DayLog("adsb", _tag),
         "cw": TextLog("cw", _tag), "rtty": TextLog("rtty", _tag)}
 _saved_logged = {"wefax": None, "sstv": None}
 
@@ -293,11 +293,6 @@ def decoder_event(kind, data):
             q = f" ({data['bad']} lost)" if data["bad"] else ""
             logs["pocsag"].write(f"{_mhz(data['freq_hz'])} {data['baud']} Bd RIC {data['ric']} F{data['func']} "
                                  f"{data['kind']}{q}" + (f" | {text}" if text else ""))
-        elif kind == "sonde" and log_on("sonde"):
-            pos = (f" | {data['lat']:.5f} {data['lon']:.5f} {data['alt']:.0f} m {data['vh']:.1f} m/s {data['dir']:.0f}° "
-                   f"climb {data['vv']:+.1f} m/s sats {data.get('sats', '?')}") if data.get("lat") is not None else " | no position"
-            logs["sonde"].write(f"{_mhz(data['freq_hz'])} {data['type']} {data.get('serial') or '?'} "
-                                f"frame {data.get('frame', '?')}{pos}" + (" | encrypted" if data.get("encrypted") else ""))
         elif kind == "cwtext" and log_on("cw"):
             f = cw.dial + (cw.tone or 0.0)
             logs["cw"].add(data["t"], f"{_mhz(f)} {round(1200 / cw.dot_ms)} WPM")
@@ -356,7 +351,7 @@ def own_station():
 
 packet = PacketDecoder(on_event=decoder_event, station=own_station)
 pocsag = PocsagDecoder(on_event=decoder_event)
-sonde = SondeDecoder(on_event=decoder_event, station=own_station)
+sonde = SondeDecoder(on_event=decoder_event, station=own_station, log_dir=os.path.join(LOG_DIR, "radiosonde"), tag=_tag)
 sstv = SstvDecoder(on_event=decoder_event)
 acars = AcarsDecoder(on_event=hub.event, tag=_tag)
 acars.log_on = log_on("acars")
@@ -560,6 +555,12 @@ def index():
 def api_update():
     """Newer version on GitHub Releases (update_check.py). With the launcher the page asks the launcher instead."""
     return jsonify(update_check.info())
+
+
+@app.route("/api/whatsnew", methods=["GET", "POST"])
+def api_whatsnew():
+    """What's new in this version (INSTALL.txt); POST = the window was closed, not shown again until the next version."""
+    return jsonify(update_check.whats_new_seen() if request.method == "POST" else update_check.whats_new())
 
 
 @app.route("/api/state")
@@ -882,6 +883,19 @@ def api_sonde_sites():
 @app.route("/api/sonde", methods=["GET"])
 def api_sonde():
     return jsonify(sonde.info())
+
+
+@app.route("/api/sonde/logs")
+def api_sonde_logs():
+    """Flights in the radiosonde log (data/logs/radiosonde), newest first."""
+    return jsonify(sonde.logs())
+
+
+@app.route("/api/sonde/log")
+def api_sonde_log():
+    """One logged flight as a sonde with its flight path (?file=YYYY-MM-DD_serial.jsonl)."""
+    s = sonde.log_sonde(request.args.get("file", ""))
+    return (jsonify(s), 200) if s else (jsonify({"error": "no such log"}), 404)
 
 
 @app.route("/api/sonde", methods=["POST"])
