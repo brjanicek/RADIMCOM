@@ -96,7 +96,7 @@ const BANDWIDTHS = {
 // STEP keys: the same four steps in every mode; WFM remembers its own chosen step, the other modes share one
 const STEPS = [10, 100, 1000, 10000];
 // MODE keys: the demodulator modes and DAB (not a demodulator: DAB on with the DAB tab; lit while DAB runs)
-const MODE_KEYS = ["AM", "FM", "WFM", "LSB", "USB", "CW", "DAB", "DSD"];
+const MODE_KEYS = ["FM", "WFM", "LSB", "AM", "DAB", "DSD", "USB", "CW"];   // 2 rows; AM beside SAM (5th column), LSB above USB
 const stepSet = (mode) => (mode === "WFM" ? "wfm" : "narrow");
 const STEP_SETS = { narrow: STEPS, wfm: STEPS };
 const STEP_KEYS = { narrow: "step", wfm: "stepWfm" };   // browser storage
@@ -2385,6 +2385,13 @@ function renderRds() {
   if (st.nb_level != null && document.activeElement !== $("nbLevel")) $("nbLevel").value = st.nb_level;
   if (st.nb_width_us != null && document.activeElement !== $("nbWidth")) $("nbWidth").value = st.nb_width_us;
   $("nbInfo").textContent = !st.nb ? "NB off" : !nbMode ? "not in " + st.mode : `${(st.nb_rate || 0).toFixed(0)} pulses/s · ${(st.nb_frac || 0).toFixed(2)} % blanked`;
+  const humMode = ["AM", "LSB", "USB"].includes(st.mode);
+  $("humKey").disabled = !humMode;
+  $("humKey").classList.toggle("on", humMode && !!st.hum);
+  if (st.hum_base != null && document.activeElement !== $("humBase")) $("humBase").value = String(st.hum_base);
+  if (st.hum_width != null && document.activeElement !== $("humWidth")) $("humWidth").value = st.hum_width;
+  $("humInfo").textContent = !st.hum ? "HUM off" : !humMode ? "not in " + st.mode
+    : `mains ${(st.hum_hz || st.hum_base || 50).toFixed(2)} Hz · −${(st.hum_removed_db || 0).toFixed(1)} dB`;
   $("dnrKey").disabled = !alcMode;       // DNR: the same modes (AM/LSB/USB/CW)
   $("dnrKey").classList.toggle("on", alcMode && !!st.dnr);
   if (st.dnr_level != null && document.activeElement !== $("dnrLevel")) $("dnrLevel").value = st.dnr_level;
@@ -2696,6 +2703,18 @@ $("dnrKey").addEventListener("click", () => {
   st.dnr = !st.dnr;
   renderRds();
   send({ dnr: st.dnr });
+});
+$("humKey").addEventListener("click", () => {
+  if (!st) return;
+  st.hum = !st.hum;
+  renderRds();
+  send({ hum: st.hum });
+});
+$("humBase").addEventListener("change", () => send({ hum_base: Number($("humBase").value) }));
+$("humWidth").addEventListener("change", () => {
+  const v = Math.min(8, Math.max(1, Math.round(Number($("humWidth").value) * 2) / 2 || 4));
+  $("humWidth").value = v;
+  send({ hum_width: v });
 });
 $("dnrLevel").addEventListener("change", () => {
   const v = Math.min(10, Math.max(1, Math.round(Number($("dnrLevel").value)) || 5));

@@ -72,7 +72,7 @@ from ais import AisDecoder
 import adsb as adsb_mod
 from adsb import RATE as ADSB_RATE, AdsbDecoder
 from tonesq import norm_ctcss, norm_dcs
-from sdr import (WF_FFT, SAM_SIDEBANDS, AFI_MAX_HZ, AFI_MIN_HZ, DNR_LEVEL_MAX, DNR_LEVEL_MIN, NB_LEVEL_MAX, NB_LEVEL_MIN, NB_WIDTH_MAX_US, NB_WIDTH_MIN_US, EXP_DEPTH_MAX_DB, EXP_DEPTH_MIN_DB, EXP_SENS_MAX, EXP_SENS_MIN, EXP_HOLD_MAX_MS, EXP_HOLD_MIN_MS, ASQ_MAX_DB, ASQ_MIN_DB, DECIM, DSD_MODE, HPF_MAX_HZ, HPF_MIN_HZ, LPF_MAX_HZ, LPF_MIN_HZ, MODES, SQUELCH_OFF,
+from sdr import (WF_FFT, SAM_SIDEBANDS, HUM_BASES, HUM_WIDTH_MIN_HZ, HUM_WIDTH_MAX_HZ, AFI_MAX_HZ, AFI_MIN_HZ, DNR_LEVEL_MAX, DNR_LEVEL_MIN, NB_LEVEL_MAX, NB_LEVEL_MIN, NB_WIDTH_MAX_US, NB_WIDTH_MIN_US, EXP_DEPTH_MAX_DB, EXP_DEPTH_MIN_DB, EXP_SENS_MAX, EXP_SENS_MIN, EXP_HOLD_MAX_MS, EXP_HOLD_MIN_MS, ASQ_MAX_DB, ASQ_MIN_DB, DECIM, DSD_MODE, HPF_MAX_HZ, HPF_MIN_HZ, LPF_MAX_HZ, LPF_MIN_HZ, MODES, SQUELCH_OFF,
                  SAGC_PARAMS, UPCONV_MAX_HZ, ZOOMS, Receiver, list_devices, lowpass, sagc_params)
 
 
@@ -1864,9 +1864,15 @@ def api_set():
             changes["notch"] = bool(body["notch"])
         if "audio_agc" in body:
             changes["audio_agc"] = bool(body["audio_agc"])
-        for k in ("dyn", "dyn_lim", "dyn_exp", "dyn_exp_auto", "agc_smooth", "dnr", "nb", "sam"):
+        for k in ("dyn", "dyn_lim", "dyn_exp", "dyn_exp_auto", "agc_smooth", "dnr", "nb", "sam", "hum"):
             if k in body:
                 changes[k] = bool(body[k])
+        if "hum_base" in body:
+            if body["hum_base"] not in HUM_BASES:
+                return jsonify({"error": "hum_base must be 50 or 60"}), 400
+            changes["hum_base"] = int(body["hum_base"])
+        if "hum_width" in body:
+            changes["hum_width"] = min(max(float(body["hum_width"]), HUM_WIDTH_MIN_HZ), HUM_WIDTH_MAX_HZ)
         if "sam_sb" in body:
             if body["sam_sb"] not in SAM_SIDEBANDS:
                 return jsonify({"error": "sam_sb must be " + ", ".join(SAM_SIDEBANDS)}), 400

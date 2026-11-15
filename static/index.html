@@ -233,6 +233,7 @@
       <button id="recsKey" class="key" aria-controls="recsPane" title="RECS: the RECORDINGS tab – the MP3 files recorded by REC / REC SQ (data\recordings), play them in the browser">RECS</button>
       <button id="nbKey" class="key" title="NB – Noise Blanker (all modes except WFM / DAB): pulses (ignition, electric fences, switching supplies, radar) blanked in the wideband samples before the channel filter, where they are still a few µs long. Level and width in SETTINGS › VFO › AUDIO">NB</button>
       <button id="dnrKey" class="key" title="DNR – Digital Noise Reduction in AM/LSB/USB/CW: takes the noise out all the time, also under speech (spectral, Wiener). Level 1–10 in SETTINGS › VFO › AUDIO">DNR</button>
+      <button id="humKey" class="key" title="HUM – mains hum filter in AM/LSB/USB: narrow notches at 50 Hz (or 60 Hz) and all its multiples, following the exact mains frequency of the transmitter. Base and width in SETTINGS › VFO › AUDIO">HUM</button>
     </div></div>
     <div class="kgroup" data-g="DECODE"><span class="klabel">DECODE</span><div class="keys">
       <button id="decKey" class="key" aria-controls="decPane" title="DEC: decoders on/off – shows or hides the DECODERS tab, one page for each decoder (CW, FT8, PACKET, POCSAG, RTTY, SSTV, WEFAX | ACARS, ADS-B, HFDL, VDL2 | AIS | SONDE | ISM); DAB and DSD are modes with their own tabs">DEC</button>
@@ -2036,6 +2037,22 @@ ecordings, played in the browser -->
                   touched. <i>Level</i> 1–10: 1 only strong pulses, 10 also weak ones (above 8 an occasional noise peak is
                   blanked too). <i>Width</i>: blanked on each side of the pulse (longer for ringing pulses). <i>Now</i>: pulses
                   a second and the share of the samples blanked. The waterfall shows the band unblanked.</p>
+              </div>
+              <div class="setting set-hum">
+                <div class="row"><span>HUM – mains hum filter (HUM key)</span></div>
+                <div class="set-cols">
+                  <label class="set-field"><span>Mains (Hz)</span><select id="humBase"><option value="50">50</option><option value="60">60</option></select></label>
+                  <label class="set-field"><span>Width (Hz)</span><input id="humWidth" data-def="4" type="number" step="0.5" min="1" max="8" value="4"></label>
+                </div>
+                <div class="dyn-now"><span>Now</span><span id="humInfo" class="value"></span></div>
+                <div class="def-row"><button class="key small def-btn" data-def-for="humWidth" title="Width 4 Hz (default)">DEFAULT</button></div>
+                <p class="note">The HUM key (AUDIO, under NB; AM/LSB/USB) takes out the hum some stations carry from the mains of
+                  their transmitter or studio: a narrow notch at the mains frequency and at every multiple of it (50, 100, 150,
+                  200 … Hz; a rectifier hums at 100 Hz and its harmonics), so all of the hum goes while speech and music lose
+                  only a few Hz every 50 Hz. The mains of a transmitter is not exactly 50 Hz: the filter follows it (±1 Hz;
+                  <i>Now</i> shows it and how much is taken out). <i>Mains</i>: 50 Hz (Europe, Asia, Africa), 60 Hz (the
+                  Americas). <i>Width</i> of each notch: wider takes more of a hum that fades with the station, 4 Hz costs
+                  speech about 0.5 dB. First in the audio chain, before NF, DNR and the ALC.</p>
               </div>
               <div class="setting set-dnr">
                 <div class="row"><span>DNR – Digital Noise Reduction (DNR key)</span></div>

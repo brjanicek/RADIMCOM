@@ -134,6 +134,7 @@ Send any combination of these keys:
 | `smart_agc` | true = AGC+: the tuner gain is set from the A/D level (no clipping, as high as possible); turns the RTL2832 digital AGC off |
 | `rtl_agc`, `dc_remove`, `audio_agc`, `notch`, `afi`, `lpf`, `hpf`, `stereo_on`, `bias_tee`, `autotune` | true / false |
 | `nb`, `nb_level`, `nb_width_us` | NB key (noise blanker, all modes except WFM / DAB) on / off; level 1–10 (default 5); width 1–50 µs blanked on each side of a pulse (default 5). State also `nb_rate` (pulses a second) and `nb_frac` (% of the samples blanked) |
+| `hum`, `hum_base`, `hum_width` | HUM key (mains hum comb notch, AM/LSB/USB) on / off; mains `50` (default) or `60` Hz; width of each notch 1–8 Hz (default 4). State also `hum_hz` (the mains frequency followed) and `hum_removed_db` |
 | `sam`, `sam_sb` | SAM key (synchronous AM, in the mode AM) on / off; sideband `dsb` (default), `lsb` or `usb`. State also `sam_offset_hz` (carrier offset found) and `sam_locked` |
 | `dnr`, `dnr_level` | DNR key (spectral noise reduction, AM/LSB/USB/CW) on / off; level 1–10 (default 5). State also `dnr_reduction_db` (how much the noise is lowered now) |
 | `dyn`, `dyn_exp`, `dyn_lim`, `dyn_exp_auto`, `dyn_exp_db`, `dyn_exp_sens`, `dyn_exp_hold_ms` | NTH key (noise threshold; the key was called DNR before 1.0beta1) and its parts: expander, soft limiter, AUTO, depth 3–30 dB, sensitivity 1–10, hold 20–1000 ms |

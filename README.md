@@ -80,7 +80,7 @@ Up to four SDRs at once, each assigned to a VFO by its serial number; one dongle
 ### Receiver
 
 - **Up to four SDRs as four VFOs (A–D)**, or one dongle shared by several VFOs (chaining). → [Configuration](docs/configuration.md)
-- **Modes** AM (and SAM, synchronous AM), FM, WFM (stereo + RDS), LSB, USB, CW, DAB and DSD, with notch, ALC, NB (noise blanker), DNR (spectral noise reduction, also under speech), NTH (quiet between words), audio LPF / HPF and AFI (voice inversion); automatic LSB / USB on ham bands, AM on shortwave broadcast bands. → [Function keys](docs/controls.md#function-keys)
+- **Modes** AM (and SAM, synchronous AM), FM, WFM (stereo + RDS), LSB, USB, CW, DAB and DSD, with notch, ALC, NB (noise blanker), HUM (mains hum filter), DNR (spectral noise reduction, also under speech), NTH (quiet between words), audio LPF / HPF and AFI (voice inversion); automatic LSB / USB on ham bands, AM on shortwave broadcast bands. → [Function keys](docs/controls.md#function-keys)
 - **Squelch with ASQ (auto squelch)**: the level follows the measured noise floor plus a margin; **CTCSS / DCS tone squelch** (TSQ-C / TSQ-D) in FM. → [AUDIO keys](docs/controls.md#function-keys)
 - **AGC+**: tuner gain set from the A/D level, as high as possible without clipping. → [GAIN keys](docs/controls.md#function-keys)
 - **ATU (autotune, experimental)**: a click on an AM signal moves the tuning onto its carrier, on an SSB signal it tunes 300 Hz beyond the signal edge (USB lower, LSB higher), onto the usual carrier. → [TUNE keys](docs/controls.md#function-keys)

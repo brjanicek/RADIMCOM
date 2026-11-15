@@ -1105,6 +1105,113 @@ class SharpLowpass:
         return y
 
 
+HUM_MODES = ("AM", "LSB", "USB")     # HUM key: mains hum of the station (a transmitter, its studio), like the notch
+HUM_BASES = (50, 60)                # Hz: the mains of the transmitter (Europe, Asia, Africa 50; the Americas 60)
+HUM_WIDTH_DEFAULT_HZ, HUM_WIDTH_MIN_HZ, HUM_WIDTH_MAX_HZ = 4.0, 1.0, 8.0   # width of each notch (−3 dB)
+
+
+HUM_TRACK_HZ = 1.0                  # the mains of the transmitter is followed this far from 50 / 60 Hz
+HUM_WIN_S = 0.5                     # tracking window: the phase of each harmonic in its two halves gives the offset
+HUM_HARMONICS = (1, 2, 3, 4, 5, 6)  # multiples of the base used for tracking (100 Hz = 2: rectified mains)
+
+
+class HumFilter:
+    """HUM key: a comb of narrow notches at the mains frequency of the station and all its multiples (50, 100, 150 …
+    Hz), so the hum goes with all its harmonics (rectified mains: 100, 200, 300 …) while speech and music lose only a
+    few Hz every 50 Hz. H(z) = b0 (1 − z^−D) / (1 − aD z^−D), D = fs / f (the scipy iircomb notch), D fractional by
+    linear interpolation. The mains of a transmitter is not exactly 50 Hz (49.96 Hz measured on 6050 kHz): f follows
+    the hum, from the phase step of its harmonics between the two halves of a 0.5 s window (only while hum is there).
+    removed_db: how much the filter takes out now."""
+
+    def __init__(self):
+        self.key = None
+        self.removed_db = 0.0
+        self.f = 0.0
+
+    def _coeffs(self, fs, width):
+        from scipy.signal import iircomb
+        n = max(int(round(fs / self.f)), 2)
+        b, a = iircomb(fs / n, self.f / width, ftype="notch", fs=n * (fs / n))
+        self.b0, self.bn, self.an = float(b[0]), float(b[n]), float(-a[n])
+        self.d = fs / self.f                      # delay in samples, fractional
+
+    def _setup(self, fs, base, width):
+        self.f = float(base)
+        self.base, self.width = base, width
+        self._coeffs(fs, width)
+        h = int(fs / (base - HUM_TRACK_HZ)) + 2
+        self.xh = np.zeros(h)      # the last input samples, oldest first (long enough for the lowest f)
+        self.yh = np.zeros(h)
+        self.pin = self.pout = 1e-12
+        self.tn = 0                # sample in the tracking window
+        self.za = np.zeros(len(HUM_HARMONICS), complex)
+        self.zb = np.zeros(len(HUM_HARMONICS), complex)
+        self.pw = 0.0
+
+    def reset(self):
+        self.key = None
+
+    def _track(self, x, fs):
+        """Sums of the harmonics in the two halves of the window; at its end f moves by the measured offset."""
+        win = int(HUM_WIN_S * fs)
+        half = win // 2
+        k = np.array(HUM_HARMONICS, float)
+        i = 0
+        while i < len(x):
+            m = min(len(x) - i, (half if self.tn < half else win) - self.tn)
+            c = x[i:i + m]
+            n = self.tn + np.arange(m)
+            e = np.exp(-2j * np.pi * np.outer(k, n) * self.f / fs)
+            z = e @ c
+            if self.tn < half:
+                self.za += z
+            else:
+                self.zb += z
+            self.pw += float(np.dot(c, c))
+            self.tn += m
+            i += m
+            if self.tn >= win:
+                # a harmonic k·(f + δ) turns by 2π k δ half / fs between the halves
+                w = np.abs(self.za) * np.abs(self.zb)
+                hum = float(np.sum(np.abs(self.za) ** 2 + np.abs(self.zb) ** 2)) * 2 / half / max(self.pw, 1e-12)
+                if hum > 0.01:                    # hum at least −20 dB of the audio: worth following
+                    dk = np.angle(self.zb * np.conj(self.za)) * fs / (2 * np.pi * k * half)
+                    delta = float(np.sum(w * k * k * dk) / max(np.sum(w * k * k), 1e-30))
+                    f = float(np.clip(self.f + 0.7 * delta, self.base - HUM_TRACK_HZ, self.base + HUM_TRACK_HZ))
+                    if abs(f - self.f) > 1e-4:
+                        self.f = f
+                        self._coeffs(fs, self.width)
+                self.tn, self.pw = 0, 0.0
+                self.za[:] = 0
+                self.zb[:] = 0
+
+    def process(self, x, fs, base=50, width=HUM_WIDTH_DEFAULT_HZ):
+        key = (fs, base, width)
+        if key != self.key:
+            self.key = key
+            self._setup(fs, base, width)
+        x = np.asarray(x, np.float64)
+        self._track(x, fs)
+        n = int(self.d)
+        mu = self.d - n
+        out = np.empty(len(x))
+        # y = b0 x + bD x[−D] + aD y[−D], x[−D] and y[−D] interpolated; pieces of at most n samples need only the history
+        for i in range(0, len(x), n):
+            c = x[i:i + n]
+            m = len(c)
+            h = len(self.xh)
+            xd = (1 - mu) * self.xh[h - n:h - n + m] + mu * self.xh[h - n - 1:h - n - 1 + m]
+            yd = (1 - mu) * self.yh[h - n:h - n + m] + mu * self.yh[h - n - 1:h - n - 1 + m]
+            yc = self.b0 * c + self.bn * xd + self.an * yd
+            self.xh = np.concatenate((self.xh[m:], c))
+            self.yh = np.concatenate((self.yh[m:], yc))
+            out[i:i + m] = yc
+        self.pin = 0.9 * self.pin + 0.1 * float(np.mean(x * x) + 1e-12)
+        self.pout = 0.9 * self.pout + 0.1 * float(np.mean(out ** 2) + 1e-12)
+        self.removed_db = max(0.0, 10 * np.log10(self.pin / self.pout))
+        return out.astype(np.float32)
+
+
 SAM_SIDEBANDS = ("dsb", "lsb", "usb")   # SAM key: both sidebands, or only the lower / upper one (an interferer on the other side)
 SAM_CARRIER_HZ = 30.0      # bandwidth of the carrier filter: the flywheel that holds the phase through a carrier fade
 SAM_FLL_GAIN = 0.5         # block-rate frequency loop: share of the measured offset corrected each block
@@ -1194,6 +1301,9 @@ class Channel:
         self.notch = AutoNotch(fs)
         self.nr_on = False       # DNR key: spectral noise reduction
         self.sam = SyncAM(fs)    # SAM key: synchronous AM (mode AM)
+        self.hum = HumFilter()   # HUM key: comb notch of the mains hum of the station
+        self.hum_on = False
+        self.hum_base, self.hum_width = 50, HUM_WIDTH_DEFAULT_HZ
         self.sam_on = False
         self.sam_sb = "dsb"
         self.nr = SpectralNR(fs)
@@ -1245,6 +1355,7 @@ class Channel:
         self.notch.reset()
         self.nr.reset()
         self.sam.reset()
+        self.hum.reset()
 
     def process(self, x):
         """Returns (audio float32 in ±1, channel power in dBFS)."""
@@ -1279,6 +1390,10 @@ class Channel:
         else:
             audio = ch.real
         audio = audio.astype(np.float32)
+        if self.hum_on and self.mode in HUM_MODES:      # first: the hum would push the ALC and confuse NF and DNR
+            audio = self.hum.process(audio, self.fs, self.hum_base, self.hum_width)
+        else:
+            self.hum.removed_db = 0.0
         if self.notch_on and self.mode in NOTCH_MODES:   # before the AGC, so whistles do not push the gain down
             audio = self.notch.process(audio)
         else:
@@ -1815,7 +1930,7 @@ class Receiver:
         if "audio_agc" in changes:
             c["audio_agc"] = changes["audio_agc"]
         for k in ("dyn", "dyn_lim", "dyn_exp", "dyn_exp_auto", "dyn_exp_db", "dyn_exp_sens", "dyn_exp_hold_ms", "agc_smooth",
-                  "dnr", "dnr_level", "nb", "nb_level", "nb_width_us", "sam", "sam_sb"):
+                  "dnr", "dnr_level", "nb", "nb_level", "nb_width_us", "sam", "sam_sb", "hum", "hum_base", "hum_width"):
             if k in changes:
                 c[k] = changes[k]
         if "afi" in changes:
@@ -2162,6 +2277,9 @@ class Receiver:
                 if sam_on and not self.chan.sam_on:
                     self.chan.sam.reset()
                 self.chan.sam_on = sam_on
+                self.chan.hum_on = bool(c.get("hum", False))      # HUM key: comb notch of the mains hum
+                self.chan.hum_base = int(c.get("hum_base", 50)) if c.get("hum_base") in HUM_BASES else 50
+                self.chan.hum_width = float(c.get("hum_width", HUM_WIDTH_DEFAULT_HZ))
                 self.chan.sam_sb = c.get("sam_sb", "dsb") if c.get("sam_sb") in SAM_SIDEBANDS else "dsb"
                 self.chan.nr.level = int(c.get("dnr_level", DNR_LEVEL_DEFAULT))
                 dyn = bool(c.get("dyn", False))           # NTH key (config "dyn"): the parts ticked in SETTINGS › AUDIO
@@ -2412,6 +2530,11 @@ class Receiver:
             "dyn": bool(c.get("dyn", False)),
             "dnr": bool(c.get("dnr", False)),
             "sam": bool(c.get("sam", False)),
+            "hum": bool(c.get("hum", False)),
+            "hum_base": int(c.get("hum_base", 50)) if c.get("hum_base") in HUM_BASES else 50,
+            "hum_width": float(c.get("hum_width", HUM_WIDTH_DEFAULT_HZ)),
+            "hum_hz": round(self.chan.hum.f, 3) if getattr(self, "chan", None) is not None else 0.0,
+            "hum_removed_db": round(self.chan.hum.removed_db, 1) if getattr(self, "chan", None) is not None else 0.0,
             "sam_sb": c.get("sam_sb", "dsb") if c.get("sam_sb") in SAM_SIDEBANDS else "dsb",
             "sam_offset_hz": round(self.chan.sam.f, 1) if getattr(self, "chan", None) is not None else 0.0,
             "sam_locked": bool(self.chan.sam.locked) if getattr(self, "chan", None) is not None else False,

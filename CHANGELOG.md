@@ -62,9 +62,20 @@ Test beta (GitHub branch `1.0beta1`; continues the release 0.115).
   card of the DAB tab (logo or slide, name, chips, format, NOW ON AIR) moves under the key row into a small recessed
   window with glass like the displays of the head; the panel gets that much higher. It goes back to the DAB tab when
   the lower part opens or DAB goes off.
+- **HUM – mains hum filter (new).** A station on 6050 kHz hummed (100, 200, 300, 400 Hz at −4 … −17 dB of the audio;
+  not NB, gain, SAM or the antenna: both sidebands, other stations clean). The **HUM** key (AUDIO, under NB; AM/LSB/USB)
+  runs a comb notch (scipy iircomb form, `sdr.HumFilter`): narrow notches at the mains and every multiple, D = fs / f
+  fractional by interpolation, no delay. The mains of the transmitter is followed (±1 Hz) from the phase step of the
+  harmonics between the halves of a 0.5 s window, only while hum is there (≥ −20 dB): 49.96 Hz found on the station.
+  Synthetic: −40 … −48 dB at 49.96 / 50.3 / 59.8 Hz; the real recordings −11 … −14 dB around the harmonics (the hum
+  fading with the station spreads beyond the notches; the measurement includes the program there), speech −0.5 dB at
+  the default width 4 Hz. Settings Mains 50 / 60 Hz and Width 1–8 Hz in SETTINGS › VFO › AUDIO, *Now* the mains and the
+  dB taken out; config / API `hum`, `hum_base`, `hum_width`, state `hum_hz`, `hum_removed_db`. ~1.3 % of a CPU core.
+  tests/test_hum.py.
 - **SAM – synchronous AM.** Shortwave AM "floated": in a selective fade the carrier gets weaker than its sidebands
   and the envelope detector distorts. New keys in the 5th column of MODE: **SAM** (an option of the mode AM, config /
-  API `sam`) and under it **DSB / SB-L / SB-U** (`sam_sb`). `sdr.SyncAM`: an NCO kept on the carrier by a block-rate
+  API `sam`) and under it **DSB / SB-L / SB-U** (`sam_sb`); the MODE keys are now FM WFM LSB **AM SAM** / DAB DSD USB CW
+  DSB (AM beside SAM, LSB above USB). `sdr.SyncAM`: an NCO kept on the carrier by a block-rate
   frequency loop (±400 Hz), the carrier from a narrow 30 Hz filter (the flywheel through a fade), coherent
   demodulation with its phase; SB-L / SB-U through a complex band-pass of one side from 60 Hz. The level stays with
   the ALC (dividing by the carrier would boost the audio exactly when a selective fade takes the carrier). Synthetic

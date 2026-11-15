@@ -108,7 +108,9 @@ New
   under speech; level 1-10 in SETTINGS > VFO > AUDIO. The former DNR key (quiet between words) is now called NTH.
 - VIEW (lower part hidden) with the active VFO on DAB: the station card (logo, name, NOW ON AIR) stays under
   the keys as a small display behind glass.
-- SAM (MODE, 5th column): synchronous AM against the distortion of selective fading on shortwave; DSB / SB-L / SB-U
+- New HUM key (AUDIO, under NB): mains hum filter for AM / SSB stations that hum (notches at 50 Hz and all its
+  multiples, the exact mains frequency of the transmitter followed); 50 / 60 Hz and width in SETTINGS > VFO > AUDIO.
+- SAM (MODE, 5th column, AM moved beside it): synchronous AM against the distortion of selective fading on shortwave; DSB / SB-L / SB-U
   key under it (one sideband keeps an interfering station on the other side out). SAM works with AGC+ (CONSERV. on
   shortwave); with a manual RF GAIN keep it under the red RF bar of the VFO window (A/D clipping).
 - Automatic AM on the shortwave broadcast bands (120 ... 11 m): tuning into one in LSB / USB / CW / FM switches

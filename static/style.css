@@ -2542,9 +2542,9 @@ html.compact .r-keys .keys button { --led-at: left 3px top 2px / 6px 3px no-repe
 .r-keys .keys:has(> :nth-child(11)) { --cols: 6; }
 .r-keys .keys:has(> :nth-child(13)) { --cols: 7; }
 .r-keys .keys:has(> :nth-child(15)) { --cols: 8; }
-/* NB: in the upper row right of NTH, so DNR (last) stays under NTH */
+/* NB: in the upper row right of NTH, so DNR stays under NTH; HUM (last) fills the place under NB */
 .r-keys #nbKey { grid-column: 8; grid-row: 1; }
-/* SAM and its sideband: the 5th column of MODE (AM FM WFM LSB / USB CW DAB DSD stay where they were) */
+/* SAM and its sideband: the 5th column of MODE, SAM beside AM: FM WFM LSB AM SAM / DAB DSD USB CW DSB */
 .r-keys #samKey { grid-column: 5; grid-row: 1; }
 .r-keys #samSbKey { grid-column: 5; grid-row: 2; }
 .r-keys .keys > :only-child { grid-row: span 2; }   /* a group of one key: one tall key */

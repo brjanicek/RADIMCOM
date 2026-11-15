@@ -185,6 +185,13 @@ of that VFO (orange LED): that VFO stays audible at CUE level while another VFO 
     *Now* shows pulses a second and the share blanked. The waterfall stays unblanked. Synthetic test (2.4 MS/s, 100
     pulses a second): pulses 10× the noise in the channel 6 dB lower, 30× 15 dB lower, under a station 40 dB stronger
     than the wanted one 6.5 dB lower. 6–10 % of a CPU core while on. The VFO window shows **NB** before NTH.
+  - HUM – mains hum filter (under NB; AM/LSB/USB): takes out the hum a station carries from the mains of its
+    transmitter or studio. A comb of narrow notches at the mains frequency and every multiple of it (50, 100, 150,
+    200 … Hz; a rectifier hums at 100 Hz and its harmonics), so all of the hum goes while speech and music lose only a
+    few Hz every 50 Hz (about 0.5 dB at the default width 4 Hz). The mains of a transmitter is not exactly 50 Hz (49.96 Hz
+    measured on 6050 kHz): the filter follows it within ±1 Hz, from the phase of the harmonics. SETTINGS › VFO › AUDIO:
+    **Mains** 50 / 60 Hz (the Americas), **Width** 1–8 Hz (wider takes more of a hum that fades with the station),
+    *Now* the mains found and how much is taken out. First in the audio chain, before NF, DNR and the ALC.
   - CUE: keep hearing this VFO (at the CUE level) when another VFO is selected.
   - RECS: the **RECORDINGS** tab in the bottom part (beside SPECTRUM, DECODERS, SATELLITES), see [Recordings](#recordings) below. Like MEM, the key
     shows or hides the tab for all VFOs and is remembered in the browser.
