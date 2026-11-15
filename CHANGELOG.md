@@ -15,9 +15,14 @@ Test beta (GitHub branch `1.0beta1`; continues the release 0.115).
   all VFOs in `data\antennas.json`. The VFO keys in each row choose which VFOs receive on that antenna; one VFO can also
   choose it in **SETTINGS → VFO → SDR DONGLE → ANTENNA** (block 0 of the block diagram). **ANT** in the VFO window is green while the VFO is tuned within the range of its antenna
   and **amber** outside it. Also the base for sharing VFO settings with other RADIMCOM users later.
+- **DAB buffering is shown:** after choosing a station or switching to a VFO with DAB there is a moment without sound;
+  until the sound plays, **DAB** on the VFO display and the **DAB** key blink. On an inactive VFO with **CUE** on, only its
+  grey **DAB** on the display blinks until the CUE sound plays.
 
 ### Fixes
 
+- **WEFAX no longer stops the receiver:** on noise (all line-rate scores negative) the WEFAX decoder failed with
+  `max() iterable argument is empty`, and the dongle of the VFO was closed and opened again every few seconds.
 - **A frozen dongle recovers by itself:** a dongle that stays on USB but stops sending data was only closed and opened
   again every few seconds, which does not wake it (all night on VFO A). After 3 failed attempts in a row its USB device
   is now reset (with administrator rights `pnputil /restart-device`, like replugging it; otherwise `libusb_reset_device`),

@@ -299,6 +299,7 @@ function atuNote() {
 function renderControls() {
   if (!st) return;
   segButtons($("modes"), MODE_KEYS, st.dab ? "DAB" : st.mode, (m) => m);
+  renderDabBuf();
   // The buttons stay fixed; a width set by dragging the edge in the spectrum has no button (none is lit).
   const bw = st.bandwidth[st.mode];
   // DAB: the ensemble has a fixed width – the keys stay in place, unlit and disabled
@@ -5525,6 +5526,14 @@ let dabTimer = null;    // polling of /api/dab while the card is shown
 let dabMotTime = 0;     // slide time of the playing station (a new one -> reload the picture)
 let dabEl = null;       // <audio> playing the MP3 stream, routed into MAIN (masterGain)
 let dabLastInfo = {};
+let dabPlaying = false;  // the <audio> really plays (its "playing" event), false while it loads or waits for data
+let dabDecoding = false; // welle-cli decodes the chosen station (mux.json gives its audio mode)
+/** Buffering of the chosen station: DAB on the VFO display and the DAB key blink until the sound plays. */
+function renderDabBuf() {
+  // also right after switching to a DAB VFO: its remembered station starts with the next poll
+  const want = st && st.dab && (dabSid || dabRemembered(st.dab_channel));
+  document.body.classList.toggle("dab-buf", !!(want && !(dabPlaying && dabDecoding)));
+}
 // stations whose slides are 16:9 pictures squeezed into 320x240 (a click on the slide toggles it, remembered per station)
 const dabWide = new Set(JSON.parse(recall("dabWide") || "[]"));
 
@@ -5687,6 +5696,8 @@ async function pollDab() {
   adDabInfo = cur ? { label: cur.label || cur.sid, type: cur.type, dls: cur.dls || "", snr: m.snr } : null;
   renderAd();
   renderDabSide(m, cur);
+  dabDecoding = !!(cur && cur.mode);
+  renderDabBuf();
   if (!cur) return;
   renderDabNow(cur);
   if (cur.mot_time && cur.mot_time !== dabMotTime) {
@@ -5698,6 +5709,8 @@ async function pollDab() {
 /** Plays station sid (null = stop). The MP3 stream goes through MAIN volume like the normal audio. */
 function dabPlay(sid) {
   dabSid = sid;
+  dabPlaying = dabDecoding = false;       // a new station buffers again (blinking DAB until it plays)
+  renderDabBuf();
   adDabInfo = null;                       // the AD window: filled again by the next pollDab
   renderAd();
   dabMotTime = 0;
@@ -5719,6 +5732,11 @@ function dabPlay(sid) {
     dabEl = new Audio();
     dabEl.crossOrigin = "anonymous";      // the receiver of the VFO is on another port (CORS * on the server)
     ctx.createMediaElementSource(dabEl).connect(audioTap);
+    // buffering: until "playing"; again when the stream waits for data, stalls, fails or ends
+    dabEl.addEventListener("playing", () => { dabPlaying = true; renderDabBuf(); });
+    for (const ev of ["waiting", "stalled", "emptied", "error", "ended", "pause"]) {
+      dabEl.addEventListener(ev, () => { dabPlaying = false; renderDabBuf(); });
+    }
   }
   dabEl.src = `${vbase}/api/dab/audio/${sid}`;
   dabEl.play().catch(() => {
@@ -13088,6 +13106,7 @@ function renderVfoDisplays() {
     const isActive = v === active;
     row.classList.toggle("active", isActive);
     row.classList.toggle("offline", !!v.name && !v.online);
+    cueDabBuf(v);
     const fr = row.querySelector(".freq");
     fr.title = isActive ? "Click to enter a frequency" : `Switch to VFO ${v.name}`;
     if (s) {
@@ -13435,7 +13454,9 @@ function playCue(v, onEnd) {
   const ctx = audioContext();
   const gain = ctx.createGain();
   gain.connect(cueGain);
-  const me = { gain, ctrl: new AbortController(), playTime: 0, live: true, el: null };
+  // buf: a DAB station of this VFO is not playing yet (its grey DAB on the VFO display blinks, see cueDabBuf)
+  const me = { gain, ctrl: new AbortController(), playTime: 0, live: true, el: null, buf: true };
+  const buf = (on) => { me.buf = on; cueDabBuf(v); };
   const ended = () => setTimeout(() => { if (me.live) { stopStream(me); onEnd(); } }, 1500);
   fetch(v.base + "/api/state", { signal: me.ctrl.signal }).then((r) => r.json()).then((s) => {
     if (!me.live) return;
@@ -13444,12 +13465,14 @@ function playCue(v, onEnd) {
       return;
     }
     const sid = (s.dab_sids || {})[s.dab_channel];
-    if (!sid) return;                       // DAB with no station selected: nothing to hear
+    if (!sid) { buf(false); return; }       // DAB with no station selected: nothing to hear (and nothing to wait for)
     const el = me.el = new Audio();
     el.crossOrigin = "anonymous";           // the receiver of the VFO is on another port (CORS * on the server)
     ctx.createMediaElementSource(el).connect(gain);
     el.addEventListener("ended", ended);
     el.addEventListener("error", ended);
+    el.addEventListener("playing", () => buf(false));
+    for (const ev of ["waiting", "stalled", "error", "ended"]) el.addEventListener(ev, () => buf(true));
     el.src = `${v.base}/api/dab/audio/${sid}`;
     el.play().catch(() => {
       // the browser allows sound only after the first click or key on the page
@@ -13468,6 +13491,12 @@ function startAudio() {
 }
 
 /** Starts or stops the CUE streams: every VFO with CUE on plays except the active one (that goes through MAIN). */
+/** Inactive VFO with CUE on DAB: its grey DAB on the display blinks until the CUE sound plays (the DAB key does not). */
+function cueDabBuf(v) {
+  const on = !!(v.row && v !== active && v.cueAudio && v.cueAudio.buf && v.st && v.st.dab);
+  if (v.row) v.row.classList.toggle("dab-buf", on);
+}
+
 function syncCue() {
   for (const v of vfos) {
     const want = !!(v.name && v.cue && v !== active);
@@ -13477,6 +13506,7 @@ function syncCue() {
       stopStream(v.cueAudio);
       v.cueAudio = null;
     }
+    cueDabBuf(v);
   }
 }
 

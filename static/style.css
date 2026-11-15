@@ -501,6 +501,11 @@ input:focus, select:focus, button:focus-visible { outline: 2px solid rgba(255, 2
 #agcPlusKey.on.clip { box-shadow: inset 0 -2px 0 var(--red, #e5484d), inset 0 1px 0 rgba(255, 255, 255, .12); }
 /* AFI on: the usual yellow backlit key, blinking, because the audio is inverted */
 #afiKey.on { animation: afi-key-blink 1s steps(1) infinite; }
+/* DAB buffering (station chosen, sound not playing yet): the DAB key and DAB on the display of the active VFO blink;
+   on an inactive VFO with CUE only its grey DAB */
+body.dab-buf #modes [data-v="DAB"].active, body.dab-buf .vfo-row.active .ann.vfo-mode,
+.vfo-row.dab-buf:not(.active) .ann.vfo-mode { animation: dab-buf-blink 1s steps(1) infinite; }
+@keyframes dab-buf-blink { 50% { opacity: .25; } }
 @keyframes afi-key-blink {
   50% { color: #6e5d20; box-shadow: inset 0 -2px 0 #6e5d20, inset 0 1px 0 rgba(255, 255, 255, .12); }
 }

@@ -378,7 +378,9 @@ class WefaxDecoder:
             return
         best = max(scores.values())
         # Multiples of the period correlate too: of the almost equally good ones we take the shortest period.
-        pick = max(l for l, c in scores.items() if c >= 0.85 * best)
+        # With all scores negative (noise) no score reaches 0.85 × best: then the best one itself
+        # (an empty max() used to stop the whole receiver of the VFO every few seconds).
+        pick = max((l for l, c in scores.items() if c >= 0.85 * best), default=max(scores, key=scores.get))
         if self.lpm_mode != "auto":
             pick = int(self.lpm_mode)
         self.lpm_conf = best

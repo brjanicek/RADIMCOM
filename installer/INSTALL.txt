@@ -89,7 +89,11 @@ New
 - Antennas of the station: SETTINGS > GENERAL > ANTENNAS (name, type, bands such as 144-146, 430-440 MHz, ...).
   Each VFO chooses its antenna in SETTINGS > VFO > SDR DONGLE > ANTENNA; ANT in the VFO window turns amber
   when the VFO is tuned outside the range of its antenna.
+- DAB buffering: after choosing a station or switching to a DAB VFO, DAB on the VFO display and the DAB key
+  blink until the sound plays. On an inactive VFO with CUE on, only its grey DAB blinks.
 Fixes
+- WEFAX no longer stops the receiver of its VFO on noise (error "max() iterable argument is empty",
+  the dongle was reopened every few seconds).
 - A frozen dongle recovers by itself: a dongle on USB that stops sending data is reset after 3 failed attempts
   (with administrator rights like replugging it, otherwise a libusb reset), then every 30 attempts. The server log
   shows a dongle error, each USB reset and when the dongle sends data again.
