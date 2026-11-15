@@ -311,6 +311,7 @@ body {
 .vfo-tone { display: flex; align-items: center; gap: .8em; height: 1.45em; font-size: clamp(8px, .84cqw, 10.5px); white-space: nowrap; }
 .vfo-tone .tsq b { margin-left: .35em; font-weight: 700; }
 .vfo-tone .atu { margin-left: auto; }   /* ATU at the right end, right edge in line with CONV under it */
+.vfo-row:not(.active) .vfo-tone .ant.warn { color: #b8781c; text-shadow: none; }   /* ANT outside the antenna range, VFO not selected */
 .vfo-tone .ctcss b { min-width: 2.6em; }
 .vfo-tone .dcs b { min-width: 2.4em; }.vfo-tone .tsq.act { color: #b8681c; }
 .vfo-row.active .vfo-tone .tsq.act { color: var(--orange); }
@@ -3132,3 +3133,18 @@ html.app-shell .r-logo-led:hover .r-logo-ledtip { display: inline; }
 .sonde-prof-head select { width: 100%; }   /* SONDE MAP: which sonde the profile shows (Auto = the tuned frequency) */
 .sonde-pred-lbl { opacity: 0.8; }   /* SONDE MAP: labels of the predicted points (+1 h, landing) */
 .sonde-land { color: #ff4b3c; opacity: 0.9; font: bold 15px/16px system-ui, sans-serif; text-align: center; text-shadow: 0 0 3px #000; }   /* predicted landing */
+
+/* SETTINGS › GENERAL › ANTENNAS: the antennas of the station, one editable row each (app.js renderAntTable) */
+.ant-wrap { overflow-x: auto; margin: 6px 0; }
+.ant-table { border-collapse: collapse; width: 100%; font-size: 12px; }
+.ant-table th { padding: 3px 4px; text-align: left; color: var(--muted); font-weight: 600; white-space: nowrap; border-bottom: 1px solid var(--line); }
+.ant-table td { padding: 2px 3px; vertical-align: middle; }
+.ant-table input:not([type="checkbox"]), .ant-table select { width: 100%; min-width: 4.5em; box-sizing: border-box; }
+.ant-table td:first-child input { min-width: 10em; }
+.ant-table td:nth-child(3) input { min-width: 11em; }   /* bands */
+.ant-table td:nth-child(9) input, .ant-table td:nth-child(10) input { min-width: 8em; }
+.ant-table td:nth-child(7), .ant-table td:nth-child(8) { text-align: center; }
+.ant-table input.bad { border-color: var(--red); color: var(--red); }
+.ant-table .ant-used { white-space: nowrap; }
+.ant-table .ant-vfo { min-width: 2.2em; margin-right: 3px; }
+#antVfoRange.warn { color: var(--amber); }

@@ -200,11 +200,18 @@ of that VFO (orange LED): that VFO stays audible at CUE level while another VFO 
       (36 common RAL Classic shades, screen approximations) or an own colour sprays the panel with it; on a light colour the print and the logo turn dark.
       Keys, displays and the screen stay the same. Remembered in the browser.
     - **S-METER**: layout (needle, bar graph, LED bar, VFD display, amber needle (default), 7-segment, peak bar), remembered in the browser for all VFOs.
-    - **TOUCHPAD**: touchpad wheel speed (1–10, default 4; left = slower), remembered in the browser for all VFOs. A mouse wheel notch is always one step.
+    - **TUNING**: touchpad wheel speed (1–10, default 4; left = slower), remembered in the browser for all VFOs. A mouse wheel notch is always one step. **Automatic LSB / USB** (on by default, remembered in the browser): in LSB or USB, tuning into another ham band switches to its usual sideband (LSB on 160, 80 and 40 m; USB on 60 m, 30 m and above, and on 2200 / 630 m); a sideband chosen by hand inside a band stays.
     - **LOCATION**: the station location, shared by all VFOs: Maidenhead **locator** (4, 6 or 8 characters; gives the centre of its square) or **latitude** and **longitude**,
       the **altitude**, and **CHOOSE ON MAP** (an OpenStreetMap map, the tiles need internet: click the place of the antenna, then **SAVE**). Used by the satellites
       (passes, Doppler, rotor tracking), the packet decoder (APRS distances and map), HFDL and AIS (maps). A new installation starts at 0.0 / 0.0; an older
       installation takes over the station of SATELLITES › SETUP. Saved in `data\location.json`.
+    - **ANTENNAS**: the antennas of the station, shared by all VFOs (`data\antennas.json`): one row per antenna with **name**, **type** (discone, vertical,
+      dipole, yagi, longwire, loop, mag loop, QFH, active whip …), its **bands in MHz** (one or several, e.g. `144-146, 430-440` for a dual-band vertical or the bands of a multiband dipole), polarization, gain, height, outdoor / indoor, on the rotor,
+      the **chain** between the antenna and the dongle (LNA, filters, switch) and a note; the **VFO** keys of a row choose which VFOs receive on that antenna
+      (one antenna per VFO: lighting a VFO in one row clears it in the others; a VFO that is not running is grey). **+ ADD**, ✕ deletes a row,
+      **SAVE** saves the whole list and the choice of the VFOs. One VFO can also choose its antenna in **SETTINGS › VFO › SDR DONGLE › ANTENNA** (block 0 of the block diagram).
+      **ANT** in the VFO window (row with CTCSS / DCS / ATU): green while the VFO is tuned within one of the bands of its antenna, **amber** outside them (wrong antenna
+      or a switch to turn), grey for an antenna without bands, dark without an antenna; its tooltip names the antenna.
     - **ROTOR**: the antenna rotor of the station, one for all VFOs (it does not change with the active VFO). **ON / OFF** at the top left: OFF only says that the rotor link is off;
       ON opens the link with the serial port chosen under it and shows the rest: a **polar plot** (north up, centre = zenith) and beside it an **elevation column**
       0–180° (over 90° the antenna looks back over the top). The orange cross / orange arrow is the antenna now, the green ring the requested direction (only while the rotor is on its way); beside them the actual AZ / EL (orange) and the requested AZ / EL (green). The shown position is filtered, so the ~1 % noise of the readings does not flicker. A click on the polar plot
@@ -225,6 +232,7 @@ of that VFO (orange LED): that VFO stays audible at CUE level while another VFO 
         with the crystal (ppm) clocking the tuner and the A/D, and AGC+, which reads the A/D level and sets the tuner gain (green dashed loop).
         Each block has a number, and the card of its setting has the same number (SP = 10 and AGC+ = 11 on the ADVANCED page);
         a click on a block highlights its card, switching to ADVANCED for SP and AGC+. A grey block has no setting for this dongle or VFO (a VFO with a fixed dongle). Shown for RTL-SDR dongles only, not for LimeSDR or Airspy.
+      - **Antenna** (block 0): the antenna this VFO receives on, from SETTINGS › GENERAL › ANTENNAS, with its range and whether the tuned frequency is in it.
       - Without `vfos.json` (single receiver) the dongle selection and the upconverter mode (auto / on / off).
       - **Bandwidth**: the width of the band the dongle receives (sample rate) = the width of the spectrum and waterfall.
       - **Correction (ppm)** and **Upconverter LO (MHz)**.

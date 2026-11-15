@@ -36,6 +36,7 @@ if __name__ == "__main__" and "--vfo" not in sys.argv and os.path.exists(VFOS_PA
     sys.exit(0)
 
 import location
+import antennas
 import memories
 import scanner as scanner_mod
 import satellites
@@ -401,7 +402,7 @@ def state():
     return dict(receiver.state(), ft8=ft8.enabled, ft8_error=ft8.error, wefax=wefax.enabled, cw=cw.enabled, rtty=rtty.enabled, packet=packet.enabled, pocsag=pocsag.enabled, sonde=sonde.enabled,
                 sstv=sstv.enabled, acars=acars.enabled, vdl2=vdl2.enabled, vdl2_error=vdl2.error, vdl2_region=vdl2.region, cpdlc=acars.cpdlc_on,
                 dsd=dsd.info(), dab=dab.enabled, dab_error=dab.error, dab_channel=dab.channel, dab_sids=cfg.get("dab_sids") or {}, ism=ism.enabled, ism_error=ism.error, ism_raw=ism.raw, hfdl=hfdl.enabled, hfdl_error=hfdl.error, ais=ais.enabled, ais_error=ais.error, adsb=adsb.enabled, adsb_error=adsb.error, ism_hz=cfg.get("ism_hz", ISM_DEFAULT), audio_muted=audio_muted(), recording=recorder.state(), logs={k: log_on(k) for k in LOG_KEYS},
-                **doppler_trsp(),
+                **doppler_trsp(), antenna=cfg.get("antenna", ""),
                 tx_capable=capable, tx_enabled=bool(cfg.get("tx_enabled", False)),
                 can_tx=capable and bool(cfg.get("tx_enabled", False)) and hasattr(receiver.sdr, "tx_start"))
 
@@ -1351,6 +1352,22 @@ def api_location():
     return jsonify(location.load())
 
 
+@app.route("/api/antennas", methods=["GET", "POST"])
+def api_antennas():
+    """Antennas of the station (SETTINGS › GENERAL › ANTENNAS, data\\antennas.json), shared by all VFOs.
+    POST {"antennas": [...]} replaces the whole list; returns {"antennas", "types", "polarizations"}."""
+    if request.method == "POST":
+        if not same_host(request):
+            return jsonify({"error": "the antennas can be changed only from this RADIMCOM page"}), 403
+        body = request.get_json(force=True, silent=True) or {}
+        try:
+            antennas.save(body.get("antennas"))
+        except (TypeError, ValueError) as e:
+            return jsonify({"error": str(e)}), 400
+        hub.event("status", state())
+    return jsonify({"antennas": antennas.load(), "types": antennas.TYPES, "polarizations": antennas.POLARIZATIONS})
+
+
 @app.route("/api/sat/setup", methods=["GET", "POST"])
 def api_sat_setup():
     """Minimum elevation and the satellites on the timeline (shared by all VFOs), with the station location of
@@ -1866,6 +1883,13 @@ def api_set():
             changes["sample_rate"] = sr
     except (TypeError, ValueError) as e:
         return jsonify({"error": str(e)}), 400
+    if "antenna" in body:
+        aid = str(body["antenna"] or "")
+        if aid and not antennas.get(aid):
+            return jsonify({"error": "unknown antenna (SETTINGS › GENERAL › ANTENNAS)"}), 400
+        cfg["antenna"] = aid
+        save_config_later()
+        hub.event("status", state())
     if "ft8" in body:
         cfg["ft8"] = bool(body["ft8"])
         ft8.set_enabled(cfg["ft8"])

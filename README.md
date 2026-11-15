@@ -80,7 +80,7 @@ Up to four SDRs at once, each assigned to a VFO by its serial number; one dongle
 ### Receiver
 
 - **Up to four SDRs as four VFOs (A–D)**, or one dongle shared by several VFOs (chaining). → [Configuration](docs/configuration.md)
-- **Modes** AM, FM, WFM (stereo + RDS), LSB, USB, CW, DAB and DSD, with notch, ALC, DNR (weak HF voices out of the noise), audio LPF / HPF and AFI (voice inversion). → [Function keys](docs/controls.md#function-keys)
+- **Modes** AM, FM, WFM (stereo + RDS), LSB, USB, CW, DAB and DSD, with notch, ALC, DNR (weak HF voices out of the noise), audio LPF / HPF and AFI (voice inversion); automatic LSB / USB on ham bands. → [Function keys](docs/controls.md#function-keys)
 - **Squelch with ASQ (auto squelch)**: the level follows the measured noise floor plus a margin; **CTCSS / DCS tone squelch** (TSQ-C / TSQ-D) in FM. → [AUDIO keys](docs/controls.md#function-keys)
 - **AGC+**: tuner gain set from the A/D level, as high as possible without clipping. → [GAIN keys](docs/controls.md#function-keys)
 - **ATU (autotune, experimental)**: a click on an AM signal moves the tuning onto its carrier, on an SSB signal it puts the signal edge on the red line. → [TUNE keys](docs/controls.md#function-keys)
@@ -105,7 +105,7 @@ Up to four SDRs at once, each assigned to a VFO by its serial number; one dongle
 - **"What's new" window** on the first start of a new version, with the changes of that version.
 - **Memories** with favourites, spectrum tags and a memory editor (groups with notes, decoder and recording at recall, import from SDR# / JSON / CSV, export). → [MEM](docs/controls.md#function-keys), [Memory editor](docs/controls.md#memory-editor)
 - **CUE**: hear other VFOs while one is selected, with MAIN / CUE faders and a level meter. → [Function keys](docs/controls.md#function-keys)
-- **DECODERS**, **SATELLITES**, **MEMORIES** (memory list and memory editor) and **SETTINGS** tabs; SETTINGS has a **GENERAL** page (skins, S-meter, touchpad, location, the one rotor of the station) and a **VFO** page (VFO-A … D keys joined to the settings of that VFO). → [Controls](docs/controls.md)
+- **DECODERS**, **SATELLITES**, **MEMORIES** (memory list and memory editor) and **SETTINGS** tabs; SETTINGS has a **GENERAL** page (skins, S-meter, touchpad, location, antennas of the station with their range – ANT in the VFO window warns when the VFO is tuned outside the range of its antenna, the one rotor of the station) and a **VFO** page (VFO-A … D keys joined to the settings of that VFO). → [Controls](docs/controls.md)
 
 The complete feature list: [docs/features.md](docs/features.md).
 

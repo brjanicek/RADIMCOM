@@ -4,6 +4,35 @@
 
 Test beta (GitHub branch `1.0beta1`; continues the release 0.115).
 
+### New
+
+- **Automatic LSB / USB on ham bands:** in LSB or USB, tuning into another ham band (IARU Region 1) switches to its
+  usual sideband: LSB on 160, 80 and 40 m, USB on 60 m, 30 m and above (and on 2200 / 630 m). It switches only on
+  entering a band, so a sideband chosen by hand inside a band stays; band keys and memories keep their own mode.
+  On by default, a switch in **SETTINGS → GENERAL → TUNING** (the page was called TOUCHPAD), remembered in the browser.
+- **Antennas of the station:** new page **SETTINGS → GENERAL → ANTENNAS** with a list of the antennas (name, type,
+  bands – several for a multiband dipole or a dual-band vertical, e.g. `144-146, 430-440` MHz –, polarization, gain, height, outdoor / indoor, on the rotor, the chain to the dongle, note), shared by
+  all VFOs in `data\antennas.json`. The VFO keys in each row choose which VFOs receive on that antenna; one VFO can also
+  choose it in **SETTINGS → VFO → SDR DONGLE → ANTENNA** (block 0 of the block diagram). **ANT** in the VFO window is green while the VFO is tuned within the range of its antenna
+  and **amber** outside it. Also the base for sharing VFO settings with other RADIMCOM users later.
+
+### Fixes
+
+- **A frozen dongle recovers by itself:** a dongle that stays on USB but stops sending data was only closed and opened
+  again every few seconds, which does not wake it (all night on VFO A). After 3 failed attempts in a row its USB device
+  is now reset (with administrator rights `pnputil /restart-device`, like replugging it; otherwise `libusb_reset_device`),
+  then again every 30 attempts. The server log (`data\server_logs\`) now has a line for a dongle error,
+  each USB reset and the moment the dongle sends data again (instead of only the librtlsdr lines).
+- **Server log with time and VFO on every line:** `15.11.2026 07:24:11.123 [A] …` (no letter = the launcher). Each VFO process
+  writes through its own pipe, so the lines of different VFOs and the pieces written by the C libraries no longer get mixed
+  (e.g. `Found Rafael Mic` + an HTTP line + `ro R828D tuner`).
+- **CUE of a VFO with DAB:** CUE was silent for a VFO playing DAB, because CUE took only the normal audio of the VFO
+  and DAB sound is welle-cli's MP3 stream. CUE now plays the DAB station of that VFO (the last one selected on its channel)
+  at CUE level.
+- **Restart server from the tray icon:** ended with "RADIMCOM could not start … `console.log` … is being used by another
+  process", because RADIMCOM.exe kept the `data\server_logs\console.log` of the previous start open. It is now closed
+  before the new start (and if the file is still held by something else, a `console_<pid>.log` is used instead).
+
 ## Ver. 0.115
 
 Released after the test beta (GitHub branch `0.115beta1`) and the release candidate (`0.115rc1`). Many parts are contributed by **Brano, [brjanicek](https://github.com/brjanicek)** (marked *by Brano*).

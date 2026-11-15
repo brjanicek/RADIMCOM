@@ -167,7 +167,32 @@ function parseFreq(text) {
   return unit.startsWith("m") ? v * 1e6 : unit.startsWith("k") ? v * 1e3 : v;
 }
 
+// Automatic LSB / USB: tuning into another ham band (IARU Region 1) in LSB or USB switches to the usual sideband
+// of that band (below 10 MHz LSB, 60 m and above USB). Only on entering a band, so a sideband chosen by hand inside
+// a band stays. [from Hz, to Hz, mode]
+const HAM_SB_BANDS = [
+  [135700, 137800, "USB"], [472000, 479000, "USB"], [1810000, 2000000, "LSB"], [3500000, 3800000, "LSB"],
+  [5351500, 5366500, "USB"], [7000000, 7200000, "LSB"], [10100000, 10150000, "USB"], [14000000, 14350000, "USB"],
+  [18068000, 18168000, "USB"], [21000000, 21450000, "USB"], [24890000, 24990000, "USB"], [28000000, 29700000, "USB"],
+  [50000000, 52000000, "USB"], [70000000, 70500000, "USB"], [144000000, 146000000, "USB"], [430000000, 440000000, "USB"],
+  [1240000000, 1300000000, "USB"]];
+const hamSbBand = (hz) => HAM_SB_BANDS.find(([a, b]) => hz >= a && hz <= b) || null;
+let autoSb = recall("autoSb") !== "0";
+const sbBandOf = new Map();   // VFO address → ham band of its last frequency (undefined = not known yet: no switch)
+/** Adds the sideband of a newly entered ham band to a tuning change (and sets it locally). */
+function autoSideband(changes) {
+  const band = hamSbBand(changes.tune_hz);
+  const prev = sbBandOf.get(vbase);
+  if (band || prev === undefined) sbBandOf.set(vbase, band);   // outside the bands the last band is kept
+  if (!autoSb || !st || st.dab || "mode" in changes || !["LSB", "USB"].includes(st.mode)) return;
+  if (!band || prev === undefined || band === prev || st.mode === band[2]) return;
+  st.mode = changes.mode = band[2];
+  renderControls();
+  drawOverlays();
+}
+
 function send(changes) {
+  if ("tune_hz" in changes) autoSideband(changes);
   localChangeAt = Date.now();
   Object.assign(pendingSet, changes);
   clearTimeout(setTimer);
@@ -388,6 +413,11 @@ function setWheelSpeed(speed) {
   const saved = Number(recall("wheelSpeed"));
   setWheelSpeed(saved >= 1 && saved <= 10 ? saved : WHEEL_SPEED_DEFAULT);
 }
+$("autoSb").checked = autoSb;
+$("autoSb").addEventListener("change", (e) => {
+  autoSb = e.target.checked;
+  store("autoSb", autoSb ? "1" : "0");
+});
 $("wheelSpeed").addEventListener("input", (e) => {
   setWheelSpeed(Number(e.target.value));
   store("wheelSpeed", e.target.value);
@@ -2219,6 +2249,7 @@ function renderSettings() {
   $("rtlAgcBox").hidden = st.has_rtl_agc === false;
   $("biasTeeSetting").hidden = st.has_bias_tee === false;
   $("biasTee").checked = st.bias_tee;
+  renderAntVfo();
   // The block diagram and its numbers describe an RTL dongle (R820T tuner + RTL2832); LimeSDR and Airspy hide them.
   const rtl = !noRtlDongle(st);
   $("blkDiagram").hidden = !rtl;
@@ -10365,6 +10396,7 @@ function setSubOpened(name) {
   if (bodyTab !== "set") return;      // setBodyTab("set") calls it again
   if (name === "gen:rotor") setTimeout(pollRotor);
   if (name === "gen:location") setTimeout(() => locLoad());
+  if (name === "gen:ant") setTimeout(() => antLoad(true));
   if (name === "gen:recs") setTimeout(() => recDirLoad());
   if (name === "vfo:dongle" || name === "vfo:adv") setTimeout(loadDongleList);   // ADVANCED: dongles and VFOs
 }
@@ -10383,7 +10415,7 @@ function openSetPage(name) {
   showSetTab(page);
   store("setTab", page);
 }
-const SET_PAGE_OF = { ui: "gen:skins", display: "gen:skins", skins: "gen:skins", meter: "gen:meter", wheel: "gen:wheel", location: "gen:location", rotor: "gen:rotor", recs: "gen:recs",
+const SET_PAGE_OF = { ui: "gen:skins", display: "gen:skins", skins: "gen:skins", meter: "gen:meter", wheel: "gen:wheel", location: "gen:location", ant: "gen:ant", antennas: "gen:ant", rotor: "gen:rotor", recs: "gen:recs",
   dongle: "vfo:dongle", adv: "vfo:adv", audio: "vfo:audio", tx: "vfo:tx" };
 
 // SETTINGS › VFO: one key per VFO window, like the VFO keys beside the S-meter; the lit one (= the active VFO)
@@ -12637,6 +12669,9 @@ function onStatus(s) {
     for (const k of ["tune_hz", "mode", "bandwidth", "zoom", "gain", "rtl_agc", "smart_agc", "dc_remove", "dc_hz", "dc_db", "spur_on", "spur_hz", "spur_edge", "spur_shift", "spur_db", "spur_learning", "stereo_on", "notch", "autotune", "ft8", "wefax", "cw", "rtty", "sstv", "packet", "pocsag", "sonde", "hfdl", "ais", "adsb", "acars", "cpdlc", "dab", "dab_channel", "dab_sids", "logs", "upconv", "device", "squelch_levels", "auto_sql", "auto_sql_on", "auto_sql_level", "ctcss", "ctcss_hz", "dcs", "dcs_code"]) s[k] = st[k];
   }
   s.sample_rates = sampleRates;
+  if (Date.now() - localChangeAt >= 700 && (hamSbBand(s.tune_hz) || !sbBandOf.has(vbase))) {
+    sbBandOf.set(vbase, hamSbBand(s.tune_hz));   // tuned elsewhere (memory, scanner, other page): no switch
+  }
   st = s;
   renderRec();
   renderScanNow();
@@ -12898,10 +12933,12 @@ const PASS_ICON = {
 // Tone squelch row under the frequency: the set CTCSS tone and DCS code, dark (as an unlit annunciator) = off, orange = on (FM), glowing = received.
 const vfoToneHtml = () => `<div class="vfo-tone"><span class="ann tsq ctcss">CTCSS<b></b></span>` +
   `<span class="ann tsq dcs">DCS<b></b></span>` +
+  `<span class="ann ant" title="Antenna of the VFO (SETTINGS › VFO › SDR DONGLE › ANTENNA)">ANT</span>` +
   `<span class="ann atu" title="ATU: autotune (USB/LSB/AM)">ATU</span></div>`;
 function renderVfoTone(row, s) {
   const fm = s.mode === "FM";
   row.querySelector(".vfo-tone .atu")?.classList.toggle("on", ATU_MODES.includes(s.mode) && !!s.autotune);
+  renderVfoAnt(row.querySelector(".vfo-tone .ant"), s);
   for (const [c, on, val, name] of [["ctcss", s.ctcss, ctcssText(ctcssHz(s)), "TSQ-C: CTCSS tone squelch"],
     ["dcs", s.dcs, dcsCode(s), "TSQ-D: DCS code squelch"]]) {
     const el = row.querySelector(`.vfo-tone .${c}`);
@@ -13388,6 +13425,39 @@ function stopStream(h) {
   h.live = false;
   h.ctrl.abort();
   h.gain.disconnect();
+  if (h.el) { h.el.pause(); h.el.removeAttribute("src"); h.el.load(); h.el = null; }
+}
+
+/** CUE of VFO v: with DAB on there it plays its station (welle-cli MP3, like dabPlay), otherwise its /api/audio
+ *  (a DAB VFO sends no PCM). The DAB state comes from the VFO's own /api/state; on an error or the end of the
+ *  stream onEnd reconnects after a while (which reads the state again). */
+function playCue(v, onEnd) {
+  const ctx = audioContext();
+  const gain = ctx.createGain();
+  gain.connect(cueGain);
+  const me = { gain, ctrl: new AbortController(), playTime: 0, live: true, el: null };
+  const ended = () => setTimeout(() => { if (me.live) { stopStream(me); onEnd(); } }, 1500);
+  fetch(v.base + "/api/state", { signal: me.ctrl.signal }).then((r) => r.json()).then((s) => {
+    if (!me.live) return;
+    if (!s.dab) {
+      pumpStream(ctx, v.base, me, false).then((aborted) => { if (!aborted) ended(); });
+      return;
+    }
+    const sid = (s.dab_sids || {})[s.dab_channel];
+    if (!sid) return;                       // DAB with no station selected: nothing to hear
+    const el = me.el = new Audio();
+    el.crossOrigin = "anonymous";           // the receiver of the VFO is on another port (CORS * on the server)
+    ctx.createMediaElementSource(el).connect(gain);
+    el.addEventListener("ended", ended);
+    el.addEventListener("error", ended);
+    el.src = `${v.base}/api/dab/audio/${sid}`;
+    el.play().catch(() => {
+      // the browser allows sound only after the first click or key on the page
+      const retry = () => { if (me.live && me.el === el) el.play().catch(() => {}); };
+      for (const ev of ["pointerdown", "keydown"]) document.addEventListener(ev, retry, { capture: true, once: true });
+    });
+  }).catch((e) => { if (e.name !== "AbortError") ended(); });
+  return me;
 }
 
 function startAudio() {
@@ -13402,7 +13472,7 @@ function syncCue() {
   for (const v of vfos) {
     const want = !!(v.name && v.cue && v !== active);
     if (want && !v.cueAudio) {
-      const h = v.cueAudio = playStream(v.base, false, () => { if (v.cueAudio === h) { v.cueAudio = null; syncCue(); } });
+      const h = v.cueAudio = playCue(v, () => { if (v.cueAudio === h) { v.cueAudio = null; syncCue(); } });
     } else if (!want && v.cueAudio) {
       stopStream(v.cueAudio);
       v.cueAudio = null;
@@ -13510,6 +13580,242 @@ for (const b of REC_BUTTONS) {
   });
 }
 renderRec();
+
+// ---------- SETTINGS › GENERAL › ANTENNAS (antennas.py, data\antennas.json, shared by all VFOs) and the antenna of a VFO ----------
+
+let antList = [];             // antennas of the station from the server
+let antTypes = [], antPols = [];
+let antLoading = null;        // a running load
+let antAsked = false;         // the list was asked for once (by the first status)
+let antEdit = null;           // rows on the ANTENNAS page while editing (null = not open yet)
+let antDirty = false;
+
+const antMhz = (hz) => (hz == null ? "" : String(+(hz / 1e6).toFixed(6)));
+/** Bands as text for the edit field: "144-146, 430-440" (MHz). */
+const antBandsEdit = (ranges) => (ranges || []).map(([lo, hi]) => `${antMhz(lo)}-${antMhz(hi)}`).join(", ");
+const antRangeText = (a) => (a.ranges?.length ? `${antBandsEdit(a.ranges).replaceAll("-", "–")} MHz` : "");
+/** "144-146, 430-440" (MHz; separated by commas or semicolons) → [[Hz, Hz], ...]; throws with the reason. */
+function antParseBands(text) {
+  const out = [];
+  for (const part of text.split(/[,;]+/).map((x) => x.trim()).filter(Boolean)) {
+    const m = part.match(/^(\d+(?:\.\d+)?)\s*(?:-|–|\.\.)\s*(\d+(?:\.\d+)?)$/);
+    if (!m) throw new Error(`"${part}": write a band as lowest-highest MHz, e.g. 144-146`);
+    const lo = Math.round(+m[1] * 1e6), hi = Math.round(+m[2] * 1e6);
+    if (lo >= hi) throw new Error(`"${part}": the lowest frequency must be below the highest`);
+    out.push([lo, hi]);
+  }
+  return out.sort((x, y) => x[0] - y[0]);
+}
+const antById = (id) => (id ? antList.find((a) => a.id === id) : null);
+/** true / false: the antenna covers hz; null: its range is not given. */
+function antCovers(a, hz) {
+  if (!a || !a.ranges?.length) return null;
+  return a.ranges.some(([lo, hi]) => lo <= hz && hz <= hi);
+}
+
+/** VFOs with a receiver (named), for the VFO keys of the ANTENNAS page. */
+const antVfoList = () => vfos.filter((v) => v.name);
+/** The antenna id of a VFO from its last status. */
+const vfoAntOf = (v) => ((v === active ? st || v.st : v.st) || {}).antenna || "";
+/** Rows of the ANTENNAS page from the saved list, each with the VFOs that use it now. */
+const antEditFromList = () => antList.map((a) => ({ ...a, _vfos: antVfoList().filter((v) => vfoAntOf(v) === a.id).map((v) => v.name) }));
+
+function antMsg(text, err) {
+  $("antMsg").textContent = text || "";
+  $("antMsg").classList.toggle("error", !!err);
+}
+
+/** Reads the list (or saves it: body = {antennas}); editor = refill the ANTENNAS page from it. */
+async function antLoad(editor, body) {
+  if (!body && antLoading) {
+    const ok = await antLoading;            // the first status is reading the list now: use its result
+    if (ok && editor && !antDirty) { antEdit = antEditFromList(); renderAntTable(); }
+    return ok;
+  }
+  const run = (async () => {
+    try {
+      const r = await fetch(vbase + "/api/antennas", body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {});
+      const s = await r.json();
+      if (!r.ok) throw new Error(s.error || `HTTP ${r.status}`);
+      antList = s.antennas || [];
+      antTypes = s.types || [];
+      antPols = s.polarizations || [];
+      if (editor && (!antDirty || body)) { antEdit = antEditFromList(); antDirty = false; renderAntTable(); }
+      renderAntVfo();
+      renderVfoDisplays();
+      return true;
+    } catch (e) {
+      if (editor) antMsg(e.message, true);
+      return false;
+    }
+  })();
+  if (!body) { antLoading = run; run.finally(() => { antLoading = null; }); }
+  return run;
+}
+
+/** ANT in the tone row of a VFO window: lit = tuned within the range of its antenna, amber = outside, dark = no antenna. */
+function renderVfoAnt(el, s) {
+  if (!el) return;
+  const a = antById(s.antenna);
+  const ok = a ? antCovers(a, s.tune_hz) : null;
+  el.classList.toggle("on", ok === true);
+  el.classList.toggle("set", !!a && ok === null);
+  el.classList.toggle("warn", ok === false);
+  el.title = !s.antenna ? "ANT: no antenna chosen for this VFO (SETTINGS › VFO › SDR DONGLE › ANTENNA)"
+    : !a ? "ANT: the antenna of this VFO is no longer in SETTINGS › GENERAL › ANTENNAS"
+    : `ANT: ${a.name}` + (antRangeText(a) ? ` (${antRangeText(a)})` : "") +
+      (ok === false ? ": the frequency is OUTSIDE the range of this antenna" : ok ? ": the frequency is within its range" : "");
+}
+
+/** ANTENNA card of SETTINGS › VFO › SDR DONGLE: the choice of the active VFO. */
+function renderAntVfo() {
+  if (!antAsked) { antAsked = true; antLoad(); }   // first status: get the list once
+  const sel = $("antVfo");
+  const cur = (st && st.antenna) || "";
+  const opts = [["", "— not set —"]].concat(antList.map((a) => [a.id, a.name + (antRangeText(a) ? ` · ${antRangeText(a)}` : "")]));
+  if (cur && !antById(cur)) opts.push([cur, `${cur} (deleted)`]);
+  const sig = JSON.stringify(opts);
+  if (sel.dataset.sig !== sig) {
+    sel.replaceChildren(...opts.map(([v, t]) => { const o = document.createElement("option"); o.value = v; o.textContent = t; return o; }));
+    sel.dataset.sig = sig;
+  }
+  if (document.activeElement !== sel) sel.value = cur;
+  const a = antById(cur), ok = a && st ? antCovers(a, st.tune_hz) : null;
+  $("antVfoRange").textContent = ok === false ? "⚠ outside range" : ok ? "in range" : "";
+  $("antVfoRange").classList.toggle("warn", ok === false);
+  $("antVfoNote").textContent = !antList.length
+    ? "No antennas yet: add them in SETTINGS › GENERAL › ANTENNAS, then choose the one this VFO receives on."
+    : a ? [a.type.replace("_", " "), a.pol, a.gain_dbi != null ? `${a.gain_dbi} dBi` : "", a.outdoor ? "outdoor" : "indoor",
+        a.rotor ? "on the rotor" : "", a.chain, a.note].filter(Boolean).join(" · ")
+    : "The antenna this VFO receives on. The list is in SETTINGS › GENERAL › ANTENNAS.";
+}
+$("antVfo").addEventListener("change", () => send({ antenna: $("antVfo").value }));
+
+// the ANTENNAS page: one editable row per antenna, saved all at once with SAVE
+const ANT_COLS = [
+  ["name", "text", 40], ["type", "type"], ["ranges", "bands"], ["pol", "pol"],
+  ["gain_dbi", "num"], ["height_m", "num"], ["outdoor", "bool"], ["rotor", "bool"], ["chain", "text", 80], ["note", "text", 200],
+];
+function renderAntTable() {
+  const body = $("antRows");
+  body.replaceChildren(...antEdit.map((a, i) => {
+    const tr = document.createElement("tr");
+    for (const [k, kind, max] of ANT_COLS) {
+      const td = document.createElement("td");
+      let el;
+      if (kind === "type" || kind === "pol") {
+        el = document.createElement("select");
+        for (const v of kind === "type" ? antTypes : antPols) {
+          const o = document.createElement("option");
+          o.value = v; o.textContent = v ? v.replace("_", " ") : "–";
+          el.append(o);
+        }
+        el.value = a[k] ?? "";
+      } else if (kind === "bool") {
+        el = document.createElement("input"); el.type = "checkbox"; el.checked = !!a[k];
+      } else {
+        el = document.createElement("input");
+        if (kind === "text") { el.maxLength = max; el.value = a[k] ?? ""; el.spellcheck = false; }
+        else if (kind === "bands") {
+          el.value = a._bandsText ?? antBandsEdit(a[k]); el.spellcheck = false; el.placeholder = "144-146, 430-440";
+          el.title = "Bands of the antenna in MHz: lowest-highest, several separated by commas (empty = not given)";
+          el.classList.toggle("bad", !!a._bandsErr);
+          if (a._bandsErr) el.title = a._bandsErr;
+        } else { el.type = "number"; el.step = "any"; el.value = a[k] ?? ""; }
+      }
+      el.dataset.k = k;
+      el.dataset.kind = kind;
+      td.append(el);
+      tr.append(td);
+    }
+    // VFO keys: lit = this VFO receives on this antenna (one antenna per VFO: lighting it here clears it in the other rows)
+    const tdU = document.createElement("td"); tdU.className = "ant-used";
+    for (const v of antVfoList()) {
+      const b = document.createElement("button");
+      b.className = "key small ant-vfo" + (a._vfos.includes(v.name) ? " on" : "");
+      b.textContent = v.name;
+      b.dataset.vfo = v.name;
+      b.disabled = !v.online;
+      b.title = v.online ? `VFO ${v.name} receives on this antenna (SAVE to keep the change)` : `VFO ${v.name} is not running`;
+      tdU.append(b);
+    }
+    const tdX = document.createElement("td");
+    const x = document.createElement("button");
+    x.className = "key small"; x.textContent = "✕"; x.title = "Delete this antenna (SAVE to keep the change)"; x.dataset.del = i;
+    tdX.append(x);
+    tr.append(tdU, tdX);
+    tr.dataset.i = i;
+    return tr;
+  }));
+  $("antCount").textContent = antEdit.length ? `${antEdit.length}` : "none yet";
+}
+$("antRows").addEventListener("input", (e) => {
+  const el = e.target, tr = el.closest("tr");
+  if (!tr || !el.dataset.k) return;
+  const a = antEdit[+tr.dataset.i], kind = el.dataset.kind;
+  if (kind === "bands") {
+    a._bandsText = el.value;
+    try { a.ranges = antParseBands(el.value); a._bandsErr = ""; } catch (err) { a._bandsErr = err.message; }
+    el.classList.toggle("bad", !!a._bandsErr);
+    el.title = a._bandsErr || "Bands of the antenna in MHz: lowest-highest, several separated by commas (empty = not given)";
+  } else {
+    a[el.dataset.k] = kind === "bool" ? el.checked : kind === "num" ? (el.value === "" ? null : +el.value) : el.value;
+  }
+  antDirty = true;
+  antMsg("Not saved yet");
+});
+$("antRows").addEventListener("click", (e) => {
+  const k = e.target.closest(".ant-vfo");
+  if (k) {
+    const a = antEdit[+k.closest("tr").dataset.i], name = k.dataset.vfo, on = !a._vfos.includes(name);
+    for (const x of antEdit) x._vfos = x._vfos.filter((n) => n !== name);
+    if (on) a._vfos.push(name);
+    antDirty = true;
+    renderAntTable();
+    antMsg("Not saved yet");
+    return;
+  }
+  const b = e.target.closest("[data-del]");
+  if (!b) return;
+  antEdit.splice(+b.dataset.del, 1);
+  antDirty = true;
+  renderAntTable();
+  antMsg("Not saved yet");
+});
+$("antAdd").addEventListener("click", () => {
+  antEdit = antEdit || [];
+  antEdit.push({ id: "", name: "", type: "other", pol: "", gain_dbi: null, height_m: null,
+    outdoor: true, rotor: false, chain: "", note: "", _vfos: [], ranges: [] });
+  antDirty = true;
+  renderAntTable();
+  $("antRows").lastElementChild?.querySelector("input")?.focus();
+});
+$("antSave").addEventListener("click", async () => {
+  const rows = antEdit || [];
+  const want = new Map();               // VFO name → index of its row (no entry = no antenna)
+  rows.forEach((a, i) => a._vfos.forEach((n) => want.set(n, i)));
+  const bad = rows.find((a) => a._bandsErr);
+  if (bad) { antMsg(`${bad.name || "New antenna"}: ${bad._bandsErr}`, true); return; }
+  const sent = rows.map(({ _vfos, _bandsText, _bandsErr, ...a }) => a);
+  if (!(await antLoad(true, { antennas: sent }))) return;     // the reason is in antMsg
+  // the server returns the list in the same order: new antennas got their ids there
+  const errs = [];
+  for (const v of antVfoList().filter((x) => x.online)) {
+    const id = want.has(v.name) ? antList[want.get(v.name)]?.id || "" : "";
+    if (vfoAntOf(v) === id) continue;
+    const r = await fetch(v.base + "/api/set", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ antenna: id }) })
+      .catch(() => null);
+    if (!r || !r.ok) { errs.push(v.name); continue; }
+    if (v === active && st) st.antenna = id;
+    if (v.st) v.st.antenna = id;
+  }
+  antDirty = false;
+  antEdit = antEditFromList();
+  renderAntTable();
+  renderAntVfo();
+  renderVfoDisplays();
+  antMsg(errs.length ? `Saved, but the antenna of VFO ${errs.join(", ")} was not set` : "Saved", !!errs.length);
+});
 
 // ---------- SETTINGS › GENERAL › RECORDINGS: folder of the MP3 recordings (recorder.py), shared by all VFOs ----------
 

@@ -182,6 +182,82 @@ def open_device(cfg):
     return RtlSdr(index_by_serial(serial) if serial else int(cfg["device"]))
 
 
+USB_RESET_AFTER = 3     # failed opens in a row (the dongle is on the bus but sends nothing) before its USB is reset
+USB_RESET_EVERY = 30    # then again after this many more failures (~5 min)
+
+
+class _UsbDevDesc(ctypes.Structure):
+    _fields_ = [("bLength", ctypes.c_uint8), ("bDescriptorType", ctypes.c_uint8), ("bcdUSB", ctypes.c_uint16),
+                ("bDeviceClass", ctypes.c_uint8), ("bDeviceSubClass", ctypes.c_uint8),
+                ("bDeviceProtocol", ctypes.c_uint8), ("bMaxPacketSize0", ctypes.c_uint8),
+                ("idVendor", ctypes.c_uint16), ("idProduct", ctypes.c_uint16), ("bcdDevice", ctypes.c_uint16),
+                ("iManufacturer", ctypes.c_uint8), ("iProduct", ctypes.c_uint8), ("iSerialNumber", ctypes.c_uint8),
+                ("bNumConfigurations", ctypes.c_uint8)]
+
+
+def _libusb_reset(serial):
+    """libusb_reset_device on the dongle with this serial number (it must be closed). No admin rights needed."""
+    os.add_dll_directory(LIB_DIR)
+    u = ctypes.CDLL(os.path.join(LIB_DIR, "libusb-1.0.dll"))
+    u.libusb_get_device_list.restype = ctypes.c_ssize_t
+    u.libusb_get_device_list.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))]
+    u.libusb_free_device_list.argtypes = [ctypes.POINTER(ctypes.c_void_p), ctypes.c_int]
+    u.libusb_get_device_descriptor.argtypes = [ctypes.c_void_p, ctypes.POINTER(_UsbDevDesc)]
+    u.libusb_open.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)]
+    u.libusb_get_string_descriptor_ascii.argtypes = [ctypes.c_void_p, ctypes.c_uint8, ctypes.c_char_p, ctypes.c_int]
+    u.libusb_reset_device.argtypes = [ctypes.c_void_p]
+    u.libusb_close.argtypes = [ctypes.c_void_p]
+    u.libusb_exit.argtypes = [ctypes.c_void_p]
+    ctx = ctypes.c_void_p()
+    if u.libusb_init(ctypes.byref(ctx)) != 0:
+        return False, "libusb_init failed"
+    devs = ctypes.POINTER(ctypes.c_void_p)()
+    n = 0
+    try:
+        n = u.libusb_get_device_list(ctx, ctypes.byref(devs))
+        for i in range(max(n, 0)):
+            d = _UsbDevDesc()
+            if u.libusb_get_device_descriptor(devs[i], ctypes.byref(d)) != 0 or d.idVendor != 0x0BDA \
+                    or d.idProduct not in (0x2832, 0x2838) or not d.iSerialNumber:
+                continue
+            h = ctypes.c_void_p()
+            if u.libusb_open(devs[i], ctypes.byref(h)) != 0:
+                continue                            # e.g. another VFO has its dongle open
+            try:
+                buf = ctypes.create_string_buffer(256)
+                if u.libusb_get_string_descriptor_ascii(h, d.iSerialNumber, buf, 256) < 0 \
+                        or buf.value.decode(errors="replace").strip() != serial:
+                    continue
+                rc = u.libusb_reset_device(h)
+                return rc == 0, f"libusb_reset_device (code {rc})"
+            finally:
+                u.libusb_close(h)
+        return False, "dongle not found on USB"
+    finally:
+        if n > 0:
+            u.libusb_free_device_list(devs, 1)
+        u.libusb_exit(ctx)
+
+
+def reset_usb(serial):
+    """A dongle that is on the bus but sends no data (frozen RTL2832): close/open does not wake it, a USB reset may.
+    With admin rights pnputil restarts the device (like replugging it), otherwise libusb resets it.
+    Returns (ok, what was done)."""
+    if not serial:
+        return False, "no serial number in vfos.json"
+    try:
+        if ctypes.windll.shell32.IsUserAnAdmin():
+            import subprocess
+            for pid in ("2838", "2832"):
+                r = subprocess.run(["pnputil", "/restart-device", f"USB\\VID_0BDA&PID_{pid}\\{serial}"],
+                                   capture_output=True, timeout=30, creationflags=subprocess.CREATE_NO_WINDOW)
+                if r.returncode == 0:
+                    return True, "pnputil /restart-device"
+        return _libusb_reset(serial)
+    except Exception as e:
+        return False, f"USB reset failed: {e}"
+
+
 class RtlSdr:
     """Thin wrapper over librtlsdr.dll."""
 
@@ -1270,10 +1346,34 @@ class Receiver:
         if self.thread:
             self.thread.join(timeout=3)
 
+    def _log(self, msg):
+        """A line in the server log (data/server_logs; serverlog.py adds the time and the VFO letter)."""
+        serial = self.cfg.get("serial")
+        print(f"dongle {serial}: {msg}" if serial else msg, flush=True)
+
+    def _failed(self, err):
+        """A failed open or a dongle that stopped sending: logged (not every retry), USB reset when it keeps failing."""
+        self.fail_streak += 1
+        n = self.fail_streak
+        if n == 1 or err != self.fail_last:
+            self._log(f"error: {err} (retrying every few seconds)")
+        elif n % USB_RESET_EVERY == 0:
+            self._log(f"error: {err} (still failing, attempt {n})")
+        self.fail_last = err
+        if self.cfg.get("driver", "rtl") == "rtl" and not self.chained and (
+                n == USB_RESET_AFTER or (n > USB_RESET_AFTER and (n - USB_RESET_AFTER) % USB_RESET_EVERY == 0)):
+            ok, how = reset_usb(self.cfg.get("serial"))
+            self._log(f"USB reset {'done' if ok else 'failed'}: {how}")
+            if not ok and not self.fail_hint:
+                self.fail_hint = True
+                self._log("if it does not recover: unplug and plug in the dongle (or run RADIMCOM as administrator)")
+
     def _run(self):
+        self.fail_streak, self.fail_last, self.fail_hint = 0, None, False
         while not self._stop.is_set():
             sdr = None
             reader = None
+            failed = None
             try:
                 self.status = "opening dongle"
                 sdr = open_device(self.cfg)
@@ -1307,16 +1407,18 @@ class Receiver:
                 self.status = "restarting dongle"
                 self.on_status()
             except Exception as e:  # device error: show it and try again
-                self.error = str(e)
+                self.error = failed = str(e)
                 self.status = "error"
                 self.on_status()
-                self._stop.wait(5)
             finally:
                 if sdr:
                     if reader:
                         sdr.cancel_async()
                         reader.join(timeout=3)
                     sdr.close()
+            if failed and not self._stop.is_set():
+                self._failed(failed)                # after close: a USB reset needs the dongle closed
+                self._stop.wait(5)
 
     def _configure(self, sdr):
         c = self.cfg
@@ -1664,6 +1766,9 @@ class Receiver:
                 raw = blocks.get(timeout=2)
             except queue.Empty:
                 raise RuntimeError("dongle is not sending data" if reader.is_alive() else "dongle reading stopped")
+            if self.fail_streak:
+                self._log(f"sending data again (after {self.fail_streak} failed attempts)")
+                self.fail_streak, self.fail_last = 0, None
             if isinstance(raw, tuple):              # chained VFO: (owner's metadata, samples)
                 meta, raw = raw
                 self._follow(meta, sdr)

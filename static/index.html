@@ -1381,7 +1381,7 @@ ecordings, played in the browser -->
       </div>
     </div>
     <!-- SETTINGS tab (gear key): two pages, covering the spectrum and waterfall like the other tabs.
-         GENERAL = settings of the whole station: SKINS, S-METER, TOUCHPAD, LOCATION, ROTOR, RECORDINGS (the rotor is not tied to a VFO).
+         GENERAL = settings of the whole station: SKINS, S-METER, TUNING, LOCATION, ROTOR, RECORDINGS (the rotor is not tied to a VFO).
          VFO = settings of one VFO: the VFO keys on the left (like beside the S-meter), the open one joined to its card
          with the pages SDR DONGLE, ADVANCED, AUDIO, TX. -->
     <div class="set-pane" id="settingsCard" hidden aria-label="Settings">
@@ -1392,13 +1392,14 @@ ecordings, played in the browser -->
         </div>
       </div>
       <div class="set-body">
-        <!-- ===== GENERAL: SKINS, S-METER, TOUCHPAD, LOCATION, ROTOR, RECORDINGS (the whole station) ===== -->
+        <!-- ===== GENERAL: SKINS, S-METER, TUNING, LOCATION, ROTOR, RECORDINGS (the whole station) ===== -->
         <div class="set-panel has-sub" data-set-panel="gen" role="tabpanel">
           <div class="set-subtabs" role="tablist">
             <button class="key small on" data-set-sub="gen:skins" role="tab" aria-selected="true">SKINS</button>
             <button class="key small" data-set-sub="gen:meter" role="tab" aria-selected="false">S-METER</button>
-            <button class="key small" data-set-sub="gen:wheel" role="tab" aria-selected="false">TOUCHPAD</button>
+            <button class="key small" data-set-sub="gen:wheel" role="tab" aria-selected="false">TUNING</button>
             <button class="key small" data-set-sub="gen:location" role="tab" aria-selected="false">LOCATION</button>
+            <button class="key small" data-set-sub="gen:ant" role="tab" aria-selected="false">ANTENNAS</button>
             <button class="key small" data-set-sub="gen:rotor" role="tab" aria-selected="false">ROTOR</button>
             <button class="key small" data-set-sub="gen:recs" role="tab" aria-selected="false">RECORDINGS</button>
           </div>
@@ -1429,6 +1430,12 @@ ecordings, played in the browser -->
               <p class="note">Tuning, zoom, LPF and HPF with touchpad scrolling. Left = slower, default 4. A mouse wheel notch is
                 always one step. Remembered in this browser, for all VFOs.</p>
             </div>
+            <div class="setting">
+              <div class="row"><span>Sideband on ham bands</span><small>remembered in this browser</small></div>
+              <label class="switch"><input id="autoSb" type="checkbox" checked><span></span> Automatic LSB / USB</label>
+              <p class="note">In LSB or USB, tuning into another ham band switches to its usual sideband: LSB on 160, 80
+                and 40 m, USB on 60 m, 30 m and above (and on 2200 / 630 m). A sideband chosen by hand inside a band stays.</p>
+            </div>
           </div>
           <!-- ===== LOCATION: station locator / latitude, longitude (also on an OpenStreetMap map), altitude ===== -->
           <div class="set-subpanel set-location" data-set-subpanel="gen:location" role="tabpanel" hidden>
@@ -1449,6 +1456,28 @@ ecordings, played in the browser -->
                 (APRS distances and map), <b>ACARS / VDL2</b>, <b>HFDL</b>, <b>AIS</b> and <b>ADS-B</b> (maps, distances). The same location is used on all VFOs.</p>
               <p class="note">A locator gives the centre of its square (JN88WQ: about 2 km from any point in it; enough for tracking).
                 Latitude and longitude give an exact point. A new installation starts at 0.0 / 0.0: set your own place.</p>
+            </div>
+          </div>
+          <!-- ===== ANTENNAS: list of the antennas of the station (data\antennas.json); each VFO picks one in SDR DONGLE › ANTENNA ===== -->
+          <div class="set-subpanel set-ant" data-set-subpanel="gen:ant" role="tabpanel" hidden>
+            <div class="setting">
+              <div class="row"><span>Antennas of the station</span><span class="value" id="antCount"></span></div>
+              <div class="ant-wrap"><table class="ant-table" id="antTable">
+                <thead><tr><th>Name</th><th>Type</th><th title="Bands of the antenna in MHz: lowest-highest, several separated by commas, e.g. 144-146, 430-440 (empty = not given)">Bands MHz</th><th title="Polarization">Pol.</th>
+                  <th title="Gain in dBi (optional)">dBi</th><th title="Height above ground in m (optional)">Height m</th>
+                  <th title="Outdoor antenna (unticked = indoor)">Out</th><th title="The antenna is on the rotor (SETTINGS › GENERAL › ROTOR)">Rotor</th>
+                  <th title="Between the antenna and the dongle: LNA, filters, switch …">Chain</th><th>Note</th><th title="VFOs receiving on this antenna: click a VFO key to choose it (one antenna per VFO), then SAVE">VFO</th><th></th></tr></thead>
+                <tbody id="antRows"></tbody>
+              </table></div>
+              <div class="sats-row">
+                <button class="key small" id="antAdd">+ ADD</button>
+                <button class="key small accent" id="antSave">SAVE</button>
+                <span class="note" id="antMsg"></span></div>
+              <p class="note">The VFO keys in a row choose which VFOs receive on that antenna (a VFO has one antenna: lighting it
+                in one row clears it in the others); SAVE saves the list and the choice. The same can be set for one VFO in
+                <b>SETTINGS › VFO › SDR DONGLE › ANTENNA</b>. While the VFO is tuned
+                within the range of its antenna, <b>ANT</b> in its window is lit; outside the range it is amber (wrong antenna or a switch to turn).
+                Without a range ANT only shows the antenna name. The list is shared by all VFOs (<code>data\antennas.json</code>).</p>
             </div>
           </div>
           <!-- ===== ROTOR: one for the station (data\rotor.json, run by the first VFO); ON / OFF; ON = port, position on a polar plot and an elevation column, calibration ===== -->
@@ -1550,9 +1579,13 @@ ecordings, played in the browser -->
               <div class="setting blk-diagram" id="blkDiagram">
                 <svg viewBox="0 0 1110 212" role="img" aria-label="Block diagram of the SDR dongle receive chain">
                   <defs><marker id="blkArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="blk-arrowhead"/></marker></defs>
-                  <!-- antenna -->
-                  <path class="blk-wire" d="M30 40V95M16 40L30 62L44 40Z"/>
-                  <text class="blk-sub" x="30" y="30">ANT</text>
+                  <!-- 0 antenna (SETTINGS › GENERAL › ANTENNAS) -->
+                  <g class="blk blk-ant" data-blk-for="antennaSetting" tabindex="0">
+                    <rect class="blk-hit" x="4" y="14" width="52" height="70" rx="6"/>
+                    <path class="blk-wire" d="M30 40V95M16 40L30 62L44 40Z"/>
+                    <text class="blk-sub" x="30" y="30">ANT</text>
+                    <g class="blk-num"><circle cx="8" cy="18" r="10"/><text x="8" y="18">0</text></g>
+                  </g>
                   <line class="blk-wire" x1="30" y1="95" x2="70" y2="95" marker-end="url(#blkArrow)"/>
                   <!-- dongle frame: 1 dongle selection, 9 reset -->
                   <g class="blk blk-frame" data-blk-for="deviceSetting vfoSetting resetSetting" tabindex="0">
@@ -1639,6 +1672,11 @@ ecordings, played in the browser -->
                   Grey block: not for this dongle or VFO.</p>
               </div>
               <div class="set-grid4">
+              <div class="setting" id="antennaSetting" data-blk="0">
+                <div class="row"><span>Antenna</span><span class="value" id="antVfoRange"></span></div>
+                <select id="antVfo"></select>
+                <p class="note" id="antVfoNote">The antenna this VFO receives on. The list is in SETTINGS › GENERAL › ANTENNAS.</p>
+              </div>
               <div class="setting" id="vfoSetting" data-blk="1" hidden>
                 <div class="row"><span>Settings for</span></div>
                 <p class="note" id="vfoSettingText"></p>

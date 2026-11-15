@@ -132,6 +132,7 @@ Installed with the setup: **RADIMCOM.exe** (Start menu or taskbar), see above. F
 - **Server log:** the window shows only where the log is; everything the launcher and the VFO receivers print
   (messages, errors with tracebacks, output of the SDR libraries and helper programs) goes to
   `data\server_logs\logs_DDMMYYYY_HHMMSS.log`, a new file at each start (date and time of the start), one for all
-  VFOs. Lines of successful web requests are left out, failed ones (4xx, 5xx) stay.
+  VFOs. Every line starts with the time (`15.11.2026 07:24:11.123`) and the letter of the VFO that wrote it (`[A]`;
+  none = the launcher). Lines of successful web requests are left out, failed ones (4xx, 5xx) stay.
 - If the browser does not allow sound without a click, the page shows *"Click anywhere to start audio"*.
   Sound starts after the first click on the page.

@@ -82,6 +82,22 @@ Change log
 
 Ver. 1.0beta1
 (test beta, GitHub branch 1.0beta1; continues the release 0.115)
+New
+- Automatic LSB / USB on ham bands: in LSB or USB, tuning into another ham band switches to its usual sideband
+  (LSB on 160, 80, 40 m; USB on 60 m, 30 m and above). A sideband chosen by hand inside a band stays.
+  Switch in SETTINGS > GENERAL > TUNING (was TOUCHPAD), on by default.
+- Antennas of the station: SETTINGS > GENERAL > ANTENNAS (name, type, bands such as 144-146, 430-440 MHz, ...).
+  Each VFO chooses its antenna in SETTINGS > VFO > SDR DONGLE > ANTENNA; ANT in the VFO window turns amber
+  when the VFO is tuned outside the range of its antenna.
+Fixes
+- A frozen dongle recovers by itself: a dongle on USB that stops sending data is reset after 3 failed attempts
+  (with administrator rights like replugging it, otherwise a libusb reset), then every 30 attempts. The server log
+  shows a dongle error, each USB reset and when the dongle sends data again.
+- Server log: every line starts with the time and the VFO letter ([A]; none = the launcher); the lines of
+  different VFOs and of the C libraries are no longer mixed.
+- CUE of a VFO with DAB on plays its DAB station (it was silent: DAB sound is a separate MP3 stream).
+- Restart server from the tray icon works again ("RADIMCOM could not start ... console.log is being used
+  by another process": the log file of the previous start stayed open).
 
 Ver. 0.115
 (after the test beta 0.115beta1 and the release candidate 0.115rc1; many parts by Brano, github.com/brjanicek)

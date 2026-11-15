@@ -163,8 +163,19 @@ namespace Radimcom
             Directory.CreateDirectory(logs);
             lock (consoleLock)
             {
-                // what the server prints before it opens its own log (or when it cannot start at all)
-                console = new StreamWriter(Path.Combine(logs, logName), false, new UTF8Encoding(false));
+                // what the server prints before it opens its own log (or when it cannot start at all);
+                // the writer of the previous start (restart) is closed first, otherwise the file stays locked
+                if (console != null) { try { console.Dispose(); } catch (Exception) { } console = null; }
+                string path = Path.Combine(logs, logName);
+                FileStream fs;
+                try { fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete); }
+                catch (IOException)
+                {
+                    // still held by something else (an older shell): a separate file instead of not starting at all
+                    path = Path.Combine(logs, Path.GetFileNameWithoutExtension(logName) + "_" + Process.GetCurrentProcess().Id + Path.GetExtension(logName));
+                    fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
+                }
+                console = new StreamWriter(fs, new UTF8Encoding(false));
                 console.AutoFlush = true;
             }
             var psi = new ProcessStartInfo(Python(), "-u " + script);

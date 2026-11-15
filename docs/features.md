@@ -9,7 +9,7 @@
 - **VFO chaining:** one dongle can serve several VFOs, e.g. one dongle for VFO A–D, or two dongles with two VFOs
   each. A chained VFO listens anywhere inside the band its dongle receives and shows a green CHAIN flag
   (see [VFO chaining](configuration.md#vfo-chaining-one-dongle-for-several-vfos)).
-- **Modes:** AM, FM, WFM, LSB, USB and CW with selectable filter width, DAB (digital radio) and DSD (digital voice), each of these two with its own tab (see below).
+- **Modes:** AM, FM, WFM, LSB, USB and CW with selectable filter width, DAB (digital radio) and DSD (digital voice), each of these two with its own tab (see below). **Automatic LSB / USB:** tuning into another ham band in LSB or USB switches to its usual sideband (SETTINGS → GENERAL → TUNING, can be turned off).
 - **WFM stereo** (19 kHz pilot, **ST** indicator) and **RDS**: station name (PS), RadioText, PI, PTY, TP/TA and clock (CT).
 - **Squelch** for AM, FM and WFM, each mode with its own level. It decides every ~8 ms, so it does not cut off
   the start of a transmission (airband), and closes about 25 ms after the signal drops below the level. The level is marked on the S-meter with a yellow tick.
@@ -98,7 +98,7 @@ and the country flag from the ICAO address; a click on a message pauses the list
 - **DECODERS tab** with a page for each decoder, and the **SATELLITES** tab (also the **SAT** key), which shows the active linear, FM, image and other satellites from AMSAT, with clickable links.
 - **AD (additional display)** under the S-meter: error messages (red, accepted by OK, the frame blinks), the rotor AZ / EL (MONITOR), DAB now on air (station, SNR, running DLS text) or RDS, by this priority.
 - **Rotor page** in SETTINGS › GENERAL: one rotor for the whole station (not tied to a VFO, settings in `data\rotor.json`), ON / OFF, polar plot and elevation column 0–180° with the antenna and its target, a click moves the antenna; STOP, RESET, MONITOR.
-- **SETTINGS tab** (gear key) split into **GENERAL** (the whole station: SKINS, S-METER, TOUCHPAD, LOCATION – station locator or latitude / longitude, also chosen on a map, used by the satellites, packet, HFDL and AIS; ROTOR) and **VFO** (keys VFO-A … VFO-D on the left, the lit one joined to its card: SDR DONGLE with a block diagram of the receive chain, ADVANCED with the list of dongles and their VFOs, SP, AGC+ and the S9 calibration, AUDIO, TX); **MEMORIES tab** (MEM key) with the pages CHANNELS (also the list to recall from), GROUPS, IMPORT, EXPORT.
+- **SETTINGS tab** (gear key) split into **GENERAL** (the whole station: SKINS, S-METER, TUNING (touchpad speed, automatic LSB / USB on ham bands), LOCATION – station locator or latitude / longitude, also chosen on a map, used by the satellites, packet, HFDL and AIS; ANTENNAS – the antennas of the station with their frequency range, each VFO picks its antenna and ANT in the VFO window turns amber outside its range; ROTOR) and **VFO** (keys VFO-A … VFO-D on the left, the lit one joined to its card: SDR DONGLE with a block diagram of the receive chain, ADVANCED with the list of dongles and their VFOs, SP, AGC+ and the S9 calibration, AUDIO, TX); **MEMORIES tab** (MEM key) with the pages CHANNELS (also the list to recall from), GROUPS, IMPORT, EXPORT.
 - **Clock** in local time or UTC (a click switches), with the date under it.
 - **The page scales with the browser window** (laid out for at least 1920 × 820 px), so the layout does not reflow in small windows.
 
