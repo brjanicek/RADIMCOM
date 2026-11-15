@@ -53,6 +53,7 @@ from rtty import RttyDecoder, station_list as rtty_station_list
 from packet import PacketDecoder
 from pocsag import PocsagDecoder
 from sonde import SondeDecoder
+from sondehub import SondeHub
 from daylog import LOG_DIR, DayLog, TextLog
 import recorder as recorder_mod
 from recorder import Recorder
@@ -72,7 +73,7 @@ from ais import AisDecoder
 import adsb as adsb_mod
 from adsb import RATE as ADSB_RATE, AdsbDecoder
 from tonesq import norm_ctcss, norm_dcs
-from sdr import (AFI_MAX_HZ, AFI_MIN_HZ, EXP_DEPTH_MAX_DB, EXP_DEPTH_MIN_DB, EXP_SENS_MAX, EXP_SENS_MIN, EXP_HOLD_MAX_MS, EXP_HOLD_MIN_MS, ASQ_MAX_DB, ASQ_MIN_DB, DECIM, DSD_MODE, HPF_MAX_HZ, HPF_MIN_HZ, LPF_MAX_HZ, LPF_MIN_HZ, MODES, SQUELCH_OFF,
+from sdr import (WF_FFT, AFI_MAX_HZ, AFI_MIN_HZ, EXP_DEPTH_MAX_DB, EXP_DEPTH_MIN_DB, EXP_SENS_MAX, EXP_SENS_MIN, EXP_HOLD_MAX_MS, EXP_HOLD_MIN_MS, ASQ_MAX_DB, ASQ_MIN_DB, DECIM, DSD_MODE, HPF_MAX_HZ, HPF_MIN_HZ, LPF_MAX_HZ, LPF_MIN_HZ, MODES, SQUELCH_OFF,
                  SAGC_PARAMS, UPCONV_MAX_HZ, ZOOMS, Receiver, list_devices, lowpass, sagc_params)
 
 
@@ -257,6 +258,8 @@ def decoder_event(kind, data):
     if kind == "adsb":
         _adsb_log(data.pop("log", []))
     hub.event(kind, data)
+    if kind == "sonde":
+        sondehub.add(data)
     try:
         if kind == "ft8" and log_on("ft8"):
             logs["ft8"].write(f"{_mhz(data['freq_hz'])} {data['snr']:+d} dB DT {data['dt']:+.1f} "
@@ -353,6 +356,26 @@ def own_station():
 packet = PacketDecoder(on_event=decoder_event, station=own_station)
 pocsag = PocsagDecoder(on_event=decoder_event)
 sonde = SondeDecoder(on_event=decoder_event, station=own_station, log_dir=os.path.join(LOG_DIR, "radiosonde"), tag=_tag)
+
+
+def _station_full():
+    """[lat, lon, alt] of the station for SondeHub, None when the location is not set (0, 0)."""
+    try:
+        s = location.load()
+        return None if s["lat"] == 0 and s["lon"] == 0 else [s["lat"], s["lon"], s["alt_m"]]
+    except Exception:
+        return None
+
+
+def _callsign():
+    try:
+        return location.load().get("callsign") or ""
+    except Exception:
+        return ""
+
+
+sondehub = SondeHub(callsign=_callsign, position=_station_full, version=update_check.own_version() or "", log_dir=os.path.join(LOG_DIR, "sondehub"),
+                    on_state=lambda i: hub.event("sondehub", i))
 sstv = SstvDecoder(on_event=decoder_event)
 acars = AcarsDecoder(on_event=hub.event, tag=_tag)
 acars.log_on = log_on("acars")
@@ -394,7 +417,8 @@ def audio_muted():
     A running scan pauses ACARS, so its audio is heard (the raw-sample decoders do not let a scan start)."""
     if receiver.scan.on and not (vdl2.enabled or ism.enabled or hfdl.enabled or ais.enabled or adsb.enabled):
         return False
-    return acars.enabled or vdl2.enabled or ism.enabled or hfdl.enabled or ais.enabled or adsb.enabled
+    return (acars.enabled or vdl2.enabled or ism.enabled or hfdl.enabled or ais.enabled or adsb.enabled
+            or sonde.enabled)      # SONDE: the audio of a sonde is only noise (single or MULTI)
 
 
 def state():
@@ -487,6 +511,8 @@ packet.set_enabled(cfg.get("packet", False))
 pocsag.set_options(cfg.get("pocsag_opts") or {})
 pocsag.set_enabled(cfg.get("pocsag", False))
 sonde.set_enabled(cfg.get("sonde", False))
+sonde.set_multi(cfg.get("sonde_multi", True))
+sondehub.set_enabled(cfg.get("sondehub", False))
 sstv.set_enabled(cfg.get("sstv", False))
 acars.set_enabled(cfg.get("acars", False) and not cfg.get("vdl2", False))
 
@@ -498,6 +524,19 @@ def on_raw(raw, fs, center_hz):
     hfdl.feed_raw(raw, fs, center_hz)
     ais.feed_raw(raw, fs, center_hz)
     adsb.feed_raw(raw, fs, center_hz)
+    if sonde.enabled and sonde.multi:
+        sonde.feed_wide(raw, fs, center_hz, visible_view(fs, center_hz))
+
+
+def visible_view(fs, center_hz):
+    """(lo, hi) Hz of the spectrum shown on the waterfall (the whole band before the first line)."""
+    start = receiver.view_start
+    zoom = max(1, int(cfg.get("zoom", 1)))
+    if start is None:
+        return center_hz - fs / 2, center_hz + fs / 2
+    bin_hz = fs / WF_FFT
+    lo = center_hz - fs / 2 + start * bin_hz
+    return lo, lo + WF_FFT // zoom * bin_hz
 
 
 receiver.on_raw = on_raw
@@ -883,13 +922,23 @@ def api_sonde_sites():
 
 @app.route("/api/sonde", methods=["GET"])
 def api_sonde():
-    return jsonify(sonde.info())
+    return jsonify(dict(sonde.info(), sondehub=sondehub.info()))
 
 
 @app.route("/api/sonde/logs")
 def api_sonde_logs():
     """Flights in the radiosonde log (data/logs/radiosonde), newest first."""
     return jsonify(sonde.logs())
+
+
+@app.route("/api/sonde/history")
+def api_sonde_history():
+    """Flights of all VFOs from the radiosonde log of the last ?days=1..7 (map history 1D / 7D)."""
+    try:
+        days = int(request.args.get("days", 1))
+    except ValueError:
+        days = 1
+    return jsonify(sonde.history(days))
 
 
 @app.route("/api/sonde/log")
@@ -1353,7 +1402,7 @@ def api_location():
     if request.method == "POST":
         body = request.get_json(force=True) or {}
         try:
-            location.save({k: body[k] for k in ("locator", "lat", "lon", "alt_m") if k in body})
+            location.save({k: body[k] for k in ("locator", "lat", "lon", "alt_m", "callsign") if k in body})
         except (TypeError, ValueError) as e:
             return jsonify({"error": str(e)}), 400
         _qth_cache[0] = 0.0          # APRS distances use the new place at once
@@ -1944,6 +1993,15 @@ def api_set():
         sonde.set_enabled(cfg["sonde"])
         save_config_later()
         hub.event("status", state())
+    if "sonde_multi" in body:
+        cfg["sonde_multi"] = bool(body["sonde_multi"])
+        sonde.set_multi(cfg["sonde_multi"])
+        save_config_later()
+        hub.event("status", state())
+    if "sondehub" in body:
+        cfg["sondehub"] = bool(body["sondehub"])
+        sondehub.set_enabled(cfg["sondehub"])
+        save_config_later()
     if "tx_enabled" in body:
         if not tx_capable():
             return jsonify({"error": "this VFO cannot transmit"}), 400

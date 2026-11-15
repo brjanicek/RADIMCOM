@@ -1980,6 +1980,45 @@ body.map-only .ft8-map.map-only-box { flex-direction: column; }
 .blk-n { position: static; display: inline-block; margin-left: 4px; vertical-align: 1px; }
 .set-subpanel .blk-flash { animation: blkFlash 1.4s ease-out; border-radius: 6px; }
 @keyframes blkFlash { 0%, 40% { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); } 100% { box-shadow: 0 0 0 0 transparent; } }
+/* DEFAULT key of a card: the values of its sliders / fields back to the defaults (data-def) */
+.def-row { display: flex; justify-content: flex-end; margin-top: 2px; }
+.sagc-legend { display: grid; grid-template-columns: max-content 1fr; gap: 3px 10px; margin: 6px 0; padding: 6px 8px;
+  border: 1px solid var(--line); border-radius: 6px; font-size: 12px; color: var(--muted); }
+.sagc-legend dt { font-weight: 700; color: var(--accent); }
+.sagc-legend dd { margin: 0; }
+.sagc-legend b { color: var(--text); font-weight: 600; }
+/* ADVANCED: diagram beside AGC+ (where its settings and the ALC work); values of the sliders in its labels */
+.agc-diagram svg { max-width: 640px; max-height: none; margin-top: 4px; }
+.agc-diagram text.l { text-anchor: start; }
+.agc-diagram text.r { text-anchor: end; }
+.agc-diagram .agc-p { font-weight: 400; fill: var(--text); }
+.agc-diagram .agc-r { fill: var(--red); }
+.agc-diagram .agc-a { fill: var(--amber); }
+.agc-diagram .agc-g, .agc-diagram .agc-gt { fill: var(--green); }
+.agc-diagram .agc-g { font-weight: 400; }
+.agc-diagram .agc-arrow-g { fill: var(--green); }
+.agc-diagram .agc-spk { fill: var(--muted); }
+.agc-diagram .agc-sep { stroke: var(--line); stroke-width: 1; }
+.agc-diagram .agc-tick { fill: none; stroke: var(--dim); stroke-width: 1; stroke-dasharray: 3 3; }
+.agc-diagram .agc-z { stroke: none; }
+.agc-diagram .z-heavy { fill: var(--red); }
+.agc-diagram .z-down { fill: color-mix(in srgb, var(--red) 55%, transparent); }
+.agc-diagram .z-hold, .agc-diagram .z-stay { fill: color-mix(in srgb, var(--amber) 55%, transparent); }
+.agc-diagram .z-up { fill: color-mix(in srgb, var(--green) 55%, transparent); }
+.agc-diagram .agc-gain { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-linejoin: round; }
+.agc-diagram .agc-clip { fill: none; stroke: var(--red); stroke-width: 2; stroke-linejoin: round; }
+.agc-diagram .agc-axis { stroke: var(--muted); stroke-width: 1.5; }
+.agc-diagram .agc-settle { fill: url(#agcHatch); stroke: none; }
+.agc-diagram .agc-hatch { stroke: var(--dim); stroke-width: 2; }
+.agc-diagram .agc-live { fill: var(--accent); font-weight: 700; }
+.agc-diagram .agc-live.clip, .agc-diagram .agc-state.clip { fill: var(--red); }
+.agc-diagram .agc-state { fill: var(--green); }
+.agc-diagram .agc-state.off { fill: var(--dim); }
+.agc-diagram .agc-mark path { fill: var(--text); stroke: #000; stroke-width: 1; }
+.agc-diagram .agc-mark line { stroke: var(--text); stroke-width: 3; }
+.agc-diagram .agc-mark[hidden] { display: none; }
+.agc-diagram .agc-mark { transition: transform .2s; }
+.agc-diagram .blk-txt:hover text, .agc-diagram .blk-txt:focus-visible text { text-decoration: underline; fill: var(--accent); }
 .set-grid3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 /* VFO › AUDIO: filters | AFI over ASQ | TSQ, DNR in the third column over both rows */
 .set-grid3:has(> .set-dyn) { align-items: stretch; }   /* boxes of one row equally high, no holes */
@@ -3102,9 +3141,9 @@ html.app-shell .r-logo-led:hover .r-logo-ledtip { display: inline; }
 .sonde-air { color: var(--green); }
 #sondeMap .leaflet-control-layers { background: rgba(10, 13, 18, .9); color: #dfe4ea; border: 1px solid var(--line2); }
 .sonde table { table-layout: fixed; }
-.sonde table.sonde-table { min-width: 1390px; }
-.sonde table.sonde-frame-table { min-width: 1190px; }
-.sonde .c-utc { width: 92px; } .sonde .c-type { width: 52px; } .sonde .c-ser { width: 96px; } .sonde .c-mhz { width: 70px; }
+.sonde table.sonde-table { min-width: 1455px; }
+.sonde table.sonde-frame-table { min-width: 1240px; }
+.sonde .c-utc { width: 104px; } .sonde .c-type { width: 52px; } .sonde .c-ser { width: 132px; } .sonde .c-mhz { width: 84px; }
 .sonde .c-pos { width: 200px; } .sonde .c-alt { width: 70px; } .sonde .c-vv { width: 58px; } .sonde .c-vh { width: 54px; }
 .sonde .c-dir { width: 58px; } .sonde .c-dist { width: 56px; } .sonde .c-az { width: 104px; } .sonde .c-sat { width: 44px; }
 .sonde .c-t { width: 58px; } .sonde .c-rh { width: 50px; } .sonde .c-bat { width: 54px; } .sonde .c-n { width: 54px; }
@@ -3115,6 +3154,26 @@ html.app-shell .r-logo-led:hover .r-logo-ledtip { display: inline; }
 .sonde td.up, .sonde-ml .up { color: var(--green); }
 .sonde td.down, .sonde-ml .down { color: #ff9b6b; }
 .sonde tr.old td { opacity: .5; }
+.sonde-hist-row { display: flex; align-items: center; gap: 3px; margin: 0 4px; font: 600 11px system-ui, sans-serif; }
+.sonde-hist-row span { margin-right: 3px; color: var(--muted); letter-spacing: .05em; }
+.sonde-hist-row[hidden] { display: none; }
+.sonde tr.hist td { opacity: .55; }
+.sonde tr.hist td.ser a { color: #8fb4ff; }
+.sondehub-key { display: inline-flex; align-items: center; gap: 5px; }
+.sh-led { width: 8px; height: 8px; border-radius: 50%; background: #3a4048; box-shadow: inset 0 0 0 1px #0006; }
+.sh-led.wait { background: var(--amber); }
+.sh-led.ok { background: var(--green); box-shadow: 0 0 5px var(--green); }
+.sh-led.err { background: #ff5b5b; box-shadow: 0 0 5px #ff5b5b; }
+.sh-led.flash { animation: sh-flash .9s ease-out; }
+@keyframes sh-flash { 0% { background: #eaffea; box-shadow: 0 0 10px var(--green); } 100% { } }
+.sonde-chans { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 8px; font: 12px system-ui, sans-serif; }
+.sonde-chans > .muted { margin-right: 4px; }
+.sonde-chan { display: inline-flex; flex-direction: column; align-items: flex-start; padding: 3px 8px; border: 1px solid var(--line2);
+  border-radius: 5px; background: #12161d; color: #dfe4ea; cursor: default; font: inherit; line-height: 1.25; }
+.sonde-chan b { font-variant-numeric: tabular-nums; color: var(--amber); }
+.sonde-chan small { color: var(--muted); }
+.sonde-chan.ok { border-color: var(--green); }
+.sonde-chan.own { box-shadow: inset 0 0 0 1px #6cb8ff; }
 #sondeMap { flex: 1 1 0; min-height: 300px; border: 1px solid var(--line); border-radius: 6px; background: #0e1116; }
 #sondeMap.leaflet-container { font: 12px system-ui, sans-serif; }
 .ais-ml.sonde-ml { grid-template-columns: 1fr 48px 74px 50px 50px; }

@@ -215,7 +215,7 @@
     </div></div>
     <div class="kgroup" data-g="STEP"><span class="klabel">STEP</span><div class="keys" id="steps"></div></div>
     <div class="kgroup" data-g="TUNE"><span class="klabel">TUNE</span><div class="keys">
-      <button id="atuKey" class="key" title="ATU: autotune in USB / LSB / AM. A click on a signal in the spectrum or waterfall listens for a moment and moves the tuning: SSB puts the signal edge on the red line (USB lower, LSB upper edge, ~2 s), AM onto the carrier (&lt;1 s)">ATU</button>
+      <button id="atuKey" class="key" title="ATU: autotune in USB / LSB / AM. A click on a signal in the spectrum or waterfall listens for a moment and moves the tuning: SSB tunes 300 Hz beyond the signal edge, onto the usual carrier (USB 300 Hz under the lower edge, LSB 300 Hz over the upper edge, ~2 s), AM onto the carrier (&lt;1 s)">ATU</button>
     </div></div>
     <div class="kgroup" data-g="AUDIO"><span class="klabel">AUDIO</span><div class="keys">
       <button id="stereoKey" class="key" title="S/M: WFM stereo / mono (mono = less noise on weak stations)">S/M</button>
@@ -300,9 +300,10 @@
           <div class="wf-cfg-lbl">Colours</div>
           <div class="wf-schemes" id="wfSchemes"></div>
           <div class="wf-cfg-row"><span>Colour range</span><span id="wfRangeText" class="value"></span></div>
-          <input id="wfRange" type="range" min="20" max="80" step="1" value="35">
+          <input id="wfRange" data-def="35" type="range" min="20" max="80" step="1" value="35">
           <div class="wf-cfg-row"><span>Colour offset</span><span id="wfShiftText" class="value"></span></div>
-          <input id="wfShift" type="range" min="-20" max="20" step="1" value="0">
+          <input id="wfShift" data-def="0" type="range" min="-20" max="20" step="1" value="0">
+          <div class="def-row"><button class="key small def-btn" data-def-for="wfRange wfShift" title="Colour range 35 dB, offset 0 (default)">DEFAULT</button></div>
         </div>
       </div>
       <!-- waterfall speed / vertical zoom, the same bar as the frequency zoom: − / +, a cell or the mouse wheel -->
@@ -791,7 +792,9 @@
 
     <section class="card ft8 sonde" id="sondeCard" data-dec="sonde" hidden>
       <div class="ft8-head">
-        <label class="key small toggle" data-dec-on="sonde" title="Radiosonde decoder (Vaisala RS41, 400–406 MHz) on/off"><input id="sondeOn" type="checkbox">ON</label>
+        <label class="key small toggle" data-dec-on="sonde" title="Radiosonde decoder (Vaisala RS41, Graw DFM, Meteomodem M10 / M20; 400–406 MHz) on/off"><input id="sondeOn" type="checkbox">ON</label>
+        <label class="key small toggle" title="MULTI: decode every sonde in the visible part of the waterfall at the same time (up to 6, in 400–406 MHz), not only the one the VFO is tuned to; their frequencies are listed below. (the VFO audio is muted while SONDE is on)"><input id="sondeMulti" type="checkbox">MULTI</label>
+        <button type="button" class="key small sondehub-key" id="sondeHubKey" title="SONDEHUB: send the decoded frames (RS41, DFM, M10, M20) to the SondeHub tracker (sondehub.org) with your callsign and station location (SETTINGS › GENERAL › LOCATION)"><span class="sh-led" id="sondeHubLed"></span>SONDEHUB</button>
         <div class="bands"><button id="sondeGo" title="Tune the VFO to 403.000 MHz in FM, the middle of the radiosonde band 400–406 MHz, and switch the decoder on">403 MHz</button></div>
         <button id="sondeInfoKey" class="key small" title="Show / hide the description of the decoder">INFO</button>
         <div class="bands" id="sondeViews">
@@ -799,6 +802,7 @@
           <button class="key small" data-view="map" title="Sondes and their flight paths on a map, next to it the temperature and humidity profile of the selected sonde">MAP</button>
           <button class="key small" data-view="frames" title="All decoded frames">FRAMES</button>
         </div>
+        <div class="sonde-hist sonde-hist-row" id="sondeHistRow" title="Flights from the radiosonde log (all VFOs): grey in the SONDES table, thin blue paths on the MAP; a click on one opens it on the MAP"><span>HISTORY</span><button type="button" class="key small" data-days="0" title="Only the sondes heard now">OFF</button><button type="button" class="key small" data-days="1" title="Also the flights of the last day">1D</button><button type="button" class="key small" data-days="7" title="Also the flights of the last 7 days">7D</button></div>
         <span class="txt-info" id="sondeInfo"></span>
         <button id="sondeClear" class="key small" title="Clear the frames, the sondes and the counters">CLR</button>
       </div>
@@ -807,10 +811,20 @@
         independent of the listening mode and filter: tune the VFO onto the sonde (a few kHz off is fine, <b>Offset</b> in the status shows how far).
         Type: <b>Vaisala RS41</b> (GFSK 4800 Bd), the sonde of most weather services around (Wien 11035, Prostějov, Budapest 403.2 MHz,
         Poprad-Gánovce 400.6 MHz, Praha), launched at about 23:15 and 11:15 UTC. Reed–Solomon corrects up to 12 wrong bytes in each half of a frame.
+        Experimental: <b>Graw DFM</b> (2500 Bd; serial, type DFM-06 / 09 / 17 / PS-15 and temperature after a few seconds, until then
+        DFM-&lt;frequency&gt;) and <b>Meteomodem M10 / M20</b> (9600 Bd, a short wide flash every second on the waterfall;
+        needs a bandwidth of 2.048 MHz or more, a weak one gives a position every few seconds; serial as on the label;
+        temperature, humidity and M20 pressure).
+        Frame layouts, serials and DFM temperature after rs1729's decoders (github.com/rs1729/RS, used by radiosonde_auto_rx).
         Temperature and humidity (RS41): the sonde sends its calibration in 51 pieces, one a second, so the temperature appears
         after up to a minute of reception and humidity soon after; humidity is approximate (a few %). Pressure (RS41-SGP) is not decoded.
         Range: line of sight, a high sonde is heard 300–500 km away; on the ground only a few km.
-        Distance, azimuth and elevation are from the station location (MENU › SETUP › LOCATION).</p>
+        Distance, azimuth and elevation are from the station location (MENU › SETUP › LOCATION).
+        While SONDE is on, the audio of the VFO is muted (MUTE in the VFO list): switch SONDE off to listen.
+        <b>MULTI</b>: every sonde signal in the visible part of the waterfall (inside 400–406 MHz, up to 6) gets its own decoder,
+        so several sondes are decoded at once; their frequencies, type, serial and level are listed above the table.
+        Zoom out (or a wider bandwidth) to watch more of the band. <b>HISTORY</b> 1D / 7D adds the flights of the last day / week from the log.</p>
+      <div class="sonde-chans" id="sondeChans" hidden></div>
       <div class="ft8-table" id="sondeListBox">
         <table class="sonde-table">
           <colgroup><col class="c-utc"><col class="c-type"><col class="c-ser"><col class="c-mhz"><col class="c-pos"><col class="c-alt"><col class="c-vv"><col class="c-vh"><col class="c-dir"><col class="c-dist"><col class="c-az"><col class="c-t"><col class="c-rh"><col class="c-sat"><col class="c-bat"><col class="c-n"><col></colgroup>
@@ -1104,7 +1118,8 @@
             <span class="scan-lbl">BAND</span><b class="scan-big">88–108 MHz</b>
             <span class="scan-lbl" title="WFM with the bandwidth of the VFO for WFM; grid 50 kHz">MODE</span><b class="scan-big">WFM</b>
             <label class="scan-opt" title="How long each station found is heard before the scan goes on up the band">LISTEN
-              <input id="scanFmS" type="number" min="1" max="600" step="1"> s</label>
+              <input id="scanFmS" data-def="8" type="number" min="1" max="600" step="1"> s</label>
+            <button class="key small def-btn" data-def-for="scanFmS" title="Listen 8 s (default)">DEFAULT</button>
             <label class="key small toggle" title="STORE FOUND: every station heard is stored as a WFM memory in the group &quot;FM YYYY-MM-DD&quot;, named by its RDS PS when it has one"><input id="scanFmStore" type="checkbox">STORE FOUND</label>
             <span class="amsat-info">A station is found by the centre of its signal (the strongest point ±100 kHz around it), so the VFO lands on its centre, not on its side.</span>
           </div>
@@ -1128,20 +1143,21 @@
         <button id="scanCfgKey" class="key small scan-cfg-key" title="Squelch, continue, priority, carrier lockout, history"><span class="scan-gear">⚙</span><span id="scanCfgSum"></span></button>
       </div>
       <div class="scan-cfg" id="scanCfg" hidden>
-        <label class="key small toggle" title="AUTO SQUELCH: every channel without its own SQ opens at its noise floor + MARGIN. Recommended (fixed levels do not fit AGC+). Off = the squelch level of its mode (when that is off too: auto squelch)"><input id="scanAsq" type="checkbox">AUTO SQUELCH</label>
+        <label class="key small toggle" title="AUTO SQUELCH: every channel without its own SQ opens at its noise floor + MARGIN. Recommended (fixed levels do not fit AGC+). Off = the squelch level of its mode (when that is off too: auto squelch)"><input id="scanAsq" data-def="1" type="checkbox">AUTO SQUELCH</label>
         <label class="scan-opt" title="Margin of the auto squelch above the noise floor of a channel, dB (a channel's own ASQ wins)">MARGIN
-          <input id="scanMargin" type="number" min="1" max="30" step="0.5"> dB</label>
+          <input id="scanMargin" data-def="6" type="number" min="1" max="30" step="0.5"> dB</label>
         <label class="scan-opt" title="When the scan goes on: AFTER SIGNAL = the set time after the signal drops (replies are heard), AT ONCE = as soon as it drops, AFTER TIME = after the set time even while the signal lasts">CONTINUE
-          <select id="scanResume"><option value="delay">AFTER SIGNAL</option><option value="carrier">AT ONCE</option><option value="time">AFTER TIME</option></select>
-          <input id="scanResumeS" type="number" min="0" max="600" step="0.5"> s</label>
+          <select id="scanResume" data-def="delay"><option value="delay">AFTER SIGNAL</option><option value="carrier">AT ONCE</option><option value="time">AFTER TIME</option></select>
+          <input id="scanResumeS" data-def="2" type="number" min="0" max="600" step="0.5"> s</label>
         <label class="scan-opt" title="Priority channels (PRIO in the table) in another tuner window are checked this often while another channel is heard (the audio stops for ~0.3 s); 0 = off">PRIORITY EVERY
-          <input id="scanPrioS" type="number" min="0" max="60" step="0.5"> s</label>
+          <input id="scanPrioS" data-def="3" type="number" min="0" max="60" step="0.5"> s</label>
         <label class="scan-opt" title="A channel open longer than this without a break (a carrier, a spur) is locked out until STOP">CARRIER LOCKOUT
-          <select id="scanCarrier"><option value="0">OFF</option><option value="0.5">30 s</option><option value="1">1 min</option><option value="2">2 min</option><option value="3">3 min</option><option value="5">5 min</option><option value="10">10 min</option><option value="30">30 min</option></select></label>
+          <select id="scanCarrier" data-def="3"><option value="0">OFF</option><option value="0.5">30 s</option><option value="1">1 min</option><option value="2">2 min</option><option value="3">3 min</option><option value="5">5 min</option><option value="10">10 min</option><option value="30">30 min</option></select></label>
         <label class="scan-opt" title="RANGE / VISIBLE BAND: which active channel is tuned: NEXT = the next one after the last heard, STRONGEST = the strongest one">PICK
-          <select id="scanPick"><option value="next">NEXT</option><option value="strongest">STRONGEST</option></select></label>
+          <select id="scanPick" data-def="next"><option value="next">NEXT</option><option value="strongest">STRONGEST</option></select></label>
         <label class="scan-opt" title="The activities (data\logs\scan_*.csv) and the WAV recordings of the scan are deleted after this many days">KEEP HISTORY
-          <input id="scanKeep" type="number" min="1" max="365" step="1"> days</label>
+          <input id="scanKeep" data-def="31" type="number" min="1" max="365" step="1"> days</label>
+        <button class="key small def-btn" data-def-for="scanAsq scanMargin scanResume scanResumeS scanPrioS scanCarrier scanPick scanKeep" title="Auto squelch on, margin 6 dB, continue 2 s after the signal, priority every 3 s, carrier lockout 3 min, pick NEXT, history 31 days (default)">DEFAULT</button>
       </div>
       <!-- pages -->
       <div class="scan-pages" id="scanPages" role="tablist">
@@ -1430,7 +1446,8 @@ ecordings, played in the browser -->
           <div class="set-subpanel set-grid3" data-set-subpanel="gen:wheel" role="tabpanel" hidden>
             <div class="setting">
               <div class="row"><span>Touchpad wheel speed</span><span id="wheelSpeedText" class="value"></span></div>
-              <input id="wheelSpeed" type="range" min="1" max="10" step="1" value="4">
+              <input id="wheelSpeed" data-def="4" type="range" min="1" max="10" step="1" value="4">
+              <div class="def-row"><button class="key small def-btn" data-def-for="wheelSpeed" title="Speed 4 (default)">DEFAULT</button></div>
               <p class="note">Tuning, zoom, LPF and HPF with touchpad scrolling. Left = slower, default 4. A mouse wheel notch is
                 always one step. Remembered in this browser, for all VFOs.</p>
             </div>
@@ -1449,7 +1466,8 @@ ecordings, played in the browser -->
                 <span class="muted">or</span>
                 <label>Latitude <input id="locLat" type="number" step="0.0001" min="-90" max="90"></label>
                 <label>Longitude <input id="locLon" type="number" step="0.0001" min="-180" max="180"></label>
-                <label>Altitude <input id="locAlt" type="number" step="1" min="-500" max="9000"> m</label></div>
+                <label>Altitude <input id="locAlt" type="number" step="1" min="-500" max="9000"> m</label>
+                <label title="Your callsign: sent with the radiosonde frames to SondeHub (SONDE › SONDEHUB)">Callsign <input id="locCall" maxlength="15" size="10" spellcheck="false"></label></div>
               <div class="sats-row">
                 <button class="key small" id="locPickBtn" title="Choose the place on an OpenStreetMap map (needs internet)">CHOOSE ON MAP</button>
                 <button class="key small accent" id="locSave">SAVE</button>
@@ -1457,7 +1475,8 @@ ecordings, played in the browser -->
               <div class="sats-pick" id="locPickMap" hidden></div>
               <p class="note" id="locPickNote" hidden>Click the place of the antenna, then SAVE. Map tiles: OpenStreetMap, need internet.</p>
               <p class="note">The location is used by the <b>satellites</b> (passes, Doppler, rotor tracking), the <b>packet decoder</b>
-                (APRS distances and map), <b>ACARS / VDL2</b>, <b>HFDL</b>, <b>AIS</b> and <b>ADS-B</b> (maps, distances). The same location is used on all VFOs.</p>
+                (APRS distances and map), <b>ACARS / VDL2</b>, <b>HFDL</b>, <b>AIS</b> and <b>ADS-B</b> (maps, distances). The same location is used on all VFOs.
+                The <b>callsign</b> goes with the location to SondeHub when SONDE › SONDEHUB sends the radiosonde frames.</p>
               <p class="note">A locator gives the centre of its square (JN88WQ: about 2 km from any point in it; enough for tracking).
                 Latitude and longitude give an exact point. A new installation starts at 0.0 / 0.0: set your own place.</p>
             </div>
@@ -1723,9 +1742,10 @@ ecordings, played in the browser -->
               <div class="setting" id="dcSetting" data-blk="8">
                 <label class="switch"><input id="dcRemove" type="checkbox"><span></span> Remove DC peak</label>
                 <div class="row"><span>Width</span><span id="dcHzText" class="value"></span></div>
-                <input id="dcHz" type="range" min="0" max="1000" step="10" value="0">
+                <input id="dcHz" data-def="0" type="range" min="0" max="1000" step="10" value="0">
                 <div class="row"><span>Suppression</span><span id="dcDbText" class="value"></span></div>
-                <input id="dcDb" type="range" min="0" max="60" step="1" value="60">
+                <input id="dcDb" data-def="60" type="range" min="0" max="60" step="1" value="60">
+                <div class="def-row"><button class="key small def-btn" data-def-for="dcHz dcDb" title="Width and suppression back to the defaults (peak only, 60 dB)">DEFAULT</button></div>
                 <p class="note">Removes the peak of the dongle in the centre of the band. Far left only the peak itself, wider also its
                   skirts (LimeSDR needs this). Suppression = how deep.</p>
               </div>
@@ -1753,17 +1773,18 @@ ecordings, played in the browser -->
                 <div class="set-cols">
                   <div>
                     <div class="row"><span>Width</span><span id="spurHzText" class="value"></span></div>
-                    <input id="spurHz" type="range" min="100" max="10000" step="100" value="3000">
+                    <input id="spurHz" data-def="3000" type="range" min="100" max="10000" step="100" value="3000">
                     <div class="row"><span>Edge</span><span id="spurEdgeText" class="value"></span></div>
-                    <input id="spurEdge" type="range" min="0" max="3000" step="50" value="1000">
+                    <input id="spurEdge" data-def="1000" type="range" min="0" max="3000" step="50" value="1000">
                   </div>
                   <div>
                     <div class="row"><span>Shift</span><span id="spurShiftText" class="value"></span></div>
-                    <input id="spurShift" type="range" min="-1000" max="1000" step="10" value="0">
+                    <input id="spurShift" data-def="0" type="range" min="-1000" max="1000" step="10" value="0">
                     <div class="row"><span>Depth</span><span id="spurDbText" class="value"></span></div>
-                    <input id="spurDb" type="range" min="0" max="60" step="1" value="40">
+                    <input id="spurDb" data-def="40" type="range" min="0" max="60" step="1" value="40">
                   </div>
                 </div>
+                <div class="def-row"><button class="key small def-btn" data-def-for="spurHz spurEdge spurShift spurDb" title="Width, edge, shift and depth back to the defaults (3000 Hz, 1000 Hz, 0, 40 dB); the learned lines stay">DEFAULT</button></div>
                 <p class="note">For spurs from local sources, such as a switching power supply: lines at a regular spacing of 12 kHz or more.
                   LEARN looks at the band received now; learn on a quiet band, a row of steady stations could look like spurs. Other bands keep their lines.
                   Each line gets a band-stop: flat over Width, sides as wide as Edge (far left = steepest), moved up or down by Shift (all lines together). Inside it the line is taken down to the noise around it, following its shape, by Depth at most. It follows changes of the gain within a few seconds.
@@ -1772,45 +1793,188 @@ ecordings, played in the browser -->
               </div>
               <div class="setting">
                 <div class="row"><span>S-meter: S9 =</span><span id="s9Text" class="value"></span></div>
-                <input id="s9" type="range" min="-90" max="-10" step="1" value="-40">
+                <input id="s9" data-def="-40" type="range" min="-90" max="-10" step="1" value="-40">
+                <div class="def-row"><button class="key small def-btn" data-def-for="s9" title="S9 = −40 dBFS (default)">DEFAULT</button></div>
                 <p class="note">S-meter calibration: level in dBFS shown as S9. For this VFO.</p>
               </div>
               <div class="setting" id="sagcSetting" data-blk="11">
                 <div class="row"><span>AGC+</span><span id="sagcNow" class="value"></span></div>
                 <div class="sagc-presets" id="sagcPresets"><span class="sagc-presets-label">PRESETS</span>
                   <button data-preset="careful" class="key small" title="Careful: no A/D clipping tolerated (the defaults before 0.114)">CAREFUL</button>
-                  <button data-preset="moderate" class="key small" title="Moderate (default): up to the A/D peak at −5 dBFS, short clipping up to 100 ppm tolerated">MODERATE</button>
-                  <button data-preset="bold" class="key small" title="Bold: the gain climbs into occasional A/D clipping (up to 20 ppm), down only above 300 ppm">BOLD</button></div>
+                  <button data-preset="moderate" class="key small" title="Moderate (default): up to the A/D peak at −5 dBFS, short clipping up to 0.01 % of the samples tolerated">MODERATE</button>
+                  <button data-preset="bold" class="key small" title="Bold: the gain climbs into occasional A/D clipping (up to 0.002 % of the samples), down only above 0.03 %">BOLD</button></div>
                 <div id="sagcRows"></div>
+                <div class="def-row"><button id="sagcDefault" class="key small def-btn" title="All AGC+ settings back to the defaults (= MODERATE)">DEFAULT</button></div>
+                <dl class="sagc-legend">
+                  <dt>%</dt><dd><b>Clipping</b>: the share of the samples of one block that hit the top of the A/D converter
+                    (clipped – distortion and false signals). 0.01 % = 1 sample in 10 000.</dd>
+                  <dt>dBFS</dt><dd><b>Peak</b> of the signal under the top of the A/D: 0 dBFS = the top (100 %), −2 dBFS ≈ 79 %,
+                    −6 dBFS ≈ half, −20 dBFS = a tenth. Shown also as % of the top.</dd>
+                  <dt>dB</dt><dd><b>Step of the tuner gain</b>: how much it goes down or up at once (not a level of the signal).</dd>
+                  <dt>s · blocks</dt><dd><b>Time</b>: <i>hold</i> in seconds, <i>settle</i> in blocks of samples (1 block ≈ 55–130 ms by the bandwidth).</dd>
+                </dl>
                 <label class="switch" title="Smooth gain of the audio ALC: the gain rises in a ramp instead of steps every 2.5 ms (falls at once). Off = the old steps"><input id="agcSmooth" type="checkbox"><span></span> Smooth ALC gain</label>
                 <p class="note">AGC+ key (GAIN): the tuner gain from the A/D level. On clipping it goes down at once, then waits
                   <i>settle</i> blocks; it goes up only after <i>hold</i> without clipping and with the A/D peak under <i>up below</i>,
                   aiming at <i>target</i>. One block ≈ 55–130 ms by the sample rate.
                   <b>Bold</b> (<i>up while clipping</i> &gt; 0): after each <i>hold</i> the gain goes one step up while the clipping stays
-                  at or under this many ppm, also with the peak at full scale; between that and <i>clipping above</i> it holds, above it
+                  at or under this share, also with the peak at full scale; between that and <i>clipping above</i> it holds, above it
                   goes down and then waits 4× <i>hold</i>. Keep <i>clipping above</i> ≥ 10× of it. <b>PRESETS</b> from careful to bold, the one matching
                   the sliders is lit: <b>CAREFUL</b> = no clipping (the defaults before 0.114), <b>MODERATE</b> (default) = gain up to
-                  a −5 dBFS peak, short clipping up to 100 ppm tolerated, <b>BOLD</b> = climbs into clipping up to 20 ppm, down above 300 ppm.
+                  a −5 dBFS peak, short clipping up to 0.01 % tolerated, <b>BOLD</b> = climbs into clipping up to 0.002 %, down above 0.03 %.
                   With WFM a block with a gain step is played in mono (the step would turn the stereo into noise).
                   <b>Smooth ALC gain</b> (on by default, for this VFO): the audio ALC in AM/LSB/USB/CW raises its gain in a smooth ramp
                   instead of steps, so it does not click and pump; it still falls at once. It is the audio gain after the demodulator,
                   not the tuner gain (the tuner has only fixed steps).</p>
+              </div>
+              <!-- beside AGC+: where each AGC+ setting and the ALC work; a click on a block or a setting shows its card / slider -->
+              <div class="setting blk-diagram agc-diagram" id="agcDiagram">
+                <div class="row"><span>Where AGC+ and ALC work</span></div>
+                <svg viewBox="0 0 600 498" role="img" aria-label="Diagram of the receiver: where AGC+, its settings and the audio ALC work">
+                  <defs><marker id="agcArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="blk-arrowhead"/></marker>
+                    <marker id="agcArrowG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="agc-arrow-g"/></marker>
+                    <pattern id="agcHatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="6" class="agc-hatch"/></pattern></defs>
+                  <!-- AGC+ loop: raw A/D samples in, tuner gain out -->
+                  <g class="blk" data-blk-for="sagcSetting" tabindex="0">
+                    <rect x="30" y="6" width="180" height="32" rx="6"/>
+                    <text class="blk-title" x="120" y="20">AGC+ <tspan id="agcdState" class="agc-state"></tspan></text>
+                    <text class="blk-sub" x="120" y="33">peak + clipping of each block</text>
+                  </g>
+                  <path class="blk-ctl" d="M45 38V58" marker-end="url(#agcArrowG)"/>
+                  <text class="blk-sub l" x="51" y="52">gain</text>
+                  <path class="blk-ctl" d="M180 60V40" marker-end="url(#agcArrowG)"/>
+                  <text class="blk-sub l" x="186" y="52">raw samples</text>
+                  <path class="blk-ctl" d="M210 22H524V58" marker-end="url(#agcArrowG)"/>
+                  <text class="blk-sub agc-g" x="380" y="17">a gain step: WFM plays that block in mono</text>
+                  <!-- RF / IQ part -->
+                  <g class="blk" data-blk-for="gainSetting" tabindex="0">
+                    <rect x="10" y="60" width="86" height="40" rx="6"/>
+                    <text class="blk-title" x="53" y="77">TUNER</text>
+                    <text class="blk-sub agc-live" id="agcdGain" x="53" y="92">gain steps</text>
+                  </g>
+                  <line class="blk-wire" x1="96" y1="80" x2="120" y2="80" marker-end="url(#agcArrow)"/>
+                  <rect class="blk-end" x="122" y="60" width="86" height="40" rx="6"/>
+                  <text class="blk-title" x="165" y="77">A/D</text>
+                  <text class="blk-sub agc-live" id="agcdAdc" x="165" y="92">converter</text>
+                  <line class="blk-wire" x1="208" y1="80" x2="232" y2="80" marker-end="url(#agcArrow)"/>
+                  <g class="blk" data-blk-for="dcSetting spurSetting" tabindex="0">
+                    <rect x="234" y="60" width="86" height="40" rx="6"/>
+                    <text class="blk-title" x="277" y="77">DC · SP</text>
+                    <text class="blk-sub" x="277" y="92">removal</text>
+                  </g>
+                  <line class="blk-wire" x1="320" y1="80" x2="344" y2="80" marker-end="url(#agcArrow)"/>
+                  <rect class="blk-end" x="346" y="60" width="86" height="40" rx="6"/>
+                  <text class="blk-title" x="389" y="77">FILTER</text>
+                  <text class="blk-sub" x="389" y="92">channel</text>
+                  <line class="blk-wire" x1="432" y1="80" x2="456" y2="80" marker-end="url(#agcArrow)"/>
+                  <rect class="blk-end" x="458" y="60" width="132" height="40" rx="6"/>
+                  <text class="blk-title" x="524" y="77">DEMOD</text>
+                  <text class="blk-sub" x="524" y="92">AM SSB CW FM WFM</text>
+                  <path class="blk-wire" d="M524 100V115H45V128" marker-end="url(#agcArrow)"/>
+                  <!-- audio part -->
+                  <rect class="blk-end" x="10" y="130" width="70" height="40" rx="6"/>
+                  <text class="blk-title" x="45" y="147">NOTCH</text>
+                  <text class="blk-sub" x="45" y="162">AM SSB</text>
+                  <line class="blk-wire" x1="80" y1="150" x2="94" y2="150" marker-end="url(#agcArrow)"/>
+                  <g class="blk" data-blk-for="agcSmooth" tabindex="0">
+                    <rect x="96" y="130" width="104" height="40" rx="6"/>
+                    <text class="blk-title" x="148" y="147">ALC</text>
+                    <text class="blk-sub" x="148" y="162">AM SSB CW</text>
+                    <text class="blk-sub agc-g" x="148" y="186">Smooth ALC gain</text>
+                  </g>
+                  <line class="blk-wire" x1="200" y1="150" x2="214" y2="150" marker-end="url(#agcArrow)"/>
+                  <g class="blk" data-blk-for="dynExp dynLim" tabindex="0">
+                    <rect x="216" y="130" width="80" height="40" rx="6"/>
+                    <text class="blk-title" x="256" y="147">DNR</text>
+                    <text class="blk-sub" x="256" y="162">EXP · LIM</text>
+                  </g>
+                  <line class="blk-wire" x1="296" y1="150" x2="310" y2="150" marker-end="url(#agcArrow)"/>
+                  <g class="blk" data-blk-for="afiHz" tabindex="0">
+                    <rect x="312" y="130" width="56" height="40" rx="6"/>
+                    <text class="blk-title" x="340" y="155">AFI</text>
+                  </g>
+                  <line class="blk-wire" x1="368" y1="150" x2="382" y2="150" marker-end="url(#agcArrow)"/>
+                  <g class="blk" data-blk-for="hpfHz lpfHz" tabindex="0">
+                    <rect x="384" y="130" width="84" height="40" rx="6"/>
+                    <text class="blk-title" x="426" y="147">HPF·LPF</text>
+                    <text class="blk-sub" x="426" y="162">audio</text>
+                  </g>
+                  <line class="blk-wire" x1="468" y1="150" x2="482" y2="150" marker-end="url(#agcArrow)"/>
+                  <g class="blk" data-blk-for="asqDb" tabindex="0">
+                    <rect x="484" y="130" width="76" height="40" rx="6"/>
+                    <text class="blk-title" x="522" y="147">SQL</text>
+                    <text class="blk-sub" x="522" y="162">ASQ</text>
+                    <text class="blk-sub agc-g" x="522" y="186">AGC+ makes it ASQ</text>
+                  </g>
+                  <line class="blk-wire" x1="560" y1="150" x2="572" y2="150" marker-end="url(#agcArrow)"/>
+                  <path class="agc-spk" d="M576 144h5l7-6v24l-7-6h-5z"/>
+                  <line class="agc-sep" x1="10" y1="200" x2="590" y2="200"/>
+                  <!-- AGC+ decision of each block -->
+                  <text class="blk-title l" x="10" y="220">AGC+ decides once per block (≈ 55–130 ms)</text>
+                  <text class="blk-sub l" x="10" y="240">clipped samples (%)<tspan class="agc-live" id="agcdClipNow"></tspan></text>
+                  <rect class="agc-z z-heavy" x="10" y="250" width="14" height="30"/>
+                  <rect class="agc-z z-down" x="10" y="280" width="14" height="32"/>
+                  <rect class="agc-z z-hold" x="10" y="312" width="14" height="32"/>
+                  <rect class="agc-z z-up" x="10" y="344" width="14" height="34"/>
+                  <path class="agc-tick" d="M24 280H150M24 312H150M24 344H150"/>
+                  <g class="blk blk-txt" data-blk-for="sagc_heavy_db" tabindex="0"><text class="l agc-r" x="32" y="269">↓ heavy: down by <tspan id="agcd_heavy_db"></tspan></text></g>
+                  <g class="blk blk-txt" data-blk-for="sagc_heavy_ppm" tabindex="0"><text class="r agc-p" x="290" y="284">heavy above <tspan id="agcd_heavy_ppm"></tspan></text></g>
+                  <g class="blk blk-txt" data-blk-for="sagc_down_db" tabindex="0"><text class="l agc-r" x="32" y="301">↓ down by <tspan id="agcd_down_db"></tspan></text></g>
+                  <g class="blk blk-txt" data-blk-for="sagc_clip_ppm" tabindex="0"><text class="r agc-p" x="290" y="316">clipping above <tspan id="agcd_clip_ppm"></tspan></text></g>
+                  <text class="l agc-a" x="32" y="333">= holds, does not go up</text>
+                  <g class="blk blk-txt" data-blk-for="sagc_allow_ppm" tabindex="0"><text class="r agc-p" x="290" y="348">bold: up while ≤ <tspan id="agcd_allow_ppm"></tspan></text></g>
+                  <text class="l agc-gt" x="32" y="366">quiet: may go up →</text>
+                  <text class="blk-sub l" x="310" y="240">A/D peak (dBFS)<tspan class="agc-live" id="agcdPeakNow"></tspan></text>
+                  <rect class="agc-z z-stay" x="310" y="250" width="14" height="80"/>
+                  <rect class="agc-z z-up" x="310" y="330" width="14" height="48"/>
+                  <path class="agc-tick" d="M324 250H430M324 280H430M324 330H430"/>
+                  <text class="r agc-p" x="590" y="254">0 dBFS = 100 % = full scale</text>
+                  <g class="blk blk-txt" data-blk-for="sagc_target_dbfs" tabindex="0"><text class="r agc-p" x="590" y="284">target <tspan id="agcd_target_dbfs"></tspan></text></g>
+                  <text class="l agc-a" x="342" y="309">= stays</text>
+                  <g class="blk blk-txt" data-blk-for="sagc_low_dbfs" tabindex="0"><text class="r agc-p" x="590" y="334">up below <tspan id="agcd_low_dbfs"></tspan></text></g>
+                  <path class="blk-ctl" d="M334 372V284" marker-end="url(#agcArrowG)"/>
+                  <g class="blk blk-txt" data-blk-for="sagc_up_db" tabindex="0"><text class="l agc-gt" x="342" y="352">↑ up toward the target,</text>
+                    <text class="l agc-gt" x="342" y="368">at most <tspan id="agcd_up_db"></tspan> per step</text></g>
+                  <!-- live: where the last block lies on each scale -->
+                  <g class="agc-mark" id="agcdClipMark" hidden><path d="M0 -6L9 0L0 6Z"/><line x1="9" y1="0" x2="28" y2="0"/></g>
+                  <g class="agc-mark" id="agcdPeakMark" hidden><path d="M300 -6L309 0L300 6Z"/><line x1="309" y1="0" x2="328" y2="0"/></g>
+                  <line class="agc-sep" x1="10" y1="390" x2="590" y2="390"/>
+                  <!-- after a step down: settle, hold, step up -->
+                  <text class="blk-sub l" x="10" y="408">tuner gain in time</text>
+                  <rect class="agc-settle" x="110" y="412" width="56" height="34"/>
+                  <path class="agc-gain" d="M10 418H110V438H470V422H590"/>
+                  <path class="agc-clip" d="M104 404l8 6-6 2 8 7"/>
+                  <line class="agc-axis" x1="10" y1="446" x2="590" y2="446"/>
+                  <g class="blk blk-txt" data-blk-for="sagc_settle" tabindex="0"><text class="agc-p" x="132" y="466">settle <tspan id="agcd_settle"></tspan></text></g>
+                  <path class="agc-tick" d="M166 452H462" marker-start="url(#agcArrow)" marker-end="url(#agcArrow)"/>
+                  <g class="blk blk-txt" data-blk-for="sagc_hold_s" tabindex="0"><text class="agc-p" x="336" y="468">hold <tspan id="agcd_hold_s"></tspan>: no clipping above the bold limit</text></g>
+                  <text class="l agc-r" x="10" y="436">clipping</text>
+                  <text class="l agc-gt" x="478" y="436">↑ step up</text>
+                  <text class="l agc-r" x="176" y="432">↓ step down</text>
+                  <text class="l blk-sub" x="10" y="492">Bold: after a step down it waits 4× hold, and the gain that clipped is not tried again for 60× hold.</text>
+                </svg>
+                <p class="note">Top: the path of the signal. AGC+ reads the raw A/D samples and sets only the tuner gain (green), before any filter,
+                  so it also sees strong signals outside the channel. The ALC is the audio gain after the demodulator (AM, SSB, CW; FM and WFM have
+                  a constant level). Middle: what AGC+ does with each block – clipping first, the peak only when there is no clipping.
+                  Bottom: one step down and back up. Click a block or a setting to find its slider or card.</p>
               </div>
             </div>
             <!-- ===== AUDIO ===== -->
             <div class="set-subpanel set-grid3" data-set-subpanel="vfo:audio" role="tabpanel" hidden>
               <div class="setting">
                 <div class="set-cols">
-                  <label class="set-field"><span>HPF – passes audio above (Hz)</span><input id="hpfHz" type="number" step="10" min="20" max="5000" value="300"></label>
-                  <label class="set-field"><span>LPF – passes audio below (Hz)</span><input id="lpfHz" type="number" step="50" min="100" max="15000" value="3000"></label>
+                  <label class="set-field"><span>HPF – passes audio above (Hz)</span><input id="hpfHz" data-def="300" type="number" step="10" min="20" max="5000" value="300"></label>
+                  <label class="set-field"><span>LPF – passes audio below (Hz)</span><input id="lpfHz" data-def="3000" type="number" step="50" min="100" max="15000" value="3000"></label>
                 </div>
+                <div class="def-row"><button class="key small def-btn" data-def-for="lpfHz hpfHz" title="HPF 300 Hz, LPF 3000 Hz (default)">DEFAULT</button></div>
                 <p class="note">Audio filters of the HPF and LPF keys, for this VFO. Faster: turn the mouse wheel over the key.
                   HPF 20–5000 Hz, LPF 100–15000 Hz, 36 dB per octave. Together they make a band-pass, so HPF always stays below LPF.
                   What you hear and REC are filtered, decoders are not. Not for DAB.</p>
               </div>
               <div class="setting">
                 <div class="row"><span>AFI – inversion frequency (Hz)</span></div>
-                <input id="afiHz" type="number" step="1" min="500" max="4000" value="1750">
+                <input id="afiHz" data-def="1750" type="number" step="1" min="500" max="4000" value="1750">
+                <div class="def-row"><button class="key small def-btn" data-def-for="afiHz" title="1750 Hz (default)">DEFAULT</button></div>
                 <p class="note">Audio frequency inversion (AFI key): the audio spectrum is mirrored around this frequency
                   (f → 2·F − f, band 0 … 2·F). The same setting scrambles and descrambles. Default 1750 Hz (band up to 3500 Hz). 500–4000 Hz.</p>
               </div>
@@ -1820,10 +1984,11 @@ ecordings, played in the browser -->
                 <label class="switch dyn-sub"><input id="dynExpAuto" type="checkbox"><span></span> AUTO – sets itself</label>
                 <div class="dyn-now dyn-sub"><span>Now</span><span id="dynExpInfo" class="value"></span></div>
                 <div class="set-cols dyn-sub">
-                  <label class="set-field"><span>Depth (dB)</span><input id="dynExpDb" type="number" step="1" min="3" max="30" value="12"></label>
-                  <label class="set-field"><span>Sensitivity (1–10)</span><input id="dynExpSens" type="number" step="1" min="1" max="10" value="5"></label>
-                  <label class="set-field"><span>Hold (ms)</span><input id="dynExpHold" type="number" step="10" min="20" max="1000" value="100"></label>
+                  <label class="set-field"><span>Depth (dB)</span><input id="dynExpDb" data-def="12" type="number" step="1" min="3" max="30" value="12"></label>
+                  <label class="set-field"><span>Sensitivity (1–10)</span><input id="dynExpSens" data-def="5" type="number" step="1" min="1" max="10" value="5"></label>
+                  <label class="set-field"><span>Hold (ms)</span><input id="dynExpHold" data-def="100" type="number" step="10" min="20" max="1000" value="100"></label>
                 </div>
+                <div class="def-row dyn-sub"><button class="key small def-btn" data-def-for="dynExpDb dynExpSens dynExpHold" title="Depth 12 dB, sensitivity 5, hold 100 ms (default)">DEFAULT</button></div>
                 <label class="switch"><input id="dynLim" type="checkbox"><span></span> LIM – soft limiter</label>
                 <p class="note">The DNR key (AUDIO, beside ALC; AM/LSB/USB/CW) switches on the ticked parts.
                   <b>EXP</b> turns the noise between words down by the <i>depth</i>; speech stays at full level. A voice detector
@@ -1838,7 +2003,8 @@ ecordings, played in the browser -->
               </div>
               <div class="setting">
                 <div class="row"><span>Auto Squelch ASQ – above the noise (dB)</span></div>
-                <input id="asqDb" type="number" step="1" min="2" max="30" value="6">
+                <input id="asqDb" data-def="6" type="number" step="1" min="2" max="30" value="6">
+                <div class="def-row"><button class="key small def-btn" data-def-for="asqDb" title="6 dB (default)">DEFAULT</button></div>
                 <p class="note">ASQ key: the squelch level follows the noise in the channel plus this margin. The noise is measured
                   in the spectrum of the dongle band (its quietest points, converted to the channel bandwidth), so a long
                   transmission in the channel does not raise the level and close it. In a crowded band the quietest channel power

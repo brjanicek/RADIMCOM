@@ -2178,7 +2178,7 @@ function renderGain() {
   // The browser hides a tooltip whose text changes (several times a second here): under the mouse it keeps
   // the values from the moment the mouse came, and they are refreshed when it comes again.
   const plusTip = "AGC+: tuner gain as high as possible without clipping the A/D converter (the R820T tuner AGC does not watch the A/D)" +
-    (smart ? `\nnow ${gainLabel(st)}, A/D peak ${st.adc_peak} dBFS${st.adc_clip ? `, clipping ${st.adc_clip_ppm} ppm` : ""}` : "");
+    (smart ? `\nnow ${gainLabel(st)}, A/D peak ${st.adc_peak} dBFS${st.adc_clip ? `, clipping ${ppmPct(st.adc_clip_ppm)} of the samples` : ""}` : "");
   if (!$("agcPlusKey").matches(":hover")) $("agcPlusKey").title = plusTip;
   $("rtlAgc").checked = !!st.rtl_agc;
   $("rtlAgc").disabled = smart;
@@ -2442,6 +2442,18 @@ const SAGC_UI = [
   ["settle", "Settle", 0, 10, 1, "blocks"],
   ["allow_ppm", "Bold: up while clipping ≤", 0, 200, 1, "ppm"],
 ];
+// shown in the units of the legend: clipping as % of the samples (kept in ppm: 100 ppm = 0.01 %),
+// a peak in dBFS also as % of the full scale of the A/D (−6 dBFS ≈ 50 %)
+const ppmPct = (ppm) => `${+(Number(ppm) / 1e4).toFixed(4)} %`;
+const dbfsPct = (db) => `${Math.round(100 * 10 ** (Number(db) / 20))} %`;
+const minusSign = (v) => String(v).replace("-", "−");
+function sagcText(k, v, unit) {
+  if (k === "allow_ppm" && !Number(v)) return "0 % (off)";
+  if (unit === "ppm") return ppmPct(v);
+  if (unit === "dBFS") return `${minusSign(v)} dBFS · ${dbfsPct(v)}`;
+  if (k === "settle") return `${v} ${Number(v) === 1 ? "block" : "blocks"}`;
+  return `${v} ${unit}`;
+}
 // AGC+ presets, careful to bold. MODERATE = the defaults of the server (SAGC_PARAMS in sdr.py)
 const SAGC_PRESETS = {
   careful: { clip_ppm: 20, heavy_ppm: 1000, down_db: 3, heavy_db: 6, low_dbfs: -8, target_dbfs: -5,
@@ -2452,19 +2464,62 @@ const SAGC_PRESETS = {
     hold_s: 1, up_db: 6, settle: 2, allow_ppm: 20 },
 };
 $("sagcRows").innerHTML = SAGC_UI.map(([k, label, min, max, step]) =>
-  `<div><div class="row"><span>${label}</span><span id="sagc_${k}_t" class="value"></span></div>` +
+  `<div class="sagc-row"><div class="row"><span>${label}</span><span id="sagc_${k}_t" class="value"></span></div>` +
   `<input id="sagc_${k}" type="range" min="${min}" max="${max}" step="${step}"></div>`).join("");
 let sagcTimer = null, sagcLocalAt = 0;
+// diagram beside AGC+ (SETTINGS › VFO › ADVANCED): the values of the sliders in its labels
+// y of the bars in the diagram: clipping from 0 up to heavy (and above), the peak from −40 dBFS up to 0
+const AGCD_CLIP_Y = [378, 344, 312, 280, 250], AGCD_PEAK_Y = [378, 330, 280, 250];
+function agcdInterp(v, xs, ys) {
+  if (v <= xs[0]) return ys[0];
+  for (let i = 1; i < xs.length; i++) {
+    if (v <= xs[i]) return xs[i] > xs[i - 1] ? ys[i - 1] + (ys[i] - ys[i - 1]) * (v - xs[i - 1]) / (xs[i] - xs[i - 1]) : ys[i];
+  }
+  return ys[ys.length - 1];
+}
+function renderAgcLive() {
+  const p = st.sagc || {}, auto = st.gain === "auto", smart = !!st.smart_agc && !auto;
+  // the A/D is measured with AGC+ or a manual gain (not with the automatic tuner gain)
+  const live = !auto && st.adc_peak != null, clip = live && !!st.adc_clip;
+  $("agcdState").textContent = smart ? "ON" : "OFF";
+  $("agcdState").classList.toggle("off", !smart);
+  $("agcdState").classList.toggle("clip", smart && clip);
+  $("agcdGain").textContent = auto ? "auto" : gainLabel(st);
+  $("agcdAdc").textContent = live ? `${minusSign(st.adc_peak)} dBFS` : "converter";
+  $("agcdAdc").classList.toggle("clip", clip);
+  $("agcdClipNow").textContent = live ? ` · now ${ppmPct(st.adc_clip_ppm || 0)}` : "";
+  $("agcdClipNow").classList.toggle("clip", clip);
+  $("agcdPeakNow").textContent = live ? ` · now ${minusSign(st.adc_peak)} dBFS · ${dbfsPct(st.adc_peak)}` : "";
+  $("agcdPeakNow").classList.toggle("clip", clip);
+  for (const id of ["agcdClipMark", "agcdPeakMark"]) $(id).toggleAttribute("hidden", !live);   // SVG: no .hidden property
+  if (!live) return;
+  const allow = Number(p.allow_ppm) || 0, cp = Number(p.clip_ppm) || 0, heavy = Number(p.heavy_ppm) || 0;
+  const ppm = Number(st.adc_clip_ppm) || 0;
+  const yc = ppm <= 0 ? 372 : agcdInterp(ppm, [0, allow, cp, heavy, heavy * 3], AGCD_CLIP_Y);
+  const yp = agcdInterp(Number(st.adc_peak), [-40, Number(p.low_dbfs), Number(p.target_dbfs), 0], AGCD_PEAK_Y);
+  $("agcdClipMark").setAttribute("transform", `translate(0 ${yc.toFixed(1)})`);
+  $("agcdPeakMark").setAttribute("transform", `translate(0 ${yp.toFixed(1)})`);
+}
+function renderAgcDiagram() {
+  const p = st.sagc || {};
+  for (const [k, , , , , unit] of SAGC_UI) {
+    const el = $(`agcd_${k}`);
+    if (!el || p[k] == null) continue;
+    el.textContent = sagcText(k, Number(p[k]), unit);
+  }
+  renderAgcLive();
+}
 function renderSagc() {
   const p = st.sagc || {};
   for (const [k, , , , , unit] of SAGC_UI) {
     const el = $(`sagc_${k}`);
     if (p[k] == null) continue;
     if (document.activeElement !== el && Date.now() - sagcLocalAt > 1500) el.value = p[k];
-    $(`sagc_${k}_t`).textContent = `${el.value} ${unit}`;
+    $(`sagc_${k}_t`).textContent = sagcText(k, el.value, unit);
   }
+  renderAgcDiagram();
   const smart = st.smart_agc && st.gain !== "auto";
-  $("sagcNow").textContent = smart ? `${gainLabel(st)} · A/D ${st.adc_peak} dBFS${st.adc_clip ? ` · clip ${st.adc_clip_ppm} ppm` : ""}` : "off";
+  $("sagcNow").textContent = smart ? `${gainLabel(st)} · A/D ${st.adc_peak} dBFS${st.adc_clip ? ` · clip ${ppmPct(st.adc_clip_ppm)}` : ""}` : "off";
   for (const b of document.querySelectorAll("#sagcPresets [data-preset]")) {
     const pre = SAGC_PRESETS[b.dataset.preset];
     b.classList.toggle("on", Object.keys(pre).every((k) => Number(p[k]) === pre[k]));
@@ -2473,8 +2528,9 @@ function renderSagc() {
 for (const [k, , , , , unit] of SAGC_UI) {
   $(`sagc_${k}`).addEventListener("input", (e) => {
     sagcLocalAt = Date.now();
-    $(`sagc_${k}_t`).textContent = `${e.target.value} ${unit}`;
+    $(`sagc_${k}_t`).textContent = sagcText(k, e.target.value, unit);
     st.sagc = { ...(st.sagc || {}), [k]: Number(e.target.value) };
+    renderAgcDiagram();
     clearTimeout(sagcTimer);
     sagcTimer = setTimeout(() => send({ sagc: { [k]: Number(e.target.value) } }), 150);
   });
@@ -2485,6 +2541,26 @@ document.querySelectorAll("#sagcPresets [data-preset]").forEach((b) => b.addEven
   renderSagc();
   send({ sagc: SAGC_PRESETS[b.dataset.preset] });
 }));
+
+$("sagcDefault").addEventListener("click", () => document.querySelector('#sagcPresets [data-preset="moderate"]').click());
+
+// DEFAULT keys: data-def-for names the inputs, each input has its default in data-def. All are set first, then each
+// one is set again just before its own events, so a handler that redraws the others (HPF / LPF) cannot undo it.
+function applyDefault(el) {
+  if (el.type === "checkbox") el.checked = el.dataset.def === "1";
+  else el.value = el.dataset.def;
+}
+for (const b of document.querySelectorAll(".def-btn[data-def-for]")) {
+  b.addEventListener("click", () => {
+    const els = b.dataset.defFor.split(" ").map((id) => $(id)).filter(Boolean);
+    els.forEach(applyDefault);
+    for (const el of els) {
+      applyDefault(el);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  });
+}
 
 // AGC+: the server sets the tuner gain from the A/D level; off = the last gain stays as a manual one
 $("agcPlusKey").addEventListener("click", () => {
@@ -4819,6 +4895,7 @@ function locFill(s) {
   $("locLat").value = s.lat;
   $("locLon").value = s.lon;
   $("locAlt").value = s.alt_m;
+  $("locCall").value = s.callsign || "";
   $("locNow").textContent = `${s.locator} · ${s.lat.toFixed(4)}°, ${s.lon.toFixed(4)}°`;
   locMode = "latlon";
 }
@@ -4843,7 +4920,7 @@ function openLocationSetup() {
 }
 
 $("locSave").addEventListener("click", async () => {
-  const loc = $("locLoc").value.trim().toUpperCase(), body = { alt_m: Number($("locAlt").value) };
+  const loc = $("locLoc").value.trim().toUpperCase(), body = { alt_m: Number($("locAlt").value), callsign: $("locCall").value.trim().toUpperCase() };
   if (locMode === "loc" && loc) body.locator = loc;
   else { body.lat = Number($("locLat").value); body.lon = Number($("locLon").value); }
   if (await locLoad(body)) locMsg("Saved");
@@ -6535,9 +6612,10 @@ function sondeUpdate(f) {
   s.n += 1;
   s.last = f.time;
   delete s.from_log;
-  for (const k of ["frame", "batt", "sats", "freq_hz", "encrypted", "gps_time", "dist", "az", "el", "temp", "rh", "temp_h", "cal_n", "subtype"]) if (f[k] != null) s[k] = f[k];
+  for (const k of ["frame", "batt", "sats", "freq_hz", "encrypted", "gps_time", "dist", "az", "el", "temp", "rh", "temp_h", "pres", "cal_n", "subtype"]) if (f[k] != null) s[k] = f[k];
   if (f.lat != null) {
-    for (const k of ["lat", "lon", "alt", "vh", "dir", "vv"]) s[k] = f[k];
+    for (const k of ["lat", "lon", "alt", "vh", "dir"]) s[k] = f[k];
+    if (f.vv != null) s.vv = f.vv;   // M20: no climb in its first frame
     s.pos_time = f.time;
     if (s.max_alt == null || f.alt > s.max_alt) s.max_alt = f.alt;
     if (!s.burst && f.vv < -8 && s.max_alt - f.alt > 200 && s.max_alt > 5000) { s.burst = true; s.burst_alt = s.max_alt; }
@@ -6557,13 +6635,16 @@ function renderSondeView() {
   else if (sondeView === "map") renderSondeMap();
 }
 
-const sondeList = () => [...sondes.values()].sort((a, b) => b.last - a.last);
+// the sondes read back from the log at the start (from_log === true) only wait for a frame: until then HISTORY shows
+// them (1D / 7D); a flight opened from the log (from_log = its file) is shown
+const sondeList = () => [...sondes.values()].filter((s) => s.from_log !== true).sort((a, b) => b.last - a.last);
 const sondePos = (s) => (s.lat == null ? "" : `${s.lat.toFixed(5)}, ${s.lon.toFixed(5)}`);
 const sondeDir = (v) => (v == null ? "" : `${Math.round(v)}°`);
 const sondeUpDown = (v) => (v > 0 ? "up" : v < 0 ? "down" : "");
 const sondeT = (v) => (v == null ? "" : v.toFixed(1));
 const sondeRh = (v) => (v == null ? "" : Math.round(v));
-const sondeCal = (s) => (s.cal_n == null ? "" : `calibration ${s.cal_n}/51${s.temp_h != null ? ` · humidity sensor ${s.temp_h.toFixed(1)} °C` : ""}`);
+const sondeCal = (s) => [s.cal_n != null ? `calibration ${s.cal_n}/51` : "", s.temp_h != null ? `humidity sensor ${s.temp_h.toFixed(1)} °C` : "",
+  s.pres != null ? `pressure ${s.pres.toFixed(1)} hPa` : ""].filter(Boolean).join(" · ");
 
 function renderSondeTable() {
   const list = sondeList();
@@ -6577,14 +6658,25 @@ function renderSondeTable() {
     `<td class="num" title="${sondeCal(s)}">${s.temp != null ? sondeT(s.temp) : s.cal_n != null && s.type === "RS41" ? `<span class="muted">${s.cal_n}/51</span>` : ""}</td><td class="num">${sondeRh(s.rh)}</td>` +
     `<td class="num">${s.sats ?? ""}</td><td class="num">${s.batt == null ? "" : `${s.batt.toFixed(1)} V`}</td><td class="num">${s.n}</td>` +
     `<td>${escHtml(sondeState(s))}${s.from_log ? ' <span class="muted" title="Read back from data\\logs\\radiosonde">from log</span>' : ""}${s.subtype ? ` <span class="muted">${escHtml(s.subtype)}</span>` : ""}${s.encrypted ? ' <span class="muted">encrypted</span>' : ""}</td></tr>`).join("");
-  $("sondeEmpty").hidden = list.length > 0;
+  if (sondeHistDays && Date.now() - sondeHistAt > 300000) sondeHistSet(sondeHistDays);   // read again every 5 min
+  const live = new Set(list.map((s) => s.serial));
+  const hist = sondeHist.filter((h) => !live.has(h.serial)).sort((a, b) => b.last - a.last);
+  const day = (t) => new Date(t * 1000).toISOString().slice(5, 16).replace("T", " ");
+  $("sondeRows").insertAdjacentHTML("beforeend", hist.map((h) =>
+    `<tr class="hist" data-file="${escHtml(h.file)}" title="From the radiosonde log: ${day(h.first)} – ${day(h.last).slice(6)} UTC"><td>${day(h.last)}</td><td>${escHtml(h.type)}</td>` +
+    `<td class="ser"><a href="#" class="sonde-log" title="Open the flight on the MAP">${escHtml(h.serial)}</a></td><td>${h.freq_hz ? fmtMHz(h.freq_hz, 3) : ""}</td>` +
+    `<td><a href="#" class="sonde-log">${sondePos(h)}</a></td><td class="num">${sondeAlt(h.alt)}</td>` +
+    `<td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>` +
+    `<td>logged · max ${sondeAlt(h.max_alt)} m${h.burst ? " · burst" : ""}</td></tr>`).join(""));
+  $("sondeEmpty").hidden = list.length + hist.length > 0;
 }
 
 function addSondeFrame(f) {
   const tb = $("sondeFrameRows");
   const tr = document.createElement("tr");
   const det = [f.gps_time ? `GPS ${aisUtc(f.gps_time)}` : "", f.ecc ? `${f.ecc} bytes corrected` : "", f.blocks_bad ? `${f.blocks_bad} blocks bad` : "",
-    f.encrypted ? "encrypted" : "", f.inverted ? "inverted" : "", f.batt != null ? `batt ${f.batt.toFixed(1)} V` : "",
+    f.pres != null ? `${f.pres.toFixed(1)} hPa` : "", f.temp_h != null ? `RH sensor ${f.temp_h.toFixed(1)} °C` : "",
+    f.pos_bad ? `position dropped: ${f.pos_bad}` : "", f.encrypted ? "encrypted" : "", f.inverted ? "inverted" : "", f.batt != null ? `batt ${f.batt.toFixed(1)} V` : "",
     f.cal_n != null && f.cal_n < 51 ? `calibration ${f.cal_n}/51` : ""].filter(Boolean).join(" · ");
   tr.innerHTML = `<td title="${escHtml(fmtMHz(f.freq_hz, 4))} MHz">${aisUtc(f.time)}</td><td>${escHtml(f.type)}</td><td class="ser">${escHtml(f.serial || "?")}</td>` +
     `<td class="num">${f.frame ?? ""}</td><td>${sondePos(f)}</td><td class="num">${sondeAlt(f.alt)}</td>` +
@@ -6638,6 +6730,7 @@ async function sondeMapOpen() {
     sondeMap.on("click", () => { if (sondeSel != null) { sondeSel = null; renderSondeMap(); } });
     sondeLayers = { tracks: L.layerGroup().addTo(sondeMap), marks: L.layerGroup().addTo(sondeMap), m: new Map() };
     sondeSitesInit();
+    sondeHistInit();
     try {
       const s = await satFetch("/api/location");
       if (s && Number.isFinite(s.lat) && Number.isFinite(s.lon)) {
@@ -6798,7 +6891,8 @@ async function renderSondeMap() {
     sondeMap.fitBounds(L.latLngBounds(list.flatMap((s) => [[s.lat, s.lon], ...s.pts.map((q) => [q[0], q[1]])])).pad(0.3), { maxZoom: 10 });
   }
   renderSondeProfile();
-  $("sondeMapNote").textContent = `${list.length} with a position · balloon = rising · parachute = falling after the burst (yellow ring) · orange = selected (its profile on the right) · grey = no frame for 10 min · green line = flight path · red dashed = prediction from the last decoded point to the landing (✕, circle = 90 % landing area), from the sonde's own winds, +1 h / +2 h / +3 h after the launch · map © OpenStreetMap`;
+  sondeHistDraw();
+  $("sondeMapNote").textContent = `${list.length} with a position · balloon = rising · parachute = falling after the burst (yellow ring) · orange = selected (its profile on the right) · grey = no frame for 10 min · green line = flight path · blue = flights of the last day / week (HISTORY 1D / 7D, a click opens one) · red dashed = prediction from the last decoded point to the landing (✕, circle = 90 % landing area), from the sonde's own winds, +1 h / +2 h / +3 h after the launch · map © OpenStreetMap`;
 }
 
 // ----- SONDE PREDICTION: where the sonde will be 1, 2 and 3 h after its launch and where it lands. No weather model:
@@ -7059,6 +7153,56 @@ function renderSondeProfile() {
   $("sondeProfNote").title = $("sondeProfNote").textContent;
 }
 
+// ----- SONDE map HISTORY: OFF / 1D / 7D = the flights of all VFOs from the radiosonde log of the last day / week
+// (/api/sonde/history), thin blue paths with the last point; a click on it opens the flight like a logged one.
+// A sonde heard now is drawn only as itself. The choice is remembered in this browser; the list is read again every 5 min.
+let sondeHist = [], sondeHistDays = [1, 7].includes(Number(recall("sondeHist"))) ? Number(recall("sondeHist")) : 0,
+  sondeHistLayer = null, sondeHistAt = 0, sondeHistKey = "";
+const SONDE_HIST_C = "#8fb4ff";
+function sondeHistInit() {
+  sondeHistLayer = L.layerGroup().addTo(sondeMap);
+  sondeHistKey = "";
+  sondeHistDraw();
+}
+async function sondeHistSet(days) {
+  sondeHistDays = days;
+  store("sondeHist", String(days));
+  document.querySelectorAll(".sonde-hist [data-days]").forEach((b) => b.classList.toggle("on", Number(b.dataset.days) === days));
+  sondeHist = [];
+  if (days) {
+    try { sondeHist = await fetch(vbase + `/api/sonde/history?days=${days}`).then((r) => r.json()); } catch { sondeHist = []; }
+  }
+  sondeHistAt = Date.now();
+  sondeHistKey = "";
+  sondeHistDraw();
+  if (sondeView === "sondes") renderSondeTable();
+}
+$("sondeHistRow").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-days]");
+  if (b) sondeHistSet(Number(b.dataset.days));
+});
+function sondeHistDraw() {
+  if (!sondeHistLayer) return;
+  if (sondeHistDays && Date.now() - sondeHistAt > 300000) { sondeHistSet(sondeHistDays); return; }
+  const live = new Set(sondeList().map((s) => s.serial));
+  const key = [...live].sort().join(",") + "|" + sondeHist.length + "|" + sondeHistAt;
+  if (key === sondeHistKey) return;   // redrawn only when the list or the sondes heard now change
+  sondeHistKey = key;
+  sondeHistLayer.clearLayers();
+  const day = (t) => new Date(t * 1000).toISOString().slice(0, 16).replace("T", " ");
+  for (const h of sondeHist) {
+    if (live.has(h.serial) || !h.pts.length) continue;
+    const tip = `${escHtml(h.serial)} · ${escHtml(h.type)}${h.freq_hz ? ` · ${(h.freq_hz / 1e6).toFixed(3)} MHz` : ""}<br>` +
+      `${day(h.first)} – ${day(h.last).slice(11)} UTC · max ${sondeAlt(h.max_alt)} m${h.burst ? " · burst" : ""}<br>last ${sondeAlt(h.alt)} m · click = open`;
+    if (h.pts.length > 1) {
+      L.polyline(h.pts.map((q) => [q[0], q[1]]), { color: SONDE_HIST_C, weight: 1.5, opacity: 0.55 })
+        .bindTooltip(tip, { sticky: true }).on("click", () => sondeLogOpen(h.file)).addTo(sondeHistLayer);
+    }
+    L.circleMarker([h.lat, h.lon], { radius: 4, color: SONDE_HIST_C, weight: 1.5, fillColor: SONDE_HIST_C, fillOpacity: 0.5 })
+      .bindTooltip(tip).on("click", () => sondeLogOpen(h.file)).addTo(sondeHistLayer);
+  }
+}
+
 async function sondeLogsLoad() {
   try { sondeLogList = await fetch(vbase + "/api/sonde/logs").then((r) => r.json()); } catch { sondeLogList = []; }
   if (sondeView === "map") renderSondeMap();
@@ -7123,6 +7267,7 @@ function setSondeView(v, save = true) {
   $("sondeListBox").hidden = v !== "sondes";
   $("sondeMapBox").hidden = v !== "map";
   $("sondeFrameBox").hidden = v !== "frames";
+  $("sondeHistRow").hidden = v === "frames";
   if (v === "map") sondeLogsLoad();
   renderSondeView();
 }
@@ -7134,7 +7279,49 @@ function renderSondeInfo(i) {
   el.textContent = `${i.ok} frames  ${i.bad} bad${i.last_rx ? off : ""}`;
   el.title = `${i.headers} frame starts found · ${i.ok} frames decoded · ${i.bad} could not be read · ${i.fixed} bytes corrected by Reed–Solomon` +
     (i.last_rx ? ` · last frame ${aisUtc(i.last_rx)} UTC` : "") + " · offset = how far the signal is from the dial";
+  renderSondeChans(i);
 }
+
+/** MULTI: the sonde signals found in the visible spectrum, each with its own decoder (only shown: the VFO stays where it is). */
+function renderSondeChans(i) {
+  $("sondeMulti").checked = !!i.multi;
+  const box = $("sondeChans");
+  box.hidden = !(i.enabled && i.multi);
+  if (box.hidden) return;
+  const ch = i.channels || [];
+  const own = (hz) => st && Math.abs(hz - st.tune_hz) <= 10000;
+  const head = i.view
+    ? `<span class="muted" title="Part of 400–406 MHz searched for sonde signals: the visible part of the waterfall">MULTI ${fmtMHz(i.view[0], 3)}–${fmtMHz(i.view[1], 3)} MHz:</span>`
+    : '<span class="muted">MULTI: the visible spectrum is outside 400–406 MHz</span>';
+  box.innerHTML = head + (i.view && !ch.length ? '<span class="muted">no sonde signal</span>' : "") + ch.map((c) =>
+    `<span class="sonde-chan${c.frames ? " ok" : ""}${own(c.hz) ? " own" : ""}" data-hz="${c.hz}" ` +
+    `title="Signal ${c.level_db} dB above the noise${c.offset_hz != null ? ` · offset ${(c.offset_hz / 1000).toFixed(1)} kHz` : ""}` +
+    `${c.age_s != null ? ` · last frame ${c.age_s} s ago` : ""}${own(c.hz) ? " · the VFO is on it (decoded by the VFO)" : ""}">` +
+    `<b>${fmtMHz(c.hz, 3)}</b><small>${c.type ? `${escHtml(c.type)} ${escHtml(c.serial || "")}` : "?"} · ${c.frames} fr · +${Math.round(c.level_db)} dB</small></span>`).join("");
+}
+$("sondeMulti").addEventListener("change", () => send({ sonde_multi: $("sondeMulti").checked }));
+
+// SONDEHUB: the key switches the upload on / off; its LED: grey off, amber on and waiting for frames,
+// green = sent in the last minute (flashes at each upload), red = an error (callsign missing, SondeHub not reached)
+let sondeHub = null;
+function renderSondeHub(h) {
+  const led = $("sondeHubLed"), key = $("sondeHubKey");
+  const flash = sondeHub && h.sent > sondeHub.sent;
+  sondeHub = h;
+  key.classList.toggle("on", !!h.on);
+  const recent = h.last_ok && Date.now() / 1000 - h.last_ok < 60;
+  led.className = "sh-led" + (!h.on ? "" : h.error ? " err" : recent ? " ok" : " wait");
+  if (flash) { void led.offsetWidth; led.classList.add("flash"); }
+  key.title = "SONDEHUB: send the decoded frames (RS41, DFM, M10, M20) to the SondeHub tracker (sondehub.org) with your callsign and station location " +
+    "(SETTINGS › GENERAL › LOCATION)" + (h.on ? `
+Callsign: ${h.callsign || "not set"} · ${h.sent} frames sent` + (h.rejected ? ` · ${h.rejected} refused by SondeHub` : "") +
+    (h.last_ok ? ` · last upload ${aisUtc(h.last_ok)} UTC` : "") + (h.queued ? ` · ${h.queued} waiting` : "") +
+    (h.error ? `
+Error: ${h.error}` : "") + (h.warn && !h.error ? `
+SondeHub: ${h.warn}` : "") : "");
+}
+$("sondeHubKey").addEventListener("click", () => send({ sondehub: !(sondeHub && sondeHub.on) }));
+setInterval(() => { if (sondeHub && sondeHub.on) renderSondeHub(sondeHub); }, 15000);   // green → amber when nothing is sent
 
 function sondePost(body) {
   return fetch(vbase + "/api/sonde", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
@@ -7160,6 +7347,8 @@ async function sondeLoad() {
     for (const f of d.frames) addSondeFrame(f);
     for (const s of d.sondes) sondes.set(s.serial, s);
     renderSondeInfo(d);
+    if (d.sondehub) renderSondeHub(d.sondehub);
+    if (sondeHistDays && !sondeHistAt) sondeHistSet(sondeHistDays);   // the HISTORY of the table, once the VFO is known
     setSondeView(sondeView, false);
   } catch { /* an older receiver without the sonde decoder */ }
 }
@@ -7198,6 +7387,12 @@ $("sondeProfSel").addEventListener("change", (e) => {
   else { sondeSel = null; renderSondeMap(); }
 });
 $("sondeRows").addEventListener("click", (e) => {
+  if (e.target.closest(".sonde-log")) {
+    e.preventDefault();
+    setSondeView("map");
+    sondeLogOpen(e.target.closest("tr").dataset.file);
+    return;
+  }
   if (!e.target.closest(".sonde-goto")) return;
   e.preventDefault();
   setSondeView("map");
@@ -10540,7 +10735,10 @@ $("setVfoKeys").addEventListener("click", async (e) => {
 // SDR DONGLE › BASIC block diagram: a block names its cards in data-blk-for; a click flashes the first shown one.
 // A block whose cards are all hidden (LimeSDR without bias-tee or RTL AGC, VFO with fixed dongle) is grey.
 function blkCards(g) {
-  return g.dataset.blkFor.split(" ").map((id) => $(id)).filter((el) => el && !el.hidden);
+  // an input (diagram beside AGC+) stands for its slider row, its switch or its card
+  return g.dataset.blkFor.split(" ").map((id) => $(id))
+    .map((el) => el && el.matches("input, select") ? el.closest(".sagc-row, .switch, .setting") : el)
+    .filter((el) => el && !el.hidden && !el.closest(".setting[hidden]"));
 }
 function syncBlkDiagram() {
   for (const g of document.querySelectorAll(".blk-diagram .blk")) g.classList.toggle("off", !blkCards(g).length);
@@ -10549,7 +10747,7 @@ for (const g of document.querySelectorAll(".blk-diagram .blk")) {
   const go = () => {
     const cards = blkCards(g);
     if (!cards.length) return;
-    // SP and AGC+ (10, 11) are on the ADVANCED page: switch to it first
+    // SP and AGC+ (10, 11) are on the ADVANCED page, the audio blocks of the AGC+ diagram on AUDIO: switch to it first
     const sub = cards[0].closest("[data-set-subpanel]");
     if (sub && sub.hidden) { showSetSub(sub.dataset.setSubpanel); store("setSub_vfo", sub.dataset.setSubpanel); }
     cards[0].scrollIntoView({ block: "nearest", behavior: "smooth" });
@@ -12936,6 +13134,7 @@ function connectEvents(v) {
   on("pocsagstate", renderPocsagInfo);
   on("sonde", (f) => { addSondeFrame(f); sondeUpdate(f); decActivity("sonde"); });
   on("sondestate", renderSondeInfo);
+  on("sondehub", renderSondeHub);
   on("packeteye", drawPktEye);
   on("packetspec", drawPktSpec);
   on("dsdcall", (c) => { addDsdCall(c); if (bodyTab !== "dsd") $("dsdTabDot").hidden = false; });

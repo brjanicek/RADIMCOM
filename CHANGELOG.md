@@ -23,6 +23,89 @@ Test beta (GitHub branch `1.0beta1`; continues the release 0.115).
   with the time, newest first, days separated. The server records the DLS of every station of the ensemble (also with
   the page closed) into `data\dab_history\` (one text file per station, `<SID> <station>.txt`); the same text
   again within 30 minutes (DLS often alternates the song and a slogan) is not recorded again.
+- **Diagram of AGC+ and the ALC** in **SETTINGS → VFO → ADVANCED**, beside the AGC+ card: the path of the signal
+  (tuner → A/D → DC · SP → channel filter → demodulator → NOTCH → ALC → DNR → AFI → HPF · LPF → SQL) with the AGC+ loop
+  (raw A/D samples in, tuner gain out, mono WFM on a gain step, ASQ with the squelch set), the decision of AGC+ per block
+  (clipping thresholds and their steps down, the peak thresholds *up below* and *target*, *up at most*) and a step down and
+  back up in time (*settle*, *hold*). The labels show the values of the sliders; a click on a block or a setting
+  highlights its slider or card (the audio blocks open the AUDIO page).
+- **DEFAULT keys:** a **DEFAULT** key by each group of adjustable values sets them back to their defaults:
+  AGC+ (= MODERATE), Remove DC peak (width, suppression), SP (width, edge, shift, depth; the learned lines stay),
+  S-meter S9, HPF / LPF, AFI, DNR (depth, sensitivity, hold), ASQ margin, touchpad wheel speed, waterfall colour range
+  and offset, the scan options (⚙: auto squelch, margin, continue, priority, carrier lockout, pick, history) and the
+  FM scan LISTEN time. Values that belong to the station (location, ppm, LO, rotor calibration, scan range) have none.
+- **AGC+ settings in plain units:** the clipping thresholds are shown as **% of the samples** of a block instead of ppm
+  (100 ppm = 0.01 %; the config and the API keep ppm), the peak levels in dBFS also as % of the full scale of the A/D
+  (−5 dBFS · 56 %), *Bold* at 0 as *off*. A **legend** under the sliders explains %, dBFS, dB (a step of the tuner gain),
+  s and blocks. The same units in the diagram beside it, the AGC+ key tooltip and the live value of the card.
+- **Radiosondes: Meteomodem M20 (experimental).** The SONDE decoder also decodes the M20 (9600 Bd biphase, a burst of
+  ~0.12 s a second): position, altitude, speed, direction, GPS time, frame; the climb from two altitudes. Only the checksum,
+  no error correction, so a weak sonde gives a position every few seconds. Shown as `M20-<3 bytes hex>`. Needs a VFO
+  bandwidth of 2.048 MHz or more. Found and tested on a real M20 on 403.5 MHz.
+- **SONDE map HISTORY 1D / 7D:** in the header beside SONDES / MAP / FRAMES (the same keys as the table), the flights of all VFOs from the radiosonde log of
+  the last day or week as thin blue paths with their last point; a click opens the flight (`/api/sonde/history`).
+- **Better radiosonde decoder (after rs1729 / radiosonde_auto_rx):**
+  - **M20 serial as on the label** (e.g. `M20-507-2-02967` instead of the raw bytes `M20-C25C2E`), the climb straight
+    from the frame (instead of two altitudes), battery voltage.
+  - **Meteomodem M10** (Trimble GPS, 9615 Bd): position, altitude, speeds, satellites, battery, GPS time, serial as on
+    the label. The framer reads the length byte, so M10 and M20 come out of the same path. Tested on synthetic frames.
+  - **DFM serial, type and temperature:** the serial from the two halves in the configuration blocks (taken when it has
+    come twice the same; the sonde heard before as `DFM-<frequency>` is renamed), the type DFM09 / DFM09P / DFM17 /
+    DFM17P, the temperature from the measurement channels; satellites and the time of the sonde from blocks 1 and 8.
+  - **M10 / M20 temperature, humidity and pressure** (M20 with a pressure sensor; the real M20 at 11.1 km: −58.3 °C,
+    219 hPa), humidity sensor temperature; M20 humidity by DF9DQ's formula.
+  - **DFM-06, DFM-06P and PS-15** get their serial too (DFM-06 hex from the channel after the null channel, PS-15 in two
+    halves); the configuration channels are a port of rs1729's conf_out (null / highest channel, resets), plus the
+    battery of DFM-09 / 17.
+  - **SONDEHUB reads SondeHub's answers:** 202 with errors was taken as success (LED green, but nothing on SondeHub).
+    Now the refused frames are counted, all refused = error (LED red with the reason), 4xx not sent again, 5xx / no
+    connection sent again. SondeHub refuses software it has not validated yet ("unknown to us", also the station:
+    403): then the LED says so and the upload is tried every 10 minutes. Every object to be sent is written to
+    `data\logs\sondehub\<date>.jsonl` (the samples SondeHub asks for the validation). DFM: every 30 s.
+  - SONDES table: wider UTC, Serial and MHz columns (the date of a HISTORY row and `M20-507-2-02967` were cut).
+  - The last 20 M10 / M20 frames with a wrong checksum are kept (`bad_frames` in `/api/sonde`, time and hex) to
+    see why a sonde gives bad frames. The table HISTORY is read from the VFO once it is known (it went to the
+    launcher at the start: 404).
+  - **SONDEHUB** now also sends DFM (once the serial is known; PS-15 as type PS-15), M10 and M20, with the per-type
+    rules of radiosonde_auto_rx; pressure as `pressure`.
+  - Sources: rs1729's decoders (github.com/rs1729/RS: m10mod.c, m20mod.c, dfm09mod.c), radiosonde_auto_rx and the
+    SondeHub telemetry format of Project Horus; reimplemented in Python, credited in NOTICE.md and the SONDE docs.
+- **SONDEHUB: radiosonde frames to the SondeHub tracker.** One key **SONDEHUB** in the header of the SONDE page
+  (per VFO, config `sondehub`) sends the decoded frames to [sondehub.org](https://sondehub.org) like
+  radiosonde_auto_rx: every 15 s one gzipped list (`PUT /sondes/telemetry`), the station to `/listeners` at the start
+  and every 6 h (so it is on the map as a receiver). Its **LED**: grey off, amber on and waiting for frames, green =
+  sent in the last minute (flashes at each upload), red = error (the tooltip says which; frames are kept and sent
+  again). Frames with a good GPS position and time (not the encrypted RS41-SGM). New **Callsign** in SETTINGS › GENERAL › LOCATION
+  (`callsign` in `/api/location`, data\location.json), needed for the upload. New module sondehub.py.
+- **Radiosondes: a bad GPS position is dropped.** A sonde that loses its satellites after the burst goes on sending an
+  extrapolated, frozen or random position (seen: X1453430 "falling" at 200 m/s to −1700 m, then 60 km high 160 km
+  away, while its −64 °C said it was still at 11 km). Dropped now: fewer than 4 satellites, altitude under −100 m or
+  over 45 km, a fall faster than 60 m/s + altitude / 250, a jump farther than 2 km + 0.25 km/s from the last good
+  position (after 30 jumps in a row the new place is believed). The rest of the frame (temperature, humidity,
+  battery) stays; FRAMES shows *position dropped* and why. Applied to the logs read back too (the old flights are
+  shown cleaned, the log files are not changed).
+- **SONDE MULTI: several sondes at once.** With **MULTI** (on by default) every sonde signal in the visible part of the
+  waterfall (inside 400–406 MHz, up to 6) gets its own decoder (RS41, DFM, M20), not only the one the VFO is tuned to.
+  The signals are found once a second in a max-hold spectrum (so the short M20 bursts count too) and cut out of the
+  dongle samples by one FFT channelizer (overlap-save, ~30–75 kHz channels; ~7 ms a channel per block of the dongle,
+  in its own thread). Their **frequencies** are listed above the SONDES table with the type, serial, frames and the
+  level (the VFO is not retuned; the one the VFO is on is decoded by the VFO only, no double frames).
+  The audio of the VFO is muted while the SONDE decoder is on, with or without MULTI (like HFDL / AIS).
+  `sonde_multi` in the config / `/api/set`; `channels` and `view` in `/api/sonde`.
+- **SONDES table HISTORY OFF / 1D / 7D:** the flights of the last day / week from the radiosonde log are added to the
+  table in grey (last time, type, serial, frequency, last position and altitude, highest altitude, burst); a click opens
+  the flight on the MAP. The keys are in the header beside SONDES / MAP / FRAMES, one choice for the table and the map.
+  The sondes read back from the log at the start are shown only by HISTORY until they are heard again (with OFF the
+  table and the map show only the sondes heard now; a sonde heard again continues with its logged path).
+- **Live values in the AGC+ diagram:** AGC+ ON / OFF, the tuner gain now in TUNER, the A/D peak in A/D (red on
+  clipping), *now* in the headers of both scales and a white mark where the last block lies on the clipping scale and on
+  the peak scale (shown with AGC+ or a manual gain; the automatic tuner gain does not measure the A/D).
+
+### Changes
+
+- **ATU in SSB tunes onto the usual carrier:** instead of the edge of the voice band on the red line, the tuning goes
+  300 Hz beyond it – in USB 300 Hz below the lower edge, in LSB 300 Hz above the upper edge (transmitters pass the
+  voice from about 300 Hz), so the voice sounds natural at once.
 
 ### Fixes
 

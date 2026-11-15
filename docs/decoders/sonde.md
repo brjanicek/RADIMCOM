@@ -9,17 +9,60 @@ horizontal speed, direction and climb of the sonde, its flight path on a map, th
    the VFO; a few kHz off is fine, the **offset** in the status line shows how far the signal is from the dial).
    **403 MHz** in the header of the page tunes the VFO to the middle of the band in FM and switches the decoder on
    (the dongle moves there when 403 MHz is outside its band).
-2. Switch **ON** on the SONDE page. RS41 and DFM run at once, in both polarities.
+2. Switch **ON** on the SONDE page. RS41, DFM and M20 run at once, in both polarities.
+   **MULTI** (on by default): every sonde signal in the visible part of the waterfall (inside 400–406 MHz, up to 6)
+   gets its own decoder too, so several sondes are decoded at once without retuning. Their frequencies are listed above
+   the SONDES table (`MULTI 402.000–404.000 MHz:` and one key per signal: frequency, type and serial once decoded,
+   frames, level above the noise; green = frames decoded, blue frame = the VFO is on it). The VFO is not retuned.
+   The search covers what the waterfall shows: zoom out or use a wider bandwidth to watch more of the band.
+   How: once a second a max-hold spectrum of the dongle samples (1 kHz bins) finds signals at least 8 dB above the
+   median noise and 4 kHz wide (the gaps of up to 10 kHz merged, so a strong M20 stays one); each signal gets a channel
+   cut out by one FFT channelizer (overlap-save, the dongle rate / a power of two ≥ 30 kHz, flat ±12 kHz) and its own
+   RS41 / DFM / M20 demodulator. A channel without a signal and a frame for 60 s is dropped. The signal the VFO is
+   tuned to (±10 kHz) is decoded by the VFO only. While SONDE is on (with or without MULTI), the audio of the VFO is
+   muted (a sonde is only noise to listen to; MUTE in the VFO list); switch SONDE off to listen. Runs in its own thread; ~7 ms of CPU a channel per 64 ms of samples.
 3. **SONDES**: the newest data of each sonde (serial, frequency, position, altitude, climb, km/h, direction, distance,
    azimuth / elevation from the station, RS41 temperature and humidity, GPS satellites, battery, state: rising, falling after the burst, landed, lost).
    A click on the serial or position opens the **MAP**: a balloon while it rises, a parachute after the burst (yellow ring
    at the highest point), the flight path in green, the station as a red dot; the □ key opens the map in a new tab
-   (`?map=sonde`). **FRAMES**: every decoded frame. Every frame goes to the radiosonde log `data\logs\radiosonde\` automatically (no LOG key; see below).
+   (`?map=sonde`). **HISTORY OFF / 1D / 7D** in the header of the page, beside SONDES / MAP / FRAMES (one choice for the table and the map): the flights of all VFOs from the
+   radiosonde log of the last day / week as thin blue paths with their last point (tooltip: serial, type, frequency, time,
+   highest altitude); a click opens the flight like a logged one. A sonde heard now is drawn only once, as itself.
+   The choice is remembered in the browser, the list is read again every 5 minutes (`/api/sonde/history?days=1..7`).
+   In the SONDES table the same choice adds these flights to the table in grey (last time,
+   type, serial, frequency, last position and altitude, highest altitude, burst); a click opens the flight on the MAP. **FRAMES**: every decoded frame. Every frame goes to the radiosonde log `data\logs\radiosonde\` automatically (no LOG key; see below).
 
 Around Bratislava (station JN88NC): Wien Hohe Warte (11035, 56 km, RS41, launched at about 23:00 and 11:00 UTC),
 Prostějov, Budapest (403.2 MHz), Poprad-Gánovce (400.6 MHz), Praha, Graz, Linz, Zagreb – all RS41.
 DFM sondes are launched by the military (e.g. Záhorie, irregularly). A high sonde is heard 300–500 km away,
 one on the ground only a few km.
+
+## SONDEHUB
+
+The **SONDEHUB** key in the header sends the decoded frames to the [SondeHub](https://sondehub.org) tracker, where
+the sonde appears on the common map with the frames of other stations (and your station as a receiver). Set your
+**Callsign** in SETTINGS › GENERAL › LOCATION first; the location there goes with it. One key for each VFO.
+
+- The **LED** on the key: grey = off, amber = on and waiting for frames, green = frames sent in the last minute
+  (it flashes at each upload), red = error: no callsign, or SondeHub could not be reached (the tooltip shows the
+  error, the number of frames sent and waiting; the frames are kept, up to 2000, and sent again after a minute).
+- Sent: frames with a good GPS position (see the filter below) and the time of the frame: **RS41**, **DFM** (only
+  once its serial has come, never as DFM-<frequency>), **M10** and **M20** (serial as on the label): serial,
+  frame, time, position, altitude, climb, speed, direction, satellites, battery, temperature, humidity, subtype,
+  frequency, your callsign and location. Not sent: the encrypted RS41-SGM, an M20 sending serial 0.
+  Per type as radiosonde_auto_rx does it: the serial without `DFM-` / `M10-` / `M20-`, DFM subtype DFM06 / DFM09 /
+  DFM09P / DFM17 (DFM-17P without a subtype), the frame number of DFM / M10 / M20 = the time of the frame.
+- **SondeHub validates new software first.** Data from software it does not know yet are refused ("This software is
+  unknown to us", the station too: 403), so RADIMCOM's uploads are refused until SondeHub has checked it: contact
+  support@sondehub.org or sondehub.org/go/discord (a person, not a generated text), send at least 30 minutes of a real
+  flight for each sonde type – every object RADIMCOM would send is written to `data\logs\sondehub\<YYYY-MM-DD>.jsonl`
+  (one JSON object a line) for this. While refused the LED is red with the reason, the frames are not sent again and
+  the upload is tried every 10 minutes. SondeHub also says it prefers the known decoders of rs1729 to reimplementations
+  of them (RADIMCOM's own decoders are reimplementations), see
+  <https://github.com/projecthorus/sondehub-infra/wiki/Sonde-Telemetry-Validation>.
+- How: every 15 s (30 s with DFM frames, for SondeHub's DFM altitude check) the collected frames go as one gzipped JSON list to `PUT https://api.v2.sondehub.org/sondes/telemetry`
+  (the SondeHub telemetry format of radiosonde_auto_rx); the station to `PUT /listeners` at the start and every 6 hours.
+  sondehub.py; tests in tests/test_sondehub.py.
 
 ## Launch sites on the map
 
@@ -85,9 +128,36 @@ map. The coordinates in the example are only an illustration – use the real po
   The circle around the ✕ is the landing area: 60 more runs with the inputs scattered by their likely errors (wind of
   each layer, descent / ascent rate, burst altitude, ground), the circle holds 90 % of them; the label gives the landing
   time span and the radius.
-- **Graw DFM** (DFM-06 / 09 / 17), *experimental*: 2500 Bd Manchester (1250 bit/s). Position, altitude, speed,
-  direction, climb, frame counter. The serial number is not decoded yet: the sonde is shown as `DFM-<frequency>`.
-- Meteomodem M10 / M20 and others are not decoded.
+- **Graw DFM** (DFM-06 / 06P / 09 / 09P / 17 / 17P, PS-15), *experimental*: 2500 Bd Manchester (1250 bit/s). Position,
+  altitude, speed, direction, climb, frame counter, satellites, time (UTC of the sonde). The **serial number** comes in
+  the configuration blocks: DFM-09 / 17 and PS-15 in two halves (decimal, e.g. DFM-23038743), DFM-06 whole in the
+  channel after the null channel 0x5A / 0x5B (hex, e.g. DFM-612345). It is taken when it has come twice the same (a few
+  seconds); until then the sonde is shown as `DFM-<frequency>` and then renamed. The channel of the serial gives the
+  **type** (DFM06, DFM06P, PS15, DFM09, DFM09P, DFM17, DFM17P), and with it the **temperature** from the measurement
+  channels 0–8 (reference resistor 220 kΩ DFM-06 / 09, 332 kΩ DFM-17, Steinhart–Hart) and the **battery** of DFM-09 / 17.
+- **Meteomodem M20**, *experimental*: 9600 Bd biphase, one burst of ~0.12 s a second (on the waterfall: a short
+  wide flash every second). Position, altitude, horizontal speed, direction, climb, battery, GPS time, frame counter.
+  Serial as on the label, e.g. `M20-507-2-02967` (year and month of production, line, number). No error correction,
+  only the checksum: a weak signal gives a position every few seconds. Needs a VFO bandwidth of **2.048 MHz or more**
+  (at 1.024 / 1.536 MHz the channel has too few samples per symbol). Found on a real M20 on 403.5 MHz (2026-11-15);
+  logs of older versions keep its raw name M20-C25C2E.
+- **Meteomodem M10** (Trimble GPS), *experimental*: 9615 Bd, the same header and checksum as M20, 101 bytes.
+  Position, altitude, speeds, climb, satellites, battery, GPS time, serial as on the label (`M10-805-1-20298`).
+  Tested on synthetic frames only (no M10 heard here yet).
+- **M10 / M20 temperature, humidity, pressure:** main sensor an NTC (Shibaura PB5-41E) in a divider of 3 ranges →
+  resistance → Steinhart–Hart; humidity sensor temperature from the SMD NTC (2.2 kΩ). Humidity: M20 by DF9DQ's formula
+  with the calibration word of the frame and the sensor temperature; M10 from the 555 counts of the capacitive sensor
+  against its 55 % reference with rs1729's empirical cold correction (approximate). M20 with a pressure sensor also
+  gives the **pressure** (hPa, in the T tooltip and FRAMES, sent to SondeHub). Checked on the real M20 frame: 11.1 km,
+  −58.3 °C, 219 hPa (standard atmosphere at 11.1 km: 220 hPa).
+- Other types (RS92, iMet, LMS6, MRZ, Meisei …) are not decoded.
+
+The M10 / M20 frame layouts, checksum, serial numbers, temperature, humidity and pressure and the DFM serial, type,
+temperature and battery follow the decoders of **rs1729** (zilog80) (<https://github.com/rs1729/RS>: m10mod.c, m20mod.c, dfm09mod.c; the M20 humidity is DF9DQ's
+formula from <https://github.com/einergehtnochrein/ra-firmware>), which radiosonde_auto_rx of
+**Project Horus** uses (<https://github.com/projecthorus/radiosonde_auto_rx>); reimplemented in Python, no code
+taken over. The SondeHub upload follows radiosonde_auto_rx's sondehub.py and the SondeHub telemetry format
+(<https://github.com/projecthorus/sondehub-infra/wiki>).
 
 ## How it works
 
@@ -100,9 +170,26 @@ map. The coordinates in the example are only an illustration – use the real po
   (Berlekamp–Massey, Chien, Forney). The frame is a chain of blocks with a CRC-16 each; only blocks with a good CRC are used.
 - **DFM**: the 16-bit header (32 symbols, at most 2 wrong) starts 264 bits: a configuration block of 7 and two data
   blocks of 13 Hamming(8,4) codewords, sent interleaved; one wrong bit per codeword is corrected. The last nibble of a
-  data block is its number: 2 = latitude and speed, 3 = longitude and direction, 4 = altitude and climb; a position is
-  published when 2, 3 and 4 of the same second are there.
+  data block is its number: 1 = second (ms), 2 = latitude and speed, 3 = longitude and direction, 4 = altitude and
+  climb, 8 = date, hour, minute and satellites; a position is published when 2, 3 and 4 of the same second are there.
+  Configuration block: channel nibble, then 6 nibbles: channels 0–8 are measurements (24-bit float: 4-bit exponent,
+  20-bit value). The serial channel is the one after the null channel (data 0) or the highest one followed by C:
+  A–D + C (DFM-09 / 17) and 7 / 8 + 0 (PS-15) carry a half of the serial (nibbles 2–5, nibble 6 = which half),
+  DFM-06 (null channel 0x5A / 0x5B) the whole serial in nibbles 1–6 (port of rs1729's conf_out).
+- **M10 / M20**: the 32-symbol header `10011001100110010100110010011001` (at most 2 wrong) starts the frame:
+  bit = 1 when the first symbols of two neighbouring pairs are equal, MSB first. Byte 0 = length L (M20 0x45, M10 0x64,
+  M10 with aux data 0x76), byte 1 = type (0x20 M20, 0x9F M10); the framer reads the length byte and collects L + 1 bytes;
+  the checksum of M10 / M20 (rs1729's m10mod) is in bytes L−1, L over bytes 0..L−2.
+  M20: altitude 0x08 (3 bytes, cm), east / north / up speed 0x0B / 0x0D / 0x18 (cm/s), GPS time of week 0x0F (s),
+  serial 0x12 (3 bytes), frame 0x15, GPS week 0x1A, latitude / longitude 0x1C / 0x20 (µ°), battery 0x26 (× 3.3 / 255 V).
+  M10: east / north / up speed 0x04 / 0x06 / 0x08 (1/200 m/s), time of week 0x0A (ms), latitude / longitude 0x0E / 0x12
+  (360° / 2³²), altitude 0x16 (mm), satellites 0x1E, GPS week 0x20, battery 0x45, serial 0x5D (5 bytes), frame 0x62.
 - Burst: the sonde falls faster than 8 m/s more than 200 m below its highest point (above 5 km).
+- Bad GPS positions are dropped (the rest of the frame stays, FRAMES shows *position dropped* and why): fewer than
+  4 satellites (after the burst a sonde often loses its fix and sends an extrapolated, frozen or random position),
+  altitude under −100 m or over 45 km, a fall faster than 60 m/s + altitude / 250, a jump farther than
+  2 km + 0.25 km/s from the last good position (after 30 jumps in a row the new place is believed). Also when a log is
+  read back, so old flights are shown cleaned; the log files are not changed.
 - The server keeps the last 300 frames and the flight path of up to 50 sondes (`/api/sonde`; not over a restart).
 
 ## Tests
@@ -110,7 +197,9 @@ map. The coordinates in the example are only an illustration – use the real po
 `python -m unittest tests.test_sonde`: Reed–Solomon (up to 12 wrong bytes, too many), geodesy (ECEF round trip,
 distance / azimuth / elevation), the RS41 frame (header, de-whitening, blocks, CRC, extended frame, corrected bit errors),
 the whole chain on synthetic GFSK at 32 and 37.5 kHz baseband, inverted, weak (11 dB), with a tuning offset, DFM frames,
-noise only.
+noise only, M20 (a real frame and synthetic ones), M10, the DFM serial / type / temperature (DFM-17, DFM-06, PS-15), M10 / M20 temperature, humidity and
+pressure (the real M20 frame), MULTI (two sondes at
+once), the filter of bad GPS positions; tests/test_sondehub.py: the SondeHub objects of all types.
 
 Real signals: the I/Q recordings of the Signal Identification Wiki (RS41-SG and DFM-17, both on the ground)
 decode completely: RS41 31 frames of 32 (serial, GPS time, position, battery; all blocks with a good CRC,
