@@ -17,7 +17,12 @@ Test beta (GitHub branch `1.0beta1`; continues the release 0.115).
   and **amber** outside it. Also the base for sharing VFO settings with other RADIMCOM users later.
 - **DAB buffering is shown:** after choosing a station or switching to a VFO with DAB there is a moment without sound;
   until the sound plays, **DAB** on the VFO display and the **DAB** key blink. On an inactive VFO with **CUE** on, only its
-  grey **DAB** on the display blinks until the CUE sound plays.
+  grey **DAB** on the display blinks until the CUE sound plays. Switching to a VFO whose DAB station plays on CUE (and
+  away from a VFO with CUE on) keeps the running stream, so the sound goes on without a new buffering.
+- **DAB history of the songs:** under the station card the list **PLAYED** shows the songs (DLS texts) of the station
+  with the time, newest first, days separated. The server records the DLS of every station of the ensemble (also with
+  the page closed) into `data\dab_history\` (one text file per station, `<SID> <station>.txt`); the same text
+  again within 30 minutes (DLS often alternates the song and a slogan) is not recorded again.
 
 ### Fixes
 

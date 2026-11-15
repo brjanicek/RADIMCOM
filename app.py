@@ -1173,6 +1173,14 @@ def api_dab():
     return jsonify(dab.mux())
 
 
+@app.route("/api/dab/history/<sid>")
+def api_dab_history(sid):
+    """Songs played by the station (DLS texts), newest first, from data/dab_history/."""
+    if not re.fullmatch(r"(0x)?[0-9a-fA-F]{1,8}", sid):
+        return jsonify([])
+    return jsonify(dab.history.get(sid))
+
+
 @app.route("/api/dab/slide/<sid>")
 def api_dab_slide(sid):
     r = dab.slide(sid)

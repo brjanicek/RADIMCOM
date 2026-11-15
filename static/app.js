@@ -5655,6 +5655,7 @@ function stopDab() {
   clearInterval(dabTimer);
   dabTimer = null;
   dabPlay(null);
+  dabClearHistory();
   dabLastInfo = {};
   $("dabServices")._key = null;
   $("dabServices").innerHTML = `<div class="ft8-empty">Searching the ensemble…</div>`;
@@ -5700,15 +5701,45 @@ async function pollDab() {
   renderDabBuf();
   if (!cur) return;
   renderDabNow(cur);
+  dabLoadHistory(base, cur);
   if (cur.mot_time && cur.mot_time !== dabMotTime) {
     dabMotTime = cur.mot_time;
     $("dabSlide").src = `${base}/api/dab/slide/${cur.sid}?t=${cur.mot_time}`;
   }
 }
 
+/** History of the songs of the station (server: data/dab_history/), read again when the station or its DLS changes. */
+let dabHistKey = null;
+async function dabLoadHistory(base, cur) {
+  const key = `${base}|${cur.sid}|${cur.dls || ""}`;
+  if (key === dabHistKey) return;
+  dabHistKey = key;
+  let list;
+  try {
+    list = await (await fetch(`${base}/api/dab/history/${cur.sid}`)).json();
+  } catch (e) { dabHistKey = null; return; }
+  if (dabHistKey !== key) return;
+  const today = new Date().toLocaleDateString("sv");     // YYYY-MM-DD, as in the file
+  let day = today, html = "";
+  for (const x of list) {
+    const d = x.time.slice(0, 10);
+    if (d !== day) { day = d; html += `<div class="dab-hist-day">${dabEsc(d)}</div>`; }
+    html += `<div class="dab-hist-row"><time>${dabEsc(x.time.slice(11, 16))}</time><span>${dabEsc(x.text)}</span></div>`;
+  }
+  $("dabHist").innerHTML = html;
+  $("dabHistBox").hidden = !list.length;
+}
+
+function dabClearHistory() {
+  dabHistKey = null;
+  $("dabHist").innerHTML = "";
+  $("dabHistBox").hidden = true;
+}
+
 /** Plays station sid (null = stop). The MP3 stream goes through MAIN volume like the normal audio. */
 function dabPlay(sid) {
   dabSid = sid;
+  dabClearHistory();
   dabPlaying = dabDecoding = false;       // a new station buffers again (blinking DAB until it plays)
   renderDabBuf();
   adDabInfo = null;                       // the AD window: filled again by the next pollDab
@@ -5729,14 +5760,10 @@ function dabPlay(sid) {
   }
   const ctx = audioContext();
   if (!dabEl) {
-    dabEl = new Audio();
-    dabEl.crossOrigin = "anonymous";      // the receiver of the VFO is on another port (CORS * on the server)
-    ctx.createMediaElementSource(dabEl).connect(audioTap);
-    // buffering: until "playing"; again when the stream waits for data, stalls, fails or ends
-    dabEl.addEventListener("playing", () => { dabPlaying = true; renderDabBuf(); });
-    for (const ev of ["waiting", "stalled", "emptied", "error", "ended", "pause"]) {
-      dabEl.addEventListener(ev, () => { dabPlaying = false; renderDabBuf(); });
-    }
+    const el = new Audio();
+    el.crossOrigin = "anonymous";         // the receiver of the VFO is on another port (CORS * on the server)
+    el._src = ctx.createMediaElementSource(el);
+    dabWire(el);
   }
   dabEl.src = `${vbase}/api/dab/audio/${sid}`;
   dabEl.play().catch(() => {
@@ -5753,6 +5780,49 @@ function dabPlay(sid) {
   $("dabNowMeta").textContent = "buffering…";
   $("dabDls").textContent = "";
   $("dabDlsBox").hidden = true;
+}
+
+/** Makes el (an <audio> of a DAB stream, el._src its source node) the DAB player of MAIN: through audioTap, with the
+ *  buffering events. The same element may come from CUE (dabFromCue) and go back to it (dabToCue). */
+function dabWire(el) {
+  dabEl = el;
+  el._src.disconnect();
+  el._src.connect(audioTap);
+  if (el._dabWired) return;
+  el._dabWired = true;
+  // buffering: until "playing"; again when the stream waits for data, stalls, fails or ends
+  el.addEventListener("playing", () => { if (el === dabEl) { dabPlaying = true; renderDabBuf(); } });
+  for (const ev of ["waiting", "stalled", "emptied", "error", "ended", "pause"]) {
+    el.addEventListener(ev, () => { if (el === dabEl) { dabPlaying = false; renderDabBuf(); } });
+  }
+}
+
+/** Switching to VFO v whose DAB station plays on CUE: the running stream goes on through MAIN (no new buffering). */
+function dabFromCue(v) {
+  const h = v.cueAudio, el = h && h.el;
+  if (!el || !h.sid) return;
+  h.live = false;
+  h.ctrl.abort();
+  h.el = null;
+  h.gain.disconnect();
+  v.cueAudio = null;
+  if (dabEl && dabEl !== el) { dabEl.pause(); dabEl.removeAttribute("src"); dabEl.load(); }
+  dabWire(el);
+  dabSid = h.sid;
+  dabPlaying = !el.paused && !h.buf;
+  dabDecoding = true;
+}
+
+/** Leaving VFO v with CUE on while its DAB station plays: the running stream goes on in CUE (no new buffering). */
+function dabToCue(v) {
+  if (!v || !v.cue || !dabEl || !dabSid || v.cueAudio) return;
+  const el = dabEl;
+  dabEl = null;                           // stopDab must not stop it
+  dabPlaying = false;
+  const h = v.cueAudio = cueHandle();
+  h.sid = dabSid;
+  cueDab(v, h, el, () => { if (v.cueAudio === h) { v.cueAudio = null; syncCue(); } });
+  h.buf = el.paused;
 }
 
 /** Sets the ratio of the picture box: the slide's own, 16:9 for a station marked wide, 4:3 with no slide. */
@@ -13275,9 +13345,11 @@ async function selectVfo(v, keepTab) {
   pttUp();
   flushSend();
   stopAudio();
+  dabToCue(active);   // a DAB station of the VFO left goes on in its CUE, of the new one from its CUE (no buffering)
   stopDab();
   active = v;
   vbase = v.base;
+  dabFromCue(v);
   store("vfo", v.name);
   restoreBodyTab(keepTab);
   // Everything shown belongs to the previous VFO: state, waterfall, decoders.
@@ -13450,13 +13522,30 @@ function stopStream(h) {
 /** CUE of VFO v: with DAB on there it plays its station (welle-cli MP3, like dabPlay), otherwise its /api/audio
  *  (a DAB VFO sends no PCM). The DAB state comes from the VFO's own /api/state; on an error or the end of the
  *  stream onEnd reconnects after a while (which reads the state again). */
+/** A CUE stream handle: its own gain into cueGain. buf: a DAB station of the VFO is not playing yet (cueDabBuf). */
+function cueHandle() {
+  const gain = audioContext().createGain();
+  gain.connect(cueGain);
+  return { gain, ctrl: new AbortController(), playTime: 0, live: true, el: null, buf: true, sid: null };
+}
+
+/** Plays the DAB <audio> el (el._src its source node) in the CUE handle me of VFO v; on its end or an error onEnd
+ *  reconnects. Listeners of an element handed over to MAIN and back stay, so each one checks it is still me's. */
+function cueDab(v, me, el, onEnd) {
+  me.el = el;
+  el._src.disconnect();
+  el._src.connect(me.gain);
+  const ended = () => setTimeout(() => { if (me.live && me.el === el) { stopStream(me); onEnd(); } }, 1500);
+  const buf = (on) => { if (me.live && me.el === el) { me.buf = on; cueDabBuf(v); } };
+  el.addEventListener("ended", ended);
+  el.addEventListener("error", ended);
+  el.addEventListener("playing", () => buf(false));
+  for (const ev of ["waiting", "stalled", "error", "ended"]) el.addEventListener(ev, () => buf(true));
+}
+
 function playCue(v, onEnd) {
   const ctx = audioContext();
-  const gain = ctx.createGain();
-  gain.connect(cueGain);
-  // buf: a DAB station of this VFO is not playing yet (its grey DAB on the VFO display blinks, see cueDabBuf)
-  const me = { gain, ctrl: new AbortController(), playTime: 0, live: true, el: null, buf: true };
-  const buf = (on) => { me.buf = on; cueDabBuf(v); };
+  const me = cueHandle();
   const ended = () => setTimeout(() => { if (me.live) { stopStream(me); onEnd(); } }, 1500);
   fetch(v.base + "/api/state", { signal: me.ctrl.signal }).then((r) => r.json()).then((s) => {
     if (!me.live) return;
@@ -13465,14 +13554,12 @@ function playCue(v, onEnd) {
       return;
     }
     const sid = (s.dab_sids || {})[s.dab_channel];
-    if (!sid) { buf(false); return; }       // DAB with no station selected: nothing to hear (and nothing to wait for)
-    const el = me.el = new Audio();
+    if (!sid) { me.buf = false; cueDabBuf(v); return; }   // DAB with no station selected: nothing to hear (nor to wait for)
+    const el = new Audio();
     el.crossOrigin = "anonymous";           // the receiver of the VFO is on another port (CORS * on the server)
-    ctx.createMediaElementSource(el).connect(gain);
-    el.addEventListener("ended", ended);
-    el.addEventListener("error", ended);
-    el.addEventListener("playing", () => buf(false));
-    for (const ev of ["waiting", "stalled", "error", "ended"]) el.addEventListener(ev, () => buf(true));
+    el._src = ctx.createMediaElementSource(el);
+    me.sid = sid;
+    cueDab(v, me, el, onEnd);
     el.src = `${v.base}/api/dab/audio/${sid}`;
     el.play().catch(() => {
       // the browser allows sound only after the first click or key on the page
@@ -13490,13 +13577,13 @@ function startAudio() {
   syncCue();
 }
 
-/** Starts or stops the CUE streams: every VFO with CUE on plays except the active one (that goes through MAIN). */
 /** Inactive VFO with CUE on DAB: its grey DAB on the display blinks until the CUE sound plays (the DAB key does not). */
 function cueDabBuf(v) {
   const on = !!(v.row && v !== active && v.cueAudio && v.cueAudio.buf && v.st && v.st.dab);
   if (v.row) v.row.classList.toggle("dab-buf", on);
 }
 
+/** Starts or stops the CUE streams: every VFO with CUE on plays except the active one (that goes through MAIN). */
 function syncCue() {
   for (const v of vfos) {
     const want = !!(v.name && v.cue && v !== active);

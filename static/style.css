@@ -1652,6 +1652,15 @@ body.map-only .ft8-map.map-only-box { flex-direction: column; }
 .dab-health { flex: none; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .dab-health .ok { color: #3cf07c; }
 .dab-health .bad { color: #ffb347; }
+/* history of the songs (DLS texts) of the station, newest first */
+.dab-hist { flex: 1 1 auto; min-height: 60px; display: flex; flex-direction: column; gap: 5px; padding: 9px 11px;
+  border: 1px solid var(--line); border-radius: 8px; background: #0a0e13; }
+.dab-hist-list { flex: 1 1 auto; min-height: 0; overflow: auto; font-size: 13px; }
+.dab-hist-row { display: flex; gap: 12px; padding: 3px 0; border-bottom: 1px solid rgba(255, 255, 255, .05); }
+.dab-hist-row time { flex: none; color: var(--muted); font-variant-numeric: tabular-nums; }
+.dab-hist-row span { min-width: 0; overflow-wrap: anywhere; color: var(--text); }
+.dab-hist-row:first-child span { color: var(--yellow); font-weight: 600; }
+.dab-hist-day { padding: 6px 0 2px; color: var(--muted); font: 700 10px system-ui, sans-serif; letter-spacing: .06em; }
 /* signal, ensemble, capacity */
 .dab-side { display: flex; flex-direction: column; gap: 10px; min-width: 0; min-height: 0; overflow: auto; }
 .dab-panel { flex: none; padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px; background: #0a0e13; font-size: 12px; }

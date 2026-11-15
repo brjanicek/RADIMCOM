@@ -26,8 +26,11 @@ import urllib.request
 
 import numpy as np
 
-from paths import BASE
+from paths import BASE, data
 
+HISTORY_DIR = data("dab_history")   # played songs (DLS texts) per station: "<SID> <station>.txt", line "YYYY-MM-DD HH:MM:SS<TAB>text"
+HISTORY_REPEAT_S = 1800             # the same text again within 30 min is not a new song (DLS often alternates song / slogan)
+HISTORY_SHOW = 100                  # lines sent to the page
 EXE = os.path.join(BASE, "lib", "dab", "welle-cli.exe")
 DAB_RATE = 2048000            # DAB mode I: 2.048 MS/s, the only rate welle-cli works with
 DAB_DEFAULT = "12C"
@@ -67,6 +70,85 @@ def country_of(ecc, ensemble_id):
         return ""
 
 
+class DlsHistory:
+    """History of the DLS texts (artist - song) of every station of the ensemble, kept in data/dab_history/.
+    Several VFO processes may write the same file: a file changed by another one is read again (mtime)."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.files = {}          # sid -> {"path", "mtime", "items": [(epoch, "YYYY-MM-DD HH:MM:SS", text)]}
+
+    @staticmethod
+    def _find(sid, label):
+        try:
+            for f in os.listdir(HISTORY_DIR):
+                if f.startswith(sid + " ") and f.endswith(".txt"):
+                    return os.path.join(HISTORY_DIR, f)
+        except OSError:
+            pass
+        safe = "".join(c if c.isalnum() or c in " -_.+&" else "_" for c in label).strip(" .") or "station"
+        return os.path.join(HISTORY_DIR, f"{sid} {safe[:60]}.txt")
+
+    def _entry(self, sid, label=""):
+        e = self.files.get(sid)
+        if e is None:
+            if not label:
+                return None
+            e = self.files[sid] = {"path": self._find(sid, label), "mtime": None, "items": []}
+        try:
+            mtime = os.path.getmtime(e["path"])
+        except OSError:
+            mtime = None
+        if mtime != e["mtime"]:
+            items = []
+            try:
+                with open(e["path"], encoding="utf-8") as f:
+                    for line in collections.deque(f, maxlen=1000):
+                        stamp, _, text = line.rstrip("\n").partition("\t")
+                        try:
+                            items.append((time.mktime(time.strptime(stamp, "%Y-%m-%d %H:%M:%S")), stamp, text))
+                        except ValueError:
+                            pass
+            except OSError:
+                pass
+            e.update(mtime=mtime, items=items)
+        return e
+
+    def record(self, services):
+        """Adds the current DLS of each station that is not the same as the last one or a text of the last 30 min."""
+        now = time.time()
+        with self.lock:
+            for s in services:
+                text = " ".join((s.get("dls") or "").split())
+                sid = s.get("sid")
+                if not text or not sid or not s.get("label"):
+                    continue
+                e = self._entry(sid, s["label"])
+                if e["items"] and e["items"][-1][2] == text:
+                    continue
+                if any(t == text and now - ts < HISTORY_REPEAT_S for ts, _, t in e["items"][-50:]):
+                    continue
+                stamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now))
+                try:
+                    os.makedirs(HISTORY_DIR, exist_ok=True)
+                    with open(e["path"], "a", encoding="utf-8") as f:
+                        f.write(f"{stamp}\t{text}\n")
+                    e["mtime"] = os.path.getmtime(e["path"])
+                except OSError:
+                    continue
+                e["items"].append((now, stamp, text))
+                del e["items"][:-1000]
+
+    def get(self, sid):
+        """Last songs of the station, newest first: [{"time": "YYYY-MM-DD HH:MM:SS", "text"}]."""
+        with self.lock:
+            e = self._entry(sid, sid)           # an existing file is found by the SID, the label is only for a new one
+            if e is None or not os.path.exists(e["path"]):
+                self.files.pop(sid, None)        # no file yet: found again by the label once a song comes
+                return []
+            return [{"time": stamp, "text": text} for _, stamp, text in reversed(e["items"][-HISTORY_SHOW:])]
+
+
 def _free_port():
     s = socket.socket()
     s.bind(("127.0.0.1", 0))
@@ -92,6 +174,18 @@ class DabDecoder:
         self.conn = None              # welle-cli connection
         self.q = queue.Queue(maxsize=TCP_QUEUE)
         self.log = collections.deque(maxlen=30)    # last lines welle-cli printed (for errors)
+        self.history = DlsHistory()
+        threading.Thread(target=self._history_loop, name="dab-history", daemon=True).start()
+
+    def _history_loop(self):
+        """Songs are recorded also while no page polls /api/dab (mux() records them)."""
+        while True:
+            time.sleep(5)
+            if self.enabled and self.proc:
+                try:
+                    self.mux()
+                except Exception:
+                    pass
 
     # ---------- control ----------
 
@@ -321,6 +415,7 @@ class DabDecoder:
                 "errors": {k: err.get(k, 0) for k in ("frameerrors", "rserrors", "aacerrors")},
             })
         out["services"].sort(key=lambda x: (not x["audio"], x["label"].lower()))
+        self.history.record(out["services"])
         return out
 
     def slide(self, sid):
