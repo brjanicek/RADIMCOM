@@ -4895,7 +4895,6 @@ function locFill(s) {
   $("locLat").value = s.lat;
   $("locLon").value = s.lon;
   $("locAlt").value = s.alt_m;
-  $("locCall").value = s.callsign || "";
   $("locNow").textContent = `${s.locator} · ${s.lat.toFixed(4)}°, ${s.lon.toFixed(4)}°`;
   locMode = "latlon";
 }
@@ -4920,7 +4919,7 @@ function openLocationSetup() {
 }
 
 $("locSave").addEventListener("click", async () => {
-  const loc = $("locLoc").value.trim().toUpperCase(), body = { alt_m: Number($("locAlt").value), callsign: $("locCall").value.trim().toUpperCase() };
+  const loc = $("locLoc").value.trim().toUpperCase(), body = { alt_m: Number($("locAlt").value) };
   if (locMode === "loc" && loc) body.locator = loc;
   else { body.lat = Number($("locLat").value); body.lon = Number($("locLon").value); }
   if (await locLoad(body)) locMsg("Saved");
@@ -7301,28 +7300,6 @@ function renderSondeChans(i) {
 }
 $("sondeMulti").addEventListener("change", () => send({ sonde_multi: $("sondeMulti").checked }));
 
-// SONDEHUB: the key switches the upload on / off; its LED: grey off, amber on and waiting for frames,
-// green = sent in the last minute (flashes at each upload), red = an error (callsign missing, SondeHub not reached)
-let sondeHub = null;
-function renderSondeHub(h) {
-  const led = $("sondeHubLed"), key = $("sondeHubKey");
-  const flash = sondeHub && h.sent > sondeHub.sent;
-  sondeHub = h;
-  key.classList.toggle("on", !!h.on);
-  const recent = h.last_ok && Date.now() / 1000 - h.last_ok < 60;
-  led.className = "sh-led" + (!h.on ? "" : h.error ? " err" : recent ? " ok" : " wait");
-  if (flash) { void led.offsetWidth; led.classList.add("flash"); }
-  key.title = "SONDEHUB: send the decoded frames (RS41, DFM, M10, M20) to the SondeHub tracker (sondehub.org) with your callsign and station location " +
-    "(SETTINGS › GENERAL › LOCATION)" + (h.on ? `
-Callsign: ${h.callsign || "not set"} · ${h.sent} frames sent` + (h.rejected ? ` · ${h.rejected} refused by SondeHub` : "") +
-    (h.last_ok ? ` · last upload ${aisUtc(h.last_ok)} UTC` : "") + (h.queued ? ` · ${h.queued} waiting` : "") +
-    (h.error ? `
-Error: ${h.error}` : "") + (h.warn && !h.error ? `
-SondeHub: ${h.warn}` : "") : "");
-}
-$("sondeHubKey").addEventListener("click", () => send({ sondehub: !(sondeHub && sondeHub.on) }));
-setInterval(() => { if (sondeHub && sondeHub.on) renderSondeHub(sondeHub); }, 15000);   // green → amber when nothing is sent
-
 function sondePost(body) {
   return fetch(vbase + "/api/sonde", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
     .then((r) => r.json());
@@ -7347,7 +7324,6 @@ async function sondeLoad() {
     for (const f of d.frames) addSondeFrame(f);
     for (const s of d.sondes) sondes.set(s.serial, s);
     renderSondeInfo(d);
-    if (d.sondehub) renderSondeHub(d.sondehub);
     if (sondeHistDays && !sondeHistAt) sondeHistSet(sondeHistDays);   // the HISTORY of the table, once the VFO is known
     setSondeView(sondeView, false);
   } catch { /* an older receiver without the sonde decoder */ }
@@ -12965,6 +12941,7 @@ function onStatus(s) {
   renderSpurInfo();
   meterTarget = s.smeter;
   $("smeterText").innerHTML = `<b>${sReading(s.smeter)}</b> · <span>${s.smeter.toFixed(1)} dBFS</span>`;
+  $("smeterText").classList.toggle("over-s9", s.smeter > s9Dbfs);   // above S9: red
   renderTuner();
   drawOverlays();
   renderSqlBadge();
@@ -13134,7 +13111,6 @@ function connectEvents(v) {
   on("pocsagstate", renderPocsagInfo);
   on("sonde", (f) => { addSondeFrame(f); sondeUpdate(f); decActivity("sonde"); });
   on("sondestate", renderSondeInfo);
-  on("sondehub", renderSondeHub);
   on("packeteye", drawPktEye);
   on("packetspec", drawPktSpec);
   on("dsdcall", (c) => { addDsdCall(c); if (bodyTab !== "dsd") $("dsdTabDot").hidden = false; });

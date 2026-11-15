@@ -38,6 +38,17 @@ Test beta (GitHub branch `1.0beta1`; continues the release 0.115).
   (100 ppm = 0.01 %; the config and the API keep ppm), the peak levels in dBFS also as % of the full scale of the A/D
   (−5 dBFS · 56 %), *Bold* at 0 as *off*. A **legend** under the sliders explains %, dBFS, dB (a step of the tuner gain),
   s and blocks. The same units in the diagram beside it, the AGC+ key tooltip and the live value of the card.
+- **S-meter:** the reading under it (S9+… dB · dBFS) is red above S9.
+- **Radiosondes decoded by rs1729's decoders.** The SONDE decoder no longer demodulates in Python: the baseband of the
+  VFO channel and of each MULTI channel goes as float32 I/Q through a pipe into the decoders of rs1729
+  ([github.com/rs1729/RS](https://github.com/rs1729/RS), GPL v3, separate programs in `lib\sonde`, static UCRT64
+  builds by `installer/build_sonde.sh`; new module `sonde_ext.py`). Types: RS41, DFM, M10 / M20 and **new LMS6-403,
+  iMet-54, MRZ-N1 / MP3-H1, iMS-100 / RS-11G, MTS01, CF-06 / HT03** (RS92 not: it needs GPS ephemeris). All decoders
+  listen until one decodes a frame, then only that one runs (all again after 60 s of silence); ~1.4 % of a CPU core
+  per decoder. Channels under 44 kHz go to them at twice the rate (rs41mod lost frames of a weak RS41 at 37.5 kHz:
+  at 11 dB 14 of 19 → 19 of 19). Reason: the Python M20 decoder gave only *bad frames* on a real M20 (VFO D, 403.5 MHz).
+  **IQ recording** of the sonde channel: `POST /api/sonde {"action": "rec_iq", "secs": 120}` →
+  `data\sonde_iq\*.cf32`, replayed by `tests/sonde_replay.py`.
 - **Radiosondes: Meteomodem M20 (experimental).** The SONDE decoder also decodes the M20 (9600 Bd biphase, a burst of
   ~0.12 s a second): position, altitude, speed, direction, GPS time, frame; the climb from two altitudes. Only the checksum,
   no error correction, so a weak sonde gives a position every few seconds. Shown as `M20-<3 bytes hex>`. Needs a VFO
@@ -57,26 +68,15 @@ Test beta (GitHub branch `1.0beta1`; continues the release 0.115).
   - **DFM-06, DFM-06P and PS-15** get their serial too (DFM-06 hex from the channel after the null channel, PS-15 in two
     halves); the configuration channels are a port of rs1729's conf_out (null / highest channel, resets), plus the
     battery of DFM-09 / 17.
-  - **SONDEHUB reads SondeHub's answers:** 202 with errors was taken as success (LED green, but nothing on SondeHub).
-    Now the refused frames are counted, all refused = error (LED red with the reason), 4xx not sent again, 5xx / no
-    connection sent again. SondeHub refuses software it has not validated yet ("unknown to us", also the station:
-    403): then the LED says so and the upload is tried every 10 minutes. Every object to be sent is written to
-    `data\logs\sondehub\<date>.jsonl` (the samples SondeHub asks for the validation). DFM: every 30 s.
   - SONDES table: wider UTC, Serial and MHz columns (the date of a HISTORY row and `M20-507-2-02967` were cut).
   - The last 20 M10 / M20 frames with a wrong checksum are kept (`bad_frames` in `/api/sonde`, time and hex) to
     see why a sonde gives bad frames. The table HISTORY is read from the VFO once it is known (it went to the
     launcher at the start: 404).
-  - **SONDEHUB** now also sends DFM (once the serial is known; PS-15 as type PS-15), M10 and M20, with the per-type
-    rules of radiosonde_auto_rx; pressure as `pressure`.
-  - Sources: rs1729's decoders (github.com/rs1729/RS: m10mod.c, m20mod.c, dfm09mod.c), radiosonde_auto_rx and the
-    SondeHub telemetry format of Project Horus; reimplemented in Python, credited in NOTICE.md and the SONDE docs.
-- **SONDEHUB: radiosonde frames to the SondeHub tracker.** One key **SONDEHUB** in the header of the SONDE page
-  (per VFO, config `sondehub`) sends the decoded frames to [sondehub.org](https://sondehub.org) like
-  radiosonde_auto_rx: every 15 s one gzipped list (`PUT /sondes/telemetry`), the station to `/listeners` at the start
-  and every 6 h (so it is on the map as a receiver). Its **LED**: grey off, amber on and waiting for frames, green =
-  sent in the last minute (flashes at each upload), red = error (the tooltip says which; frames are kept and sent
-  again). Frames with a good GPS position and time (not the encrypted RS41-SGM). New **Callsign** in SETTINGS › GENERAL › LOCATION
-  (`callsign` in `/api/location`, data\location.json), needed for the upload. New module sondehub.py.
+  - Sources: rs1729's decoders (github.com/rs1729/RS: m10mod.c, m20mod.c, dfm09mod.c), radiosonde_auto_rx of
+    Project Horus; reimplemented in Python, credited in NOTICE.md and the SONDE docs.
+- **SONDEHUB removed again:** the SONDEHUB key, the upload to sondehub.org, the Callsign in SETTINGS › GENERAL ›
+  LOCATION and sondehub.py are gone (SondeHub takes data only from software it has validated). The SondeHub launch
+  sites on the map stay.
 - **Radiosondes: a bad GPS position is dropped.** A sonde that loses its satellites after the burst goes on sending an
   extrapolated, frozen or random position (seen: X1453430 "falling" at 200 m/s to −1700 m, then 60 km high 160 km
   away, while its −64 °C said it was still at 11 km). Dropped now: fewer than 4 satellites, altitude under −100 m or
@@ -100,12 +100,6 @@ Test beta (GitHub branch `1.0beta1`; continues the release 0.115).
 - **Live values in the AGC+ diagram:** AGC+ ON / OFF, the tuner gain now in TUNER, the A/D peak in A/D (red on
   clipping), *now* in the headers of both scales and a white mark where the last block lies on the clipping scale and on
   the peak scale (shown with AGC+ or a manual gain; the automatic tuner gain does not measure the A/D).
-
-### Changes
-
-- **ATU in SSB tunes onto the usual carrier:** instead of the edge of the voice band on the red line, the tuning goes
-  300 Hz beyond it – in USB 300 Hz below the lower edge, in LSB 300 Hz above the upper edge (transmitters pass the
-  voice from about 300 Hz), so the voice sounds natural at once.
 
 ### Fixes
 

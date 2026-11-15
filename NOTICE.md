@@ -21,6 +21,7 @@ does not contain the binaries; the release packages do, except where noted.
 | libacars 2.2.1 | used by dumpvdl2 and dumphfdl | MIT | <https://github.com/szpajder/libacars> |
 | dumphfdl 1.7.0 (with its ground station table `systable.conf`) | HFDL decoder (separate program) | GPL v3 | <https://github.com/szpajder/dumphfdl> |
 | liquid-dsp 1.8.3 | used by dumphfdl | MIT | <https://github.com/jgaeddert/liquid-dsp> |
+| rs1729 radiosonde decoders (RS, commit ce44855, `demod/mod`: rs41mod, dfm09mod, m10m20mod, lms6Xmod, imet54mod, mp3h1mod, meisei100mod, mts01mod, cf06ht03mod), not changed, built by `installer/build_sonde.sh` | radiosonde decoders in `lib\sonde` (separate programs, fed through a pipe) | GPL v3 | <https://github.com/rs1729/RS> |
 | FFTW 3.3.10 | used by dumphfdl | GPL v2 or later | <https://www.fftw.org> |
 | libconfig 1.7.3 | used by dumphfdl | LGPL v2.1 or later | <https://github.com/hyperrealm/libconfig> |
 | welle-cli (welle.io 2.7), **modified** (`installer/welle_radimcom.patch`) | DAB / DAB+ decoder (separate program) | GPL v2 or later | <https://github.com/AlbrechtL/welle.io> |
@@ -44,8 +45,6 @@ does not contain the binaries; the release packages do, except where noted.
 | Python 3.13 | runs RADIMCOM; the setup brings it in `python\` (NuGet package "python") | PSF License | <https://www.python.org> |
 | Microsoft Edge WebView2 SDK | the app window of `RADIMCOM.exe` (`Microsoft.Web.WebView2.*.dll`, `WebView2Loader.dll`) | Microsoft WebView2 SDK licence (`WebView2_LICENSE.txt`), redistributable | <https://www.nuget.org/packages/Microsoft.Web.WebView2> |
 | rs1729 radiosonde decoders (RS) | not included: the M10 / M20 frame layouts, checksum, serial numbers, temperature, humidity and pressure (m10mod.c, m20mod.c; the M20 humidity is DF9DQ's formula from ra-firmware) and the DFM serial, type, temperature and battery (dfm09mod.c, conf_out) were reimplemented in `sonde.py` after them | GPL v3 | <https://github.com/rs1729/RS> · <https://github.com/projecthorus/radiosonde_auto_rx> |
-| radiosonde_auto_rx (Project Horus) | not included: the SondeHub upload of `sondehub.py` follows its `sondehub.py` (per-type serial, subtype and frame rules, batching, headers) | GPL v3 | <https://github.com/projecthorus/radiosonde_auto_rx> |
-| SondeHub | SONDEHUB uploads the decoded frames to `api.v2.sondehub.org` (telemetry format of the SondeHub wiki); the data on SondeHub are CC BY-SA 2.0 | — | <https://sondehub.org> · <https://github.com/projecthorus/sondehub-infra/wiki> |
 | SondeHub launch sites | radiosonde launch sites on the SONDE map: downloaded at run time from `api.v2.sondehub.org/sites` into `data/sonde_sites.json`, not part of the package; type names from the SondeHub tracker | tracker code MIT | <https://sondehub.org> · <https://github.com/projecthorus/sondehub-tracker> |
 | uPlot 1.6.31 | charts of the ISM device tab; in `static/uplot` | MIT (`static/uplot/LICENSE`) | <https://github.com/leeoniya/uPlot> |
 | Leaflet 1.9.4 | map for choosing the station place (SATELLITES tab, SETUP); in `static/leaflet` | BSD 2-Clause (`static/leaflet/LICENSE`) | <https://leafletjs.com> |

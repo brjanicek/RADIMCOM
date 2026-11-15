@@ -215,7 +215,7 @@
     </div></div>
     <div class="kgroup" data-g="STEP"><span class="klabel">STEP</span><div class="keys" id="steps"></div></div>
     <div class="kgroup" data-g="TUNE"><span class="klabel">TUNE</span><div class="keys">
-      <button id="atuKey" class="key" title="ATU: autotune in USB / LSB / AM. A click on a signal in the spectrum or waterfall listens for a moment and moves the tuning: SSB tunes 300 Hz beyond the signal edge, onto the usual carrier (USB 300 Hz under the lower edge, LSB 300 Hz over the upper edge, ~2 s), AM onto the carrier (&lt;1 s)">ATU</button>
+      <button id="atuKey" class="key" title="ATU: autotune in USB / LSB / AM. A click on a signal in the spectrum or waterfall listens for a moment and moves the tuning: SSB puts the signal edge on the red line (USB lower, LSB upper edge, ~2 s), AM onto the carrier (&lt;1 s)">ATU</button>
     </div></div>
     <div class="kgroup" data-g="AUDIO"><span class="klabel">AUDIO</span><div class="keys">
       <button id="stereoKey" class="key" title="S/M: WFM stereo / mono (mono = less noise on weak stations)">S/M</button>
@@ -794,7 +794,6 @@
       <div class="ft8-head">
         <label class="key small toggle" data-dec-on="sonde" title="Radiosonde decoder (Vaisala RS41, Graw DFM, Meteomodem M10 / M20; 400–406 MHz) on/off"><input id="sondeOn" type="checkbox">ON</label>
         <label class="key small toggle" title="MULTI: decode every sonde in the visible part of the waterfall at the same time (up to 6, in 400–406 MHz), not only the one the VFO is tuned to; their frequencies are listed below. (the VFO audio is muted while SONDE is on)"><input id="sondeMulti" type="checkbox">MULTI</label>
-        <button type="button" class="key small sondehub-key" id="sondeHubKey" title="SONDEHUB: send the decoded frames (RS41, DFM, M10, M20) to the SondeHub tracker (sondehub.org) with your callsign and station location (SETTINGS › GENERAL › LOCATION)"><span class="sh-led" id="sondeHubLed"></span>SONDEHUB</button>
         <div class="bands"><button id="sondeGo" title="Tune the VFO to 403.000 MHz in FM, the middle of the radiosonde band 400–406 MHz, and switch the decoder on">403 MHz</button></div>
         <button id="sondeInfoKey" class="key small" title="Show / hide the description of the decoder">INFO</button>
         <div class="bands" id="sondeViews">
@@ -1466,8 +1465,7 @@ ecordings, played in the browser -->
                 <span class="muted">or</span>
                 <label>Latitude <input id="locLat" type="number" step="0.0001" min="-90" max="90"></label>
                 <label>Longitude <input id="locLon" type="number" step="0.0001" min="-180" max="180"></label>
-                <label>Altitude <input id="locAlt" type="number" step="1" min="-500" max="9000"> m</label>
-                <label title="Your callsign: sent with the radiosonde frames to SondeHub (SONDE › SONDEHUB)">Callsign <input id="locCall" maxlength="15" size="10" spellcheck="false"></label></div>
+                <label>Altitude <input id="locAlt" type="number" step="1" min="-500" max="9000"> m</label></div>
               <div class="sats-row">
                 <button class="key small" id="locPickBtn" title="Choose the place on an OpenStreetMap map (needs internet)">CHOOSE ON MAP</button>
                 <button class="key small accent" id="locSave">SAVE</button>
@@ -1475,8 +1473,7 @@ ecordings, played in the browser -->
               <div class="sats-pick" id="locPickMap" hidden></div>
               <p class="note" id="locPickNote" hidden>Click the place of the antenna, then SAVE. Map tiles: OpenStreetMap, need internet.</p>
               <p class="note">The location is used by the <b>satellites</b> (passes, Doppler, rotor tracking), the <b>packet decoder</b>
-                (APRS distances and map), <b>ACARS / VDL2</b>, <b>HFDL</b>, <b>AIS</b> and <b>ADS-B</b> (maps, distances). The same location is used on all VFOs.
-                The <b>callsign</b> goes with the location to SondeHub when SONDE › SONDEHUB sends the radiosonde frames.</p>
+                (APRS distances and map), <b>ACARS / VDL2</b>, <b>HFDL</b>, <b>AIS</b> and <b>ADS-B</b> (maps, distances). The same location is used on all VFOs.</p>
               <p class="note">A locator gives the centre of its square (JN88WQ: about 2 km from any point in it; enough for tracking).
                 Latitude and longitude give an exact point. A new installation starts at 0.0 / 0.0: set your own place.</p>
             </div>

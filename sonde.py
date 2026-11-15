@@ -28,8 +28,13 @@ import time
 
 import numpy as np
 
+import sonde_ext
 from packet import _Clock, _Disc, _Fir
+from paths import data as _data
 from sdr import lowpass
+
+REC_IQ_DIR = _data("sonde_iq")   # IQ recordings of the VFO channel (POST /api/sonde {"action": "rec_iq"})
+REC_IQ_MAX = 900.0               # seconds at most (37.5 kHz complex64: 300 kB/s, 270 MB)
 
 CHAN_HZ = 10000.0            # channel filter: the sonde can be a few kHz off, deviation ±2.4 kHz
 ENV_TAU = 0.15               # s: smoothing of the envelope (slicer threshold)
@@ -1102,33 +1107,31 @@ def _s16(v):
 
 
 class _Demod:
-    """One channel of baseband: channel filter, discriminator and the paths of all types (both polarities)."""
+    """One channel of baseband: the external decoders of rs1729 (sonde_ext.ExtChannel), all types."""
 
     def __init__(self, fs):
         self.fs = fs
-        self.chan = _Fir(lowpass(min(CHAN_HZ, 0.45 * fs), fs, 63), 1, np.complex64)
-        self.disc = _Disc(fs)
-        self.paths = [_Path(fs, RS41_BAUD, Rs41Framer, "rs41"), _Path(fs, DFM_BAUD, DfmFramer, "dfm")]
-        if fs >= 3 * M20_BAUD:               # M20 needs ≥ 3 samples a symbol (VFO rate ≥ 2.048 MS/s)
-            self.paths.append(_Path(fs, M20_BAUD, M20Framer, "m20"))
-        self.dfm = {}                        # DFM fields of the current second
-        self.dfm_id = {}                     # DFM serial, type and measurements of the configuration blocks
-        self.offset_path = None              # the path (type) that decoded last
+        self.ext = sonde_ext.ExtChannel(fs)
+        self.paths = []                      # the Python demodulators are no longer used (rs1729 decodes)
+        self.dfm = {}
+        self.dfm_id = {}
         self.offset = None
 
     @property
     def headers(self):
-        return sum(p.headers for p in self.paths)
+        return self.ext.headers
 
     def process(self, base):
-        f = self.disc.process(self.chan.process(np.asarray(base, np.complex64)))
-        return [(p, kind, frame, inv) for p in self.paths for kind, frame, inv in p.process(f)]
+        """[(decoder, JSON dict)] of the frames decoded since the last call."""
+        return self.ext.process(base)
 
     def update_offset(self):
-        """Offset of the signal: from the path (type) that decoded last, the RS41 one before any frame."""
-        p = self.offset_path or (self.paths[0] if self.paths else None)
-        if p is not None and p.hi is not None:
-            self.offset = p.offset
+        """Offset of the signal from the channel centre, once a frame was decoded."""
+        if self.ext.frames:
+            self.offset = self.ext.offset
+
+    def close(self):
+        self.ext.close()
 
 
 class _Channelizer:
@@ -1276,6 +1279,8 @@ class SondeDecoder:
         self.wide_thread = None
         self.wide_chz = None         # _Channelizer of the current band
         self.wide_pend = np.zeros(0, np.complex64)   # samples waiting for a whole channelizer block
+        self.rec = None              # IQ recording of the VFO channel (rec_iq)
+        self.rec_last = None         # file name of the last finished one
         if log_dir:
             self.restore()
 
@@ -1303,6 +1308,34 @@ class SondeDecoder:
             with self.lock:
                 self.sondes.pop(str(body["serial"]), None)
                 self.cal.pop(str(body["serial"]), None)
+        elif body.get("action") == "rec_iq":
+            self.rec_iq(float(body.get("secs", 60)))
+        elif body.get("action") == "rec_iq_stop":
+            self.rec_iq(0)
+
+    def rec_iq(self, secs):
+        """Records the baseband of the VFO channel (what the decoders get) for `secs` (≤ REC_IQ_MAX) into
+        data\\sonde_iq\\<date>_<time>_<MHz>_<rate>.cf32 (complex64), to replay it later (tests/sonde_replay.py);
+        0 stops."""
+        with self.lock:
+            if self.rec is not None:
+                self.rec["f"].close()
+                self.rec = None
+            if secs > 0:
+                self.rec = {"secs": min(float(secs), REC_IQ_MAX), "done": 0.0, "f": None, "file": None}
+
+    def _rec_feed(self, base, fs, dial_hz):
+        r = self.rec
+        if r["f"] is None:
+            os.makedirs(REC_IQ_DIR, exist_ok=True)
+            r["file"] = time.strftime("%Y%m%d_%H%M%S") + f"_{dial_hz / 1e6:.4f}MHz_{int(round(fs))}Hz.cf32"
+            r["f"] = open(os.path.join(REC_IQ_DIR, r["file"]), "wb")
+        r["f"].write(np.asarray(base, np.complex64).tobytes())
+        r["done"] += len(base) / fs
+        if r["done"] >= r["secs"]:
+            r["f"].close()
+            self.rec_last = r["file"]
+            self.rec = None
 
     def _headers(self):
         return (self.main.headers if self.main else 0) + sum(c.dm.headers for c in self.wide)
@@ -1318,6 +1351,10 @@ class SondeDecoder:
                  "headers": self._headers() - self.base_headers, "last_rx": self.last_rx,
                  "offset_hz": None if self.offset is None else round(self.offset), "multi": self.multi,
                  "view": self.wide_view,
+                 "rec_iq": None if self.rec is None else {"file": self.rec["file"], "secs": round(self.rec["done"], 1),
+                                                          "of": self.rec["secs"]},
+                 "rec_iq_last": self.rec_last,
+                 "decoders": sonde_ext.available(),
                  "channels": [{"hz": round(c.hz), "level_db": c.level, "type": c.type, "serial": c.serial,
                                "frames": c.frames, "age_s": None if c.frame_t is None else round(now - c.frame_t, 1),
                                "offset_hz": None if c.dm.offset is None else round(c.dm.offset)}
@@ -1344,6 +1381,8 @@ class SondeDecoder:
             if fs != self._fs:
                 self._setup(fs)
             self.tune_hz = dial_hz
+            if self.rec is not None:
+                self._rec_feed(base, fs, dial_hz)
             new = self._run(self.main, base, dial_hz, time.time())
             self.offset = self.main.offset
             self.since_state += len(base) / fs
@@ -1357,14 +1396,33 @@ class SondeDecoder:
         """Baseband of one channel through its demodulator; the decoded frames (under self.lock)."""
         self.dial, self.dfm, self.dfm_id = dial_hz, dm.dfm, dm.dfm_id
         out = []
-        for p, kind, frame, inv in dm.process(base):
-            rec = (self._frame(frame, inv, now) if kind == "rs41" else
-                   self._m20(frame, inv, now) if kind == "m20" else self._dfm(frame, inv, now))
+        for _name, j in dm.process(base):
+            rec = self._ext(j, now)
             if rec is not None:
                 out.append(rec)
-                dm.offset_path = p
         dm.update_offset()
         return out
+
+    def _ext(self, j, now):
+        """One JSON frame of an rs1729 decoder -> published frame (None for a frame without anything usable)."""
+        d = sonde_ext.to_frame(j)
+        if d is None:
+            self.bad += 1
+            return None
+        if d["type"] == "DFM":
+            ph = f"DFM-{self.dial / 1e6:.3f}"
+            if d["serial"] is None:
+                d["serial"] = ph                  # until the serial comes: named by the frequency
+            else:
+                s = self.sondes.pop(ph, None)     # the sonde heard before its serial came: renamed
+                if s is not None and d["serial"] not in self.sondes:
+                    s["serial"] = d["serial"]
+                    self.sondes[d["serial"]] = s
+        if d["serial"] is None:
+            d.pop("serial")
+        if d.get("lat") is None:
+            return None                           # no position (yet): nothing for the table, the map or the log
+        return self._publish(d, False, now)
 
     # ---------- MULTI: the other sondes of the visible band ----------
 

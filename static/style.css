@@ -112,6 +112,7 @@ body {
 .meter-pick:hover { border-color: var(--muted); }
 .meter-pick.on { border-color: var(--yellow); color: var(--yellow); box-shadow: 0 0 0 1px var(--yellow); }
 .meter-val { font: 11px ui-monospace, Consolas, monospace; color: var(--muted); }
+#smeterText.over-s9, #smeterText.over-s9 b, #smeterText.over-s9 span { color: var(--red); }
 .meter-val b { color: var(--amber); font-weight: 600; }
 /* fixed columns, so the text stays in place when its length changes: "S9+60 dB", "-150.0 dBFS" */
 .meter-val b, .meter-val span { display: inline-block; text-align: right; }
@@ -3159,13 +3160,6 @@ html.app-shell .r-logo-led:hover .r-logo-ledtip { display: inline; }
 .sonde-hist-row[hidden] { display: none; }
 .sonde tr.hist td { opacity: .55; }
 .sonde tr.hist td.ser a { color: #8fb4ff; }
-.sondehub-key { display: inline-flex; align-items: center; gap: 5px; }
-.sh-led { width: 8px; height: 8px; border-radius: 50%; background: #3a4048; box-shadow: inset 0 0 0 1px #0006; }
-.sh-led.wait { background: var(--amber); }
-.sh-led.ok { background: var(--green); box-shadow: 0 0 5px var(--green); }
-.sh-led.err { background: #ff5b5b; box-shadow: 0 0 5px #ff5b5b; }
-.sh-led.flash { animation: sh-flash .9s ease-out; }
-@keyframes sh-flash { 0% { background: #eaffea; box-shadow: 0 0 10px var(--green); } 100% { } }
 .sonde-chans { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 8px; font: 12px system-ui, sans-serif; }
 .sonde-chans > .muted { margin-right: 4px; }
 .sonde-chan { display: inline-flex; flex-direction: column; align-items: flex-start; padding: 3px 8px; border: 1px solid var(--line2);

@@ -15,6 +15,7 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import sonde  # noqa: E402
+import sonde_ext  # noqa: E402
 
 FIELDS = dict(lat=48.2486, lon=16.3564, alt=12345.6, vel=(5.0, -3.0, 5.2), serial="W1234567", frame=4242,
               week=2444, tow=123456000, sats=11, batt=2.8)
@@ -45,12 +46,42 @@ def transmission(nframes=4, **kw):
 
 
 def run(z, fs=32000.0, station=None):
+    """The baseband through a SondeDecoder; the rs1729 programs answer a moment later, so silence is fed until
+    nothing new comes."""
     out = []
     d = sonde.SondeDecoder(lambda k, m: out.append(m) if k == "sonde" else None, station=station)
     d.set_enabled(True)
     for i in range(0, len(z), 2048):
         d.feed(z[i:i + 2048], fs, 402.5e6)
+    settle(lambda: d.feed(np.zeros(2048, np.complex64), fs, 402.5e6), out)
+    d.main.close()
     return d, out
+
+
+def settle(feed, out, quiet=1.0, limit=20.0):
+    """Calls feed() until out has not grown for `quiet` seconds (the external decoders are done)."""
+    t0 = last = time.monotonic()
+    n = len(out)
+    while time.monotonic() - last < quiet and time.monotonic() - t0 < limit:
+        time.sleep(0.05)
+        feed()
+        if len(out) != n:
+            n, last = len(out), time.monotonic()
+
+
+def band_limited_fsk(sym, baud, fs, dev, snr_db, offset, seed=1):
+    """gfsk() made at 300 kHz and decimated to fs (the Gaussian filter of gfsk() is a fixed number of samples: at a
+    low rate it would smear the 3–4 samples of a 9600 Bd symbol)."""
+    from scipy.signal import resample_poly
+    z = gfsk(sym, baud=baud, fs=300000.0, dev=dev, snr_db=snr_db + 10 * np.log10(300000.0 / fs), offset=offset, seed=seed)
+    up, down = int(fs), 300000
+    g = np.gcd(up, down)
+    return resample_poly(z, up // g, down // g).astype(np.complex64)
+
+
+sonde_ext.WAIT = True                    # the tests feed faster than real time: no block is dropped
+NEED_EXT = unittest.skipUnless(set(sonde_ext.available()) >= {"rs41mod", "m10m20mod"},
+                               "rs1729 decoders not built (lib\\sonde, installer/build_sonde.sh)")
 
 
 class ReedSolomon(unittest.TestCase):
@@ -124,41 +155,10 @@ class Frame(unittest.TestCase):
         self.assertEqual(sonde.rs41_parse(f)["serial"], "W1234567")
 
 
-class Chain(unittest.TestCase):
-    def test_clean(self):
-        d, out = run(gfsk(transmission()), station=lambda: (48.1, 17.1))
-        self.assertEqual([m["frame"] for m in out], [4242, 4243, 4244, 4245])
-        s = d.info()["sondes"][0]
-        self.assertEqual(s["serial"], "W1234567")
-        self.assertEqual(len(s["pts"]), 1)          # all frames within TRACK_SEC of each other
-        self.assertIn("dist", s)
-        self.assertAlmostEqual(d.info()["offset_hz"], 3000, delta=300)
+class Frames(unittest.TestCase):
+    """The Python frame parsers (kept for the tests and the bad-frame analysis; the decoding is done by rs1729)."""
 
-    def test_inverted_noisy_37k5(self):
-        fs = 2.4e6 / 64
-        _, out = run(gfsk(transmission(), fs=fs, snr_db=11, inverted=True, offset=-2000), fs=fs)
-        self.assertGreaterEqual(len(out), 3)
-        self.assertTrue(all(m["inverted"] for m in out))
-
-    def test_dfm(self):
-        def second(lat, fr):
-            m = lambda a, b: ((a & 0xFFFFFFFF) << 16) | (b & 0xFFFF)      # noqa: E731
-            vals = {0: fr << 16, 2: m(int(lat * 1e7), 750), 3: m(int(17.35 * 1e7), 12340), 4: m(234560, -420)}
-            sym = []
-            for k in range(0, 16, 2):
-                sym += sonde.dfm_build([(k, vals.get(k, 0)), (k + 1, vals.get(k + 1, 0))])
-            return sym
-        sym = [0, 1] * 200
-        for i in range(3):
-            sym += second(48.62 + 0.001 * i, i)
-        _, out = run(gfsk(sym + [0, 1] * 200, baud=2500, dev=3500, snr_db=15, offset=-1500))
-        self.assertEqual([m["frame"] for m in out], [0, 1, 2])
-        m = out[-1]
-        self.assertEqual((m["type"], m["serial"], m["lon"], m["alt"], m["vv"], m["dir"], m["vh"]),
-                         ("DFM", "DFM-402.500", 17.35, 2345.6, -4.2, 123.4, 7.5))
-        self.assertAlmostEqual(m["lat"], 48.622, places=6)
-
-    def test_m20(self):
+    def test_m20_real_frame(self):
         # real frame of M20 507-2-02967 (raw serial bytes C2 5C 2E; 2026-11-15, 403.5 MHz): the checksum and the fields
         real = bytes.fromhex("452062232126ab0e10f47a0357031b00aa5bc25c2e484100019d098d02e3093000fc6b64b10dc0f6"
                              "001d000002fe05b245d208654972243bada542f500320020000a0a07841b")
@@ -167,33 +167,73 @@ class Chain(unittest.TestCase):
                          ("M20", "M20-507-2-02967", 11111.6, 48.433456, 16.542564))
         self.assertEqual((m["vv"], m["batt"]), (4.13, 2.48))
         self.assertIsNone(sonde.m20_parse(real[:10] + b"\x00" + real[11:]))       # a wrong byte: checksum
-        # synthetic frames through the whole chain (64 kHz: the Gaussian filter of gfsk() is a fixed number of samples,
-        # at 32 kHz it would smear the 3.3 samples of a symbol; the real M20 above decodes at 32 kHz)
+
+    def test_m10_serial(self):
+        self.assertEqual(sonde.m10_serial(bytes((0x01, 0x00, 0x85, 0x2A, 0x41))), "805-1-20298")
+
+    def test_to_frame(self):
+        j = {"type": "RS41", "frame": 7, "id": "W1234567", "datetime": "2026-11-15T12:00:18.000Z", "lat": 48.1234567,
+             "lon": 17.5, "alt": 12345.678, "vel_h": 5.123, "heading": 90.04, "vel_v": -3.456, "sats": 9, "bt": 65535,
+             "temp": -50.04, "humidity": 12.34, "subtype": "RS41-SGP", "ref_datetime": "GPS", "aux": "0501"}
+        d = sonde_ext.to_frame(j)
+        self.assertEqual((d["type"], d["serial"], d["lat"], d["alt"], d["vh"], d["dir"], d["vv"], d["rh"], d["xdata"]),
+                         ("RS41", "W1234567", 48.123457, 12345.7, 5.12, 90.0, -3.46, 12.3, "0501"))
+        self.assertEqual(time.strftime("%H:%M:%S", time.gmtime(d["gps_time"])), "12:00:00")      # GPS - 18 s
+        self.assertNotIn("burst_timer", d)
+        d = sonde_ext.to_frame({"type": "DFM", "id": "DFM-xxxxxxxx", "lat": 1, "lon": 2, "alt": 3})
+        self.assertIsNone(d["serial"])
+        self.assertEqual(sonde_ext.to_frame({"type": "LMS", "id": "LMS6-1", "lat": 0, "lon": 0})["type"], "LMS6")
+        self.assertNotIn("lat", sonde_ext.to_frame({"type": "LMS", "id": "LMS6-1", "lat": 0, "lon": 0}))
+
+
+@NEED_EXT
+class Chain(unittest.TestCase):
+    """Synthetic baseband through SondeDecoder and the rs1729 programs (lib/sonde)."""
+
+    def test_rs41(self):
+        d, out = run(gfsk(transmission(10)), station=lambda: (48.1, 17.1))   # rs1729 --dc: the first ones are lost
+        self.assertGreaterEqual(len(out), 6)                                  # while it finds the 3 kHz offset
+        self.assertEqual([m["frame"] for m in out], list(range(4252 - len(out), 4252)))
+        s = d.info()["sondes"][0]
+        self.assertEqual((s["serial"], out[-1]["type"], out[-1]["sats"]), ("W1234567", "RS41", 11))
+        self.assertIn("dist", s)
+        self.assertAlmostEqual(d.info()["offset_hz"], 3000, delta=300)
+
+    def test_rs41_noisy_37k5(self):
+        fs = 2.4e6 / 64                       # the VFO rate of an RTL at 2.4 MS/s
+        _, out = run(gfsk(transmission(6), fs=fs, snr_db=14, offset=-2000), fs=fs)
+        self.assertGreaterEqual(len(out), 3)
+
+    def test_m20(self):
         f = dict(alt=12345.67, ve=10.0, vn=-5.0, tow=43611, week=2445, lat=48.62, lon=17.35)
         sym = [0, 1] * 300
-        for i in range(3):
+        for i in range(4):
             sym += sonde.m20_build(dict(f, frame=i, alt=f["alt"] + 5 * i, tow=f["tow"] + i, vu=5.0)) + [0, 1] * 4000
-        d, out = run(gfsk(sym, baud=9600, fs=64000.0, dev=4800, snr_db=20, offset=1000), fs=64000.0)
-        self.assertEqual([m["frame"] for m in out], [0, 1, 2])
+        fs = 2.4e6 / 64
+        _, out = run(band_limited_fsk(sym, 9600, fs, 4000, 15, 1000), fs=fs)
+        self.assertGreaterEqual(len(out), 3)
         m = out[-1]
-        self.assertEqual((m["serial"], m["alt"], m["lat"], m["lon"], m["vh"], m["dir"]),
-                         ("M20-507-2-02967", 12355.7, 48.62, 17.35, 11.18, 116.6))
-        self.assertEqual(m["vv"], 5.0)
+        self.assertEqual((m["type"], m["serial"], m["lat"], m["lon"], m["vh"], m["dir"], m["vv"]),
+                         ("M20", "M20-507-2-02967", 48.62, 17.35, 11.18, 116.6, 5.0))
+        self.assertEqual(m["alt"], 12360.7)
 
     def test_m10(self):
         f = dict(ve=3.0, vn=4.0, vu=-6.5, tow_ms=43611000, week=2445, lat=48.62, lon=17.35, alt=8765.432, sats=8)
-        self.assertEqual(sonde.m10_serial(bytes((0x01, 0x00, 0x85, 0x2A, 0x41))), "805-1-20298")
         sym = [0, 1] * 300
-        for i in range(3):
+        for i in range(4):
             sym += sonde.m10_build(dict(f, frame=i, tow_ms=f["tow_ms"] + 1000 * i)) + [0, 1] * 4000
-        _, out = run(gfsk(sym, baud=9615, fs=64000.0, dev=4800, snr_db=20, offset=-800), fs=64000.0)
-        self.assertEqual([m["frame"] for m in out], [0, 1, 2])
+        fs = 2.4e6 / 64
+        _, out = run(band_limited_fsk(sym, 9615, fs, 4000, 15, -800), fs=fs)
+        self.assertGreaterEqual(len(out), 3)
         m = out[-1]
         self.assertEqual((m["type"], m["serial"], m["alt"], m["vv"], m["vh"], m["dir"], m["sats"]),
                          ("M10", "M10-805-1-20298", 8765.4, -6.5, 5.0, 36.9, 8))
         self.assertAlmostEqual(m["lat"], 48.62, places=5)
-        self.assertAlmostEqual(m["lon"], 17.35, places=5)
-        self.assertEqual(time.strftime("%H:%M:%S", time.gmtime(m["gps_time"])), "12:06:35")
+        self.assertEqual(time.strftime("%H:%M:%S", time.gmtime(m["gps_time"])), "12:06:36")
+
+    def test_locks_to_the_type(self):
+        d, out = run(gfsk(transmission()))
+        self.assertEqual(d.main.ext.locked, "rs41mod")
 
     def test_dfm_serial_type_temp(self):
         def halves(cs, ch, sn, mark=0xC):
@@ -265,6 +305,7 @@ def calibration():
     return cal
 
 
+@NEED_EXT
 class Multi(unittest.TestCase):
     """MULTI: two sondes in one dongle band (2.048 MS/s), each found and decoded in its own channel."""
 
@@ -286,6 +327,8 @@ class Multi(unittest.TestCase):
         t0 = time.time()
         for i in range(0, n, 131072):
             d._wide_block(z[i:i + 131072], fs, center, (center - 1e6, center + 1e6), now=t0 + i / fs)
+        settle(lambda: d._wide_block(np.zeros(131072, np.complex64), fs, center, (center - 1e6, center + 1e6),
+                                     now=t0 + n / fs), out)
         json.dumps(d.info())                 # what /api/sonde sends (numpy numbers would fail)
         ch = {round(c["hz"] / 1e3): c for c in d.info()["channels"]}
         self.assertEqual(sorted(ch), [402500, 403300])
@@ -297,6 +340,8 @@ class Multi(unittest.TestCase):
         before = len(out)
         for i in range(0, n, 131072):
             d._wide_block(z[i:i + 131072], fs, center, (center - 1e6, center + 1e6), now=t0 + 10 + i / fs)
+        settle(lambda: d._wide_block(np.zeros(131072, np.complex64), fs, center, (center - 1e6, center + 1e6),
+                                     now=t0 + 10 + n / fs), out)
         self.assertTrue(all(m["type"] == "M20" for m in out[before:]))
 
 

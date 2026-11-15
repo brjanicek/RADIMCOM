@@ -53,7 +53,6 @@ from rtty import RttyDecoder, station_list as rtty_station_list
 from packet import PacketDecoder
 from pocsag import PocsagDecoder
 from sonde import SondeDecoder
-from sondehub import SondeHub
 from daylog import LOG_DIR, DayLog, TextLog
 import recorder as recorder_mod
 from recorder import Recorder
@@ -258,8 +257,6 @@ def decoder_event(kind, data):
     if kind == "adsb":
         _adsb_log(data.pop("log", []))
     hub.event(kind, data)
-    if kind == "sonde":
-        sondehub.add(data)
     try:
         if kind == "ft8" and log_on("ft8"):
             logs["ft8"].write(f"{_mhz(data['freq_hz'])} {data['snr']:+d} dB DT {data['dt']:+.1f} "
@@ -357,25 +354,6 @@ packet = PacketDecoder(on_event=decoder_event, station=own_station)
 pocsag = PocsagDecoder(on_event=decoder_event)
 sonde = SondeDecoder(on_event=decoder_event, station=own_station, log_dir=os.path.join(LOG_DIR, "radiosonde"), tag=_tag)
 
-
-def _station_full():
-    """[lat, lon, alt] of the station for SondeHub, None when the location is not set (0, 0)."""
-    try:
-        s = location.load()
-        return None if s["lat"] == 0 and s["lon"] == 0 else [s["lat"], s["lon"], s["alt_m"]]
-    except Exception:
-        return None
-
-
-def _callsign():
-    try:
-        return location.load().get("callsign") or ""
-    except Exception:
-        return ""
-
-
-sondehub = SondeHub(callsign=_callsign, position=_station_full, version=update_check.own_version() or "", log_dir=os.path.join(LOG_DIR, "sondehub"),
-                    on_state=lambda i: hub.event("sondehub", i))
 sstv = SstvDecoder(on_event=decoder_event)
 acars = AcarsDecoder(on_event=hub.event, tag=_tag)
 acars.log_on = log_on("acars")
@@ -512,7 +490,6 @@ pocsag.set_options(cfg.get("pocsag_opts") or {})
 pocsag.set_enabled(cfg.get("pocsag", False))
 sonde.set_enabled(cfg.get("sonde", False))
 sonde.set_multi(cfg.get("sonde_multi", True))
-sondehub.set_enabled(cfg.get("sondehub", False))
 sstv.set_enabled(cfg.get("sstv", False))
 acars.set_enabled(cfg.get("acars", False) and not cfg.get("vdl2", False))
 
@@ -922,7 +899,7 @@ def api_sonde_sites():
 
 @app.route("/api/sonde", methods=["GET"])
 def api_sonde():
-    return jsonify(dict(sonde.info(), sondehub=sondehub.info()))
+    return jsonify(sonde.info())
 
 
 @app.route("/api/sonde/logs")
@@ -1402,7 +1379,7 @@ def api_location():
     if request.method == "POST":
         body = request.get_json(force=True) or {}
         try:
-            location.save({k: body[k] for k in ("locator", "lat", "lon", "alt_m", "callsign") if k in body})
+            location.save({k: body[k] for k in ("locator", "lat", "lon", "alt_m") if k in body})
         except (TypeError, ValueError) as e:
             return jsonify({"error": str(e)}), 400
         _qth_cache[0] = 0.0          # APRS distances use the new place at once
@@ -1998,10 +1975,6 @@ def api_set():
         sonde.set_multi(cfg["sonde_multi"])
         save_config_later()
         hub.event("status", state())
-    if "sondehub" in body:
-        cfg["sondehub"] = bool(body["sondehub"])
-        sondehub.set_enabled(cfg["sondehub"])
-        save_config_later()
     if "tx_enabled" in body:
         if not tx_capable():
             return jsonify({"error": "this VFO cannot transmit"}), 400

@@ -102,14 +102,14 @@ New
   HPF / LPF, AFI, DNR, ASQ margin, wheel speed, waterfall colours, scan options and FM scan LISTEN.
 - AGC+ settings in plain units: clipping as % of the samples (100 ppm = 0.01 %), peaks in dBFS also as % of
   the A/D full scale; a legend under the sliders explains %, dBFS, dB, s and blocks.
+- Radiosondes decoded by the decoders of rs1729 (github.com/rs1729/RS, in lib\sonde): RS41, DFM, M10 / M20 and
+  new types LMS6-403, iMet-54, MRZ-N1 / MP3-H1, iMS-100 / RS-11G, MTS01, CF-06 / HT03; the type is found by
+  itself. IQ recording of the sonde channel for later analysis (data\sonde_iq).
 - Radiosondes: Meteomodem M20 (experimental, 9600 Bd, needs a bandwidth of 2.048 MHz or more): position,
   altitude, speed, climb. Tested on a real M20 on 403.5 MHz.
 - SONDE map: HISTORY OFF / 1D / 7D shows the logged flights of the last day / week; a click opens one.
 - Radiosondes after rs1729 / radiosonde_auto_rx: M20 serial as on the label, new Meteomodem M10, M10 / M20
   temperature, humidity and pressure, DFM serial (also DFM-06 and PS-15), type, temperature and battery.
-- SONDEHUB key on the SONDE page: sends the decoded RS41 / DFM / M10 / M20 frames to sondehub.org (callsign in
-  SETTINGS › GENERAL › LOCATION); its LED is green while the data go out, red on an error. SondeHub takes them
-  once it has validated RADIMCOM; until then the LED is red and the frames are logged in data\logs\sondehub.
 - Radiosondes: a bad GPS position (no fix after the burst, under the ground, a jump, an impossible fall) is dropped;
   also in the old logs.
 - SONDE MULTI: all sondes in the visible part of the waterfall (400-406 MHz, up to 6) are decoded at once;
@@ -118,9 +118,7 @@ New
 - SONDES table and map: HISTORY OFF / 1D / 7D in the header beside SONDES / MAP / FRAMES adds the logged flights of the last day / week
   (grey in the table, blue on the map, a click opens it).
 - AGC+ diagram with live values: AGC+ on/off, tuner gain, A/D peak and clipping, marks on both scales.
-Changes
-- ATU in SSB: tunes 300 Hz beyond the edge of the voice band, onto the usual carrier (USB 300 Hz lower,
-  LSB 300 Hz higher), instead of putting the edge on the red line.
+- S-meter: the reading under it is red above S9.
 Fixes
 - WEFAX no longer stops the receiver of its VFO on noise (error "max() iterable argument is empty",
   the dongle was reopened every few seconds).

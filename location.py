@@ -1,5 +1,4 @@
-"""Station location (MENU › SETUP › LOCATION), shared by all VFOs: Maidenhead locator, latitude, longitude, altitude,
-callsign (SondeHub uploads; empty until set).
+"""Station location (MENU › SETUP › LOCATION), shared by all VFOs: Maidenhead locator, latitude, longitude, altitude.
 
 Used by the satellites (passes, Doppler, rotor), the packet decoder (APRS distances, map), ACARS / VDL2, HFDL and AIS (maps).
 File data\\location.json. Until it exists, the location saved by older versions in sat_setup.json is taken over;
@@ -7,7 +6,6 @@ a new installation starts at 0.0 / 0.0 (to be set by the user). Needs no extra p
 """
 import json
 import os
-import re
 import threading
 
 from paths import data
@@ -63,7 +61,7 @@ def _read(path):
 
 
 def load():
-    """{"lat", "lon", "locator", "alt_m", "callsign"}; taken over from sat_setup.json of an older version if location.json is missing."""
+    """{"lat", "lon", "locator", "alt_m"}; taken over from sat_setup.json of an older version if location.json is missing."""
     s = _read(LOCATION_PATH)
     migrated = False
     if not s:
@@ -79,8 +77,7 @@ def load():
         alt = float(s.get("alt_m", DEFAULT_ALT_M))
     except (TypeError, ValueError):
         alt = DEFAULT_ALT_M
-    s = {"lat": lat, "lon": lon, "locator": s.get("locator") or latlon_to_locator(lat, lon), "alt_m": alt,
-         "callsign": str(s.get("callsign") or "")}
+    s = {"lat": lat, "lon": lon, "locator": s.get("locator") or latlon_to_locator(lat, lon), "alt_m": alt}
     if migrated:            # written at once: sattrack drops the location from sat_setup.json on its next save
         try:
             _write(s)
@@ -109,11 +106,6 @@ def save(changes):
             if not (-90 <= lat <= 90 and -180 <= lon <= 180):
                 raise ValueError("latitude -90 to 90, longitude -180 to 180")
             s["lat"], s["lon"], s["locator"] = round(lat, 5), round(lon, 5), latlon_to_locator(lat, lon)
-        if "callsign" in changes:
-            call = str(changes["callsign"] or "").strip().upper()
-            if call and not re.fullmatch(r"[A-Z0-9/-]{3,15}", call):
-                raise ValueError("callsign: 3-15 letters, digits, / or -")
-            s["callsign"] = call
         if "alt_m" in changes:
             alt = float(changes["alt_m"])
             if not -500 <= alt <= 9000:

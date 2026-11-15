@@ -37,33 +37,6 @@ Prostějov, Budapest (403.2 MHz), Poprad-Gánovce (400.6 MHz), Praha, Graz, Linz
 DFM sondes are launched by the military (e.g. Záhorie, irregularly). A high sonde is heard 300–500 km away,
 one on the ground only a few km.
 
-## SONDEHUB
-
-The **SONDEHUB** key in the header sends the decoded frames to the [SondeHub](https://sondehub.org) tracker, where
-the sonde appears on the common map with the frames of other stations (and your station as a receiver). Set your
-**Callsign** in SETTINGS › GENERAL › LOCATION first; the location there goes with it. One key for each VFO.
-
-- The **LED** on the key: grey = off, amber = on and waiting for frames, green = frames sent in the last minute
-  (it flashes at each upload), red = error: no callsign, or SondeHub could not be reached (the tooltip shows the
-  error, the number of frames sent and waiting; the frames are kept, up to 2000, and sent again after a minute).
-- Sent: frames with a good GPS position (see the filter below) and the time of the frame: **RS41**, **DFM** (only
-  once its serial has come, never as DFM-<frequency>), **M10** and **M20** (serial as on the label): serial,
-  frame, time, position, altitude, climb, speed, direction, satellites, battery, temperature, humidity, subtype,
-  frequency, your callsign and location. Not sent: the encrypted RS41-SGM, an M20 sending serial 0.
-  Per type as radiosonde_auto_rx does it: the serial without `DFM-` / `M10-` / `M20-`, DFM subtype DFM06 / DFM09 /
-  DFM09P / DFM17 (DFM-17P without a subtype), the frame number of DFM / M10 / M20 = the time of the frame.
-- **SondeHub validates new software first.** Data from software it does not know yet are refused ("This software is
-  unknown to us", the station too: 403), so RADIMCOM's uploads are refused until SondeHub has checked it: contact
-  support@sondehub.org or sondehub.org/go/discord (a person, not a generated text), send at least 30 minutes of a real
-  flight for each sonde type – every object RADIMCOM would send is written to `data\logs\sondehub\<YYYY-MM-DD>.jsonl`
-  (one JSON object a line) for this. While refused the LED is red with the reason, the frames are not sent again and
-  the upload is tried every 10 minutes. SondeHub also says it prefers the known decoders of rs1729 to reimplementations
-  of them (RADIMCOM's own decoders are reimplementations), see
-  <https://github.com/projecthorus/sondehub-infra/wiki/Sonde-Telemetry-Validation>.
-- How: every 15 s (30 s with DFM frames, for SondeHub's DFM altitude check) the collected frames go as one gzipped JSON list to `PUT https://api.v2.sondehub.org/sondes/telemetry`
-  (the SondeHub telemetry format of radiosonde_auto_rx); the station to `PUT /listeners` at the start and every 6 hours.
-  sondehub.py; tests in tests/test_sondehub.py.
-
 ## Launch sites on the map
 
 The MAP shows the radiosonde launch sites in Europe (the **Launch sites** switch in its top right corner, remembered in
@@ -101,6 +74,12 @@ The file is read at each opening of the map (no restart needed, reload the page)
 map. The coordinates in the example are only an illustration – use the real position of the site.
 
 ## Types
+
+Decoded by rs1729's programs (see *How it works*): RS41, DFM, M10 / M20 (below), and **LMS6-403** (Lockheed Martin),
+**iMet-54** (InterMet), **MRZ-N1 / MP3-H1** (Meteo-Radiy), **iMS-100 / RS-11G** (Meisei), **MTS01** (Meteosis),
+**CF-06 / HT03** (Chinese): serial, position, altitude, speed, direction, climb and what the type sends of
+temperature, humidity, pressure, satellites and battery. The descriptions below are of the formats (the Python parsers
+kept in `sonde.py`).
 
 - **Vaisala RS41** (RS41-SG, -SGP, -SGM): GFSK 4800 Bd, a frame a second. Fully decoded: serial number, frame number,
   battery voltage, GPS time, ECEF position and velocity → latitude, longitude, altitude (above the WGS84 ellipsoid),
@@ -148,7 +127,7 @@ map. The coordinates in the example are only an illustration – use the real po
   resistance → Steinhart–Hart; humidity sensor temperature from the SMD NTC (2.2 kΩ). Humidity: M20 by DF9DQ's formula
   with the calibration word of the frame and the sensor temperature; M10 from the 555 counts of the capacitive sensor
   against its 55 % reference with rs1729's empirical cold correction (approximate). M20 with a pressure sensor also
-  gives the **pressure** (hPa, in the T tooltip and FRAMES, sent to SondeHub). Checked on the real M20 frame: 11.1 km,
+  gives the **pressure** (hPa, in the T tooltip and FRAMES). Checked on the real M20 frame: 11.1 km,
   −58.3 °C, 219 hPa (standard atmosphere at 11.1 km: 220 hPa).
 - Other types (RS92, iMet, LMS6, MRZ, Meisei …) are not decoded.
 
@@ -156,11 +135,23 @@ The M10 / M20 frame layouts, checksum, serial numbers, temperature, humidity and
 temperature and battery follow the decoders of **rs1729** (zilog80) (<https://github.com/rs1729/RS>: m10mod.c, m20mod.c, dfm09mod.c; the M20 humidity is DF9DQ's
 formula from <https://github.com/einergehtnochrein/ra-firmware>), which radiosonde_auto_rx of
 **Project Horus** uses (<https://github.com/projecthorus/radiosonde_auto_rx>); reimplemented in Python, no code
-taken over. The SondeHub upload follows radiosonde_auto_rx's sondehub.py and the SondeHub telemetry format
-(<https://github.com/projecthorus/sondehub-infra/wiki>).
+taken over.
 
 ## How it works
 
+- **Since 1.0beta1 the frames are decoded by the decoders of rs1729** (zilog80, <https://github.com/rs1729/RS>,
+  GPL v3; separate programs in `lib\sonde`, built by `installer/build_sonde.sh`, `sonde_ext.py`): RS41, DFM, M10 / M20,
+  LMS6-403, iMet-54, MRZ-N1 / MP3-H1, iMS-100 / RS-11G, MTS01 and CF-06 / HT03. The baseband of the channel (the VFO
+  channel and each MULTI channel) goes as float32 I/Q into all of them (`--IQ 0.0 --lpIQ --dc --json`); under 44 kHz
+  at twice the rate (rs41mod loses frames at 37.5 kHz and fails at 32 kHz). The first one that decodes a frame stays,
+  the others are ended; silent for 60 s, all of them listen again. Their JSON lines become the frames of the SONDE page
+  (time: rs1729's GPS time − 18 s). Without samples for 10 s the programs end. RS92 is not run: it needs GPS
+  ephemeris for a position.
+- **IQ recording** for later analysis: `POST /api/sonde {"action": "rec_iq", "secs": 120}` records the VFO channel
+  (what the decoders get) into `data\sonde_iq\<date>_<time>_<MHz>_<rate>.cf32` (complex64, ≤ 900 s);
+  `python tests/sonde_replay.py <file>` decodes it again.
+- The Python decoders below (RS41, DFM, M10 / M20) are kept in `sonde.py` for the tests and as a description of
+  the formats; they no longer decode the signal.
 - Channel filter ±10 kHz → FM discriminator (Hz) → for each type a low-pass (0.7 × symbol rate) → slicer whose
   threshold is the middle of the signal envelope (follows the offset) → bit clock (PLL of the packet decoder) → framers
   of both polarities.
@@ -194,12 +185,15 @@ taken over. The SondeHub upload follows radiosonde_auto_rx's sondehub.py and the
 
 ## Tests
 
-`python -m unittest tests.test_sonde`: Reed–Solomon (up to 12 wrong bytes, too many), geodesy (ECEF round trip,
+Since the rs1729 decoders: the chain tests (RS41 at 32 / 37.5 kHz with a 3 kHz offset and at 14 dB, M20 and M10
+band-limited at 37.5 kHz, MULTI with RS41 + M20) run through `lib\sonde` (skipped when it is not built), the JSON
+mapping (`to_frame`: GPS time − 18 s, DFM without serial, no fix) and the lock to one decoder.
+Before that, `python -m unittest tests.test_sonde`: Reed–Solomon (up to 12 wrong bytes, too many), geodesy (ECEF round trip,
 distance / azimuth / elevation), the RS41 frame (header, de-whitening, blocks, CRC, extended frame, corrected bit errors),
 the whole chain on synthetic GFSK at 32 and 37.5 kHz baseband, inverted, weak (11 dB), with a tuning offset, DFM frames,
 noise only, M20 (a real frame and synthetic ones), M10, the DFM serial / type / temperature (DFM-17, DFM-06, PS-15), M10 / M20 temperature, humidity and
 pressure (the real M20 frame), MULTI (two sondes at
-once), the filter of bad GPS positions; tests/test_sondehub.py: the SondeHub objects of all types.
+once), the filter of bad GPS positions.
 
 Real signals: the I/Q recordings of the Signal Identification Wiki (RS41-SG and DFM-17, both on the ground)
 decode completely: RS41 31 frames of 32 (serial, GPS time, position, battery; all blocks with a good CRC,

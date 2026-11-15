@@ -4,9 +4,8 @@ samples (baseband, 0 Hz = tuned frequency) for a moment and moves the tuning ont
 AM: the carrier is the strongest narrow line near the click; its frequency is measured from a fine FFT (~2 Hz)
 with interpolation, so the result is within a few Hz.
 
-SSB (USB / LSB): the ATU key finds the edge of the voice band (estimate_ssb_edge: the lower edge for USB, the upper
-one for LSB) and tunes SSB_EDGE_HZ beyond it, onto where the suppressed carrier usually is (USB 300 Hz lower, LSB
-300 Hz higher), so the voice sounds natural and the signal starts 300 Hz from the red line. estimate_ssb below finds the
+SSB (USB / LSB): the ATU key puts the edge of the voice band on the tuned frequency (estimate_ssb_edge: the lower
+edge for USB, the upper one for LSB), so the signal visibly starts at the red line. estimate_ssb below finds the
 suppressed carrier itself instead (not used by the key now):
   1. Coarse: the averaged spectrum shows the occupied voice band near the click; its lower edge (USB) lies
      ~250 Hz above the carrier (the usual 300–2700 Hz transmitter filter).
@@ -24,7 +23,6 @@ import time
 import numpy as np
 
 MODES = ("AM", "USB", "LSB")
-SSB_EDGE_HZ = 300.0        # SSB: tuned this far from the voice band edge (USB below it, LSB above it), ~ the carrier
 SETTLE_S = 0.25            # skip after retuning: the decimator still holds samples from the old frequency
 AM_LISTEN_S = 0.6
 SSB_TRIES_S = (2.0, 3.5, 5.0, 6.5)   # SSB: analysed after this much speech-or-not; the last try decides
@@ -353,11 +351,7 @@ class AutoTune:
             if res is None:
                 self.result = {**self.result, "state": "none"}
                 return
-            if job["mode"] == "AM":
-                shift = round(res[0])
-            else:                               # the edge, then SSB_EDGE_HZ further to the carrier side
-                off = res[0] + (SSB_EDGE_HZ if job["mode"] == "LSB" else -SSB_EDGE_HZ)
-                shift = round(off / 5) * 5
+            shift = round(res[0]) if job["mode"] == "AM" else round(res[0] / 5) * 5
             self.result = {**self.result, "state": "done", "shift_hz": shift, "how": res[1]}
         if shift:
             self.done(job["tune"], job["tune"] + shift)
