@@ -80,7 +80,7 @@ Up to four SDRs at once, each assigned to a VFO by its serial number; one dongle
 ### Receiver
 
 - **Up to four SDRs as four VFOs (A–D)**, or one dongle shared by several VFOs (chaining). → [Configuration](docs/configuration.md)
-- **Modes** AM, FM, WFM (stereo + RDS), LSB, USB, CW, DAB and DSD, with notch, ALC, DNR (weak HF voices out of the noise), audio LPF / HPF and AFI (voice inversion); automatic LSB / USB on ham bands. → [Function keys](docs/controls.md#function-keys)
+- **Modes** AM (and SAM, synchronous AM), FM, WFM (stereo + RDS), LSB, USB, CW, DAB and DSD, with notch, ALC, NB (noise blanker), DNR (spectral noise reduction, also under speech), NTH (quiet between words), audio LPF / HPF and AFI (voice inversion); automatic LSB / USB on ham bands, AM on shortwave broadcast bands. → [Function keys](docs/controls.md#function-keys)
 - **Squelch with ASQ (auto squelch)**: the level follows the measured noise floor plus a margin; **CTCSS / DCS tone squelch** (TSQ-C / TSQ-D) in FM. → [AUDIO keys](docs/controls.md#function-keys)
 - **AGC+**: tuner gain set from the A/D level, as high as possible without clipping. → [GAIN keys](docs/controls.md#function-keys)
 - **ATU (autotune, experimental)**: a click on an AM signal moves the tuning onto its carrier, on an SSB signal it tunes 300 Hz beyond the signal edge (USB lower, LSB higher), onto the usual carrier. → [TUNE keys](docs/controls.md#function-keys)
@@ -94,7 +94,7 @@ Up to four SDRs at once, each assigned to a VFO by its serial number; one dongle
 - **DAB / DAB+ radio**, **digital voice** (DMR, P25, D-Star, YSF, …; test version) and **ISM** 433 / 868 MHz devices (incl. Wireless M-Bus meters) with device cards, 24 h curves and a timeline. → [DAB](docs/decoders/dab.md) · [DSD](docs/decoders/dsd.md) · [ISM](docs/decoders/ism.md)
 - **Satellite tracking:** passes, world map, Doppler correction and a K3NG rotor, no other program needed. → [Satellites](docs/satellites.md)
 - **Rotor control map:** click a place or a memory channel with a location (LAT / LON) and the rotor turns there; channels shown by their MEMORIES groups; beam sector on the map turns with the antenna; page CONNECTION disconnects the SAT tracker, memory recall or the map from the rotor. → [Rotor control](docs/satellites.md#rotor-control-map)
-- **Scanner** (SCAN tab): memories, a frequency range or the FM broadcast band (FM BCAST, centred on each station) (all 2280 airband 8.33 kHz channels in ~4 s per pass at 1.536 MS/s), all channels in the band of the dongle checked at once from the spectrum; own squelch / ASQ / priority per channel, SKIP, LOCKOUT, carrier lockout, activity log with WAV recordings, search & store, occupancy heatmap. → [SCAN](docs/controls.md#scan)
+- **Scanner** (SCAN tab): memories, a frequency range or the FM broadcast band (FM BCAST, centred on each station) (all 2280 airband 8.33 kHz channels in ~4 s per pass at 1.536 MS/s), all channels in the band of the dongle checked at once from the spectrum; own squelch / ASQ / priority per channel, SKIP, LOCKOUT, carrier lockout, activity log with MP3 recordings, search & store, occupancy heatmap. → [SCAN](docs/controls.md#scan)
 - **MP3 recording** (REC / REC SQ) with a RECORDINGS tab to play the files in the browser, daily decoder logs, **HTTP API**, optional **TX with LimeSDR**. → [Configuration](docs/configuration.md)
 
 ### User interface

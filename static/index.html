@@ -224,13 +224,15 @@
       <button id="hpfKey" class="key pass-key" aria-label="HPF"><svg class="pass-icon" viewBox="60 180 680 440" aria-hidden="true"><path d="M100 576H150Q190 576 215 535L390 265Q415 228 460 228H695"/></svg><span id="hpfVal" class="pass-val"></span></button>
       <button id="lpfKey" class="key pass-key" aria-label="LPF"><svg class="pass-icon" viewBox="60 180 680 440" aria-hidden="true"><path d="M100 228H340Q390 228 415 270L580 540Q610 576 650 576H695"/></svg><span id="lpfVal" class="pass-val"></span></button>
       <button id="alcKey" class="key" title="Audio ALC (automatic audio level) in AM/LSB/USB/CW; off = fixed gain, set the level with MAIN">ALC</button>
-      <button id="dynKey" class="key" title="DNR – Dynamic Noise Reduction in AM/LSB/USB/CW: expander (EXP, the noise between words turned down, speech at full level) + soft limiter (LIM, rounded peaks, +4 dB with ALC); AGC threshold THR optional. Parts and levels in SETTINGS › VFO › AUDIO">DNR</button>
+      <button id="dynKey" class="key" title="NTH – Noise Threshold in AM/LSB/USB/CW: expander (EXP, the noise between words turned down, speech at full level) + soft limiter (LIM, rounded peaks, +4 dB with ALC). Parts and levels in SETTINGS › VFO › AUDIO">NTH</button>
       <button id="afiKey" class="key" title="AFI: audio frequency inversion – voice inversion scrambler / descrambler (all modes except WFM); the inversion frequency is set in SETTINGS">AFI</button>
       <button id="asqKey" class="key" title="ASQ: auto squelch in AM/FM/WFM – the level follows the noise floor (margin in SETTINGS › VFO › AUDIO). Also on by itself with AGC+ and the squelch set">ASQ</button>
       <button id="tsqcKey" class="key" title="TSQ-C: CTCSS tone squelch (FM)">TSQ-C</button>
       <button id="tsqdKey" class="key" title="TSQ-D: DCS code squelch (FM)">TSQ-D</button>
       <button id="cueKey" class="key" title="CUE: keep hearing this VFO (at CUE level) when another VFO is selected">CUE</button>
       <button id="recsKey" class="key" aria-controls="recsPane" title="RECS: the RECORDINGS tab – the MP3 files recorded by REC / REC SQ (data\recordings), play them in the browser">RECS</button>
+      <button id="nbKey" class="key" title="NB – Noise Blanker (all modes except WFM / DAB): pulses (ignition, electric fences, switching supplies, radar) blanked in the wideband samples before the channel filter, where they are still a few µs long. Level and width in SETTINGS › VFO › AUDIO">NB</button>
+      <button id="dnrKey" class="key" title="DNR – Digital Noise Reduction in AM/LSB/USB/CW: takes the noise out all the time, also under speech (spectral, Wiener). Level 1–10 in SETTINGS › VFO › AUDIO">DNR</button>
     </div></div>
     <div class="kgroup" data-g="DECODE"><span class="klabel">DECODE</span><div class="keys">
       <button id="decKey" class="key" aria-controls="decPane" title="DEC: decoders on/off – shows or hides the DECODERS tab, one page for each decoder (CW, FT8, PACKET, POCSAG, RTTY, SSTV, WEFAX | ACARS, ADS-B, HFDL, VDL2 | AIS | SONDE | ISM); DAB and DSD are modes with their own tabs">DEC</button>
@@ -253,6 +255,8 @@
 
 <!-- spectrum and waterfall (SPECTRUM tab), decoders (DECODERS tab), lists of satellites (SATELLITES tab) and settings (SETTINGS tab) -->
 <section class="radio radio-body" id="radioBody">
+  <!-- hidden lower part (VIEW) with the active VFO on DAB: the station card (#dabHero) moves here, a small display sunk into the panel -->
+  <div class="dab-mini" id="dabMini"></div>
   <!-- tabs of the bottom part: spectrum with waterfall, decoders, or lists of satellites -->
   <div class="body-tabs" id="bodyTabs">
     <button data-tab="scope" class="on">SPECTRUM</button>
@@ -324,12 +328,12 @@
         <span id="dabEnsemble" class="dab-ens"></span>
         <span id="dabInfo" class="muted"></span>
       </div>
-      <p class="note">Digital radio in Band III (174–240 MHz), decoded by welle-cli. Audio comes through MAIN volume; REC does not include DAB. RTL-SDR only.
+      <p class="note">Digital radio in Band III (174–240 MHz), decoded by welle-cli. Audio comes through MAIN volume; REC / REC SQ record the station playing (its MP3 as it comes, named by the station). RTL-SDR only.
         The last channel and the last station of each channel are remembered. Channels of your region: e.g. Slovakia / Czechia 12C, 12D, 7D, Austria 5C, 5D, 8B, 11C.</p>
       <div class="dab-main">
         <div class="dab-list" id="dabServices"><div id="dabEmpty" class="ft8-empty">Searching the ensemble…</div></div>
         <div class="dab-now">
-          <div class="dab-hero">
+          <div class="dab-hero" id="dabHero">
             <div class="dab-glow" id="dabGlow"></div>
             <div class="dab-art">
               <span class="dab-mono" id="dabArtMono"></span>
@@ -1138,7 +1142,7 @@
           <div class="scan-now" id="scanNow"></div>
           <span class="scan-stat" id="scanInfo"></span>
         </div>
-        <label class="key small toggle scan-rec-key" title="REC: each activity is recorded to a WAV file (subfolder scan of the recordings folder), with the audio from just before the signal; ▶ in ACTIVITY plays it"><input id="scanRec" type="checkbox">● REC</label>
+        <label class="key small toggle scan-rec-key" title="REC: each activity is recorded to an MP3 file (64 kbit/s mono, subfolder scan of the recordings folder), with the audio from just before the signal; ▶ in ACTIVITY plays it"><input id="scanRec" type="checkbox">● REC</label>
         <button id="scanCfgKey" class="key small scan-cfg-key" title="Squelch, continue, priority, carrier lockout, history"><span class="scan-gear">⚙</span><span id="scanCfgSum"></span></button>
       </div>
       <div class="scan-cfg" id="scanCfg" hidden>
@@ -1154,7 +1158,7 @@
           <select id="scanCarrier" data-def="3"><option value="0">OFF</option><option value="0.5">30 s</option><option value="1">1 min</option><option value="2">2 min</option><option value="3">3 min</option><option value="5">5 min</option><option value="10">10 min</option><option value="30">30 min</option></select></label>
         <label class="scan-opt" title="RANGE / VISIBLE BAND: which active channel is tuned: NEXT = the next one after the last heard, STRONGEST = the strongest one">PICK
           <select id="scanPick" data-def="next"><option value="next">NEXT</option><option value="strongest">STRONGEST</option></select></label>
-        <label class="scan-opt" title="The activities (data\logs\scan_*.csv) and the WAV recordings of the scan are deleted after this many days">KEEP HISTORY
+        <label class="scan-opt" title="The activities (data\logs\scan_*.csv) and the recordings of the scan are deleted after this many days">KEEP HISTORY
           <input id="scanKeep" data-def="31" type="number" min="1" max="365" step="1"> days</label>
         <button class="key small def-btn" data-def-for="scanAsq scanMargin scanResume scanResumeS scanPrioS scanCarrier scanPick scanKeep" title="Auto squelch on, margin 6 dB, continue 2 s after the signal, priority every 3 s, carrier lockout 3 min, pick NEXT, history 31 days (default)">DEFAULT</button>
       </div>
@@ -1218,6 +1222,10 @@
 ecordings, played in the browser -->
     <div class="set-pane recs-pane" id="recsPane" hidden aria-label="Recordings">
       <div class="amsat-head">
+        <div class="recs-kind" id="recsKind" role="group" aria-label="Folder of the recordings">
+          <button data-kind="rec" class="key small" title="MP3 recordings of REC / REC SQ (the recordings folder of SETTINGS › GENERAL › RECORDINGS)">RECS</button>
+          <button data-kind="scan" class="key small" title="Recordings of the scanner, MP3 (older ones WAV) (REC on the SCAN page; the subfolder scan of the recordings folder)">SCAN RECS</button>
+        </div>
         <div class="recs-player">
           <button id="recsPlayKey" class="key accent" title="Play / pause the selected recording (also a click on a row)">▶ PLAY</button>
           <audio id="recsAudio" controls preload="none"></audio>
@@ -1451,10 +1459,12 @@ ecordings, played in the browser -->
                 always one step. Remembered in this browser, for all VFOs.</p>
             </div>
             <div class="setting">
-              <div class="row"><span>Sideband on ham bands</span><small>remembered in this browser</small></div>
-              <label class="switch"><input id="autoSb" type="checkbox" checked><span></span> Automatic LSB / USB</label>
+              <div class="row"><span>Mode on ham and shortwave broadcast bands</span><small>remembered in this browser</small></div>
+              <label class="switch"><input id="autoSb" type="checkbox" checked><span></span> Automatic LSB / USB / AM</label>
               <p class="note">In LSB or USB, tuning into another ham band switches to its usual sideband: LSB on 160, 80
-                and 40 m, USB on 60 m, 30 m and above (and on 2200 / 630 m). A sideband chosen by hand inside a band stays.</p>
+                and 40 m, USB on 60 m, 30 m and above (and on 2200 / 630 m). Tuning into a shortwave broadcast band (120 … 11 m)
+                in LSB, USB, CW or FM switches to AM, and from it into a ham band in AM back to the sideband of that band.
+                Only on entering a band: a mode chosen by hand inside a band stays.</p>
             </div>
           </div>
           <!-- ===== LOCATION: station locator / latitude, longitude (also on an OpenStreetMap map), altitude ===== -->
@@ -1797,6 +1807,7 @@ ecordings, played in the browser -->
               <div class="setting" id="sagcSetting" data-blk="11">
                 <div class="row"><span>AGC+</span><span id="sagcNow" class="value"></span></div>
                 <div class="sagc-presets" id="sagcPresets"><span class="sagc-presets-label">PRESETS</span>
+                  <button data-preset="conservative" class="key small" title="Conservative: every clipped sample turns the gain down, A/D peak kept around −10 dBFS, up only after 3 s without clipping">CONSERV.</button>
                   <button data-preset="careful" class="key small" title="Careful: no A/D clipping tolerated (the defaults before 0.114)">CAREFUL</button>
                   <button data-preset="moderate" class="key small" title="Moderate (default): up to the A/D peak at −5 dBFS, short clipping up to 0.01 % of the samples tolerated">MODERATE</button>
                   <button data-preset="bold" class="key small" title="Bold: the gain climbs into occasional A/D clipping (up to 0.002 % of the samples), down only above 0.03 %">BOLD</button></div>
@@ -1816,8 +1827,8 @@ ecordings, played in the browser -->
                   aiming at <i>target</i>. One block ≈ 55–130 ms by the sample rate.
                   <b>Bold</b> (<i>up while clipping</i> &gt; 0): after each <i>hold</i> the gain goes one step up while the clipping stays
                   at or under this share, also with the peak at full scale; between that and <i>clipping above</i> it holds, above it
-                  goes down and then waits 4× <i>hold</i>. Keep <i>clipping above</i> ≥ 10× of it. <b>PRESETS</b> from careful to bold, the one matching
-                  the sliders is lit: <b>CAREFUL</b> = no clipping (the defaults before 0.114), <b>MODERATE</b> (default) = gain up to
+                  goes down and then waits 4× <i>hold</i>. Keep <i>clipping above</i> ≥ 10× of it. <b>PRESETS</b> from conservative to bold, the one matching
+                  the sliders is lit: <b>CONSERV.</b> = every clipped sample turns the gain down, peak kept around −10 dBFS, up only after 3 s quiet; <b>CAREFUL</b> = no clipping (the defaults before 0.114), <b>MODERATE</b> (default) = gain up to
                   a −5 dBFS peak, short clipping up to 0.01 % tolerated, <b>BOLD</b> = climbs into clipping up to 0.002 %, down above 0.03 %.
                   With WFM a block with a gain step is played in mono (the step would turn the stereo into noise).
                   <b>Smooth ALC gain</b> (on by default, for this VFO): the audio ALC in AM/LSB/USB/CW raises its gain in a smooth ramp
@@ -1839,69 +1850,81 @@ ecordings, played in the browser -->
                   </g>
                   <path class="blk-ctl" d="M45 38V58" marker-end="url(#agcArrowG)"/>
                   <text class="blk-sub l" x="51" y="52">gain</text>
-                  <path class="blk-ctl" d="M180 60V40" marker-end="url(#agcArrowG)"/>
-                  <text class="blk-sub l" x="186" y="52">raw samples</text>
-                  <path class="blk-ctl" d="M210 22H524V58" marker-end="url(#agcArrowG)"/>
+                  <path class="blk-ctl" d="M166 60V40" marker-end="url(#agcArrowG)"/>
+                  <text class="blk-sub l" x="172" y="52">raw samples</text>
+                  <path class="blk-ctl" d="M210 22H529V58" marker-end="url(#agcArrowG)"/>
                   <text class="blk-sub agc-g" x="380" y="17">a gain step: WFM plays that block in mono</text>
                   <!-- RF / IQ part -->
                   <g class="blk" data-blk-for="gainSetting" tabindex="0">
-                    <rect x="10" y="60" width="86" height="40" rx="6"/>
-                    <text class="blk-title" x="53" y="77">TUNER</text>
-                    <text class="blk-sub agc-live" id="agcdGain" x="53" y="92">gain steps</text>
+                    <rect x="10" y="60" width="80" height="40" rx="6"/>
+                    <text class="blk-title" x="50" y="77">TUNER</text>
+                    <text class="blk-sub agc-live" id="agcdGain" x="50" y="92">gain steps</text>
                   </g>
-                  <line class="blk-wire" x1="96" y1="80" x2="120" y2="80" marker-end="url(#agcArrow)"/>
-                  <rect class="blk-end" x="122" y="60" width="86" height="40" rx="6"/>
-                  <text class="blk-title" x="165" y="77">A/D</text>
-                  <text class="blk-sub agc-live" id="agcdAdc" x="165" y="92">converter</text>
-                  <line class="blk-wire" x1="208" y1="80" x2="232" y2="80" marker-end="url(#agcArrow)"/>
+                  <line class="blk-wire" x1="90" y1="80" x2="106" y2="80" marker-end="url(#agcArrow)"/>
+                  <rect class="blk-end" x="108" y="60" width="76" height="40" rx="6"/>
+                  <text class="blk-title" x="146" y="77">A/D</text>
+                  <text class="blk-sub agc-live" id="agcdAdc" x="146" y="92">converter</text>
+                  <line class="blk-wire" x1="184" y1="80" x2="200" y2="80" marker-end="url(#agcArrow)"/>
                   <g class="blk" data-blk-for="dcSetting spurSetting" tabindex="0">
-                    <rect x="234" y="60" width="86" height="40" rx="6"/>
-                    <text class="blk-title" x="277" y="77">DC · SP</text>
-                    <text class="blk-sub" x="277" y="92">removal</text>
+                    <rect x="202" y="60" width="80" height="40" rx="6"/>
+                    <text class="blk-title" x="242" y="77">DC · SP</text>
+                    <text class="blk-sub" x="242" y="92">removal</text>
                   </g>
-                  <line class="blk-wire" x1="320" y1="80" x2="344" y2="80" marker-end="url(#agcArrow)"/>
-                  <rect class="blk-end" x="346" y="60" width="86" height="40" rx="6"/>
-                  <text class="blk-title" x="389" y="77">FILTER</text>
-                  <text class="blk-sub" x="389" y="92">channel</text>
-                  <line class="blk-wire" x1="432" y1="80" x2="456" y2="80" marker-end="url(#agcArrow)"/>
-                  <rect class="blk-end" x="458" y="60" width="132" height="40" rx="6"/>
-                  <text class="blk-title" x="524" y="77">DEMOD</text>
-                  <text class="blk-sub" x="524" y="92">AM SSB CW FM WFM</text>
-                  <path class="blk-wire" d="M524 100V115H45V128" marker-end="url(#agcArrow)"/>
+                  <line class="blk-wire" x1="282" y1="80" x2="298" y2="80" marker-end="url(#agcArrow)"/>
+                  <g class="blk" data-blk-for="nbLevel nbWidth" tabindex="0">
+                    <rect x="300" y="60" width="56" height="40" rx="6"/>
+                    <text class="blk-title" x="328" y="77">NB</text>
+                    <text class="blk-sub" x="328" y="92">pulses</text>
+                  </g>
+                  <line class="blk-wire" x1="356" y1="80" x2="372" y2="80" marker-end="url(#agcArrow)"/>
+                  <rect class="blk-end" x="374" y="60" width="76" height="40" rx="6"/>
+                  <text class="blk-title" x="412" y="77">FILTER</text>
+                  <text class="blk-sub" x="412" y="92">channel</text>
+                  <line class="blk-wire" x1="450" y1="80" x2="466" y2="80" marker-end="url(#agcArrow)"/>
+                  <rect class="blk-end" x="468" y="60" width="122" height="40" rx="6"/>
+                  <text class="blk-title" x="529" y="77">DEMOD</text>
+                  <text class="blk-sub" x="529" y="92">AM SSB CW FM WFM</text>
+                  <path class="blk-wire" d="M529 100V115H41V128" marker-end="url(#agcArrow)"/>
                   <!-- audio part -->
-                  <rect class="blk-end" x="10" y="130" width="70" height="40" rx="6"/>
-                  <text class="blk-title" x="45" y="147">NOTCH</text>
-                  <text class="blk-sub" x="45" y="162">AM SSB</text>
-                  <line class="blk-wire" x1="80" y1="150" x2="94" y2="150" marker-end="url(#agcArrow)"/>
+                  <rect class="blk-end" x="10" y="130" width="62" height="40" rx="6"/>
+                  <text class="blk-title" x="41" y="147">NOTCH</text>
+                  <text class="blk-sub" x="41" y="162">AM SSB</text>
+                  <line class="blk-wire" x1="72" y1="150" x2="86" y2="150" marker-end="url(#agcArrow)"/>
+                  <g class="blk" data-blk-for="dnrLevel" tabindex="0">
+                    <rect x="88" y="130" width="56" height="40" rx="6"/>
+                    <text class="blk-title" x="116" y="147">DNR</text>
+                    <text class="blk-sub" x="116" y="162">noise</text>
+                  </g>
+                  <line class="blk-wire" x1="144" y1="150" x2="158" y2="150" marker-end="url(#agcArrow)"/>
                   <g class="blk" data-blk-for="agcSmooth" tabindex="0">
-                    <rect x="96" y="130" width="104" height="40" rx="6"/>
-                    <text class="blk-title" x="148" y="147">ALC</text>
-                    <text class="blk-sub" x="148" y="162">AM SSB CW</text>
-                    <text class="blk-sub agc-g" x="148" y="186">Smooth ALC gain</text>
+                    <rect x="160" y="130" width="84" height="40" rx="6"/>
+                    <text class="blk-title" x="202" y="147">ALC</text>
+                    <text class="blk-sub" x="202" y="162">AM SSB CW</text>
+                    <text class="blk-sub agc-g" x="202" y="186">Smooth ALC gain</text>
                   </g>
-                  <line class="blk-wire" x1="200" y1="150" x2="214" y2="150" marker-end="url(#agcArrow)"/>
+                  <line class="blk-wire" x1="244" y1="150" x2="258" y2="150" marker-end="url(#agcArrow)"/>
                   <g class="blk" data-blk-for="dynExp dynLim" tabindex="0">
-                    <rect x="216" y="130" width="80" height="40" rx="6"/>
-                    <text class="blk-title" x="256" y="147">DNR</text>
-                    <text class="blk-sub" x="256" y="162">EXP · LIM</text>
+                    <rect x="260" y="130" width="66" height="40" rx="6"/>
+                    <text class="blk-title" x="293" y="147">NTH</text>
+                    <text class="blk-sub" x="293" y="162">EXP · LIM</text>
                   </g>
-                  <line class="blk-wire" x1="296" y1="150" x2="310" y2="150" marker-end="url(#agcArrow)"/>
+                  <line class="blk-wire" x1="326" y1="150" x2="340" y2="150" marker-end="url(#agcArrow)"/>
                   <g class="blk" data-blk-for="afiHz" tabindex="0">
-                    <rect x="312" y="130" width="56" height="40" rx="6"/>
-                    <text class="blk-title" x="340" y="155">AFI</text>
+                    <rect x="342" y="130" width="46" height="40" rx="6"/>
+                    <text class="blk-title" x="365" y="155">AFI</text>
                   </g>
-                  <line class="blk-wire" x1="368" y1="150" x2="382" y2="150" marker-end="url(#agcArrow)"/>
+                  <line class="blk-wire" x1="388" y1="150" x2="402" y2="150" marker-end="url(#agcArrow)"/>
                   <g class="blk" data-blk-for="hpfHz lpfHz" tabindex="0">
-                    <rect x="384" y="130" width="84" height="40" rx="6"/>
-                    <text class="blk-title" x="426" y="147">HPF·LPF</text>
-                    <text class="blk-sub" x="426" y="162">audio</text>
+                    <rect x="404" y="130" width="76" height="40" rx="6"/>
+                    <text class="blk-title" x="442" y="147">HPF·LPF</text>
+                    <text class="blk-sub" x="442" y="162">audio</text>
                   </g>
-                  <line class="blk-wire" x1="468" y1="150" x2="482" y2="150" marker-end="url(#agcArrow)"/>
+                  <line class="blk-wire" x1="480" y1="150" x2="494" y2="150" marker-end="url(#agcArrow)"/>
                   <g class="blk" data-blk-for="asqDb" tabindex="0">
-                    <rect x="484" y="130" width="76" height="40" rx="6"/>
-                    <text class="blk-title" x="522" y="147">SQL</text>
-                    <text class="blk-sub" x="522" y="162">ASQ</text>
-                    <text class="blk-sub agc-g" x="522" y="186">AGC+ makes it ASQ</text>
+                    <rect x="496" y="130" width="64" height="40" rx="6"/>
+                    <text class="blk-title" x="528" y="147">SQL</text>
+                    <text class="blk-sub" x="528" y="162">ASQ</text>
+                    <text class="blk-sub agc-g" x="528" y="186">AGC+ makes it ASQ</text>
                   </g>
                   <line class="blk-wire" x1="560" y1="150" x2="572" y2="150" marker-end="url(#agcArrow)"/>
                   <path class="agc-spk" d="M576 144h5l7-6v24l-7-6h-5z"/>
@@ -1965,7 +1988,7 @@ ecordings, played in the browser -->
                 </div>
                 <div class="def-row"><button class="key small def-btn" data-def-for="lpfHz hpfHz" title="HPF 300 Hz, LPF 3000 Hz (default)">DEFAULT</button></div>
                 <p class="note">Audio filters of the HPF and LPF keys, for this VFO. Faster: turn the mouse wheel over the key.
-                  HPF 20–5000 Hz, LPF 100–15000 Hz, 36 dB per octave. Together they make a band-pass, so HPF always stays below LPF.
+                  HPF 20–5000 Hz (36 dB per octave), LPF 100–15000 Hz (steep like the filter width: −6 dB at the cutoff, −80 dB 100 Hz above). Together they make a band-pass, so HPF always stays below LPF.
                   What you hear and REC are filtered, decoders are not. Not for DAB.</p>
               </div>
               <div class="setting">
@@ -1976,7 +1999,7 @@ ecordings, played in the browser -->
                   (f → 2·F − f, band 0 … 2·F). The same setting scrambles and descrambles. Default 1750 Hz (band up to 3500 Hz). 500–4000 Hz.</p>
               </div>
               <div class="setting set-dyn">
-                <div class="row"><span>DNR – Dynamic Noise Reduction (DNR key)</span></div>
+                <div class="row"><span>NTH – Noise Threshold (NTH key)</span></div>
                 <label class="switch"><input id="dynExp" type="checkbox"><span></span> EXP – expander: quiet between words</label>
                 <label class="switch dyn-sub"><input id="dynExpAuto" type="checkbox"><span></span> AUTO – sets itself</label>
                 <div class="dyn-now dyn-sub"><span>Now</span><span id="dynExpInfo" class="value"></span></div>
@@ -1987,7 +2010,7 @@ ecordings, played in the browser -->
                 </div>
                 <div class="def-row dyn-sub"><button class="key small def-btn" data-def-for="dynExpDb dynExpSens dynExpHold" title="Depth 12 dB, sensitivity 5, hold 100 ms (default)">DEFAULT</button></div>
                 <label class="switch"><input id="dynLim" type="checkbox"><span></span> LIM – soft limiter</label>
-                <p class="note">The DNR key (AUDIO, beside ALC; AM/LSB/USB/CW) switches on the ticked parts.
+                <p class="note">The NTH key (AUDIO, beside ALC; AM/LSB/USB/CW) switches on the ticked parts.
                   <b>EXP</b> turns the noise between words down by the <i>depth</i>; speech stays at full level. A voice detector
                   looks at the spectrum every 8 ms (speech has harmonics standing out of the noise, the noise is flat), opens at
                   once on speech, holds a while and closes in 80 ms. In CW it watches only the CW passband.</p>
@@ -1997,6 +2020,36 @@ ecordings, played in the browser -->
                   sensitivity 1–10 (5; chopped speech → raise, noise opening it → lower), hold 20–1000 ms (100; chopped words → longer).
                   The SNR in <i>Now</i> (speech vs. noise between words) is measured in both modes.</p>
                 <p class="note"><b>LIM</b>: soft limiter instead of hard clipping; with ALC +4 dB, the peaks rounded, not cut.</p>
+              </div>
+              <div class="setting set-nb">
+                <div class="row"><span>NB – Noise Blanker (NB key)</span></div>
+                <div class="set-cols">
+                  <label class="set-field"><span>Level (1–10)</span><input id="nbLevel" data-def="5" type="number" step="1" min="1" max="10" value="5"></label>
+                  <label class="set-field"><span>Width (µs)</span><input id="nbWidth" data-def="5" type="number" step="1" min="1" max="50" value="5"></label>
+                </div>
+                <div class="dyn-now"><span>Now</span><span id="nbInfo" class="value"></span></div>
+                <div class="def-row"><button class="key small def-btn" data-def-for="nbLevel nbWidth" title="Level 5, width 5 µs (default)">DEFAULT</button></div>
+                <p class="note">The NB key (AUDIO, beside NTH; all modes except WFM and DAB) blanks pulses of ignition, electric
+                  fences, switching supplies or radar in the wideband samples of the dongle, before the channel filter, where a
+                  pulse is still a few µs long (after the filter it is smeared over milliseconds). A pulse stands out of the
+                  envelope of the band (13 µs average); only short ones (up to 100 µs) are blanked, so a strong station is never
+                  touched. <i>Level</i> 1–10: 1 only strong pulses, 10 also weak ones (above 8 an occasional noise peak is
+                  blanked too). <i>Width</i>: blanked on each side of the pulse (longer for ringing pulses). <i>Now</i>: pulses
+                  a second and the share of the samples blanked. The waterfall shows the band unblanked.</p>
+              </div>
+              <div class="setting set-dnr">
+                <div class="row"><span>DNR – Digital Noise Reduction (DNR key)</span></div>
+                <div class="set-cols">
+                  <label class="set-field"><span>Level (1–10)</span><input id="dnrLevel" data-def="5" type="number" step="1" min="1" max="10" value="5"></label>
+                </div>
+                <div class="dyn-now"><span>Now</span><span id="dnrInfo" class="value"></span></div>
+                <div class="def-row"><button class="key small def-btn" data-def-for="dnrLevel" title="Level 5 (default)">DEFAULT</button></div>
+                <p class="note">The DNR key (AUDIO, under NTH; AM/LSB/USB/CW) takes the noise out of the audio all the time, also
+                  under speech; NTH only turns down the pauses between words (both can be on). In the short-time spectrum
+                  (27 ms frames) the noise of each band is learned from its minimum over the last 1.5 s, and each band is lowered
+                  by how much noise it holds (Wiener gain, decision-directed SNR: the rest of the noise stays smooth, no warbling
+                  tones). After NF, before the ALC. Level 1–10: the noise lowered by at most 6–24 dB (5: 14 dB); higher levels
+                  also take a little of weak speech. <i>Now</i> shows how much the noise is lowered.</p>
               </div>
               <div class="setting">
                 <div class="row"><span>Auto Squelch ASQ – above the noise (dB)</span></div>

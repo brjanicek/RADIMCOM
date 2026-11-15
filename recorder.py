@@ -5,6 +5,8 @@ Two independent recordings, each with its own button:
   squelch  only while there is audio (open squelch), each session in its own file
 
 The receiver thread only puts the blocks in a queue; encoding and writing to disk run in their own thread.
+DAB: welle-cli already gives MP3 (DAB_KBPS), its bytes are written as they come (feed_mp3), both buttons record
+everything (DAB has no squelch).
 File name: [<memory name>_]<frequency>MHz_<mode>_<YYYYMMDD_HHMMSS of the start>.mp3
 The RECORDINGS tab lists the files (Recorder.files) and plays them in the browser.
 The folder is shared by all VFOs (data\recordings.json, read again when it changes); a file being written stays where it was opened.
@@ -35,7 +37,10 @@ SESSION_HOLD_S = 1.0  # squelch: a closed squelch ends the session after this lo
 SESSION_MIN_S = 0.3   # squelch: a shorter session is a noise burst, its file is deleted
 SILENCE_PEAK = 1      # 16-bit samples: a block up to this level is silence (a closed squelch gives exactly 0)
 QUEUE_BLOCKS = 256    # about 16 s of audio
-NAME_RE = re.compile(r"^(?:(?P<memory>.+?)_)?(?P<mhz>\d+\.\d{6})MHz_(?P<mode>[A-Z0-9]+)_(?P<start>\d{8}_\d{6})(?:_\d+)?\.mp3$")
+SCAN_KBPS = 64        # MP3 of the scanner (scanner.REC_KBPS, mono): for the length of a scan file
+DAB_IDLE_S = 10.0     # DAB with REC SQ: the file ends when no MP3 came for this long (DAB off, no signal)
+DAB_KBPS = 160        # the MP3 of welle-cli (MPEG-1 layer 3, 48 kHz): for the length of a DAB file
+NAME_RE = re.compile(r"^(?:(?P<memory>.+?)_)?(?P<mhz>\d+\.\d{6})MHz_(?P<mode>[A-Z0-9]+)_(?P<start>\d{8}_\d{6})(?:_\d+)?\.(?:mp3|wav)$")
 
 
 _settings_cache = [None, ""]   # (mtime, size) of SETTINGS_PATH, the folder from it
@@ -121,6 +126,27 @@ def parse_name(name):
             "start": f"{s[:4]}-{s[4:6]}-{s[6:8]} {s[9:11]}:{s[11:13]}:{s[13:15]}"}
 
 
+def wav_secs(path, size):
+    """Length of a WAV file in seconds from its header; a file still being written (header not final) from its size."""
+    import wave
+    try:
+        with wave.open(path, "rb") as w:
+            rate, n, width = w.getframerate(), w.getnframes(), w.getsampwidth() * w.getnchannels()
+        if rate:
+            return int(max(n, (size - 44) // max(width, 1)) / rate)
+    except (OSError, EOFError, wave.Error):
+        pass
+    return 0
+
+
+RAW = object()        # Track.enc of a DAB file: MP3 bytes written as they come, no encoder
+
+
+def safe_name(text):
+    """A station name for a file name: letters, digits, - and ., the rest _ (empty if nothing is left)."""
+    return re.sub(r"_+", "_", re.sub(r"[^\w.-]", "_", str(text or ""))).strip("_.")[:40]
+
+
 class Track:
     """One recording. Only the recorder's thread touches the open file; `on` is the switch from outside."""
 
@@ -156,6 +182,32 @@ class Track:
         self.out = open(path, "xb")
         self.enc, self.path, self.rate, self.frames, self.file = enc, path, rate, 0, os.path.basename(path)
 
+    def _open_mp3(self, hz, mode, label):
+        """A file for MP3 bytes as they come (DAB): no encoder, self.enc = RAW."""
+        folder = self.folder()
+        os.makedirs(folder, exist_ok=True)
+        prefix = safe_name(label) + "_" if safe_name(label) else memory_prefix(hz, mode)   # the station, not the ensemble
+        stem = f"{prefix}{hz / 1e6:.6f}MHz_{mode}_{time.strftime('%Y%m%d_%H%M%S')}"
+        path, n = os.path.join(folder, stem + ".mp3"), 1
+        while os.path.exists(path):
+            n += 1
+            path = os.path.join(folder, f"{stem}_{n}.mp3")
+        self.out = open(path, "xb")
+        self.enc, self.path, self.rate, self.frames, self.file = RAW, path, DAB_KBPS * 125, 0, os.path.basename(path)
+        self.label = label
+
+    def write_mp3(self, chunk, hz, mode, label):
+        """DAB: MP3 bytes of welle-cli; a new file every MAX_FILE_S and when the station changes."""
+        self.last_block = time.monotonic()
+        if self.enc is not None and (self.enc is not RAW or self.label != label):
+            self.close()
+        if self.enc is not None and self.frames + len(chunk) > MAX_FILE_S * self.rate:
+            self.close()
+        if self.enc is None:
+            self._open_mp3(hz, mode, label)
+        self.out.write(chunk)
+        self.frames += len(chunk)              # bytes; self.rate = bytes a second
+
     def _encode(self, pcm):
         self.out.write(self.enc.encode(pcm))
         self.frames += len(pcm) // 4
@@ -167,10 +219,11 @@ class Track:
         self.held, self.held_frames = [], 0
         frames, self.frames = self.frames, 0
         try:
-            out.write(enc.flush())
+            if enc is not RAW:
+                out.write(enc.flush())
         finally:
             out.close()
-        if self.gated and frames < SESSION_MIN_S * self.rate:
+        if self.gated and enc is not RAW and frames < SESSION_MIN_S * self.rate:
             os.remove(self.path)
             self.file = ""
         else:
@@ -178,6 +231,8 @@ class Track:
 
     def write(self, pcm, rate, hz, mode):
         self.last_block = time.monotonic()
+        if self.enc is RAW:
+            self.close()                         # DAB is over: back to the audio of the receiver
         if self.enc is not None and rate != self.rate:
             self.close()                         # one file has one sample rate
         if self.gated:
@@ -205,7 +260,8 @@ class Track:
 
     def idle(self):
         """No blocks are coming (a decoder muted the audio, band of the owner VFO left): the session is over."""
-        if self.gated and self.enc is not None and time.monotonic() - self.last_block > SESSION_HOLD_S:
+        hold = DAB_IDLE_S if self.enc is RAW else SESSION_HOLD_S
+        if self.gated and self.enc is not None and time.monotonic() - self.last_block > hold:
             self.close()
 
     def fail(self, e):
@@ -218,7 +274,10 @@ class Track:
 
     def state(self):
         enc, rate, frames = self.enc, self.rate, self.frames
-        return {"on": self.on, "open": enc is not None, "file": self.file, "saved": self.saved,
+        # active: audio goes into the file now -> the REC blinks. REC: from the press on (also before the first block
+        # opens the file); REC SQ: only while the squelch is open, not in the pause held after it
+        active = enc is not None and (enc is RAW or not self.held_frames) if self.gated else self.on
+        return {"on": self.on, "open": enc is not None, "active": active, "file": self.file, "saved": self.saved,
                 "secs": int(frames / rate) if enc is not None and rate else 0, "error": self.error}
 
 
@@ -239,6 +298,15 @@ class Recorder:
             t.error, t.file, t.saved = "", "", 0
         t.on = bool(on)
 
+    def feed_mp3(self, chunk, hz, label):
+        """DAB: MP3 bytes of the station from welle-cli (the DAB thread of app.py); never blocks."""
+        if not any(t.on for t in self.tracks.values()):
+            return
+        try:
+            self.q.put_nowait(("mp3", chunk, hz, label))
+        except queue.Full:
+            self.dropped += 1
+
     def feed(self, pcm, rate, hz, mode):
         """16-bit stereo block from the receiver thread; never blocks it."""
         if not any(t.on for t in self.tracks.values()):
@@ -258,6 +326,8 @@ class Recorder:
                 try:
                     if not t.on:
                         t.close()
+                    elif block and block[0] == "mp3":
+                        t.write_mp3(block[1], block[2], "DAB", block[3])
                     elif block:
                         t.write(*block)
                     else:
@@ -286,29 +356,44 @@ class Recorder:
         return {t.file for t in self.tracks.values() if t.enc is not None and t.file
                 and (not t.path or os.path.normcase(os.path.dirname(t.path)) == folder)}
 
-    def files(self):
-        """The MP3 files in the recordings folder, newest first: name, size, time of the last change, length
-        (from the size, CBR), the frequency / mode / start / memory name from the file name, and whether it is being written."""
+    def files(self, kind="rec", writing=None):
+        """The recordings, newest first: name, size, time of the last change, length, the frequency / mode / start /
+        memory name from the file name, and whether it is being written. kind "rec" = the MP3 files of REC / REC SQ
+        (length from the size, CBR), "scan" = the WAV files of the scan in its subfolder (writing = names the scan
+        writes now)."""
+        folder, ext = self.kind_folder(kind), ((".mp3", ".wav") if kind == "scan" else (".mp3",))
         try:
-            names = [n for n in os.listdir(self.folder) if n.lower().endswith(".mp3")]
+            names = [n for n in os.listdir(folder) if n.lower().endswith(ext)]
         except OSError:
             return []
-        writing, out = self.writing(), []
+        writing, out = (self.writing() if kind == "rec" else set(writing or ())), []
         for name in names:
+            path = os.path.join(folder, name)
             try:
-                stat = os.stat(os.path.join(self.folder, name))
+                stat = os.stat(path)
             except OSError:
                 continue
-            out.append(dict(parse_name(name), name=name, size=stat.st_size, mtime=int(stat.st_mtime),
-                            secs=int(stat.st_size * 8 / (BITRATE * 1000)), writing=name in writing))
+            info = parse_name(name)
+            if name.lower().endswith(".wav"):
+                secs = wav_secs(path, stat.st_size)
+            else:
+                kbps = SCAN_KBPS if kind == "scan" else DAB_KBPS if info.get("mode") == "DAB" else BITRATE
+                secs = int(stat.st_size * 8 / (kbps * 1000))
+            out.append(dict(info, name=name, size=stat.st_size, mtime=int(stat.st_mtime), secs=secs, writing=name in writing))
         out.sort(key=lambda f: (f["mtime"], f["name"]), reverse=True)
         return out
 
-    def delete(self, name):
+    def kind_folder(self, kind="rec"):
+        """Folder of the recordings: "rec" = REC / REC SQ, "scan" = its subfolder "scan" (WAV of the scanner)."""
+        if kind not in ("rec", "scan"):
+            raise ValueError("kind must be rec or scan")
+        return os.path.join(self.folder, "scan") if kind == "scan" else self.folder
+
+    def delete(self, name, kind="rec", writing=None):
         """Deletes one recording; ValueError if it does not exist or is being written."""
-        if name in self.writing():
+        if name in (self.writing() if kind == "rec" else set(writing or ())):
             raise ValueError("The file is being written: stop the recording first")
-        path = os.path.join(self.folder, name)
+        path = os.path.join(self.kind_folder(kind), name)
         if os.sep in name or "/" in name or not os.path.isfile(path):
             raise ValueError("No such recording")
         os.remove(path)

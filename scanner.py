@@ -62,6 +62,43 @@ STORE_MIN_S = 1.0       # search & store: a shorter activity is not stored
 REC_PRE_S = 0.5         # recording: audio from before the signal came back (in the hang)
 REC_TAIL_S = 0.5        # recording: audio after the signal dropped
 REC_MAX_S = 300.0       # recording: one activity at most this long
+REC_KBPS = 64           # recording: MP3 mono (speech of a scanned channel); WAV only without lameenc
+
+
+class Mp3Writer:
+    """The file of one recorded activity: mono 16-bit PCM in, MP3 out (the same lameenc as REC / REC SQ).
+    Same calls as the wave writer it replaced: writeframes, close."""
+
+    def __init__(self, path, rate):
+        import lameenc
+        self.enc = lameenc.Encoder()
+        self.enc.set_bit_rate(REC_KBPS)
+        self.enc.set_in_sample_rate(int(round(rate)))    # LAME resamples rates that MP3 does not have
+        self.enc.set_channels(1)
+        self.enc.set_quality(2)
+        self.out = open(path, "xb")
+
+    def writeframes(self, pcm):
+        self.out.write(self.enc.encode(bytes(pcm)))
+
+    def close(self):
+        try:
+            self.out.write(self.enc.flush())
+        finally:
+            self.out.close()
+
+
+def _rec_open(path_stem, rate):
+    """(writer, file name): MP3, or WAV when lameenc is missing."""
+    try:
+        import lameenc  # noqa: F401
+    except ImportError:
+        w = wave.open(path_stem + ".wav", "wb")
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(int(round(rate)))
+        return w, os.path.basename(path_stem) + ".wav"
+    return Mp3Writer(path_stem + ".mp3", rate), os.path.basename(path_stem) + ".mp3"
 BLOCK_S = 0.085         # about one block (for the time away during a priority look)
 LOG_DIR = data("logs")
 # the log is read by position (older files have no "session" column; their header row is skipped)
@@ -159,7 +196,7 @@ def safe_name(name):
 
 
 def rec_folder():
-    """WAV files of the scan: the subfolder "scan" of the recordings folder (SETTINGS › GENERAL › RECORDINGS)."""
+    """Recordings of the scan (MP3, older ones WAV): the subfolder "scan" of the recordings folder (SETTINGS › GENERAL › RECORDINGS)."""
     from recorder import current_folder
     return os.path.join(current_folder(), "scan")
 
@@ -188,7 +225,7 @@ def read_log(days=1, limit=None, now=None, session=None):
 
 
 def prune(keep_days, now=None):
-    """History kept keep_days days: older scan_*.csv logs and WAV recordings of the scan are deleted.
+    """History kept keep_days days: older scan_*.csv logs and recordings (MP3, older WAV) of the scan are deleted.
     Returns the number of files deleted."""
     now = now or time.time()
     keep = time.strftime("%Y-%m-%d", time.gmtime(now - (int(keep_days) - 1) * 86400))
@@ -208,7 +245,7 @@ def prune(keep_days, now=None):
         folder = rec_folder()
         for fn in os.listdir(folder):
             path = os.path.join(folder, fn)
-            if fn.lower().endswith(".wav") and os.path.getmtime(path) < now - int(keep_days) * 86400:
+            if fn.lower().endswith((".wav", ".mp3")) and os.path.getmtime(path) < now - int(keep_days) * 86400:
                 try:
                     os.remove(path)
                     gone += 1
@@ -924,12 +961,9 @@ class Scanner:
                 os.makedirs(folder, exist_ok=True)
                 m = self.meta[a["i"]]
                 name = safe_name(m["name"])
-                fn = (f"{name + '_' if name else ''}{m['freq'] / 1e6:.6f}MHz_{m['mode']}_"
-                      f"{time.strftime('%Y%m%d_%H%M%S', time.localtime(a['t0']))}.wav")
-                self.rec_wav = wave.open(os.path.join(folder, fn), "wb")
-                self.rec_wav.setnchannels(1)
-                self.rec_wav.setsampwidth(2)
-                self.rec_wav.setframerate(int(round(fs)))
+                stem = (f"{name + '_' if name else ''}{m['freq'] / 1e6:.6f}MHz_{m['mode']}_"
+                        f"{time.strftime('%Y%m%d_%H%M%S', time.localtime(a['t0']))}")
+                self.rec_wav, fn = _rec_open(os.path.join(folder, stem), fs)
                 a["file"], self.rec_file, self.rec_s = fn, fn, 0.0
             except OSError as e:
                 self.rec_error, self.rec_wav = f"scan recording off: {e}", None

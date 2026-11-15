@@ -72,7 +72,7 @@ from ais import AisDecoder
 import adsb as adsb_mod
 from adsb import RATE as ADSB_RATE, AdsbDecoder
 from tonesq import norm_ctcss, norm_dcs
-from sdr import (WF_FFT, AFI_MAX_HZ, AFI_MIN_HZ, EXP_DEPTH_MAX_DB, EXP_DEPTH_MIN_DB, EXP_SENS_MAX, EXP_SENS_MIN, EXP_HOLD_MAX_MS, EXP_HOLD_MIN_MS, ASQ_MAX_DB, ASQ_MIN_DB, DECIM, DSD_MODE, HPF_MAX_HZ, HPF_MIN_HZ, LPF_MAX_HZ, LPF_MIN_HZ, MODES, SQUELCH_OFF,
+from sdr import (WF_FFT, SAM_SIDEBANDS, AFI_MAX_HZ, AFI_MIN_HZ, DNR_LEVEL_MAX, DNR_LEVEL_MIN, NB_LEVEL_MAX, NB_LEVEL_MIN, NB_WIDTH_MAX_US, NB_WIDTH_MIN_US, EXP_DEPTH_MAX_DB, EXP_DEPTH_MIN_DB, EXP_SENS_MAX, EXP_SENS_MIN, EXP_HOLD_MAX_MS, EXP_HOLD_MIN_MS, ASQ_MAX_DB, ASQ_MIN_DB, DECIM, DSD_MODE, HPF_MAX_HZ, HPF_MIN_HZ, LPF_MAX_HZ, LPF_MIN_HZ, MODES, SQUELCH_OFF,
                  SAGC_PARAMS, UPCONV_MAX_HZ, ZOOMS, Receiver, list_devices, lowpass, sagc_params)
 
 
@@ -451,6 +451,41 @@ def on_baseband(base, fs, dial_hz):
 
 
 recorder = Recorder()
+
+
+def _dab_recording():
+    """REC / REC SQ with DAB: the MP3 of the station playing (welle-cli, a second listener beside the browser) goes
+    into the recording as it comes. Follows a change of the station or channel; stops with the buttons or DAB off."""
+    while True:
+        time.sleep(0.5)
+        if not (dab.enabled and any(t.on for t in recorder.tracks.values())):
+            continue
+        channel = dab.channel
+        sid = (cfg.get("dab_sids") or {}).get(channel)
+        if not sid:
+            continue
+        label = sid
+        try:
+            label = next((s["label"] for s in dab.mux().get("services", []) if s.get("sid") == sid and s.get("label")), sid)
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            pass
+        try:
+            stream = dab.audio(sid)
+        except OSError:
+            time.sleep(2)                          # welle-cli not ready yet
+            continue
+        hz = CHANNEL_HZ.get(channel, 0)
+        try:
+            for chunk in stream:
+                recorder.feed_mp3(chunk, hz, label)
+                if not (dab.enabled and dab.channel == channel and (cfg.get("dab_sids") or {}).get(channel) == sid
+                        and any(t.on for t in recorder.tracks.values())):
+                    break
+        finally:
+            stream.close()
+
+
+threading.Thread(target=_dab_recording, daemon=True, name="dab-rec").start()
 
 
 def on_audio(pcm):
@@ -1521,10 +1556,12 @@ def api_scan_heatmap():
 
 @app.route("/api/scan/rec/<name>")
 def api_scan_rec(name):
-    """A WAV recording of the scan (subfolder "scan" of the recordings folder)."""
-    if not name.lower().endswith(".wav") or "/" in name or "\\" in name:
+    """A recording of the scan (MP3, older ones WAV; subfolder "scan" of the recordings folder)."""
+    low = name.lower()
+    if not low.endswith((".wav", ".mp3")) or "/" in name or "\\" in name:
         return jsonify({"error": "bad name"}), 400
-    return send_from_directory(scanner_mod.rec_folder(), name, mimetype="audio/wav", conditional=True)
+    return send_from_directory(scanner_mod.rec_folder(), name, mimetype="audio/mpeg" if low.endswith(".mp3") else "audio/wav",
+                               conditional=True)
 
 
 @app.route("/api/scan", methods=["POST"])
@@ -1572,10 +1609,28 @@ def api_scan_cmd():
     return jsonify({"ok": True})
 
 
+def _recs_kind():
+    """?kind= of the RECORDINGS tab: "rec" (MP3 of REC / REC SQ, default) or "scan" (WAV of the scanner)."""
+    kind = request.args.get("kind", "rec")
+    if kind not in ("rec", "scan"):
+        raise ValueError("kind must be rec or scan")
+    return kind
+
+
+def _scan_writing():
+    """The WAV file the scan of this VFO writes now (it may not be deleted)."""
+    f = getattr(receiver.scan, "rec_file", "") if getattr(receiver.scan, "rec_wav", None) is not None else ""
+    return {f} if f else set()
+
+
 @app.route("/api/recordings", methods=["GET"])
 def api_recordings():
-    """The MP3 recordings in the recordings folder (RECORDINGS tab), newest first."""
-    return jsonify(recorder.files())
+    """The recordings (RECORDINGS tab), newest first: ?kind=rec the MP3 of REC / REC SQ, ?kind=scan the WAV of the scan."""
+    try:
+        kind = _recs_kind()
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify(recorder.files(kind, _scan_writing()))
 
 
 @app.route("/api/recording_folder", methods=["GET", "POST"])
@@ -1600,14 +1655,19 @@ def api_recording_folder():
 
 @app.route("/api/recordings/<name>", methods=["GET"])
 def api_recording_file(name):
-    """One recording; Range requests work, so the browser can seek while playing."""
-    return send_from_directory(recorder.folder, name, mimetype="audio/mpeg", conditional=True)
+    """One recording (?kind=rec / scan); Range requests work, so the browser can seek while playing."""
+    try:
+        kind = _recs_kind()
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    return send_from_directory(recorder.kind_folder(kind), name, mimetype="audio/wav" if kind == "scan" else "audio/mpeg",
+                               conditional=True)
 
 
 @app.route("/api/recordings/<name>", methods=["DELETE"])
 def api_recording_delete(name):
     try:
-        recorder.delete(name)
+        recorder.delete(name, _recs_kind(), _scan_writing())
     except (ValueError, OSError) as e:
         return jsonify({"error": str(e)}), 400
     return jsonify({"deleted": name})
@@ -1804,9 +1864,19 @@ def api_set():
             changes["notch"] = bool(body["notch"])
         if "audio_agc" in body:
             changes["audio_agc"] = bool(body["audio_agc"])
-        for k in ("dyn", "dyn_lim", "dyn_exp", "dyn_exp_auto", "agc_smooth"):
+        for k in ("dyn", "dyn_lim", "dyn_exp", "dyn_exp_auto", "agc_smooth", "dnr", "nb", "sam"):
             if k in body:
                 changes[k] = bool(body[k])
+        if "sam_sb" in body:
+            if body["sam_sb"] not in SAM_SIDEBANDS:
+                return jsonify({"error": "sam_sb must be " + ", ".join(SAM_SIDEBANDS)}), 400
+            changes["sam_sb"] = body["sam_sb"]
+        if "nb_level" in body:
+            changes["nb_level"] = int(min(max(round(float(body["nb_level"])), NB_LEVEL_MIN), NB_LEVEL_MAX))
+        if "nb_width_us" in body:
+            changes["nb_width_us"] = min(max(float(body["nb_width_us"]), NB_WIDTH_MIN_US), NB_WIDTH_MAX_US)
+        if "dnr_level" in body:
+            changes["dnr_level"] = int(min(max(round(float(body["dnr_level"])), DNR_LEVEL_MIN), DNR_LEVEL_MAX))
         if "dyn_exp_db" in body:
             changes["dyn_exp_db"] = min(max(float(body["dyn_exp_db"]), EXP_DEPTH_MIN_DB), EXP_DEPTH_MAX_DB)
         if "dyn_exp_sens" in body:

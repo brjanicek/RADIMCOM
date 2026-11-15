@@ -64,7 +64,8 @@ function fitStage() {
   // the head height depends on the stage width (compact keys): fit, measure again, fit once more
   let stageH = 0;
   for (let i = 0; i < 4; i++) {
-    const hh = head.offsetHeight + BODY_STRIP_H;
+    const mini = root.classList.contains("dab-mini-on") ? $("radioBody").offsetHeight - 26 : 0;   // DAB card under the head
+    const hh = head.offsetHeight + BODY_STRIP_H + mini;
     if (hh === stageH && !widen()) break;
     stageH = hh;
     apply(Math.min(w / baseW, h / stageH));
@@ -176,16 +177,28 @@ const HAM_SB_BANDS = [
   [18068000, 18168000, "USB"], [21000000, 21450000, "USB"], [24890000, 24990000, "USB"], [28000000, 29700000, "USB"],
   [50000000, 52000000, "USB"], [70000000, 70500000, "USB"], [144000000, 146000000, "USB"], [430000000, 440000000, "USB"],
   [1240000000, 1300000000, "USB"]];
+// Automatic AM on the shortwave broadcast bands 120 … 11 m (ITU, Region 1). Entering one in LSB, USB,
+// CW or FM switches to AM; leaving it into a ham band in AM switches to the sideband of that band. [from Hz, to Hz, mode]
+const BCAST_AM_BANDS = [
+  [2300000, 2495000, "AM"], [3200000, 3400000, "AM"],
+  [3900000, 4000000, "AM"], [4750000, 5060000, "AM"], [5900000, 6200000, "AM"], [7200001, 7450000, "AM"],
+  [9400000, 9900000, "AM"], [11600000, 12100000, "AM"], [13570000, 13870000, "AM"], [15100000, 15800000, "AM"],
+  [17480000, 17900000, "AM"], [18900000, 19020000, "AM"], [21450001, 21850000, "AM"], [25670000, 26100000, "AM"]];
 const hamSbBand = (hz) => HAM_SB_BANDS.find(([a, b]) => hz >= a && hz <= b) || null;
+const bcastBand = (hz) => BCAST_AM_BANDS.find(([a, b]) => hz >= a && hz <= b) || null;
 let autoSb = recall("autoSb") !== "0";
-const sbBandOf = new Map();   // VFO address → ham band of its last frequency (undefined = not known yet: no switch)
-/** Adds the sideband of a newly entered ham band to a tuning change (and sets it locally). */
+const sbBandOf = new Map();   // VFO address → ham or broadcast band of its last frequency (undefined = not known yet: no switch)
+/** Adds the mode of a newly entered band to a tuning change (and sets it locally): the sideband of a ham band
+ *  (from LSB / USB, or from AM coming from a broadcast band), AM on a broadcast band (from LSB / USB / CW / FM). */
 function autoSideband(changes) {
-  const band = hamSbBand(changes.tune_hz);
+  const band = hamSbBand(changes.tune_hz) || bcastBand(changes.tune_hz);
   const prev = sbBandOf.get(vbase);
   if (band || prev === undefined) sbBandOf.set(vbase, band);   // outside the bands the last band is kept
-  if (!autoSb || !st || st.dab || "mode" in changes || !["LSB", "USB"].includes(st.mode)) return;
+  if (!autoSb || !st || st.dab || "mode" in changes) return;
   if (!band || prev === undefined || band === prev || st.mode === band[2]) return;
+  const bc = BCAST_AM_BANDS.includes(band), fromBc = !!prev && BCAST_AM_BANDS.includes(prev);
+  const ok = bc ? ["LSB", "USB", "CW", "FM"].includes(st.mode) : ["LSB", "USB"].includes(st.mode) || (st.mode === "AM" && fromBc);
+  if (!ok) return;
   st.mode = changes.mode = band[2];
   renderControls();
   drawOverlays();
@@ -296,9 +309,36 @@ function atuNote() {
   return i.state === "done" ? `ATU ${i.shift_hz >= 0 ? "+" : ""}${i.shift_hz} Hz` : "ATU: no signal";
 }
 
+// SAM (synchronous AM, an option of the mode AM): two keys in the 5th column of MODE, SAM above, the sideband under it
+const SAM_SB = ["dsb", "lsb", "usb"];
+const SAM_SB_TEXT = { dsb: "DSB", lsb: "SB-L", usb: "SB-U" };
+/** "SAM", "SAM-L", "SAM-U" for the mode annunciator, "" when not in SAM. */
+const samLabel = (s) => (s && !s.dab && s.mode === "AM" && s.sam ? "SAM" + (s.sam_sb === "lsb" ? "-L" : s.sam_sb === "usb" ? "-U" : "") : "");
+function renderSamKeys() {
+  const box = $("modes");
+  let sam = $("samKey"), sb = $("samSbKey");
+  if (!sam || sam.parentElement !== box) {   // segButtons rewrites the group: the two keys are put back
+    box.insertAdjacentHTML("beforeend",
+      `<button id="samKey" title="SAM: synchronous AM. A PLL holds the carrier, so a selective fade (the carrier weaker than the sidebands) does not distort; switches to AM">SAM</button>` +
+      `<button id="samSbKey" title="Sideband of SAM: DSB = both, SB-L / SB-U = only the lower / upper one (an interfering station on the other side stays out). Click: next">DSB</button>`);
+    sam = $("samKey");
+    sb = $("samSbKey");
+  }
+  const on = !!samLabel(st);
+  sam.classList.toggle("active", on);
+  sam.disabled = !!st.dab;
+  sb.textContent = SAM_SB_TEXT[st.sam_sb] || "DSB";
+  sb.classList.toggle("active", on);
+  sb.disabled = !on;
+  const off = st.sam_offset_hz;
+  sam.title = on ? `SAM on${st.sam_locked ? ", locked" : ", searching"}${off ? ` · carrier ${off > 0 ? "+" : ""}${off} Hz` : ""} (click: plain AM)`
+    : "SAM: synchronous AM. A PLL holds the carrier, so a selective fade (the carrier weaker than the sidebands) does not distort; switches to AM";
+}
+
 function renderControls() {
   if (!st) return;
   segButtons($("modes"), MODE_KEYS, st.dab ? "DAB" : st.mode, (m) => m);
+  renderSamKeys();
   renderDabBuf();
   // The buttons stay fixed; a width set by dragging the edge in the spectrum has no button (none is lit).
   const bw = st.bandwidth[st.mode];
@@ -366,8 +406,26 @@ function renderTuner() {
 }
 
 $("modes").addEventListener("click", (e) => {
+  if (!st) return;
+  if (e.target.closest("#samKey")) {           // SAM on (in AM) / off (back to the envelope detector)
+    const on = !(st.mode === "AM" && st.sam && !st.dab);
+    if (st.dab) return;
+    const ch = { sam: on };
+    if (on && st.mode !== "AM") ch.mode = st.mode = "AM";
+    st.sam = on;
+    renderControls();
+    drawOverlays();
+    send(ch);
+    return;
+  }
+  if (e.target.closest("#samSbKey")) {         // DSB → SB-L → SB-U
+    st.sam_sb = SAM_SB[(SAM_SB.indexOf(st.sam_sb || "dsb") + 1) % SAM_SB.length];
+    renderControls();
+    send({ sam_sb: st.sam_sb });
+    return;
+  }
   const b = e.target.closest("[data-v]");
-  if (!b || !st) return;
+  if (!b) return;
   if (b.dataset.v === "DAB") {   // DAB: on with its tab (again on DAB: only the tab is shown)
     if (st.dab) setBodyTab("dab"); else dabOn();
     return;
@@ -694,6 +752,19 @@ function showBody(on, animate = true) {
   store("bodyShown", on ? "1" : "0");
   // the page scale depends on it (fitStage); when shown, the rest is resized after the slide (timer above)
   if (on || !animate) fitStage(); else window.dispatchEvent(new Event("resize"));
+  renderDabMini();
+}
+/** Hidden lower part and the active VFO on DAB: the station card (#dabHero) moves under the head as a small
+ *  display (#dabMini); back to the DAB tab when the lower part opens or DAB goes off. */
+function renderDabMini(s = st) {
+  const hero = $("dabHero"), mini = $("dabMini"), root = document.documentElement;
+  if (!hero || !mini) return;
+  const on = bodyHidden() && !!(s && s.dab);
+  if (on === root.classList.contains("dab-mini-on")) return;
+  root.classList.toggle("dab-mini-on", on);
+  if (on) mini.append(hero);
+  else document.querySelector(".dab-now").prepend(hero);
+  fitStage();
 }
 const bodyHidden = () => document.documentElement.classList.contains("body-off");
 if (!MAP_ONLY) showBody(recall("bodyShown") !== "0", false);
@@ -2308,6 +2379,16 @@ function renderRds() {
   $("alcKey").classList.toggle("on", alcMode && st.audio_agc !== false);
   $("dynKey").disabled = !alcMode;
   $("dynKey").classList.toggle("on", alcMode && !!st.dyn);
+  const nbMode = !["WFM", "DAB"].includes(st.mode);
+  $("nbKey").disabled = !nbMode;
+  $("nbKey").classList.toggle("on", nbMode && !!st.nb);
+  if (st.nb_level != null && document.activeElement !== $("nbLevel")) $("nbLevel").value = st.nb_level;
+  if (st.nb_width_us != null && document.activeElement !== $("nbWidth")) $("nbWidth").value = st.nb_width_us;
+  $("nbInfo").textContent = !st.nb ? "NB off" : !nbMode ? "not in " + st.mode : `${(st.nb_rate || 0).toFixed(0)} pulses/s · ${(st.nb_frac || 0).toFixed(2)} % blanked`;
+  $("dnrKey").disabled = !alcMode;       // DNR: the same modes (AM/LSB/USB/CW)
+  $("dnrKey").classList.toggle("on", alcMode && !!st.dnr);
+  if (st.dnr_level != null && document.activeElement !== $("dnrLevel")) $("dnrLevel").value = st.dnr_level;
+  $("dnrInfo").textContent = !st.dnr ? "DNR off" : !alcMode ? "not in " + st.mode : `level ${st.dnr_level} · noise −${(st.dnr_reduction_db || 0).toFixed(0)} dB`;
   $("dynLim").checked = st.dyn_lim !== false;
   $("dynExp").checked = st.dyn_exp !== false;
   const expOn = st.dyn_exp !== false;
@@ -2454,8 +2535,11 @@ function sagcText(k, v, unit) {
   if (k === "settle") return `${v} ${Number(v) === 1 ? "block" : "blocks"}`;
   return `${v} ${unit}`;
 }
-// AGC+ presets, careful to bold. MODERATE = the defaults of the server (SAGC_PARAMS in sdr.py)
+// AGC+ presets, conservative to bold. MODERATE = the defaults of the server (SAGC_PARAMS in sdr.py)
 const SAGC_PRESETS = {
+  // any clipped sample turns the gain down; 10 dB headroom kept, up only after 3 s quiet, in small steps
+  conservative: { clip_ppm: 0, heavy_ppm: 100, down_db: 4, heavy_db: 8, low_dbfs: -14, target_dbfs: -10,
+    hold_s: 3, up_db: 3, settle: 3, allow_ppm: 0 },
   careful: { clip_ppm: 20, heavy_ppm: 1000, down_db: 3, heavy_db: 6, low_dbfs: -8, target_dbfs: -5,
     hold_s: 0.2, up_db: 6, settle: 2, allow_ppm: 0 },
   moderate: { clip_ppm: 100, heavy_ppm: 2000, down_db: 2.5, heavy_db: 6, low_dbfs: -5, target_dbfs: -2,
@@ -2593,6 +2677,30 @@ $("dynKey").addEventListener("click", () => {
   st.dyn = !st.dyn;
   renderRds();
   send({ dyn: st.dyn });
+});
+$("nbKey").addEventListener("click", () => {
+  if (!st) return;
+  st.nb = !st.nb;
+  renderRds();
+  send({ nb: st.nb });
+});
+for (const [id, key, lo, hi, def] of [["nbLevel", "nb_level", 1, 10, 5], ["nbWidth", "nb_width_us", 1, 50, 5]]) {
+  $(id).addEventListener("change", () => {
+    const v = Math.min(hi, Math.max(lo, Math.round(Number($(id).value)) || def));
+    $(id).value = v;
+    send({ [key]: v });
+  });
+}
+$("dnrKey").addEventListener("click", () => {
+  if (!st) return;
+  st.dnr = !st.dnr;
+  renderRds();
+  send({ dnr: st.dnr });
+});
+$("dnrLevel").addEventListener("change", () => {
+  const v = Math.min(10, Math.max(1, Math.round(Number($("dnrLevel").value)) || 5));
+  $("dnrLevel").value = v;
+  send({ dnr_level: v });
 });
 for (const [id, key, lo, hi, def] of [["dynExpDb", "dyn_exp_db", 3, 30, 12], ["dynExpSens", "dyn_exp_sens", 1, 10, 5], ["dynExpHold", "dyn_exp_hold_ms", 20, 1000, 100]]) {
   $(id).addEventListener("change", () => {
@@ -5634,6 +5742,7 @@ function dabOn() {
 
 function renderDab(s) {
   const on = !!s.dab;
+  renderDabMini(s);
   renderControls();   // the DAB key of MODE
   renderModeTabs();
   if (on && s.dab_channel && $("dabChannel").value !== s.dab_channel) { $("dabChannel").value = s.dab_channel; renderDabChannelMems(); }
@@ -13163,14 +13272,20 @@ const VFO_ANNS = [
   ["nf", "NF", "NF: automatic notch filter (AM/LSB/USB)"],
   ["sp", "SP", "SP: spur removal"],
   ["alc", "ALC", "ALC: automatic audio level (AM/LSB/USB/CW)"],
-  ["dnr", "DNR", "DNR: Dynamic Noise Reduction (AM/LSB/USB/CW)"],
+  ["nb", "NB", "NB: Noise Blanker – pulses blanked (all modes except WFM / DAB)"],
+  ["nth", "NTH", "NTH: Noise Threshold – quiet between words (AM/LSB/USB/CW)"],
+  ["dnr", "DNR", "DNR: Digital Noise Reduction (AM/LSB/USB/CW)"],
   ["asq", "ASQ", "ASQ: auto squelch (AM/FM/WFM)"],
   ["afi", "AFI", "AFI: audio frequency inversion"],
   ["sat", SAT_ANN_ICON, "SAT: frequency corrected for Doppler by satellite tracking"],
 ];
 const vfoAnnsHtml = (mode = "") => `<div class="vfo-anns"><span class="ann vfo-mode">${mode}</span>` +
   VFO_ANNS.map(([c, t, tip]) => `<span class="ann ${c}" title="${tip}">${t}</span>`).join("") +
-  `<span class="gap"></span><span class="ann vfo-cue" role="button">CUE</span></div>`;
+  `</div>`;
+// the unit of the frequency with REC on top and CUE just above the unit (CUE moved there from the annunciator row,
+// which got too long; REC replaced the red dot of the top row). cue = false: a standalone receiver without CUE.
+const freqUnitHtml = (unit, cue = true) => `<span class="unit-col"><span class="ann vfo-rec">REC</span>` +
+  (cue ? `<span class="ann vfo-cue" role="button">CUE</span>` : "") + `<span class="unit">${unit}</span></span>`;
 /** Lights the annunciators of one VFO window from its state s. */
 function renderVfoAnns(row, s) {
   const a = (c) => row.querySelector(`.vfo-anns .${c}`);
@@ -13184,7 +13299,9 @@ function renderVfoAnns(row, s) {
   a("alc").classList.toggle("on", ["AM", "LSB", "USB", "CW"].includes(s.mode) && s.audio_agc !== false);
   a("afi").classList.toggle("on", s.mode !== "WFM" && s.mode !== "DSD" && !!s.afi);
   a("asq").classList.toggle("on", ["AM", "FM", "WFM"].includes(s.mode) && !!s.auto_sql_on);
-  a("dnr").classList.toggle("on", ["AM", "LSB", "USB", "CW"].includes(s.mode) && !!s.dyn);
+  a("nb").classList.toggle("on", !["WFM", "DAB"].includes(s.mode) && !!s.nb);
+  a("nth").classList.toggle("on", ["AM", "LSB", "USB", "CW"].includes(s.mode) && !!s.dyn);
+  a("dnr").classList.toggle("on", ["AM", "LSB", "USB", "CW"].includes(s.mode) && !!s.dnr);
   a("sat").classList.toggle("on", !!s.trsp_name);
 }
 // Info row under the frequency (was the flags beside the S-meter): RX/TX, filter width, audio HPF and LPF with their
@@ -13309,7 +13426,7 @@ function renderSpareVfos() {
     row.title = `VFO ${name}: no SDR assigned (connect one and run the SDR setup)`;
     row.innerHTML = `<div class="vfo-top"><button class="vfo-key" disabled>VFO-${name}</button><div class="vfo-memname"></div>` +
       `<div class="vfo-ind"><span class="vfo-stat off">NO SDR</span></div></div>` +
-      `<div class="vfo-disp"><div class="freq">${seg7("          ")}<span class="unit">MHz</span></div></div>` +
+      `<div class="vfo-disp"><div class="freq">${seg7("          ")}${freqUnitHtml("MHz")}</div></div>` +
       vfoInfoHtml() + vfoAnnsHtml("---") +
       `<div class="vfo-foot"><label class="vfo-rf"><span>RF</span>` +
       `<input type="range" min="0" max="1" value="0" disabled></label><span class="vfo-gain">---</span></div>` +
@@ -13332,7 +13449,7 @@ function renderVfoDisplays() {
       // on top the name of the memory on this frequency or the band plan, above the display the receiver state, VFO button, mode and CUE; under the display the RF GAIN slider and the gain value
       // one dark window: VFO-x, name and state on top, the frequency, the annunciators, RF and SQL bars
       row.innerHTML = `<div class="vfo-top">` + (v.name ? `<button class="vfo-key">VFO-${v.name}</button>` : "<span></span>") +
-        `<div class="vfo-memname"></div><div class="vfo-ind"><span class="rec-tag"></span>` +
+        `<div class="vfo-memname"></div><div class="vfo-ind">` +
         `<span class="mute-tag" title="Audio muted while the ACARS, VDL2, HFDL or ISM decoder runs" hidden></span>` +
         (v.name ? `<span class="vfo-stat"></span>` : "") + `</div></div>` +
         `<div class="vfo-disp"><div class="freq"></div></div>` +
@@ -13358,17 +13475,21 @@ function renderVfoDisplays() {
       const { txt, unit } = freqDigits(s.tune_hz);
       if (txt !== v.shown) {
         v.shown = txt;
-        fr.innerHTML = seg7(txt) + `<span class="unit">${unit}</span>`;
+        fr.innerHTML = seg7(txt) + freqUnitHtml(unit, !!v.name);
         fr.setAttribute("aria-label", `${fmtMHz(s.tune_hz, 6)} MHz`);
       }
       // red struck-through speaker in the top row: the audio of this VFO is muted by a decoder
       row.querySelector(".mute-tag").hidden = !s.audio_muted;
       if (v.name) { renderVfoAnns(row, s); renderVfoTone(row, s); renderVfoInfo(row, s); }
-      // red dot in the corner of the display: blinks while a file is being written, steady while waiting for the squelch
+      // REC above CUE beside the frequency: red, blinks while a file is being written, steady while waiting for the squelch
       const recs = [s.recording?.cont, s.recording?.squelch];
-      const recTag = row.querySelector(".rec-tag");
-      recTag.classList.toggle("on", recs.some((r) => r?.on) && (!v.name || v.online));
-      recTag.classList.toggle("writing", recs.some((r) => r?.on && r.open));
+      const recTag = row.querySelector(".vfo-rec");
+      if (recTag) {
+        const on = recs.some((r) => r?.on) && (!v.name || v.online), writing = on && (!!recs[0]?.on || !!(recs[1]?.on && (recs[1].active ?? recs[1].open)));
+        recTag.classList.toggle("on", on);
+        recTag.classList.toggle("writing", writing);
+        recTag.title = !on ? "REC: not recording" : writing ? "REC: recording, writing a file" : "REC: recording on, waiting for the squelch to open";
+      }
     }
     // Frame on top of the VFO: satellite and transponder of the Doppler correction, otherwise the memory on this frequency, otherwise the band plan (narrowest band).
     const trsp = s && s.trsp_name ? [s.trsp_sat, s.trsp_name].filter(Boolean).join(" · ") : "";
@@ -13410,7 +13531,7 @@ function renderVfoDisplays() {
     // without a state only make it invisible, so the layout does not shift
     mode.style.visibility = gain.style.visibility = sql.style.visibility = s ? "" : "hidden";
     if (s) {
-      mode.textContent = s.dab ? "DAB" : s.mode;
+      mode.textContent = s.dab ? "DAB" : samLabel(s) || s.mode;
       const smart = s.smart_agc && s.gain !== "auto";
       gain.textContent = s.gain === "auto" ? "AGC" : smart ? `+${gainLabel(s)}` : gainLabel(s);
       if (!gain.matches(":hover")) gain.title = smart ? `AGC+ ${gainLabel(s)}, A/D peak ${s.adc_peak} dBFS${s.adc_clip ? ", clipping" : ""}` : "RF gain";
@@ -13445,8 +13566,8 @@ function renderVfoDisplays() {
         : lvl <= SQUELCH_OFF ? "squelch off" : `squelch ${lvl} dBFS (${sReading(lvl)})`;
     }
     const cue = row.querySelector(".vfo-cue");
-    cue.classList.toggle("on", !!v.cue);
-    cue.title = v.cue ? `CUE on: VFO ${v.name} stays audible at CUE level (click to turn off)`
+    if (cue) cue.classList.toggle("on", !!v.cue);
+    if (cue) cue.title = v.cue ? `CUE on: VFO ${v.name} stays audible at CUE level (click to turn off)`
       : `CUE off (click to keep hearing VFO ${v.name} when another VFO is selected)`;
     row.classList.toggle("tx", !!(s && s.tx));
     // Squelch open on an inactive VFO: the button lights up to show activity.
@@ -13855,8 +13976,10 @@ function renderRec() {
   for (const b of REC_BUTTONS) {
     const r = rec[b.key] || {};
     const btn = $(b.btn);
-    btn.classList.toggle("on", !!r.on && !!r.open);
-    btn.classList.toggle("armed", !!r.on && !r.open);
+    // blinks while audio goes into the file, steady while REC SQ waits for the squelch (also in the pause after it)
+    const active = !!r.on && (b.key === "cont" || !!(r.active ?? r.open));   // REC blinks from the press on
+    btn.classList.toggle("on", active);
+    btn.classList.toggle("armed", !!r.on && !active);
     $(b.time).textContent = r.on && r.open ? `${Math.floor(r.secs / 60)}:${String(r.secs % 60).padStart(2, "0")}` : b.label;
     btn.title = r.error || (r.on ? `Recording, click to stop${r.file ? "\n" + r.file : ""}` : b.title);
     if (r.error && r.error !== recErrors[b.key]) adError(r.error);
@@ -14146,6 +14269,9 @@ $("recDir").addEventListener("keydown", (e) => { if (e.key === "Enter") $("recDi
 // with the <audio> element (its own volume, not through MAIN); NEXT continues with the row below (the older file).
 let recordings = [];          // from the server, newest first
 let recsPlaying = "";         // file name in the player
+// RECS = MP3 of REC / REC SQ, SCAN RECS = MP3 (older WAV) of the scanner (subfolder scan); remembered in the browser
+let recsKind = recall("recsKind") === "scan" ? "scan" : "rec";
+const recsUrl = (name) => `${vbase}/api/recordings${name ? "/" + encodeURIComponent(name) : ""}?kind=${recsKind}`;
 let recsWriting = "";         // files being written when the list was read (a change = read again)
 let recsLoading = false;
 
@@ -14156,7 +14282,7 @@ async function loadRecordings() {
   if (recsLoading) return;
   recsLoading = true;
   try {
-    const r = await fetch(vbase + "/api/recordings");
+    const r = await fetch(recsUrl());
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     recordings = await r.json();
     recsWriting = recordings.filter((f) => f.writing).map((f) => f.name).join("\n");
@@ -14206,7 +14332,7 @@ function renderRecordings() {
   if (!$("recsInfo").classList.contains("error")) {
     const total = recordings.reduce((a, f) => a + f.size, 0), secs = recordings.reduce((a, f) => a + f.secs, 0);
     const n = shown.length === recordings.length ? `${recordings.length}` : `${shown.length} of ${recordings.length}`;
-    $("recsInfo").textContent = recordings.length ? `${n} recordings, ${recsSecs(secs)}, ${recsSize(total)}` : "";
+    $("recsInfo").textContent = recordings.length ? `${n} ${recsKind === "scan" ? "scan recordings" : "recordings"}, ${recsSecs(secs)}, ${recsSize(total)}` : "";
   }
   $("recsNow").textContent = recsPlaying;
   $("recsPlayKey").textContent = playing ? "▮▮ PAUSE" : "▶ PLAY";
@@ -14220,7 +14346,7 @@ function playRecording(name) {
     return;
   }
   recsPlaying = name;
-  a.src = `${vbase}/api/recordings/${encodeURIComponent(name)}`;
+  a.src = recsUrl(name);
   a.play().catch((e) => adError(`Play: ${e.message}`));
   renderRecordings();
   $("recsRows").querySelector("tr.playing")?.scrollIntoView({ block: "nearest" });
@@ -14228,7 +14354,7 @@ function playRecording(name) {
 
 async function deleteRecording(name) {
   if (!confirm(`Delete the recording?\n${name}`)) return;
-  const r = await fetch(`${vbase}/api/recordings/${encodeURIComponent(name)}`, { method: "DELETE" });
+  const r = await fetch(recsUrl(name), { method: "DELETE" });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) { adError(j.error || `Delete: HTTP ${r.status}`); return; }
   if (name === recsPlaying) { $("recsAudio").pause(); $("recsAudio").removeAttribute("src"); recsPlaying = ""; }
@@ -14247,6 +14373,27 @@ $("recsPlayKey").addEventListener("click", () => {
   else if (first) playRecording(first.name);
 });
 $("recsReload").addEventListener("click", loadRecordings);
+function renderRecsKind() {
+  for (const b of $("recsKind").querySelectorAll("[data-kind]")) {
+    b.classList.toggle("on", b.dataset.kind === recsKind);
+    b.setAttribute("aria-pressed", b.dataset.kind === recsKind ? "true" : "false");
+  }
+}
+$("recsKind").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-kind]");
+  if (!b || b.dataset.kind === recsKind) return;
+  recsKind = b.dataset.kind;
+  store("recsKind", recsKind);
+  // another folder: the player stops, the list is read again
+  $("recsAudio").pause();
+  $("recsAudio").removeAttribute("src");
+  recsPlaying = "";
+  recordings = [];
+  renderRecsKind();
+  renderRecordings();
+  loadRecordings();
+});
+renderRecsKind();
 $("recsFilter").addEventListener("input", renderRecordings);
 $("recsNext").checked = recall("recsNext") !== "0";
 $("recsNext").addEventListener("change", () => store("recsNext", $("recsNext").checked ? "1" : "0"));
@@ -14260,7 +14407,8 @@ $("recsAudio").addEventListener("error", () => { if (recsPlaying) adError(`Canno
 // a running recording changes the list (new files, a growing size): read it again every 10 s while the tab is open
 setInterval(() => {
   if (bodyTab !== "recs" || document.hidden) return;
-  const writing = Object.values((st && st.recording) || {}).filter((r) => r && r.open && r.file).map((r) => r.file).join("\n");
+  const writing = recsKind === "scan" ? (st?.scan?.rec_file || "")
+    : Object.values((st && st.recording) || {}).filter((r) => r && r.open && r.file).map((r) => r.file).join("\n");
   if (writing || writing !== recsWriting) loadRecordings();
 }, 10000);
 

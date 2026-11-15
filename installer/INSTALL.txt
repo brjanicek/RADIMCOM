@@ -99,9 +99,31 @@ New
   and the audio ALC, what AGC+ does with each block (clipping, peak, target) and a step down and up in time
   (settle, hold), with the values of the sliders. A click on a block or a setting shows its slider or card.
 - DEFAULT keys set adjustable values back to their defaults: AGC+ (= MODERATE), DC peak removal, SP, S9,
-  HPF / LPF, AFI, DNR, ASQ margin, wheel speed, waterfall colours, scan options and FM scan LISTEN.
+  HPF / LPF, AFI, NTH, ASQ margin, wheel speed, waterfall colours, scan options and FM scan LISTEN.
 - AGC+ settings in plain units: clipping as % of the samples (100 ppm = 0.01 %), peaks in dBFS also as % of
   the A/D full scale; a legend under the sliders explains %, dBFS, dB, s and blocks.
+- New NB key (AUDIO, right of NTH): noise blanker, pulses (ignition, electric fences, switching supplies) blanked
+  before the channel filter, strong stations untouched; level 1-10 and width in SETTINGS > VFO > AUDIO.
+- New DNR key (AUDIO, under NTH): digital noise reduction in AM/LSB/USB/CW, the noise lowered all the time, also
+  under speech; level 1-10 in SETTINGS > VFO > AUDIO. The former DNR key (quiet between words) is now called NTH.
+- VIEW (lower part hidden) with the active VFO on DAB: the station card (logo, name, NOW ON AIR) stays under
+  the keys as a small display behind glass.
+- SAM (MODE, 5th column): synchronous AM against the distortion of selective fading on shortwave; DSB / SB-L / SB-U
+  key under it (one sideband keeps an interfering station on the other side out). SAM works with AGC+ (CONSERV. on
+  shortwave); with a manual RF GAIN keep it under the red RF bar of the VFO window (A/D clipping).
+- Automatic AM on the shortwave broadcast bands (120 ... 11 m): tuning into one in LSB / USB / CW / FM switches
+  to AM, from it into a ham band back to the sideband (SETTINGS > GENERAL > TUNING, the same switch).
+- RECORDINGS: RECS / SCAN RECS keys choose the folder, the MP3 of REC / REC SQ or the recordings of the scanner
+  (subfolder scan); the scanner records MP3 now (64 kbit/s mono) instead of WAV, played and deleted the same way.
+- DAB is recorded: REC / REC SQ save the MP3 of the station playing (named by the station, a new file on a new
+  station).
+- AGC+ preset CONSERV. (SETTINGS > VFO > ADVANCED): more careful than CAREFUL, every clipped sample turns the
+  gain down, the A/D peak kept around -10 dBFS, up only after 3 s without clipping.
+- LPF key as steep as the filter width (-6 dB at the cutoff, -80 dB 100 Hz above); it was a soft 36 dB per octave.
+- VFO window: NB, NTH and DNR in the annunciator row; CUE moved above the kHz / MHz unit (click still toggles it),
+  REC above it in the same style instead of the red dot of the top row (red, blinking while a file is written).
+- Recording shown the same everywhere: REC / REC SQ keys and REC in the VFO window blink while audio goes into the
+  file (REC from the press on, REC SQ while the squelch is open) and stay steady while REC SQ waits; blinking half as fast.
 - Radiosondes decoded by the decoders of rs1729 (github.com/rs1729/RS, in lib\sonde): RS41, DFM, M10 / M20 and
   new types LMS6-403, iMet-54, MRZ-N1 / MP3-H1, iMS-100 / RS-11G, MTS01, CF-06 / HT03; the type is found by
   itself. IQ recording of the sonde channel for later analysis (data\sonde_iq).

@@ -90,7 +90,7 @@ Main fields:
 | `ft8_error`, `vdl2_error` | decoder errors |
 | `vdl2_region` | selected VDL2 channel set, `"eu"` or `"us"` |
 | `audio_muted` | the audio of this VFO is muted because the ACARS, VDL2, HFDL, AIS or ISM decoder runs |
-| `recording` | `{"cont": {...}, "squelch": {...}, "dropped": n}`: REC and REC SQ, each with `on`, `open` (a file is being written), `file` (current or last file in `data\recordings`), `secs` (length of the current file), `saved` (files finished since switched on), `error`; `dropped` = audio blocks lost because the disk did not keep up |
+| `recording` | `{"cont": {...}, "squelch": {...}, "dropped": n}`: REC and REC SQ, each with `on`, `open` (a file is being written), `active` (the REC blinks: REC from switching on, REC SQ while the squelch is open, not in the pause after it), `file` (current or last file in `data\recordings`), `secs` (length of the current file), `saved` (files finished since switched on), `error`; `dropped` = audio blocks lost because the disk did not keep up |
 | `dab`, `dab_channel`, `dab_sids`, `dab_error` | DAB on/off, Band III channel (e.g. `12C`), last station of each channel (`{"12C": "0x5464"}`, `null` = stopped), welle-cli error |
 | `logs` | daily logs on/off: `{"ft8", "wefax", "cw", "rtty", "sstv", "acars", "dsd", "ism", "packet", "pocsag", "sonde", "hfdl", "ais"}` (`acars` covers both the ACARS and the VDL2 log) |
 | `trsp_name`, `trsp_sat` | transmitter and satellite of the Doppler correction (`/api/sat/doppler`) while it is on, empty otherwise |
@@ -133,6 +133,10 @@ Send any combination of these keys:
 | `sagc` | AGC+ settings: an object with some of `clip_ppm` (0–1000), `heavy_ppm` (1–100000), `down_db` (0.5–15), `heavy_db` (1–30), `low_dbfs` (−40…−1), `target_dbfs` (−30…0), `hold_s` (0.1–30 s, default 0.2), `up_db` (0.5–30), `settle` (0–20 blocks), merged into the current ones; `null` = all by default |
 | `smart_agc` | true = AGC+: the tuner gain is set from the A/D level (no clipping, as high as possible); turns the RTL2832 digital AGC off |
 | `rtl_agc`, `dc_remove`, `audio_agc`, `notch`, `afi`, `lpf`, `hpf`, `stereo_on`, `bias_tee`, `autotune` | true / false |
+| `nb`, `nb_level`, `nb_width_us` | NB key (noise blanker, all modes except WFM / DAB) on / off; level 1–10 (default 5); width 1–50 µs blanked on each side of a pulse (default 5). State also `nb_rate` (pulses a second) and `nb_frac` (% of the samples blanked) |
+| `sam`, `sam_sb` | SAM key (synchronous AM, in the mode AM) on / off; sideband `dsb` (default), `lsb` or `usb`. State also `sam_offset_hz` (carrier offset found) and `sam_locked` |
+| `dnr`, `dnr_level` | DNR key (spectral noise reduction, AM/LSB/USB/CW) on / off; level 1–10 (default 5). State also `dnr_reduction_db` (how much the noise is lowered now) |
+| `dyn`, `dyn_exp`, `dyn_lim`, `dyn_exp_auto`, `dyn_exp_db`, `dyn_exp_sens`, `dyn_exp_hold_ms` | NTH key (noise threshold; the key was called DNR before 1.0beta1) and its parts: expander, soft limiter, AUTO, depth 3–30 dB, sensitivity 1–10, hold 20–1000 ms |
 | `autotune_go` | true: find the carrier of the signal at `tune_hz` (send with it) and retune onto it; needs `autotune` on and USB / LSB / AM |
 | `dc_hz` | width of the DC peak removal, 0 – 1000 Hz (default 0 = the peak itself only; above 0 = cutoff of a high-pass that also takes out its skirts) |
 | `dc_db` | depth of the DC peak removal, 0 – 60 dB (default 60) |
@@ -282,9 +286,9 @@ The MP3 files of REC / REC SQ in the recordings folder (default `data\recordings
 
 | Method | Path | Meaning |
 |---|---|---|
-| GET | `/api/recordings` | the files, newest first: `[{"name", "size", "mtime", "secs", "hz", "mode", "start", "memory", "writing"}]` (`secs` from the size at 128 kbps; `hz`, `mode`, `start` (`YYYY-MM-DD HH:MM:SS`, local time) and `memory` from the file name, empty for a foreign file; `writing` = being recorded now) |
-| GET | `/api/recordings/<name>` | the file (`audio/mpeg`, Range requests work) |
-| DELETE | `/api/recordings/<name>` | delete; 400 with `error` for a file being written or an unknown name |
+| GET | `/api/recordings` | `?kind=rec` (default, MP3 of REC / REC SQ) or `?kind=scan` (MP3 of the scanner, older ones WAV, subfolder `scan`); the files, newest first: `[{"name", "size", "mtime", "secs", "hz", "mode", "start", "memory", "writing"}]` (`secs` from the size at 128 kbps; `hz`, `mode`, `start` (`YYYY-MM-DD HH:MM:SS`, local time) and `memory` from the file name, empty for a foreign file; `writing` = being recorded now) |
+| GET | `/api/recordings/<name>` | the file, `?kind=` as above (`audio/mpeg` or `audio/wav`, Range requests work) |
+| DELETE | `/api/recordings/<name>` | delete, `?kind=` as above; 400 with `error` for a file being written or an unknown name |
 | GET | `/api/antennas` | antennas of the station (SETTINGS › GENERAL › ANTENNAS): `{"antennas": [{"id", "name", "type", "ranges", "pol", "gain_dbi", "outdoor", "height_m", "rotor", "chain", "note"}], "types", "polarizations"}`; `ranges` = the bands `[[lowest Hz, highest Hz], …]` (several for a multiband antenna, `[]` = not given), `null` = not given |
 | POST | `/api/antennas` | `{"antennas": [...]}` replaces the whole list (max. 50; an antenna without `id` gets one from its name); 400 with `error` for a missing name, unknown type / polarization or a band with lowest ≥ highest frequency; only from this RADIMCOM page (403 otherwise). Saved in `data\antennas.json`, shared by all VFOs. The antenna of a VFO: `/api/set` `{"antenna": "<id>"}` (`""` = none), in the status as `antenna` |
 | GET | `/api/recording_folder` | `{"folder", "custom", "default"}`: the folder in use, the one set (`""` = default) and the default `data\recordings` |
@@ -300,7 +304,7 @@ Scanner of the VFO (SCAN tab, `scanner.py`). It runs in the receiver of the VFO;
 | POST | `/api/scan` | `{"action": "start", "opts": {...}}` starts (409 while DAB / VDL2 / ISM / HFDL / AIS is on, 400 without a channel or with more than 20000 grid channels); `"stop"`, `"pause"`, `"resume"`, `"skip"` (5 min), `"lockout"` (until stop), `"step"` with `"dir": 1 / -1`, `"opts"` (only saves). Options: `"source"` (`all` / `fav` / `group` / `range` / `view`), `"group"`, `"from_hz"`, `"to_hz"`, `"step_hz"`, `"mode"`, `"bw"` (range / view), `"pick"` (`next` / `strongest`), `"asq"` (bool), `"margin"` (1–30 dB), `"resume"` (`delay` / `carrier` / `time`), `"hang_s"` (0–60), `"time_s"` (1–600), `"prio_s"` (0–60, 0 = no look into other windows), `"carrier_min"` (0–120, 0 = off), `"rec"`, `"log"`, `"store"` (bool); saved in the VFO config (`scan`) |
 | GET | `/api/scan/log` | activities of all VFOs from `data\logs\scan_YYYY-MM-DD.csv`, newest first: `?days=1..365`, `?limit`, or `?session=<id>` (only that scan session, over all kept days); `{"days", "session", "rows": [{"time_utc", "vfo", "freq_hz", "name", "mode", "duration_s", "max_dbfs", "snr_db", "file", "note", "session"}], "fields"}` |
 | GET | `/api/scan/heatmap` | occupancy from the log, `?days=1..365` or `?session=<id>`, `?top=60`: `{"days", "rows": [{"freq_hz", "name", "mode", "total", "count", "hours": [24 × seconds, local time]}]}` |
-| GET | `/api/scan/rec/<file>` | a WAV recording of an activity (subfolder `scan` of the recordings folder) |
+| GET | `/api/scan/rec/<file>` | a recording of an activity (MP3, older ones WAV; subfolder `scan` of the recordings folder) |
 
 Scan session: GET `/api/scan` also returns `"session_id"` (and `"session"` of the running scan). A START whose source differs (memories: `source` + `group`; range / view: from, to, step, mode, bw) begins a new session; POST `{"action": "clear"}` begins one by hand and returns `{"ok", "session_id"}`. More POST actions: `{"action": "lock" | "unlock", "id": <channel id>}` (one channel out until STOP / back in). Options: `"mem"` (`all` / `fav` / `group`: the memory source kept while `source` is `range` / `view`), `"keep_days"` (1–365, default 31: older logs and WAV recordings of the scan are deleted at server start and at START); `"log"` is gone (always written).
 

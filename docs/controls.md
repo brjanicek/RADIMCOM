@@ -37,7 +37,7 @@ inactive VFO with an open squelch gets a green LED, a transmitting one turns red
 of that VFO (orange LED): that VFO stays audible at CUE level while another VFO is selected (the same as CUE in the window).
 
 - **Top row:** VFO-x (boxed and yellow on the active VFO, green on an inactive one with an open squelch), the name of the
-  memory / band plan / satellite transponder (lit on the active VFO; a memory with its own tag colour shows its name in that colour), a red dot while recording, a red struck-through speaker
+  memory / band plan / satellite transponder (lit on the active VFO; a memory with its own tag colour shows its name in that colour), a red struck-through speaker
   when a decoder (ACARS, VDL2, HFDL, AIS or ISM) has muted the audio of this VFO, and the connection state as a USB icon: green = SDR running,
   blinking orange = connecting (waiting, opening the dongle, LimeSDR calibration), grey = disconnected or error
   (hover for details). A chained VFO shows CHAIN, one out of the range of its dongle owner OOR.
@@ -49,8 +49,9 @@ of that VFO (orange LED): that VFO stays audible at CUE level while another VFO 
   **SQL** (squelch on: grey while closed, green while open) and **CONV / BYPASS**, the required position of the manual
   upconverter switch (VFOs with upconverter mode auto; BYPASS in amber).
 - **Annunciators** under it, lit when on and dark when off or not used in the current mode: the mode, AGC / AGC+
-  (red while AGC+ sees A/D clipping), NF, SP, ALC, AFI (blinking), ASQ, ATU, the satellite icon (frequency corrected for
-  Doppler by satellite tracking) and **CUE** (click to toggle CUE for that VFO without switching).
+  (red while AGC+ sees A/D clipping), NF, SP, ALC, NB, NTH, DNR, ASQ, AFI (blinking) and the satellite icon (frequency
+  corrected for Doppler by satellite tracking). **REC** and **CUE** sit above the kHz / MHz unit beside the frequency (REC red while recording, blinking while a
+  file is written; CUE just above the unit, orange when on; click to toggle CUE for that VFO without switching).
 - **RF** and **SQL** segment bars with their values (squelch only in AM/FM/WFM): drag, click or turn the mouse wheel over
   them. They work on inactive VFOs too, without switching.
 
@@ -62,7 +63,7 @@ of that VFO (orange LED): that VFO stays audible at CUE level while another VFO 
 
 ## Function keys
 
-- **MODE**: demodulation. **FILTER**: bandwidth for the current mode (WFM: 50, 75, 150 or 200 kHz, default 200 kHz = the full broadcast signal with the best stereo and RDS; 150 kHz is a compromise, 50–75 kHz help with a weak station next to a strong one but distort and usually lose stereo and RDS; any width up to 250 kHz by dragging the filter edge).
+- **MODE**: demodulation. In the 5th column **SAM** (synchronous AM, an option of AM: a click switches to AM with SAM, another click back to the plain envelope detector) and under it its sideband **DSB / SB-L / SB-U** (click: next): DSB both sidebands, SB-L / SB-U only the lower / upper one, so an interfering station on the other side stays out. SAM recovers the carrier (a narrow 30 Hz filter behind a frequency loop that follows a carrier up to ±400 Hz off) and demodulates coherently: in a selective fade, when the carrier gets weaker than its sidebands, AM does not distort. The VFO window shows SAM, SAM-L or SAM-U as the mode. SAM works with **AGC+** (a gain step costs it less than the envelope detector: back in 150–180 ms, AM 270–390 ms); on shortwave the preset **CONSERV.** keeps the steps rare and small. **With a manual RF GAIN watch it:** shortwave in the evening is full of strong broadcast stations; with the gain too high the A/D clips: the **RF bar of the VFO window and its dB value turn red** (held 1 s; also whistles, splatter and false signals all over the spectrum), with it too low weak stations sink into the noise. Set it as high as it goes without turning red, and lower it again when the band gets busier. **FILTER**: bandwidth for the current mode (WFM: 50, 75, 150 or 200 kHz, default 200 kHz = the full broadcast signal with the best stereo and RDS; 150 kHz is a compromise, 50–75 kHz help with a weak station next to a strong one but distort and usually lose stereo and RDS; any width up to 250 kHz by dragging the filter edge).
 - **GAIN**: AGC switches automatic tuner gain on/off (manual gain with the RF GAIN slider or in SET). **AGC+** sets the tuner gain from the level of the A/D converter: as high as possible without clipping it (the tuner AGC of the R820T watches only its LNA and mixer, not the A/D). The gain flag under the display shows `+` and the gain; the AGC+ key gets a red underline while the A/D clips. With the squelch set, AGC+ makes it work as auto squelch (ASQ lights up), because a fixed level would not fit the changing gain; the slider then only turns it on / off, and ASQ pressed in this state turns the squelch off.
 - **TUNE**: **ATU** (autotune) in USB, LSB and AM. With ATU on, a click on a signal in the spectrum or waterfall tunes to the clicked point (without the step grid), listens for a moment and moves the tuning onto the carrier; the key blinks while listening and the passband label shows the shift (e.g. *ATU +130 Hz*) or *no signal*. Tuning by the wheel, the arrow keys, dragging or the VFO display digits starts it too, 0.7 s after the tuning rests, when it moved by at least 150 Hz. AM: the carrier is found within a few Hz in under 1 s. SSB: the edge of the voice band goes onto the red line (the tuned frequency): the lower edge in USB, the upper one in LSB, within a few Hz after ~2 s of speech (up to 6.5 s while nobody speaks). Tuning elsewhere while listening cancels it.
 - **STEP**: tuning step: 10 Hz, 100 Hz, 1 kHz, 10 kHz in every mode, WFM included. WFM remembers its own chosen step, the other modes share one (in the browser). **Zoom** (1×–64×; at 64× the section is 24 kHz wide at 1.536 MS/s, each point 23 Hz from its own finer FFT) is the bar in the top right corner of the frequency scale: − / +, a click on a cell, or the mouse wheel over it. **Waterfall speed** (WF, 1/8 – 4×) is the same bar in the top right corner of the waterfall: below 1× several rows are averaged into one line (slower, longer history), above 1× each row is drawn taller (faster); the setting is kept in the browser. **Waterfall settings**: the gear in a square above the speed bar; with the mouse over it a half transparent window opens with the **colour scheme** (Classic, Inferno, Viridis, Turbo, Ice, Matrix; only new rows take the new colours), **colour range** and **colour offset**. Kept in the browser. **Spectrum settings**: the same gear and bar in the top right corner of the spectrum; the bar (dB) moves the **zero** (bottom edge of the spectrum) against the noise floor, −20 … +20 dB in 5 dB steps, the gear opens the **colour schemes** of the spectrum (background gradient / curve: Graphite, Waterfall, Night blue, Phosphor, Amber, Dusk, Ember, Steel). Kept in the browser.
@@ -138,8 +139,8 @@ of that VFO (orange LED): that VFO stays audible at CUE level while another VFO 
     the inversion frequency (SET, AUDIO tab, 500–4000 Hz, default 1750 Hz); the same setting scrambles and descrambles. REC and the decoders get the descrambled audio.
   - NF: automatic notch filter for AM/LSB/USB, finds and removes steady tones (whistles, carriers) by ~40 dB and
     leaves speech. It also feeds the SSTV decoder, so turn it off for SSTV.
-  - LPF / HPF (keys with the filter curve icon): audio low-pass and high-pass filter in all modes except DAB (36 dB per
-    octave; both on = band-pass). The key shows the cutoff; change it with the mouse wheel over the key or type it in SET.
+  - LPF / HPF (keys with the filter curve icon): audio low-pass and high-pass filter in all modes except DAB (LPF as steep as
+    the channel filter: −6 dB at the cutoff, −80 dB 100 Hz above; HPF 36 dB per octave; both on = band-pass). The key shows the cutoff; change it with the mouse wheel over the key or type it in SET.
     The audio spectrum bubble darkens what they cut off. You hear and REC the filtered audio, decoders still get the full audio.
   - SP: remove spurs from local sources. A press forgets all stored spur lines of the VFO, learns the band received now
     (LEARN, ~5 s, the key blinks red) and switches the removal on (steady yellow); another press switches it off.
@@ -157,7 +158,7 @@ of that VFO (orange LED): that VFO stays audible at CUE level while another VFO 
     As in every radio, a DCS code is the same as its cyclic shifts, so e.g. 023N also opens on 047I.
   - ALC: automatic audio level in AM/LSB/USB/CW; off = fixed gain. Its gain rises smoothly (a ramp, no clicks); the switch
     *Smooth ALC gain* by AGC+ in SETTINGS › SDR DONGLE › ADVANCED turns that off.
-  - DNR – Dynamic Noise Reduction (beside ALC): weak voices out of the noise in AM/LSB/USB/CW – the noise between words is turned down, the speech
+  - NTH – Noise Threshold (beside ALC; called DNR before 1.0beta1, config key `dyn`): weak voices out of the noise in AM/LSB/USB/CW – the noise between words is turned down, the speech
     stays at full level. Switches on the parts ticked in SETTINGS › AUDIO (both by default):
     **EXP** – expander (soft noise gate) with a voice detector: between words the audio is turned down by the depth
     (default 12 dB), speech stays at full level. The detector looks at the spectrum every 8 ms – speech has harmonics that
@@ -166,8 +167,24 @@ of that VFO (orange LED): that VFO stays audible at CUE level while another VFO 
     **EXP AUTO** (default on): sensitivity, hold and depth set themselves – a noise blip lowers the sensitivity, missed weak
     speech raises it, a chop (reopening soon after closing) makes the hold longer, the depth follows the measured SNR
     (8–18 dB); *Now* shows the values in use and the measured SNR (also with AUTO off). It settles in about 2–3 s, after a retune it starts again fast.
-    The VFO window shows **DNR** (green, in the annunciator row after ALC; AFI moved after ASQ) while it is on; ATU moved to the right end of the CTCSS / DCS row, above CONV.
+    The VFO window shows **NTH** (green, in the annunciator row after ALC) while it is on.
     **LIM** – soft limiter instead of the hard clipping, the peaks are rounded; with ALC +4 dB louder.
+  - DNR – Digital Noise Reduction (under NTH): in AM/LSB/USB/CW the noise is taken out all the time, also under speech
+    (NTH only turns down the pauses; both can be on). Short-time spectrum (27 ms frames, 75 % overlap): the noise of each
+    band is the minimum of its smoothed power over the last 1.5 s (minimum statistics), each band gets a Wiener gain from
+    the decision-directed SNR (Ephraim–Malah: the rest of the noise stays smooth, no warbling tones), with a floor. After NF,
+    before the ALC. **Level** 1–10 in SETTINGS › AUDIO (default 5): the noise lowered by at most 6–24 dB (5: 14 dB);
+    *Now* shows the reduction. On synthetic speech in SSB noise (level 5): the SNR under speech +3.4 dB at 15 dB SNR,
+    +4.6 dB at 6 and 0 dB, the noise in pauses −12 to −14 dB. The VFO window shows **DNR** after NTH. ~2 % of a CPU core.
+  - NB – Noise Blanker (right of NTH; all modes except WFM and DAB): pulses of ignition, electric fences, switching
+    supplies or radar are blanked in the wideband samples of the dongle, before the channel filter, where they are still
+    a few µs long. A pulse is a short jump (≤ 100 µs) of the magnitude out of the envelope of the band (13 µs moving
+    average): a strong station in the band is above all the time and is never touched, the beats of two strong stations
+    belong to the reference. The pulse and *Width* µs on each side (default 5) are set to zero. **Level** 1–10 (default 5)
+    in SETTINGS › AUDIO: 1 only strong pulses, 10 also weak ones (on pure noise none blanked up to level 8);
+    *Now* shows pulses a second and the share blanked. The waterfall stays unblanked. Synthetic test (2.4 MS/s, 100
+    pulses a second): pulses 10× the noise in the channel 6 dB lower, 30× 15 dB lower, under a station 40 dB stronger
+    than the wanted one 6.5 dB lower. 6–10 % of a CPU core while on. The VFO window shows **NB** before NTH.
   - CUE: keep hearing this VFO (at the CUE level) when another VFO is selected.
   - RECS: the **RECORDINGS** tab in the bottom part (beside SPECTRUM, DECODERS, SATELLITES), see [Recordings](#recordings) below. Like MEM, the key
     shows or hides the tab for all VFOs and is remembered in the browser.
@@ -180,10 +197,10 @@ of that VFO (orange LED): that VFO stays audible at CUE level while another VFO 
   - **REC** records everything until switched off, also the silence of a closed squelch. After 15 minutes it continues in a new file.
   - **REC SQ** records only while there is audio (open squelch), each session in its own file. A session ends when the squelch stays closed for 1 s; that silence is not saved, and a burst shorter than 0.3 s is dropped. In modes without a squelch, or with the squelch off, one session runs until the key is switched off, with no length limit.
 
-  Files go to the recordings folder (default `data\recordings`, can be changed in **SETTINGS › GENERAL › RECORDINGS**: a full path, created if missing, one folder for all VFOs; a running recording finishes its file in the old folder) as MP3, 128 kbps, named by the frequency and mode at the start of the file and its start time: `145.500000MHz_FM_20261105_155300.mp3`. If that frequency is in the memories, the name of the memory comes first, with `_` instead of spaces: `Piestany_TWR_118.575000MHz_AM_20261105_155300.mp3`. Retuning during a recording does not start a new file; a change of the sample rate does. A key shows the time of the current file while writing, and it is lit without a time while waiting for audio. A red dot in the corner of the VFO display shows the same for each VFO: blinking while writing, steady while waiting for audio. Like the audio of the VFO, recording pauses while ACARS, VDL2 or ISM runs, and DAB is not recorded.
+  Files go to the recordings folder (default `data\recordings`, can be changed in **SETTINGS › GENERAL › RECORDINGS**: a full path, created if missing, one folder for all VFOs; a running recording finishes its file in the old folder) as MP3, 128 kbps, named by the frequency and mode at the start of the file and its start time: `145.500000MHz_FM_20261105_155300.mp3`. If that frequency is in the memories, the name of the memory comes first, with `_` instead of spaces: `Piestany_TWR_118.575000MHz_AM_20261105_155300.mp3`. Retuning during a recording does not start a new file; a change of the sample rate does. A key shows the time of the current file while writing, and it is lit without a time while waiting for audio. **REC** beside the frequency of each VFO window (above CUE) shows the same: red, blinking while audio goes into the file (REC always, REC SQ while the squelch is open), steady while REC SQ waits for the squelch. They blink slowly, all at the same rate (1 s on, 1 s off). Like the audio of the VFO, recording pauses while ACARS, VDL2 or ISM runs. **DAB** is recorded too: the MP3 of the station playing (160 kbit/s from welle-cli, saved as it comes, no re-encoding), the file named by the station (`Radio_FM_187.072000MHz_DAB_20261115_191200.mp3`), a new file when the station changes; REC SQ records DAB the same as REC (DAB has no squelch).
 
-  <a id="recordings"></a>**RECORDINGS tab** (AUDIO → RECS): every MP3 file of the recordings folder (the folder is shared by all VFOs), newest first: start time,
-  memory name, frequency, mode, length (from the size, 128 kbps), size and the file name. A file being written has a blinking red dot; its length grows
+  <a id="recordings"></a>**RECORDINGS tab** (AUDIO → RECS): **RECS** / **SCAN RECS** on the left choose the folder (remembered in the browser): RECS = every MP3 file of REC / REC SQ in the recordings folder (the folder is shared by all VFOs), SCAN RECS = the recordings of the scanner (MP3, older ones WAV) (REC on the SCAN page) in its subfolder `scan`. Newest first: start time,
+  memory name (channel of the scan), frequency, mode, length (MP3 from the size: 128 kbps, DAB 160 kbps, scan 64 kbps; WAV from its header), size and the file name. A file being written has a blinking red dot; its length grows
   while the tab is open (the list is read again every 10 s while a recording runs, ⟳ reads it at once). A click on a row plays the file in the browser
   with the player in the head of the tab: ▶ / ▮▮ (also the PLAY key), seeking in the bar, the player's own volume (not MAIN, so the live audio keeps
   playing; MUTE it if you want). A file being written plays what is saved so far. **NEXT** (on by default) continues with the next older file when one
@@ -200,7 +217,7 @@ of that VFO (orange LED): that VFO stays audible at CUE level while another VFO 
       (36 common RAL Classic shades, screen approximations) or an own colour sprays the panel with it; on a light colour the print and the logo turn dark.
       Keys, displays and the screen stay the same. Remembered in the browser.
     - **S-METER**: layout (needle, bar graph, LED bar, VFD display, amber needle (default), 7-segment, peak bar), remembered in the browser for all VFOs.
-    - **TUNING**: touchpad wheel speed (1–10, default 4; left = slower), remembered in the browser for all VFOs. A mouse wheel notch is always one step. **Automatic LSB / USB** (on by default, remembered in the browser): in LSB or USB, tuning into another ham band switches to its usual sideband (LSB on 160, 80 and 40 m; USB on 60 m, 30 m and above, and on 2200 / 630 m); a sideband chosen by hand inside a band stays.
+    - **TUNING**: touchpad wheel speed (1–10, default 4; left = slower), remembered in the browser for all VFOs. A mouse wheel notch is always one step. **Automatic LSB / USB / AM** (on by default, remembered in the browser): in LSB or USB, tuning into another ham band switches to its usual sideband (LSB on 160, 80 and 40 m; USB on 60 m, 30 m and above, and on 2200 / 630 m); tuning into a shortwave broadcast band (120, 90, 75, 60, 49, 41, 31, 25, 22, 19, 16, 15, 13 and 11 m) in LSB, USB, CW or FM switches to AM, and from it into a ham band in AM back to that band's sideband; a mode chosen by hand inside a band stays.
     - **LOCATION**: the station location, shared by all VFOs: Maidenhead **locator** (4, 6 or 8 characters; gives the centre of its square) or **latitude** and **longitude**,
       the **altitude**, and **CHOOSE ON MAP** (an OpenStreetMap map, the tiles need internet: click the place of the antenna, then **SAVE**). Used by the satellites
       (passes, Doppler, rotor tracking), the packet decoder (APRS distances and map), HFDL and AIS (maps). A new installation starts at 0.0 / 0.0; an older
@@ -247,14 +264,14 @@ of that VFO (orange LED): that VFO stays audible at CUE level while another VFO 
       - **SP – Spurs removal**: for a switching power supply and the like. **LEARN** finds lines at a regular spacing of 12 kHz or more in the band received now, so learn on a quiet band.
         Each line gets a band-stop set by **Width**, **Edge**, **Shift** and **Depth**, which takes it down to the noise around it. Cleans the waterfall and the channel you listen to (not WFM and wide FM).
         A signal on a spur is removed with it.
-      - **AGC+**: its parameters (clipping thresholds as % of the samples of a block – 0.01 % = 1 in 10 000 –, steps down and up of the tuner gain in dB, peak levels in dBFS and % of the A/D full scale, explained by a legend under the sliders; the level for going up, target, hold time, settle blocks, and *Bold: up while clipping ≤* – occasional A/D clipping tolerated for a higher gain) with the gain and A/D level live; **PRESETS** above the sliders, from careful to bold, the matching one lit: **CAREFUL** (no clipping), **MODERATE** (default: peak up to −2…−5 dBFS, short clipping up to 0.01 % tolerated), **BOLD** (climbs while the clipping stays ≤ 0.002 %, down above 0.03 %). With WFM the blocks around a gain step are played in mono, so the stereo does not turn to noise.
-      - **Where AGC+ and ALC work** (beside AGC+): a diagram of the signal path – tuner, A/D, DC · SP, channel filter, demodulator, then the audio NOTCH, ALC, DNR, AFI,
+      - **AGC+**: its parameters (clipping thresholds as % of the samples of a block – 0.01 % = 1 in 10 000 –, steps down and up of the tuner gain in dB, peak levels in dBFS and % of the A/D full scale, explained by a legend under the sliders; the level for going up, target, hold time, settle blocks, and *Bold: up while clipping ≤* – occasional A/D clipping tolerated for a higher gain) with the gain and A/D level live; **PRESETS** above the sliders, from conservative to bold, the matching one lit: **CONSERV.** (every clipped sample turns the gain down, A/D peak kept around −10 dBFS, up only after 3 s without clipping, in steps of at most 3 dB), **CAREFUL** (no clipping), **MODERATE** (default: peak up to −2…−5 dBFS, short clipping up to 0.01 % tolerated), **BOLD** (climbs while the clipping stays ≤ 0.002 %, down above 0.03 %). With WFM the blocks around a gain step are played in mono, so the stereo does not turn to noise.
+      - **Where AGC+ and ALC work** (beside AGC+): a diagram of the signal path – tuner, A/D, DC · SP, NB, channel filter, demodulator, then the audio NOTCH, DNR, ALC, NTH, AFI,
         HPF · LPF and SQL. AGC+ (green) reads the raw A/D samples before any filter and sets only the tuner gain; a gain step plays that WFM block in mono,
         and with the squelch set AGC+ makes it auto squelch (ASQ). The ALC is the audio gain after the demodulator (AM, SSB, CW; *Smooth ALC gain*).
         Below: what AGC+ does with each block – clipped samples (*heavy above* → *heavy: down by*, *clipping above* → *down by*, holds, *bold: up while ≤*)
         and the A/D peak of the quiet blocks (*up below*, *target*, *up at most*) – and one step down and back up in time (*settle*, *hold*).
         Live: AGC+ ON / OFF, the tuner gain in TUNER, the A/D peak in A/D (red on clipping), *now* over both scales and a white mark on each (with AGC+ or a manual gain).
-        The labels show the values of the sliders; a click on a block or a setting highlights its slider or card (DNR, AFI, HPF · LPF and SQL on the AUDIO page).
+        The labels show the values of the sliders; a click on a block or a setting highlights its slider or card (NB, DNR, NTH, AFI, HPF · LPF and SQL on the AUDIO page).
       - **DEFAULT** keys (also on BASIC, AUDIO, GENERAL › TUNING, in the waterfall settings and the scan options): set the values of their card back to the defaults;
         on AGC+ it is the same as **MODERATE**, on SP the learned lines stay.
       - **S-meter: S9 =**: calibration of the S-meter of this VFO (the level in dBFS shown as S9; was on UI › S-METER).
@@ -297,7 +314,7 @@ of that VFO (orange LED): that VFO stays audible at CUE level while another VFO 
     A click on another tile while scanning **stops the scan** (START scans the new source); a click on another chip or mode key continues the scan with it at once. At START of a VISIBLE BAND / RANGE scan the VFO shows the mode scanned.
   - **Keys**: **START / STOP** is one key. Only while scanning: **HOLD / CONTINUE** (hold on the channel; the normal squelch of the VFO works), **✕ LOCK OUT** (leave the channel heard now out until STOP, as ✕ in its row), **SKIP** (leave the
     channel and skip it for 5 min), **◀ ▶** (hold on the previous / next channel). Tuning by hand or recalling a memory holds the scan too.
-    **● REC**: each activity is recorded to a WAV file (subfolder `scan` of the recordings folder) with the 0.5 s before the signal came back.
+    **● REC**: each activity is recorded to an MP3 file (64 kbit/s mono; subfolder `scan` of the recordings folder) with the 0.5 s before the signal came back.
   - **⚙** (the key shows a summary; a click opens the settings, mostly set once):
     - **AUTO SQUELCH** (recommended, on by default): a channel without its own SQ opens at its noise floor + **MARGIN** dB; off = the squelch level of the mode
       (when that squelch is off too, the auto squelch is used, so no channel is left out or held open by noise). The noise floor of a channel is learned from its own measurements while it is quiet (spurs, the DC spike and local noise included).
@@ -305,7 +322,7 @@ of that VFO (orange LED): that VFO stays audible at CUE level while another VFO 
     - **PRIORITY EVERY**: priority channels in another tuner window are checked this often while another channel is heard (0 = off; in the same window they win at once).
     - **CARRIER LOCKOUT** (OFF, 30 s, 1, 2, 3, 5, 10, 30 min): a channel open longer than this without a break is locked out until STOP.
     - **PICK** (VISIBLE BAND / RANGE): NEXT = the first active channel after the last one heard, STRONGEST = the strongest one.
-    - **KEEP HISTORY**: the activities and the WAV recordings of the scan are deleted after this many days (31).
+    - **KEEP HISTORY**: the activities and the recordings of the scan are deleted after this many days (31).
   - The status display beside the keys: SCANNING (a moving line) / LISTENING / PRIORITY LOOK / HOLD, the channel, a bar with its level (green) and squelch
     (yellow line), ● REC, and the numbers of the scan (channels, channels per second, tuner window, locked out, left out, stored).
   - The tab scrolls: the tiles and the card go up and away, the bar of keys stays on top and the page below fills the rest
@@ -326,7 +343,7 @@ of that VFO (orange LED): that VFO stays audible at CUE level while another VFO 
 
   ![SCAN tab: the tiles MEMORY, VISIBLE BAND, RANGE (2280 airband channels) and FM BCAST, the memory group chips, START, REC and the auto squelch summary, and the CHANNELS page with SCAN, SQ, ASQ and PRIO of each airband memory](images/scan.png)
 
-- **VIEW** (far left of the key row): hides the whole lower part with the tabs (SPECTRUM, DECODERS …) with a slide and shows it again; lit while hidden. A key that opens a tab (DECODE, MEM, SCAN …) shows it again. Remembered in the browser.
+- **VIEW** (far left of the key row): hides the whole lower part with the tabs (SPECTRUM, DECODERS …) with a slide and shows it again; lit while hidden. A key that opens a tab (DECODE, MEM, SCAN …) shows it again. Remembered in the browser. With the active VFO on DAB the station card (logo or slide, name, PTY / bitrate chips, NOW ON AIR) stays under the keys as a small display behind glass.
 - **MENU → BAND**: shows or hides the row of band keys; the spectrum and waterfall take the freed space. Remembered in the browser.
 
 **AD (additional display)**: the part of the glass under the clock shows one thing at a time, by priority:

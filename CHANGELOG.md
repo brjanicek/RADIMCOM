@@ -39,6 +39,79 @@ Test beta (GitHub branch `1.0beta1`; continues the release 0.115).
   (−5 dBFS · 56 %), *Bold* at 0 as *off*. A **legend** under the sliders explains %, dBFS, dB (a step of the tuner gain),
   s and blocks. The same units in the diagram beside it, the AGC+ key tooltip and the live value of the card.
 - **S-meter:** the reading under it (S9+… dB · dBFS) is red above S9.
+- **NB – noise blanker (new).** The **NB** key (AUDIO, right of NTH; all modes except WFM and DAB) blanks pulses
+  (ignition, electric fences, switching supplies, radar) in the wideband samples of the dongle, before the channel filter,
+  where they are a few µs long. Detection on the jump of the magnitude out of the envelope of the band (13 µs average),
+  only short runs (≤ 100 µs), so a strong station is never blanked and a pulse under a strong station is still found;
+  the pulse ± *Width* µs set to zero. Level 1–10 (k = 16 … 7.5 × the mean deviation; no false pulses on noise up to 8)
+  and width 1–50 µs in SETTINGS › VFO › AUDIO, *Now* = pulses a second and % blanked; NB in the annunciator row.
+  The waterfall stays unblanked. Synthetic test at 2.4 MS/s: pulses 10× the noise 6 dB lower in the channel, 30×
+  15 dB lower. 6–10 % of a CPU core while on. Config / API `nb`, `nb_level`, `nb_width_us`; state `nb_rate`, `nb_frac`.
+  The diagram beside AGC+ (SETTINGS › VFO › ADVANCED) shows **NB** between DC · SP and the channel filter and **DNR**
+  between NOTCH and ALC (a click opens their cards); the former DNR block is NTH.
+- **DNR – digital noise reduction (new), the old DNR is now NTH.** A new **DNR** key (AUDIO, under NTH) takes the
+  noise out of the audio in AM/LSB/USB/CW all the time, also under speech: short-time spectrum (27 ms frames), the noise
+  of each band from the minimum of its smoothed power over 1.5 s (minimum statistics), a Wiener gain from the
+  decision-directed SNR (Ephraim–Malah, no warbling "musical" noise) with a floor; after NF, before the ALC. Level 1–10
+  in SETTINGS › VFO › AUDIO (noise lowered by at most 6–24 dB, default 5 = 14 dB), *Now* shows the reduction; DNR in
+  the annunciator row. On synthetic speech in SSB noise, level 5: SNR under speech +3.4 dB (15 dB SNR) / +4.6 dB (6 and
+  0 dB), noise in pauses −12 to −14 dB; ~2 % of a CPU core. The former DNR key (expander between words + soft limiter)
+  is renamed **NTH** (noise threshold, as on the G7250); it works as before, config / API keys `dyn…` unchanged. New
+  config / API keys `dnr`, `dnr_level`, state `dnr_reduction_db`.
+- **VIEW with DAB: the station card stays.** With the lower part hidden (VIEW) and the active VFO on DAB, the station
+  card of the DAB tab (logo or slide, name, chips, format, NOW ON AIR) moves under the key row into a small recessed
+  window with glass like the displays of the head; the panel gets that much higher. It goes back to the DAB tab when
+  the lower part opens or DAB goes off.
+- **SAM – synchronous AM.** Shortwave AM "floated": in a selective fade the carrier gets weaker than its sidebands
+  and the envelope detector distorts. New keys in the 5th column of MODE: **SAM** (an option of the mode AM, config /
+  API `sam`) and under it **DSB / SB-L / SB-U** (`sam_sb`). `sdr.SyncAM`: an NCO kept on the carrier by a block-rate
+  frequency loop (±400 Hz), the carrier from a narrow 30 Hz filter (the flywheel through a fade), coherent
+  demodulation with its phase; SB-L / SB-U through a complex band-pass of one side from 60 Hz. The level stays with
+  the ALC (dividing by the carrier would boost the audio exactly when a selective fade takes the carrier). Synthetic
+  test (carrier fading to 15 % under the sidebands, 35 Hz off): envelope 4 dB, SAM 43 dB of clean audio, offset
+  found exactly; an interferer 2.5 kHz under the carrier −34 dB in SB-U (DSB +4 dB). The VFO window shows SAM /
+  SAM-L / SAM-U; state `sam_offset_hz`, `sam_locked`. SAM stays with AGC+: a simulated tuner gain step (±6 dB, phase
+  jump up to 2.5 rad) is followed again in 150–180 ms (the envelope detector 270–390 ms); CONSERV. recommended on
+  shortwave, the documentation warns to keep a manual RF GAIN under the red RF bar. tests/test_sam.py.
+- **Automatic AM on shortwave broadcast bands.** The switch *Automatic LSB / USB* (SETTINGS › GENERAL › TUNING) is now
+  *Automatic LSB / USB / AM*: tuning into a shortwave broadcast band (ITU 120 … 11 m, `BCAST_AM_BANDS`) in LSB, USB,
+  CW or FM switches to AM; from a broadcast band into a ham band in AM switches to the sideband of that band (41 m →
+  40 m: LSB). Only on entering a band, as before; LW and MW are left alone.
+- **RECORDINGS: RECS / SCAN RECS.** The scanner writes its WAV files into the subfolder `scan` of the recordings
+  folder, which the tab did not show. Two keys at the left of the tab choose the folder (remembered in the browser):
+  **RECS** = the MP3 of REC / REC SQ, **SCAN RECS** = the WAV of the scan (length from the WAV header, the file the scan
+  writes now marked and not deletable). Play, NEXT, filter and delete work in both. **The scanner records MP3** now
+  (lameenc, 64 kbit/s mono, `scanner.Mp3Writer`; about 8× smaller than the WAV); older WAV files are still listed,
+  played and pruned after KEEP HISTORY. API `?kind=rec|scan` on
+  `/api/recordings` and `/api/recordings/<name>`; `Recorder.files(kind)`, `kind_folder`. tests/test_recorder.py.
+- **DAB recording.** REC and REC SQ now record DAB: a thread of the server listens to the MP3 of the station playing
+  (welle-cli, a second listener beside the browser; 160 kbit/s, 48 kHz) and writes its bytes as they come, no
+  re-encoding (`Recorder.feed_mp3`, `Track.write_mp3`). The file is named by the station
+  (`Radio_FM_187.072000MHz_DAB_<start>.mp3`), a new file when the station or channel changes and every 15 min; REC SQ
+  records DAB like REC (no squelch), it ends 10 s after the MP3 stops. The length in RECORDINGS counts 160 kbit/s for
+  DAB files. tests/test_recorder.py.
+- **AGC+ preset CONSERVATIVE.** CAREFUL still clipped now and then: it tolerates up to 20 ppm of clipping without
+  going down and climbs to a −5 dBFS peak after only 0.2 s. The new **CONSERV.** key (first of the PRESETS) turns the
+  gain down on every clipped sample (`clip_ppm` 0; down 4 dB, heavy above 100 ppm 8 dB), goes up only after 3 s
+  without clipping with the peak under −14 dBFS, aiming at −10 dBFS, at most 3 dB a step, 3 settle blocks. When the
+  next tuner step is bigger than the wanted one, AGC+ takes it only if the peak stays at most 3 dB over the target
+  (it was 1 dB under full scale for every preset; MODERATE and BOLD unchanged). Simulation (steady station plus ~4
+  bursts a minute up to 12 dB stronger, 10 min): CAREFUL clipped 0.35 % of the blocks with the median peak −6.3 dBFS,
+  CONSERVATIVE none at −13 dBFS. tests/test_sagc.py.
+- **LPF steep.** The LPF key was a Butterworth of the 6th order (36 dB per octave: −3 dB at the cutoff, only −18 dB
+  600 Hz above), so the filter width 3 kHz + LPF 2.4 kHz was much softer than the width 2.4 kHz. Now a linear-phase FIR
+  like the channel filter (Blackman, 150 Hz transition, 1173 taps at 32 kHz): −6 dB at the cutoff, −82 dB 100 Hz above,
+  flat below; ~17 ms delay, 0.4 % of a CPU core. HPF stays the IIR (a FIR at 20 Hz would be too long). `sdr.SharpLowpass`,
+  tests/test_lpf.py.
+- **VFO window: CUE above the unit.** With NB, NTH and DNR the annunciator row got too long, so **CUE** moved out of it
+  to just above the kHz / MHz unit beside the frequency (orange when on; a click still toggles CUE for that VFO).
+  **REC** in the same style above it replaces the red dot beside the USB icon of the top row: red while recording,
+  blinking while a file is written, steady while waiting for the squelch.
+- **Recording indication matched.** REC SQ kept blinking for the pause held after the squelch closed (the session file
+  stays open 1 s); now the REC / REC SQ keys and REC in the VFO window blink only while audio goes into the file
+  (REC: from the press on, never steady; REC SQ: squelch open; new state `active` of each recording) and stay steady
+  while REC SQ waits. All
+  REC blinking is slower and the same everywhere (keys, VFO window, RECORDINGS list: 1 s on, 1 s off).
 - **Radiosondes decoded by rs1729's decoders.** The SONDE decoder no longer demodulates in Python: the baseband of the
   VFO channel and of each MULTI channel goes as float32 I/Q through a pipe into the decoders of rs1729
   ([github.com/rs1729/RS](https://github.com/rs1729/RS), GPL v3, separate programs in `lib\sonde`, static UCRT64
