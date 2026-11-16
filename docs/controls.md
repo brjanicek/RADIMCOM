@@ -139,6 +139,10 @@ of that VFO (orange LED): that VFO stays audible at CUE level while another VFO 
     RTL-SDR only, not supported on LimeSDR or Airspy.
 
 - **AUDIO**:
+  - While a decoder works on the raw IQ samples (VDL2, ISM, HFDL, AIS, ADS-B, ACARS, SONDE; the VFO has no audio then) or DAB
+    plays, the keys that act only on the audio (S/M, NF, HPF, LPF, ALC, NTH, AFI, ASQ, TSQ-C, TSQ-D, DNR, HUM) and the FILTER keys
+    are inactive, with the reason first in their tip; NB and SP too, unless a baseband decoder (FT8, CW, RTTY, …) runs beside.
+    SETTINGS › VFO › AUDIO is faded under a note. The settings are kept and work again once the decoder is off.
   - S/M: WFM stereo / mono (mono = less noise on weak stations).
   - AFI: audio frequency inversion (voice inversion scrambler / descrambler) in all modes except WFM. The audio is mirrored around
     the inversion frequency (SET, AUDIO tab, 500–4000 Hz, default 1750 Hz); the same setting scrambles and descrambles. REC and the decoders get the descrambled audio.
@@ -223,7 +227,7 @@ of that VFO (orange LED): that VFO stays audible at CUE level while another VFO 
 
 - **MENU → SET (gear)**: settings. While the gear key is lit, the bottom part has a **SETTINGS** tab
   (beside SPECTRUM, DECODERS and SATELLITES); the open pages are remembered in the browser.
-  The gear is one switch for all VFOs; switching it off hides the tab. Two pages:
+  The gear is one switch for all VFOs; switching it off hides the tab. Three pages:
   - **GENERAL**: settings of the whole station, the same on every VFO.
     - **SKINS**: finish of the panel – dark brushed aluminium (default), black (darker) brushed aluminium, light brushed aluminium, mahogany or paint. A click on a colour of the RAL chart
       (36 common RAL Classic shades, screen approximations) or an own colour sprays the panel with it; on a light colour the print and the logo turn dark.
@@ -291,6 +295,25 @@ of that VFO (orange LED): that VFO stays audible at CUE level while another VFO 
     - **TX** (LimeSDR only): Enable TX, see [Transmitting (LimeSDR)](configuration.md#transmitting-limesdr).
 
     ![SETTINGS › VFO › SDR DONGLE: keys VFO-A … D, the block diagram of the signal path from the antenna to the screen with numbered blocks, and the cards with correction, bandwidth, tuner gain, bias-tee, DC peak removal and RESET SDR DONGLE](images/settings_vfo.png)
+  - **STATION**: a simplified scheme of the whole receiver, live (like the AGC+ diagram). On top the station: **QTH**
+    (locator), **ROTOR** (port, azimuth / elevation, target, tracking, errors), **DOPPLER** (the satellite followed and on which
+    VFO) and **AUDIO** (the MAIN VFO and the VFOs on CUE). Below one row per VFO with its frequency and name, from the antenna to
+    the speaker: **ANTENNA** (amber OUT OF RANGE outside its range, ROTOR when on the rotor), the **dongle** as one block (RTL-SDR, AIRSPY or
+    LimeSDR with its serial; UPCONV, BIAS-T, ppm, a shared dongle) with two blocks inside: **TUNER** (gain, AGC+ / manual / auto)
+    → **A/D** (sample rate, peak of the raw samples, red when clipping); the dashed green line **tunes** shows where the VFO frequency
+    goes: into the TUNER as the **centre** of the dongle (it moves only when the frequency leaves the band; on a shared dongle the
+    owner VFO sets it) and as the **offset** from that centre into the **MIXER**. **IQ** (DC, NB on the wideband samples),
+    **MIXER** (the digital mixer shifting the offset, e.g. −486.6 kHz, to zero, decimation ÷ 64 to the channel rate, SP on that
+    baseband),
+    **FILTER** (width), **DEMOD** (mode, SAM with its lock, DAB channel, stereo, RDS), **AUDIO** (NOTCH, DNR, HUM, ALC, NTH, AFI,
+    HPF, LPF and the squelch – amber while closed), **OUTPUT** (MAIN / CUE / silent, "no audio" while a raw-sample decoder runs,
+    REC / REC SQ, the scanner) and **DECODERS** (the ones on the baseband of the channel or the audio, red with an error, the RX
+    Doppler). Decoders on the **raw IQ** (VDL2, DAB, ISM, HFDL, AIS, ADS-B, SONDE MULTI) take the samples straight from the A/D,
+    before DC, NB and the channel filter: they branch off under the A/D into their own block **IQ DECODERS**, and the blocks they
+    bypass (IQ, MIXER, FILTER, DEMOD, AUDIO, OUTPUT; IQ and MIXER stay lit while a baseband decoder runs beside) are faded and hatched.
+    With the **RX Doppler** of a satellite on, its orange chip in DECODERS leads an orange line **DOPPLER → VFO** along the bottom
+    of the row back into the VFO block: the correction retunes the VFO frequency. Lit = on, faint = off. It is
+    read-only; a click on a row opens SETTINGS › VFO of that VFO. The open page is remembered in the browser.
 
 - **MENU → MEM**: frequency memories. While the MEM key is lit, the bottom part has a **MEMORIES** tab (beside DECODERS,
   SATELLITES and SETTINGS) that covers the spectrum and waterfall like the other tabs; the MEM key is one switch for all VFOs,

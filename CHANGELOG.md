@@ -6,6 +6,24 @@ Test beta (GitHub branch `1.0beta1`; continues the release 0.115).
 
 ### New
 
+- **SETTINGS › STATION:** a simplified live scheme of the whole receiver, like the AGC+ diagram. On top the station
+  (QTH, rotor with azimuth / elevation and tracking, satellite Doppler, MAIN and CUE audio); below one row per VFO with
+  its frequency, from the antenna to the speaker: ANTENNA (out of range, rotor), the dongle as one block (RTL-SDR +
+  serial, upconverter, bias-tee, ppm) with TUNER (gain, AGC+ / manual / auto) and A/D (sample rate, peak, clipping in
+  red) inside, a dashed line from the VFO frequency that forks into the TUNER (centre of the dongle) and
+  the MIXER (offset from the centre), IQ (DC, NB), MIXER (digital mixer, ÷ 64, SP), FILTER, DEMOD (SAM lock,
+  DAB, stereo, RDS), AUDIO (NOTCH … LPF, squelch open / closed), OUTPUT (MAIN / CUE / silent, no audio with a raw-sample
+  decoder, REC / REC SQ, scanner) and DECODERS (with errors and the RX Doppler). Decoders on the raw IQ (VDL2, DAB,
+  ISM, HFDL, AIS, ADS-B, SONDE MULTI) branch off the A/D output into their own block IQ DECODERS; the others
+  (on the baseband of the channel or the audio) stay at the end of the row. Read-only; a click on a row opens the
+  settings of that VFO. The VFO state also carries `sonde_multi`. While a raw-IQ decoder or DAB runs, the blocks it
+  bypasses (IQ, MIXER, FILTER, DEMOD, AUDIO, OUTPUT) are faded and hatched, the reason in their tip. With the RX
+  Doppler on, an orange line DOPPLER → VFO leads from its chip in DECODERS along the bottom of the row into the VFO.
+- **Audio settings inactive while they have no effect:** while a raw-IQ decoder (VDL2, ISM, HFDL, AIS, ADS-B, ACARS,
+  SONDE) or DAB runs on a VFO, its keys S/M, NF, HPF, LPF, ALC, NTH, AFI, ASQ, TSQ-C, TSQ-D, DNR, HUM and the FILTER keys
+  are disabled, the reason first in their tip ("Inactive now – HFDL works on the raw IQ samples …"), and SETTINGS ›
+  VFO › AUDIO is faded under a note. NB and SP too, unless a baseband decoder (FT8, CW, RTTY, …) runs beside. The
+  settings are kept and work again once the decoder is off.
 - **WW locator grid on the FT8 map:** a faint Maidenhead grid under the stations: fields (JN) always, squares
   (JN88) from zoom 5, subsquares (JN88wq) from zoom 10, each cell labelled in its lower left corner; not clickable.
 - **Our report on the FT8 map:** the SNR we hear a station with (FT8 style, e.g. -07) as a filled chip coloured by

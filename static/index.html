@@ -1421,6 +1421,7 @@ ecordings, played in the browser -->
         <div class="amsat-pages set-tabs" id="setTabs" role="tablist">
           <button class="key small on" data-set-tab="gen" role="tab" aria-selected="true">GENERAL</button>
           <button class="key small" data-set-tab="vfo" role="tab" aria-selected="false">VFO</button>
+          <button class="key small" data-set-tab="sta" role="tab" aria-selected="false">STATION</button>
         </div>
       </div>
       <div class="set-body">
@@ -1986,6 +1987,8 @@ ecordings, played in the browser -->
             </div>
             <!-- ===== AUDIO ===== -->
             <div class="set-subpanel set-grid3" data-set-subpanel="vfo:audio" role="tabpanel" hidden>
+              <!-- shown while a raw-IQ decoder or DAB runs: the audio chain of this VFO is not used then -->
+              <p class="note warn bypass-note" id="audioBypassNote" hidden></p>
               <div class="setting">
                 <div class="set-cols">
                   <label class="set-field"><span>HPF – passes audio above (Hz)</span><input id="hpfHz" data-def="300" type="number" step="10" min="20" max="5000" value="300"></label>
@@ -2117,6 +2120,18 @@ ecordings, played in the browser -->
                   upconverter must be off). Retuning ends the transmission.</p>
               </div>
             </div>
+          </div>
+        </div>
+        <!-- ===== STATION: a simplified scheme of the whole receiver, live: the station (QTH, rotor, audio) on top,
+             one lane per VFO (antenna, dongle, gain, IQ, filter, demodulator, audio blocks, output, decoders). Filled by the script. ===== -->
+        <div class="set-panel sdg-panel" data-set-panel="sta" role="tabpanel" hidden>
+          <div class="setting sdg">
+            <div class="row"><span>The whole station, live</span><span class="muted" id="sdgInfo"></span></div>
+            <div class="sdg-shared" id="sdgShared"></div>
+            <div class="sdg-scroll"><div class="sdg-lanes" id="sdgLanes"></div></div>
+            <p class="note">Each row is one VFO, from the antenna to the speaker and the decoders. Lit = on, faint = off, red = an error
+              or clipping, amber = waiting (squelch closed, buffering). MAIN = the VFO you listen to, CUE = audible at CUE level.
+              A click on a row opens the settings of that VFO.</p>
           </div>
         </div>
       </div>

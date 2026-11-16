@@ -83,6 +83,12 @@ Change log
 Ver. 1.0beta1
 (test beta, GitHub branch 1.0beta1; continues the release 0.115)
 New
+- SETTINGS > STATION: a live scheme of the whole receiver: QTH, rotor, Doppler, audio on top, one row per VFO
+  from the antenna through the dongle (TUNER and A/D inside), IQ, filter, demodulator and audio blocks to the output and the
+  decoders. Decoders on the raw IQ (VDL2, DAB, ISM, HFDL, AIS, ADS-B, SONDE MULTI) branch off the A/D
+  output into their own block; the blocks they bypass are faded. RX Doppler: an orange line back into the VFO. A click on a row opens the settings of that VFO.
+- Audio keys (NF, ALC, NTH, DNR, HUM, AFI, HPF / LPF, ASQ, TSQ, filter, NB, SP) inactive while a raw-IQ decoder
+  or DAB runs on the VFO, with the reason in their tip; SETTINGS > VFO > AUDIO says so too.
 - WW locator grid on the FT8 map: faint Maidenhead fields (JN), squares (JN88) from zoom 5,
   subsquares (JN88wq) from zoom 10.
 - Our report on the FT8 map: the SNR we hear a station with as a filled coloured chip (e.g. -07) beside

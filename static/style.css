@@ -3253,3 +3253,102 @@ html.app-shell .r-logo-led:hover .r-logo-ledtip { display: inline; }
 .ant-table .ant-used { white-space: nowrap; }
 .ant-table .ant-vfo { min-width: 2.2em; margin-right: 3px; }
 #antVfoRange.warn { color: var(--amber); }
+
+/* ===== SETTINGS › STATION: the whole receiver as a scheme (like the AGC+ diagram), one lane per VFO ===== */
+.set-panel.sdg-panel { display: block; }
+.sdg { gap: 10px; }
+.sdg-shared { display: flex; flex-wrap: wrap; gap: 10px; }
+.sdg-shared .sdg-b { flex: 1 1 170px; max-width: 280px; }
+.sdg-scroll { overflow-x: auto; }
+.sdg-lanes { display: flex; flex-direction: column; gap: 8px; min-width: 1350px; }
+.sdg-lane { display: grid; grid-template-columns: 108px 152px 224px 64px 104px 76px 88px 150px 96px minmax(128px, 180px); justify-content: start;
+  gap: 16px; align-items: stretch; padding: 6px; border: 1px solid transparent; border-radius: 8px; cursor: pointer; }
+.sdg-lane:hover { border-color: var(--line); background: rgba(255, 255, 255, .03); }
+.sdg-h { display: flex; flex-direction: column; justify-content: center; gap: 2px; min-width: 0; font-size: 11px; color: var(--muted); }
+.sdg-h b { font: 800 14px system-ui, sans-serif; color: var(--text); letter-spacing: .04em; }
+.sdg-h .f { font: 700 13px ui-monospace, "Cascadia Mono", Consolas, monospace; color: var(--text); white-space: nowrap; }
+.sdg-h .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sdg-h.off .f { color: var(--red); }
+/* a block: like a lit block of the AGC+ diagram */
+.sdg-b { position: relative; display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: 6px 8px; border-radius: 6px;
+  border: 1.5px solid var(--line); background: rgba(255, 255, 255, .02); font-size: 11px; color: var(--muted); }
+.sdg-b > b { font: 700 10px system-ui, sans-serif; letter-spacing: .08em; color: var(--muted); }
+.sdg-b > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sdg-b .v { font: 700 12px system-ui, sans-serif; color: var(--text); }
+.sdg-b .err { color: var(--red); }
+.sdg-b.lit { border-color: color-mix(in srgb, var(--accent) 70%, transparent); background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.sdg-b.lit > b { color: var(--accent); }
+.sdg-b.warn { border-color: var(--amber); }
+.sdg-b.bad { border-color: var(--red); background: color-mix(in srgb, var(--red) 10%, transparent); }
+.sdg-b.off { opacity: .45; }
+.sdg-b.sdg-span { grid-column: 2 / -1; }
+/* the wire into a block (not into the first one after the VFO name) */
+.sdg-lane .sdg-b:not(:nth-child(2))::before { content: ""; position: absolute; left: -15px; top: 50%; width: 9px; border-top: 2px solid var(--muted); }
+.sdg-lane .sdg-b:not(:nth-child(2))::after { content: ""; position: absolute; left: -7px; top: calc(50% - 4px); border: 5px solid transparent;
+  border-left: 6px solid var(--muted); border-right: 0; }
+.sdg-b .chips { display: flex; flex-wrap: wrap; gap: 3px; white-space: normal; }
+.sdg-c { display: inline-block; margin-right: 3px; padding: 0 4px; border: 1px solid var(--line); border-radius: 3px; font: 700 9.5px/1.45 system-ui, sans-serif;
+  font-style: normal; letter-spacing: .04em; color: var(--dim); }
+.sdg-b .chips .sdg-c { margin-right: 0; }
+.sdg-c.on { border-color: color-mix(in srgb, var(--green) 60%, transparent); background: color-mix(in srgb, var(--green) 18%, transparent); color: var(--green); }
+.sdg-c.warn { border-color: var(--amber); background: color-mix(in srgb, var(--amber) 16%, transparent); color: var(--amber); }
+.sdg-c.bad { border-color: var(--red); background: color-mix(in srgb, var(--red) 22%, transparent); color: #ff8a80; }
+.sdg-c.blink { animation: rec-blink 2s steps(2) infinite; }
+/* decoders on the raw IQ: a branch from the output of the A/D (under GAIN) into their block in the second row */
+.sdg-lane { row-gap: 10px; }
+.sdg-tap { grid-row: 2; grid-column: 3; position: relative; }
+.sdg-tap::before { content: ""; position: absolute; left: var(--tap-x); top: -10px; height: calc(50% + 10px); border-left: 2px solid var(--muted); }
+.sdg-tap::after { content: ""; position: absolute; left: var(--tap-x); top: 50%; right: -2px; border-top: 2px solid var(--muted); }
+.sdg-b.sdg-raw { grid-row: 2; grid-column: 4 / 8; }
+/* the dongle: one block, TUNER -> A/D inside; the raw IQ leaves from the bottom of the A/D */
+.sdg-lane { --tap-x: 75%; }
+.sdg-b.sdg-dev > b em { font-style: normal; color: var(--text); margin-left: 4px; letter-spacing: .02em; }
+.sdg-inner { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.sdg-in { position: relative; display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 4px 6px; border-radius: 5px;
+  border: 1.5px solid color-mix(in srgb, var(--accent) 45%, transparent); background: rgba(0, 0, 0, .18); }
+.sdg-in > b { font: 700 9.5px system-ui, sans-serif; letter-spacing: .08em; color: var(--accent); }
+.sdg-in > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sdg-in.bad { border-color: var(--red); }
+.sdg-in + .sdg-in::before { content: ""; position: absolute; left: -13px; top: 50%; width: 7px; border-top: 2px solid var(--muted); }
+.sdg-in + .sdg-in::after { content: ""; position: absolute; left: -7px; top: calc(50% - 4px); border: 5px solid transparent;
+  border-left: 6px solid var(--muted); border-right: 0; }
+/* the VFO frequency goes two ways: from the frequency (a stub to the edge of the VFO block) up over the antenna, down into
+   the TUNER (centre of the dongle) and on to the MIXER (offset). Fixed columns: VFO 6–114 px, antenna 130–282, dongle
+   298–522 (TUNER centre 355.5), IQ 538–602, MIXER 618–722 (centre 670). */
+.sdg-lane { position: relative; padding-top: 20px; }
+.sdg-h b { line-height: 18px; }
+.sdg-h .f { display: flex; align-items: center; line-height: 16px; }
+.sdg-lane:has(.sdg-ctl) .sdg-h .f::after { content: ""; flex: 1 1 auto; min-width: 4px; margin: 0 -9.5px 0 4px; border-top: 1.5px dashed var(--green); }
+.sdg-ctl { position: absolute; left: 122px; top: 8px; width: 548px; height: 45px; border-top: 1.5px dashed var(--green);
+  border-left: 1.5px dashed var(--green); pointer-events: auto; font-style: normal; }
+.sdg-ctl::before { content: ""; position: absolute; left: -9.5px; bottom: -1px; width: 8px; border-top: 1.5px dashed var(--green); }
+.sdg-ctl > i { position: absolute; top: -1px; height: 7px; border-left: 1.5px dashed var(--green); }
+.sdg-ctl > i::after { content: ""; position: absolute; left: -5.25px; top: 7px; border: 4.5px solid transparent; border-top: 6px solid var(--green); border-bottom: 0; }
+.sdg-ctl > i.d1 { left: 232px; }
+.sdg-ctl > i.d2 { right: -1px; }
+.sdg-ctl > i.no { opacity: .35; }
+.sdg-ctl > em { position: absolute; top: -12px; font: 600 9px system-ui, sans-serif; font-style: normal; letter-spacing: .06em;
+  color: var(--green); white-space: nowrap; }
+.sdg-ctl > em.l0 { left: 40px; }
+.sdg-ctl > em.l1 { left: 238px; }
+.sdg-ctl > em.l2 { right: 6px; }
+/* the VFO: a framed block too, the MAIN one yellow like the selected VFO display */
+.sdg-h { justify-content: flex-start; padding: 4px 8px; border: 1.5px solid var(--line); border-radius: 6px; background: rgba(255, 255, 255, .02); }
+.sdg-h.main { border-color: #ffd84a; background: rgba(255, 216, 74, .07); box-shadow: 0 0 8px rgba(255, 216, 74, .18); }
+.sdg-h.main b { color: #ffd84a; text-shadow: 0 0 5px rgba(255, 216, 74, .6); }
+.sdg-h.main .f { color: #ffd84a; }
+.sdg-h.off { opacity: .55; }
+/* the audio chain not used (raw-IQ decoder, DAB): its keys inactive, its settings faded under a note */
+.set-subpanel.bypass > .setting { opacity: .45; }
+.bypass-note { grid-column: 1 / -1; margin: 0; }
+/* not used now (a raw-IQ decoder or DAB): faded and hatched, the reason in the tip */
+.sdg-b.idle { opacity: .28; border-style: dashed; filter: grayscale(1);
+  background: repeating-linear-gradient(135deg, rgba(255, 255, 255, .035) 0 4px, transparent 4px 9px); }
+/* RX Doppler: an orange line from the DOPPLER chip along the bottom of the row up into the VFO block */
+.sdg-lane:has(.sdg-dop) { padding-bottom: 22px; }
+.sdg-c.dop { border-color: #ff8c1a; background: rgba(255, 140, 26, .18); color: #ffb366; }
+.sdg-dop { position: absolute; border-left: 1.5px dashed #ff8c1a; border-bottom: 1.5px dashed #ff8c1a; pointer-events: auto; font-style: normal; }
+.sdg-dop::before { content: ""; position: absolute; left: -5.25px; top: 0; border: 4.5px solid transparent; border-bottom: 6px solid #ff8c1a; border-top: 0; }
+.sdg-dop::after { content: ""; position: absolute; right: 0; bottom: 0; height: var(--dec-h, 0); border-right: 1.5px dashed #ff8c1a; }
+.sdg-dop > em { position: absolute; left: 50%; bottom: -15px; transform: translateX(-50%); padding: 0 6px; font: 700 9px system-ui, sans-serif;
+  font-style: normal; letter-spacing: .06em; color: #ffb366; white-space: nowrap; }

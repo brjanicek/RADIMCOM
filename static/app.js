@@ -343,7 +343,7 @@ function renderControls() {
   // The buttons stay fixed; a width set by dragging the edge in the spectrum has no button (none is lit).
   const bw = st.bandwidth[st.mode];
   // DAB: the ensemble has a fixed width – the keys stay in place, unlit and disabled
-  segButtons($("bandwidths"), BANDWIDTHS[st.mode] || BANDWIDTHS.WFM, st.dab ? null : bw, fmtBw, !!st.dab);
+  segButtons($("bandwidths"), BANDWIDTHS[st.mode] || BANDWIDTHS.WFM, st.dab ? null : bw, fmtBw, !!st.dab || !!st.audio_muted);
   const set = stepSet(st.mode);
   stepHz = stepMem[set];
   segButtons($("steps"), STEP_SETS[set], stepHz, fmtBw);
@@ -2426,6 +2426,7 @@ function renderRds() {
     + "ASQ: auto squelch in AM/FM/WFM – the level follows the noise floor (margin in SETTINGS › VFO › AUDIO). Also on by itself with AGC+ and the squelch set";
   renderTsqKeys();
   renderPassKeys();
+  renderAudioBypass();
   // The RDS frame is always in place (the waterfall does not move); without RDS it is empty and dark.
   const has = !!r && (r.ps || r.rt || r.pi);
   $("rds").classList.toggle("off", !has);
@@ -2434,6 +2435,45 @@ function renderRds() {
   $("rdsMeta").textContent = has ? [r.pi && `PI ${r.pi}`, r.pty, r.tp && (r.ta ? "TP TA" : "TP")].filter(Boolean).join(" · ") : "";
   $("rdsRt").textContent = has ? r.rt : "";
   $("rds").title = has ? [r.rt, r.ct && `Clock: ${r.ct}`].filter(Boolean).join("\n") : "RDS";
+}
+
+// ---------- audio chain not used: a raw-IQ decoder (its audio muted) or DAB (welle-cli plays) ----------
+// The keys and settings that act only on the audio of the channel then have no effect: they are shown inactive
+// (disabled, with the reason in their tip), and SETTINGS › VFO › AUDIO says why. NB and SP act on the samples before
+// the channel and its baseband decoders, so they stay usable while such a decoder (FT8, CW, …) runs beside.
+const RAW_DEC_NAMES = { vdl2: "VDL2", ism: "ISM", hfdl: "HFDL", ais: "AIS", adsb: "ADS-B", acars: "ACARS", sonde: "SONDE" };
+const BASEBAND_DECS = ["ft8", "wefax", "cw", "rtty", "packet", "pocsag", "sstv"];
+const BYPASS_KEYS = ["stereoKey", "notchKey", "hpfKey", "lpfKey", "alcKey", "dynKey", "afiKey", "asqKey", "tsqcKey", "tsqdKey", "dnrKey", "humKey"];
+function audioBypassWhy(s) {
+  if (s.dab) return "DAB is on: welle-cli decodes the ensemble from the raw IQ and plays the station";
+  if (!s.audio_muted) return "";
+  const on = Object.entries(RAW_DEC_NAMES).filter(([k]) => s[k]).map(([, n]) => n);
+  return `${on.join(", ") || "A decoder"} ${on.length > 1 ? "work" : "works"} on the raw IQ samples: this VFO has no audio`;
+}
+function renderAudioBypass() {
+  const why = audioBypassWhy(st);
+  const keepIq = BASEBAND_DECS.some((k) => st[k]);   // a baseband decoder runs beside: NB and SP still act on it
+  const ids = [...BYPASS_KEYS, "nbKey", "spurKey"];
+  const PRE = "Inactive now – ";
+  for (const id of ids) {
+    const b = $(id), by = !!why && (BYPASS_KEYS.includes(id) || !keepIq);
+    // the own tip of the key (some renderers write it anew each time, others never): kept apart from the prefix
+    if (!b.title.startsWith(PRE)) b.dataset.tip0 = b.title;
+    b.classList.toggle("bypassed", by);
+    if (by) {
+      b.disabled = true;
+      b.title = `${PRE}${why}.
+
+${b.dataset.tip0 || ""}`;
+    } else {
+      if (b.title.startsWith(PRE)) b.title = b.dataset.tip0 || "";
+      if (id === "spurKey") b.disabled = false;       // the other keys get their own state from their renderers
+    }
+  }
+  $("audioBypassNote").hidden = !why;
+  $("audioBypassNote").textContent = why ? `${why}. The audio settings below (filter, NF, ALC, NTH, DNR, HUM, AFI, HPF / LPF, ` +
+    `squelch tones) have no effect now; they are kept and work again once it is off.` : "";
+  $("settingsCard").querySelector('[data-set-subpanel="vfo:audio"]').classList.toggle("bypass", !!why);
 }
 
 // ---------- AD = additional display under the S-meter: one thing at a time, by priority ----------
@@ -10871,6 +10911,7 @@ function setSubOpened(name) {
   if (name === "gen:ant") setTimeout(() => antLoad(true));
   if (name === "gen:recs") setTimeout(() => recDirLoad());
   if (name === "vfo:dongle" || name === "vfo:adv") setTimeout(loadDongleList);   // ADVANCED: dongles and VFOs
+  if (name === "" && !document.querySelector('[data-set-panel="sta"]').hidden) setTimeout(sdgStart);   // STATION: no sub-pages
 }
 /** The ROTOR page of GENERAL is on the screen. */
 function rotorPageOpen() {
@@ -10975,7 +11016,7 @@ for (const b of document.querySelectorAll("[data-set-sub]")) {
   if (vfoSub && vfoSub !== "vfo:tx" && document.querySelector(`[data-set-sub="${vfoSub}"]`)) showSetSub(vfoSub);
   if (genSub && document.querySelector(`[data-set-sub="${genSub}"]`)) showSetSub(genSub);
   const t = recall("setTab");
-  showSetTab(t === "vfo" || (oldTab && oldTab.startsWith("vfo:")) ? "vfo" : "gen");
+  showSetTab(t === "vfo" || (oldTab && oldTab.startsWith("vfo:")) ? "vfo" : t === "sta" ? "sta" : "gen");
 }
 
 // ---------- SETTINGS › GENERAL › ROTOR: K3NG rotor (rotor.py) ----------
@@ -15437,3 +15478,203 @@ init();
   }, true);
   wv.postMessage("hello");             // the app answers with the full screen state
 })();
+
+// ---------- SETTINGS › STATION: a simplified scheme of the whole receiver, live ----------
+// The station on top (QTH, rotor, satellite Doppler, audio), below one lane per VFO from the antenna to the speaker
+// and the decoders. The VFO states come from their event streams (vfos[].st); the rotor, the Doppler of each VFO and
+// the QTH are read while the page is open. Redrawn once a second, only when something changed.
+var sdg = { rotor: null, dop: {}, qth: null, at: 0, timer: null, html: "" };   // var: setSubOpened can run before this line
+const SDG_DEC = [["ft8", "FT8"], ["cw", "CW"], ["rtty", "RTTY"], ["packet", "PACKET"], ["pocsag", "POCSAG"], ["sstv", "SSTV"],
+  ["wefax", "WEFAX"], ["acars", "ACARS"], ["vdl2", "VDL2"], ["hfdl", "HFDL"], ["adsb", "ADS-B"], ["ais", "AIS"], ["ism", "ISM"],
+  ["sonde", "SONDE"], ["dab", "DAB"]];
+// where a decoder takes its samples: the raw A/D samples of the whole band (IQ, before DC, NB and the channel filter),
+// otherwise the baseband of the channel or the demodulated audio (SSTV, DSD); SONDE MULTI works on the raw samples
+const SDG_RAW = new Set(["vdl2", "dab", "ism", "hfdl", "ais", "adsb"]);
+const sdgIsRaw = (k, s) => SDG_RAW.has(k) || (k === "sonde" && s.sonde_multi !== false);
+const sdgOpen = () => bodyTab === "set" && !document.hidden && !$("settingsCard").hidden
+  && !document.querySelector('[data-set-panel="sta"]').hidden;
+const sdgChip = (txt, cls, tip) => `<i class="sdg-c ${cls || ""}"${tip ? ` title="${escHtml(tip)}"` : ""}>${txt}</i>`;
+const sdgOn = (on, txt, tip, warn) => sdgChip(txt, on ? (warn ? "warn" : "on") : "", tip);
+const sdgHz = (hz) => (hz >= 1e6 ? `${(hz / 1e6).toFixed(hz >= 1e8 ? 4 : 5)} MHz` : `${+(hz / 1e3).toFixed(2)} kHz`);
+const SDG_RAW_TIP = "no audio: a decoder of this VFO works on the raw samples (VDL2, ISM, HFDL, AIS, ADS-B, ACARS, SONDE)";
+const sdgBlk = (title, body, cls = "", tip = "") => `<div class="sdg-b ${cls}"${tip ? ` title="${escHtml(tip)}"` : ""}><b>${title}</b>${body}</div>`;
+
+async function sdgPoll() {
+  const jobs = [];
+  jobs.push(fetch(rotorBase() + "/api/rotor").then((r) => r.json()).then((r) => { sdg.rotor = r; }).catch(() => { sdg.rotor = null; }));
+  for (const v of vfos.filter((x) => x.name && x.online)) {
+    jobs.push(fetch(v.base + "/api/sat/doppler").then((r) => r.json()).then((d) => { sdg.dop[v.name] = d; }).catch(() => { delete sdg.dop[v.name]; }));
+  }
+  if (!sdg.qth) jobs.push(fetch(vbase + "/api/location").then((r) => r.json()).then((q) => { sdg.qth = q; }).catch(() => {}));
+  await Promise.all(jobs);
+}
+
+function sdgShared() {
+  const q = sdg.qth, r = sdg.rotor;
+  const out = [];
+  out.push(sdgBlk("QTH", q && q.locator ? `<span class="v">${escHtml(q.locator)}</span><span>${(+q.lat).toFixed(3)}° ${(+q.lon).toFixed(3)}°</span>` : "<span>not set</span>",
+    q && q.locator ? "lit" : "off", "SETTINGS › GENERAL › LOCATION"));
+  if (!r || (!r.on && !r.connected)) out.push(sdgBlk("ROTOR", "<span>off</span>", "off", "SETTINGS › GENERAL › ROTOR"));
+  else {
+    const err = r.error || r.fault;
+    const az = r.az != null ? `AZ ${Math.round(r.az)}°` : "AZ –", el = r.el != null ? ` · EL ${Math.round(r.el)}°` : "";
+    const t = r.target, tAz = t && (Array.isArray(t) ? t[0] : t.az);
+    const tgt = tAz != null ? ` → ${Math.round(tAz)}°` : "";
+    out.push(sdgBlk("ROTOR", `<span class="v">${az}${el}${tgt}</span><span>${escHtml(r.device || "")}${r.connected ? "" : " · not connected"}` +
+      `${r.sat_on || r.tracker ? " · tracking" : ""}</span>${err ? `<span class="err">${escHtml(err)}</span>` : ""}`,
+      err || !r.connected ? "lit bad" : tgt ? "lit warn" : "lit", "SETTINGS › GENERAL › ROTOR · ROTOR CONTROL"));
+  }
+  const dops = Object.entries(sdg.dop).filter(([, d]) => d && d.on);
+  out.push(sdgBlk("DOPPLER", dops.length ? dops.map(([n, d]) => `<span class="v">${escHtml(d.label || d.name || "satellite")}</span>` +
+      `<span>VFO-${escHtml(n)}${d.error ? ` · <span class="err">${escHtml(d.error)}</span>` : ""}</span>`).join("")
+    : "<span>no satellite</span>", dops.length ? "lit" : "off", "Satellite tracking: RX Doppler of a VFO (SATELLITES)"));
+  const cues = vfos.filter((v) => v.name && v.cue && v !== active).map((v) => "VFO-" + v.name);
+  out.push(sdgBlk("AUDIO", `<span class="v">MAIN ${active && active.name ? "VFO-" + escHtml(active.name) : "–"}</span><span>CUE ${cues.length ? escHtml(cues.join(" ")) : "–"}</span>`,
+    "lit", "The VFO you listen to and the VFOs on CUE"));
+  return out.join("");
+}
+
+function sdgLane(v) {
+  const s = (v === active ? st || v.st : v.st) || {};
+  const off = !v.online || !v.st;
+  const head = `<div class="sdg-h${v === active ? " main" : ""}${off ? " off" : ""}"><b>VFO-${escHtml(v.name)}</b>` +
+    `<span class="f">${off ? "offline" : sdgHz(s.tune_hz || 0)}</span><span class="n">${escHtml(v.note || "")}</span>` +
+    `<span>${v === active ? sdgChip("MAIN", "on") : ""}${v.cue && v !== active ? sdgChip("CUE", "on") : ""}${s.tx ? sdgChip("TX", "bad") : ""}</span></div>`;
+  if (off) return head + `<div class="sdg-b off sdg-span"><b>RECEIVER</b><span>not running${s.error ? ": " + escHtml(s.error) : ""}</span></div>`;
+  const mode = s.dab ? "DAB" : s.dsd && s.dsd.enabled ? "DSD" : s.mode || "";
+  // antenna
+  const a = antById(s.antenna), cov = a ? antCovers(a, s.tune_hz) : null;
+  const ant = sdgBlk("ANTENNA", a ? `<span class="v">${escHtml(a.name)}</span><span>${escHtml([a.type, a.pol].filter(Boolean).join(" · "))}</span>` +
+    `<span>${a.rotor ? sdgChip("ROTOR", sdg.rotor && sdg.rotor.connected ? "on" : "") : ""}${cov === false ? sdgChip("OUT OF RANGE", "warn") : ""}</span>` : "<span>not chosen</span>",
+    a ? (cov === false ? "lit warn" : "lit") : "off", "SETTINGS › VFO › SDR DONGLE › ANTENNA");
+  // dongle
+  const chained = s.chain_owner ? `shares VFO-${s.chain_owner}` : s.chained_vfos ? `+${s.chained_vfos} VFO` : "";
+  // the dongle as one block with its TUNER (gain) and A/D (sample rate, peak) inside
+  const auto = s.gain === "auto", smart = s.smart_agc && !auto, clip = !auto && s.adc_clip;
+  const devName = { rtl: "RTL-SDR", airspy: "AIRSPY", lime: "LimeSDR" }[s.driver] || String(s.driver || "SDR").toUpperCase();
+  const tuner = `<div class="sdg-in" title="Tuner gain: SETTINGS › VFO › ADVANCED › AGC+ and the RF GAIN key"><b>TUNER</b>` +
+    `<span class="v">${auto ? "auto" : gainLabel(s)}</span><span>${smart ? "AGC+" : auto ? (s.rtl_agc ? "RTL AGC" : "tuner auto") : "manual"}</span></div>`;
+  const adc = `<div class="sdg-in${clip ? " bad" : ""}" title="A/D converter: sample rate and the peak of the raw samples"><b>A/D</b>` +
+    `<span class="v">${+((s.sample_rate || 0) / 1e6).toFixed(3)} MS/s</span>` +
+    `<span class="${clip ? "err" : ""}">${!auto && s.adc_peak != null ? `${minusSign(s.adc_peak)} dBFS${clip ? " clip" : ""}` : "peak –"}</span></div>`;
+  const chips = `${s.upconv && s.upconv !== "off" ? sdgChip("UPCONV", "on") : ""}${s.bias_tee ? sdgChip("BIAS-T", "on") : ""}` +
+    `${s.ppm ? sdgChip(`${s.ppm} ppm`, "on") : ""}${chained ? sdgChip(escHtml(chained), "on") : ""}`;
+  const sdr = sdgBlk(`${escHtml(devName)} <em>${escHtml(s.serial || "")}</em>`, `<div class="sdg-inner">${tuner}${adc}</div>` +
+    (chips ? `<span class="chips">${chips}</span>` : ""),
+    `sdg-dev ${s.error || clip ? "lit bad" : "lit"}`, "SETTINGS › VFO › SDR DONGLE");
+  // IQ: DC removal and the noise blanker on the wideband samples
+  const iq = sdgBlk("IQ", `<span class="chips">${sdgOn(s.dc_remove, "DC", "DC removal")}${sdgOn(s.nb, "NB", `noise blanker, level ${s.nb_level}`)}</span>`,
+    s.dc_remove || s.nb ? "lit" : "off", "SETTINGS › VFO › ADVANCED, NB key");
+  // MIXER: the digital mixer (NCO) shifts the tuned frequency from its place in the band to zero, then decimation
+  // (÷ 64) to the channel rate; SP (spur removal) works on that baseband
+  const offHz = (s.tune_hz || 0) - (s.center_hz || 0);
+  const mixer = sdgBlk("MIXER", `<span class="v">${offHz < 0 ? "−" : "+"}${sdgHz(Math.abs(offHz))}</span>` +
+    `<span>÷ 64 → ${+((s.sample_rate || 0) / 64e3).toFixed(1)} kS/s</span><span class="chips">${sdgOn(s.spur_on, "SP", "spur removal on the baseband")}</span>`,
+    "lit", "Digital mixer (NCO): the offset of the VFO frequency from the dongle centre is shifted to zero, then decimated to the channel rate");
+  // channel filter + demodulator
+  const bw = (s.bandwidth || {})[s.mode];
+  const filt = sdgBlk("FILTER", `<span class="v">${s.dab ? "1.5 MHz" : bw ? sdgHz(bw) : "–"}</span><span>channel</span>`, "lit", "Filter width (BW)");
+  const samTxt = s.mode === "AM" && s.sam ? `SAM ${(s.sam_sb || "dsb").toUpperCase()}` : "";
+  const demod = sdgBlk("DEMOD", `<span class="v">${escHtml(samTxt || mode)}</span>` +
+    (samTxt ? `<span>${s.sam_locked ? sdgChip("LOCK", "on") : sdgChip("NO LOCK", "warn")}</span>` : "") +
+    (s.dab ? `<span>${escHtml(s.dab_channel || "")}</span>` : "") +
+    (s.mode === "WFM" && !s.dab ? `<span class="chips">${sdgOn(s.stereo_on !== false && s.pilot, "STEREO", "stereo pilot")}${sdgOn(!!s.rds, "RDS", "RDS")}</span>` : ""),
+    "lit", "MODE keys");
+  // audio blocks (in the order of the chain)
+  const sqlOn = s.auto_sql_on || s.tsq_on || (s.squelch != null && s.squelch > -120);
+  const sqlTxt = s.auto_sql_on ? "ASQ" : s.tsq_on ? "TSQ" : "SQL";
+  const audio = sdgBlk("AUDIO", `<span class="chips">${sdgOn(s.notch, "NOTCH")}${sdgOn(s.dnr, "DNR", `noise reduction, level ${s.dnr_level}`)}` +
+    `${sdgOn(s.hum, "HUM", s.hum ? `mains ${s.hum_hz ?? s.hum_base} Hz` : "mains hum filter")}${sdgOn(s.audio_agc !== false, "ALC")}${sdgOn(s.dyn, "NTH")}` +
+    `${sdgOn(s.afi, "AFI", s.afi ? `${s.afi_hz} Hz` : "")}${sdgOn(s.hpf, "HPF", s.hpf ? `${s.hpf_hz} Hz` : "")}${sdgOn(s.lpf, "LPF", s.lpf ? `${s.lpf_hz} Hz` : "")}` +
+    `${sdgOn(sqlOn, sqlTxt, sqlOn ? (s.squelch_open ? "squelch open" : "squelch closed") : "squelch off", sqlOn && !s.squelch_open)}</span>`,
+    "lit", "AUDIO keys and SETTINGS › VFO › AUDIO");
+  // output: speaker, recording, scanner
+  const rec = s.recording || {}, recSq = rec.squelch && rec.squelch.on, recOn = (rec.cont && rec.cont.on) || recSq;
+  const recAct = (rec.cont && rec.cont.active) || (rec.squelch && rec.squelch.active);
+  const sc = s.scan || {}, scOn = sc.state && sc.state !== "off";
+  const where = v === active ? "MAIN" : v.cue ? "CUE" : "silent";
+  const outB = sdgBlk("OUTPUT", `<span class="v"${s.audio_muted ? ` title="${SDG_RAW_TIP}"` : ""}>${s.audio_muted ? "no audio" : where}</span>` +
+    (s.audio_muted ? `<span>decoder only</span>` : "") +
+    `<span class="chips">${recOn ? sdgChip(recSq ? "REC SQ" : "REC", recAct ? "bad blink" : "warn", recAct ? "recording" : "waiting for the squelch") : ""}` +
+    `${scOn ? sdgChip(`SCAN ${escHtml(sc.state)}`, "on", sc.cur ? sdgHz(sc.cur) : "") : ""}</span>`,
+    where === "silent" && !recOn && !scOn ? "off" : "lit", "Speaker, recording and scanner");
+  // decoders: on the baseband / audio at the end of the row, on the raw IQ in a branch from the A/D (under the row)
+  const decChip = ([k, n]) => sdgChip(k === "sonde" && sdgIsRaw(k, s) ? "SONDE MULTI" : n, s[`${k}_error`] ? "bad" : "on", s[`${k}_error`] || "");
+  const rawDecs = SDG_DEC.filter(([k]) => s[k] && sdgIsRaw(k, s)).map(decChip);
+  const decs = SDG_DEC.filter(([k]) => s[k] && !sdgIsRaw(k, s)).map(decChip);
+  if (s.dsd && s.dsd.enabled) decs.push(sdgChip(`DSD${s.dsd.proto ? " " + escHtml(s.dsd.proto) : ""}`, s.dsd.error ? "bad" : "on", s.dsd.error || ""));
+  const d = sdg.dop[v.name];
+  if (d && d.on) decs.push(sdgChip(`DOPPLER ${escHtml(d.label || d.name || "")}`, d.error ? "bad" : "dop", d.error || "RX Doppler: corrects the VFO frequency"));
+  const dec = sdgBlk("DECODERS", `<span class="chips">${decs.join("") || "<span>none</span>"}</span>`, decs.length ? "lit" : "off",
+    "Decoders on the baseband of the channel or the demodulated audio (DECODE key, DECODERS tab)");
+  const raw = rawDecs.length ? `<i class="sdg-tap" title="raw A/D samples of the whole band"></i>` +
+    sdgBlk("IQ DECODERS", `<span class="chips">${rawDecs.join("")}</span><span>raw A/D samples · whole band</span>`, "lit sdg-raw",
+      "These decoders take the raw IQ samples straight from the A/D, before DC, NB and the channel filter") : "";
+  // the VFO frequency goes two ways: the centre of the dongle (TUNER; moved only when the frequency leaves the band,
+  // set by the owner VFO on a shared dongle) and the offset from it to the digital MIXER
+  const tunerHz = (s.center_hz || 0) + (s.lo_hz || 0);
+  const owner = s.chain_owner ? `VFO-${escHtml(s.chain_owner)}` : "";
+  const ctl = `<i class="sdg-ctl" title="VFO-${escHtml(v.name)} ${sdgHz(s.tune_hz || 0)} = dongle centre ${sdgHz(s.center_hz || 0)}` +
+    `${s.lo_hz ? ` (tuner ${sdgHz(tunerHz)} with the upconverter)` : ""} ${offHz < 0 ? "−" : "+"} offset ${sdgHz(Math.abs(offHz))} in the mixer">` +
+    `<em class="l0">tunes</em><i class="d1${owner ? " no" : ""}"></i><em class="l1">${owner ? `centre by ${owner}` : `centre ${sdgHz(tunerHz)}`}</em>` +
+    `<i class="d2"></i><em class="l2">offset</em></i>`;
+  // a raw-IQ decoder (its audio muted) or DAB: the chain after the A/D is not used; IQ and MIXER still feed a
+  // baseband decoder running beside (FT8, CW, …), the output still plays DAB
+  const why = audioBypassWhy(s), keepIq = BASEBAND_DECS.some((k) => s[k]);
+  const idle = (html, on) => (on ? html.replace('class="sdg-b ', 'class="sdg-b idle ').replace(' title="', ` title="Not used now – ${escHtml(why)}.&#10;`) : html);
+  // RX Doppler: the correction goes back to the VFO frequency – an orange line from the DOPPLER chip along the bottom
+  // of the row up into the VFO block (placed by sdgPlaceDop once the row is laid out)
+  const dop = d && d.on ? `<i class="sdg-dop" title="RX Doppler of ${escHtml(d.label || d.name || "the satellite")}: retunes VFO-${escHtml(v.name)}` +
+    `${d.f_nominal ? ` (nominal ${sdgHz(d.f_nominal)})` : ""}"><em>DOPPLER → VFO</em></i>` : "";
+  return head + [ant, sdr, idle(iq, why && !keepIq), idle(mixer, why && !keepIq), idle(filt, why), idle(demod, why), idle(audio, why),
+    idle(outB, why && s.audio_muted), dec].join("") + raw + ctl + dop;
+}
+
+function renderSdg() {
+  const named = vfos.filter((v) => v.name);
+  const top = sdgShared();
+  const lanes = named.map((v) => `<div class="sdg-lane" data-vfo="${escHtml(v.name)}" title="Settings of VFO-${escHtml(v.name)}">${sdgLane(v)}</div>`).join("");
+  const html = top + "|" + lanes;
+  if (html === sdg.html) return;
+  sdg.html = html;
+  $("sdgShared").innerHTML = top;
+  $("sdgLanes").innerHTML = lanes || `<div class="muted">No VFO running.</div>`;
+  sdgPlaceDop();
+  $("sdgInfo").textContent = `${named.filter((v) => v.online).length} of ${named.length} VFO running`;
+}
+
+/** The Doppler line of a row: from under the DOPPLER chip down, along the bottom, up into the VFO block. Layout px
+ *  (offsetLeft / offsetTop), so the scaling of the page does not matter. */
+function sdgPlaceDop() {
+  for (const el of $("sdgLanes").querySelectorAll(".sdg-dop")) {
+    const lane = el.parentElement, h = lane.querySelector(".sdg-h");
+    const chip = lane.querySelector(".sdg-c.dop, .sdg-c.bad"), dec = chip && chip.closest(".sdg-b");
+    if (!h || !dec) { el.hidden = true; continue; }
+    const x0 = h.offsetLeft + h.offsetWidth / 2, y0 = h.offsetTop + h.offsetHeight;
+    const x1 = dec.offsetLeft + chip.offsetLeft + chip.offsetWidth / 2, y1 = dec.offsetTop + dec.offsetHeight;
+    const yb = lane.clientHeight - 9;
+    Object.assign(el.style, { left: `${x0}px`, top: `${y0}px`, width: `${x1 - x0}px`, height: `${yb - y0}px` });
+    el.style.setProperty("--dec-h", `${yb - y1}px`);
+  }
+}
+
+function sdgTick() {
+  if (!sdgOpen()) { sdg.timer = null; return; }
+  if (Date.now() - sdg.at > 2500) { sdg.at = Date.now(); sdgPoll().then(renderSdg); }
+  renderSdg();
+  sdg.timer = setTimeout(sdgTick, 1000);
+}
+function sdgStart() {
+  if (sdg.timer) return;
+  sdg.at = 0;
+  sdg.html = "";
+  sdgTick();
+}
+$("sdgLanes").addEventListener("click", async (e) => {
+  const l = e.target.closest(".sdg-lane");
+  const v = l && vfos.find((x) => String(x.name) === l.dataset.vfo);
+  if (!v) return;
+  if (v !== active) await selectVfo(v, "set");
+  showSetTab("vfo");
+  store("setTab", "vfo");
+});
