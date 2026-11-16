@@ -84,16 +84,26 @@ Ver. 1.0beta1
 (test beta, GitHub branch 1.0beta1; continues the release 0.115)
 New
 - SETTINGS > STATION: a live scheme of the whole receiver: QTH, rotor, Doppler, audio on top, one row per VFO
-  from the antenna through the dongle (TUNER and A/D inside), IQ, filter, demodulator and audio blocks to the output and the
+  from the antenna through the dongle (TUNER and A/D inside, AGC+ in a loop from the A/D peak to the TUNER gain), IQ (DC -> NB), mixer, SP, filter,
+  demodulator and audio (its stages with arrows in their order: HUM, NF, DNR, ALC, NTH, AFI, LPF, HPF, SQL;
+  SQL and ASQ lines with the channel level from a new S-METER block, an arrow from AGC+ into ASQ) to the output and the
   decoders. Decoders on the raw IQ (VDL2, DAB, ISM, HFDL, AIS, ADS-B, SONDE MULTI) branch off the A/D
-  output into their own block; the blocks they bypass are faded. RX Doppler: an orange line back into the VFO. A click on a row opens the settings of that VFO.
-- Audio keys (NF, ALC, NTH, DNR, HUM, AFI, HPF / LPF, ASQ, TSQ, filter, NB, SP) inactive while a raw-IQ decoder
-  or DAB runs on the VFO, with the reason in their tip; SETTINGS > VFO > AUDIO says so too.
+  output into their own block; the blocks they bypass are faded,
+  the chain up to the filter stays active: it still feeds the S-meter. RX Doppler: an orange line back into the VFO. A click on a row opens the settings of that VFO.
+- Audio keys (NF, ALC, NTH, DNR, HUM, AFI, HPF / LPF, ASQ, TSQ) inactive while a raw-IQ decoder or DAB runs on the
+  VFO, with the reason in their tip; SETTINGS > VFO > AUDIO says so too. The filter, NB and SP keys stay active with a raw-IQ
+  decoder (tip: IQ decoder is active – changes only the S-meter); with DAB they are inactive too.
 - WW locator grid on the FT8 map: faint Maidenhead fields (JN), squares (JN88) from zoom 5,
   subsquares (JN88wq) from zoom 10.
 - Our report on the FT8 map: the SNR we hear a station with as a filled coloured chip (e.g. -07) beside
   the call, in the station list and in the popup; reports inside the messages stay plain yellow text.
 - GRID / RX keys on the FT8 map: the locator grid and our report next to the calls on / off.
+- STATION scheme: DSD decoder as its own block between DEMOD and AUDIO (then LPF -> HPF -> output), DAB audio line from IQ DECODERS to OUTPUT.
+- SONDE MAP: altitude / time chart under the temperature profile (scroll down), also for sondes without temperature,
+  with the course of the sonde as a second curve (right axis 0-360°).
+- SONDE prediction: GFS model wind (Open-Meteo.com, CC-BY 4.0) where the sonde has not flown; only the cells along
+  its path, once per GFS run, kept in data\wind.
+- ACARS / VDL2: the description hidden under an INFO key (like HFDL, AIS, ISM).
 - Automatic LSB / USB on ham bands: in LSB or USB, tuning into another ham band switches to its usual sideband
   (LSB on 160, 80, 40 m; USB on 60 m, 30 m and above). A sideband chosen by hand inside a band stays.
   Switch in SETTINGS > GENERAL > TUNING (was TOUCHPAD), on by default.

@@ -10,19 +10,29 @@ Test beta (GitHub branch `1.0beta1`; continues the release 0.115).
   (QTH, rotor with azimuth / elevation and tracking, satellite Doppler, MAIN and CUE audio); below one row per VFO with
   its frequency, from the antenna to the speaker: ANTENNA (out of range, rotor), the dongle as one block (RTL-SDR +
   serial, upconverter, bias-tee, ppm) with TUNER (gain, AGC+ / manual / auto) and A/D (sample rate, peak, clipping in
-  red) inside, a dashed line from the VFO frequency that forks into the TUNER (centre of the dongle) and
-  the MIXER (offset from the centre), IQ (DC, NB), MIXER (digital mixer, ÷ 64, SP), FILTER, DEMOD (SAM lock,
-  DAB, stereo, RDS), AUDIO (NOTCH … LPF, squelch open / closed), OUTPUT (MAIN / CUE / silent, no audio with a raw-sample
+  red) inside, AGC+ under the dongle (it runs in RADIMCOM) in a blue loop: the A/D peak into AGC+, the gain from it
+  up into the TUNER (target dBFS, by the owner VFO on a shared dongle, → ASQ when it switched the auto squelch on), a dashed line from the VFO frequency that forks into the TUNER (centre of the dongle) and
+  the MIXER (offset from the centre), IQ (DC → NB in their order; "pass" with both off, never faded for that), MIXER (digital mixer, ÷ 64), SP (spur removal on the
+  baseband after the mixer, before the filter; the baseband decoders get it too), FILTER, DEMOD (SAM lock,
+  DAB, stereo, RDS), AUDIO (its stages joined by arrows in the order the sound goes through them: HUM → NF → DNR → ALC →
+  NTH → AFI → LPF → HPF → SQL, squelch open / closed; under it a SQL line and an ASQ line fed by S-METER (a block under FILTER / DEMOD: the channel power after the
+  filter in S units and dBFS, an arrow from the filter into it and a "level" line from it up into AUDIO), each with the channel power and
+  the level it opens at in dBFS (no ASQ line without a squelch, e.g. in USB or DSD), ASQ fed by a blue dashed line from the AGC+ block along the bottom
+  of the row – ON when AGC+ with the squelch set switches the auto squelch on), OUTPUT (MAIN / CUE / silent, no audio with a raw-sample
   decoder, REC / REC SQ, scanner) and DECODERS (with errors and the RX Doppler). Decoders on the raw IQ (VDL2, DAB,
   ISM, HFDL, AIS, ADS-B, SONDE MULTI) branch off the A/D output into their own block IQ DECODERS; the others
-  (on the baseband of the channel or the audio) stay at the end of the row. Read-only; a click on a row opens the
+  (on the baseband of the channel or the audio) stay at the end of the row. The columns stretch over the whole width of the tab (AUDIO the widest); each kind of block has its own colour and a small
+  framed icon in its corner (antenna, chip, mixer, band-pass filter, diode, …), the station row on top is one compact line
+  set apart from the VFO rows, IQ DECODERS only as wide as its content. Read-only; a click on a row opens the
   settings of that VFO. The VFO state also carries `sonde_multi`. While a raw-IQ decoder or DAB runs, the blocks it
-  bypasses (IQ, MIXER, FILTER, DEMOD, AUDIO, OUTPUT) are faded and hatched, the reason in their tip. With the RX
+  bypasses (DEMOD, AUDIO, OUTPUT) are faded and hatched, the reason in their tip; IQ, MIXER, SP and FILTER stay drawn as active (their tip:
+  only for the S-meter now) – they still feed the S-METER, which stays lit (e.g. turning the antenna for the strongest DAB signal). With the RX
   Doppler on, an orange line DOPPLER → VFO leads from its chip in DECODERS along the bottom of the row into the VFO.
 - **Audio settings inactive while they have no effect:** while a raw-IQ decoder (VDL2, ISM, HFDL, AIS, ADS-B, ACARS,
-  SONDE) or DAB runs on a VFO, its keys S/M, NF, HPF, LPF, ALC, NTH, AFI, ASQ, TSQ-C, TSQ-D, DNR, HUM and the FILTER keys
+  SONDE) or DAB runs on a VFO, its keys S/M, NF, HPF, LPF, ALC, NTH, AFI, ASQ, TSQ-C, TSQ-D, DNR, HUM (and with DAB the FILTER keys)
   are disabled, the reason first in their tip ("Inactive now – HFDL works on the raw IQ samples …"), and SETTINGS ›
-  VFO › AUDIO is faded under a note. NB and SP too, unless a baseband decoder (FT8, CW, RTTY, …) runs beside. The
+  VFO › AUDIO is faded under a note. With DAB NB and SP too, unless a baseband decoder (FT8, CW, RTTY, …) runs beside;
+  with a raw-IQ decoder the FILTER, NB and SP keys stay active ("IQ decoder is active – this changes only the S-meter"). The
   settings are kept and work again once the decoder is off.
 - **WW locator grid on the FT8 map:** a faint Maidenhead grid under the stations: fields (JN) always, squares
   (JN88) from zoom 5, subsquares (JN88wq) from zoom 10, each cell labelled in its lower left corner; not clickable.
@@ -209,9 +219,28 @@ Test beta (GitHub branch `1.0beta1`; continues the release 0.115).
 - **Live values in the AGC+ diagram:** AGC+ ON / OFF, the tuner gain now in TUNER, the A/D peak in A/D (red on
   clipping), *now* in the headers of both scales and a white mark where the last block lies on the clipping scale and on
   the peak scale (shown with AGC+ or a manual gain; the automatic tuner gain does not measure the A/D).
+- **STATION scheme – DSD and DAB:** with DSD the voice decoder is its own block DSD (protocol, errors) between DEMOD and AUDIO
+  (the FM discriminator goes straight into it, AUDIO then only LPF → HPF; HUM … AFI are not used) instead of at the end in DECODERS, so OUTPUT plays what it
+  decodes; with DAB a line goes from IQ DECODERS (DAB) along the bottom of the row up into OUTPUT (DAB AUDIO → OUTPUT).
+- **SONDE: altitude / time chart** under the temperature / humidity profile in MAP (the panel scrolls down to it):
+  altitude against UTC time of the chosen sonde – also for sondes without temperature (DFM, M10 …) – ascent bright,
+  descent after the burst fainter with the top marked, average ascent rate and climb / fall now in its header, the course
+  over ground as a second curve on a right axis 0–360° (N E S W), hover with time, altitude, climb and course.
+- **SONDE prediction with model wind:** above the sonde (before the burst) and below the lowest layer heard (the
+  landing) the prediction now uses the GFS wind on 44 pressure levels up to 10 hPa from Open-Meteo.com (CC-BY 4.0),
+  joined to the sonde's own measured winds (moved by their difference, fading over 3 km). Only the 0.25° cells along
+  the predicted path are downloaded (from the position of the sonde, nothing of the station), once per GFS run, and
+  kept in data\wind (2 days); new module wind.py, GET /api/wind. Without internet as before (own winds only); the
+  landing tooltip says which; the source is credited in the corner of the map (prediction wind: Open-Meteo.com, GFS NOAA).
+- **SONDE profile and altitude / time chart** share the height of the panel (no scrolling), in the tab and in the map
+  opened in its own tab; axis labels thinned on low charts.
+- **INFO key in ACARS / VDL2:** the description of the decoder is hidden by default under INFO (like HFDL, AIS, ISM),
+  so the messages, aircraft and map have the room; remembered in the browser.
 
 ### Fixes
 
+- **SONDE: a DFM sonde drawn twice** after a server restart (or when its serial came): the browser kept the
+  entry named by the frequency (DFM-403.630) beside the real one; it now renames or drops it like the server does.
 - **WEFAX no longer stops the receiver:** on noise (all line-rate scores negative) the WEFAX decoder failed with
   `max() iterable argument is empty`, and the dongle of the VFO was closed and opened again every few seconds.
 - **A frozen dongle recovers by itself:** a dongle that stays on USB but stops sending data was only closed and opened

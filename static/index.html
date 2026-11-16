@@ -621,6 +621,7 @@
         <label class="key small toggle" data-dec-on="acars" title="ACARS (classic VHF link, AM 2400 bit/s) – 131.525–131.825 MHz. Mutes the audio of the VFO."><input id="acarsOn" type="checkbox">ON</label>
         <label class="key small toggle" data-dec-on="vdl2" title="VDL Mode 2 (digital link, ACARS + CPDLC) – 136.100–136.975 MHz. Sets the VFO to 2.1 MS/s around 136.500 MHz and mutes its audio; turns classic ACARS off. RTL-SDR only, not supported on LimeSDR."><input id="vdl2On" type="checkbox">ON</label>
         <div class="bands" id="acarsBands"></div>
+        <button id="acarsInfoKey" class="key small" title="Show / hide the description of the decoder (the table or map takes its place)">INFO</button>
         <span id="vdl2Info" class="muted" hidden></span>
         <span id="acarsInfo" class="muted"></span>
         <span id="acarsPaused" class="scroll-paused" hidden title="A click on a message holds the list still. Turn the mouse wheel over the messages to resume.">SCROLL PAUSED</span>
@@ -635,7 +636,7 @@
         <label class="wf-opt log-opt" title="Write the daily log: classic ACARS to data\acars\acars_YYYY-MM-DD.txt, VDL2 to data\acars\vdl2_YYYY-MM-DD.txt (UTC, shared by all VFOs)"><input type="checkbox" data-log="acars">LOG</label>
         <button id="acarsClear" class="key small">CLR</button>
       </div>
-      <p class="note">The audio of the VFO is muted while this decoder runs.
+      <p class="note" id="acarsNote" hidden>The audio of the VFO is muted while this decoder runs.
         <span data-link="acars">Classic ACARS on the VHF airband (AM, 2400 bit/s). Works in any mode: the decoder
         demodulates AM itself. The buttons tune the European ACARS channels; 131.725 MHz is the busiest.</span>
         <span data-link="vdl2" hidden>VDL Mode 2 (digital, 31.5 kbit/s): the VFO runs at 2.1 MS/s around 136.500 MHz and all
@@ -2127,7 +2128,8 @@ ecordings, played in the browser -->
         <div class="set-panel sdg-panel" data-set-panel="sta" role="tabpanel" hidden>
           <div class="setting sdg">
             <div class="row"><span>The whole station, live</span><span class="muted" id="sdgInfo"></span></div>
-            <div class="sdg-shared" id="sdgShared"></div>
+            <div class="sdg-top"><span class="sdg-sec">STATION</span><div class="sdg-shared" id="sdgShared"></div></div>
+            <span class="sdg-sec">RECEIVE CHAIN · ONE ROW PER VFO</span>
             <div class="sdg-scroll"><div class="sdg-lanes" id="sdgLanes"></div></div>
             <p class="note">Each row is one VFO, from the antenna to the speaker and the decoders. Lit = on, faint = off, red = an error
               or clipping, amber = waiting (squelch closed, buffering). MAIN = the VFO you listen to, CUE = audible at CUE level.

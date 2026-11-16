@@ -122,7 +122,8 @@ of that VFO (orange LED): that VFO stays audible at CUE level while another VFO 
     Graph on the right: SPECTRUM of the signal around the tuned frequency (averaged, MAX hold; S/N, 99 % bandwidth,
     live 9600 Bd AFC as a green line) or EYE, the eye diagram in real time (9600 / 1200 Bd), with the eye opening now
     and in the last good frame, and at 9600 Bd the deviation and the live AFC.
-  - ACARS (classic link, AM 2400 bit/s): channel buttons 131.525 / 131.725 / 131.825 / 136.900 MHz, CLR;
+  - ACARS (classic link, AM 2400 bit/s): channel buttons 131.525 / 131.725 / 131.825 / 136.900 MHz, CLR; **INFO** shows / hides
+    the description (hidden by default, also for VDL2);
     click the registration or flight to open the ADS-B map. Plain ACARS, FANS-1/A CPDLC and ADS-C are shown
     with coloured tags.
 
@@ -140,8 +141,9 @@ of that VFO (orange LED): that VFO stays audible at CUE level while another VFO 
 
 - **AUDIO**:
   - While a decoder works on the raw IQ samples (VDL2, ISM, HFDL, AIS, ADS-B, ACARS, SONDE; the VFO has no audio then) or DAB
-    plays, the keys that act only on the audio (S/M, NF, HPF, LPF, ALC, NTH, AFI, ASQ, TSQ-C, TSQ-D, DNR, HUM) and the FILTER keys
-    are inactive, with the reason first in their tip; NB and SP too, unless a baseband decoder (FT8, CW, RTTY, …) runs beside.
+    plays, the keys that act only on the audio (S/M, NF, HPF, LPF, ALC, NTH, AFI, ASQ, TSQ-C, TSQ-D, DNR, HUM) are inactive, with
+    the reason first in their tip. With DAB the FILTER keys, NB and SP too (NB and SP not while a baseband decoder – FT8, CW, RTTY, …
+    – runs beside). With a raw-IQ decoder the FILTER, NB and SP keys stay active: they change only the S-meter then (said in their tip).
     SETTINGS › VFO › AUDIO is faded under a note. The settings are kept and work again once the decoder is off.
   - S/M: WFM stereo / mono (mono = less noise on weak stations).
   - AFI: audio frequency inversion (voice inversion scrambler / descrambler) in all modes except WFM. The audio is mirrored around
@@ -297,20 +299,31 @@ of that VFO (orange LED): that VFO stays audible at CUE level while another VFO 
     ![SETTINGS › VFO › SDR DONGLE: keys VFO-A … D, the block diagram of the signal path from the antenna to the screen with numbered blocks, and the cards with correction, bandwidth, tuner gain, bias-tee, DC peak removal and RESET SDR DONGLE](images/settings_vfo.png)
   - **STATION**: a simplified scheme of the whole receiver, live (like the AGC+ diagram). On top the station: **QTH**
     (locator), **ROTOR** (port, azimuth / elevation, target, tracking, errors), **DOPPLER** (the satellite followed and on which
-    VFO) and **AUDIO** (the MAIN VFO and the VFOs on CUE). Below one row per VFO with its frequency and name, from the antenna to
+    VFO) and **AUDIO** (the MAIN VFO and the VFOs on CUE), in one compact line. Below one row per VFO (each kind of block in its own colour with
+    a small icon in the corner) with its frequency and name, from the antenna to
     the speaker: **ANTENNA** (amber OUT OF RANGE outside its range, ROTOR when on the rotor), the **dongle** as one block (RTL-SDR, AIRSPY or
     LimeSDR with its serial; UPCONV, BIAS-T, ppm, a shared dongle) with two blocks inside: **TUNER** (gain, AGC+ / manual / auto)
-    → **A/D** (sample rate, peak of the raw samples, red when clipping); the dashed green line **tunes** shows where the VFO frequency
+    → **A/D** (sample rate, peak of the raw samples, red when clipping); under the dongle **AGC+** (it runs in RADIMCOM, not in the
+    dongle) in a dashed blue loop: **peak** from the A/D into AGC+, **gain** from AGC+ up into the TUNER (on / off, the target in
+    dBFS, "by VFO-X" on a shared dongle, → ASQ when it switched the auto squelch on); the dashed green line **tunes** shows where the VFO frequency
     goes: into the TUNER as the **centre** of the dongle (it moves only when the frequency leaves the band; on a shared dongle the
-    owner VFO sets it) and as the **offset** from that centre into the **MIXER**. **IQ** (DC, NB on the wideband samples),
-    **MIXER** (the digital mixer shifting the offset, e.g. −486.6 kHz, to zero, decimation ÷ 64 to the channel rate, SP on that
-    baseband),
-    **FILTER** (width), **DEMOD** (mode, SAM with its lock, DAB channel, stereo, RDS), **AUDIO** (NOTCH, DNR, HUM, ALC, NTH, AFI,
-    HPF, LPF and the squelch – amber while closed), **OUTPUT** (MAIN / CUE / silent, "no audio" while a raw-sample decoder runs,
+    owner VFO sets it) and as the **offset** from that centre into the **MIXER**. **IQ** (DC → NB on the wideband samples, in this order; "pass" with both off – the samples go through it all the same),
+    **MIXER** (the digital mixer shifting the offset, e.g. −486.6 kHz, to zero, decimation ÷ 64 to the channel rate), **SP** (spur removal on that
+    baseband, before the filter – the decoders on the baseband get it too; "pass" while off),
+    **FILTER** (width), **DEMOD** (mode, SAM with its lock, DAB channel, stereo, RDS), **AUDIO** (its stages joined by arrows in the order the
+    sound goes through them: HUM → NF → DNR → ALC → NTH → AFI → LPF → HPF → SQL, the squelch amber while closed; under it the **SQL** line (the set squelch)
+    – both fed by **S-METER** under FILTER / DEMOD (the power in the channel after the filter, S units and dBFS; an arrow from
+    the filter into it and a **level** line from it up into AUDIO) – and the **ASQ** line (auto squelch)
+    with the channel power / the opening level in dBFS, a blue dashed line **AGC+ → ASQ ON / OFF** into the ASQ chip
+    from the AGC+ block – ON when AGC+ with the squelch set switches the auto squelch on; with **DSD** a block **DSD** (the voice decoder, protocol, errors)
+    stands between DEMOD and AUDIO, AUDIO is then only LPF → HPF and OUTPUT plays the decoded voice; with **DAB** a line DAB AUDIO → OUTPUT goes from IQ DECODERS
+    into OUTPUT), **OUTPUT** (MAIN / CUE / silent, "no audio" while a raw-sample decoder runs,
     REC / REC SQ, the scanner) and **DECODERS** (the ones on the baseband of the channel or the audio, red with an error, the RX
     Doppler). Decoders on the **raw IQ** (VDL2, DAB, ISM, HFDL, AIS, ADS-B, SONDE MULTI) take the samples straight from the A/D,
     before DC, NB and the channel filter: they branch off under the A/D into their own block **IQ DECODERS**, and the blocks they
-    bypass (IQ, MIXER, FILTER, DEMOD, AUDIO, OUTPUT; IQ and MIXER stay lit while a baseband decoder runs beside) are faded and hatched.
+    bypass (DEMOD, AUDIO, OUTPUT) are faded and hatched; IQ, MIXER, SP and FILTER stay drawn as active (the tip says: only for the S-meter now) – they still feed
+    the **S-METER**, which stays lit and correct (e.g. for turning the antenna for the strongest DAB signal); they stay fully lit while
+    a baseband decoder runs beside.
     With the **RX Doppler** of a satellite on, its orange chip in DECODERS leads an orange line **DOPPLER → VFO** along the bottom
     of the row back into the VFO block: the correction retunes the VFO frequency. Lit = on, faint = off. It is
     read-only; a click on a row opens SETTINGS › VFO of that VFO. The open page is remembered in the browser.

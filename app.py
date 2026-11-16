@@ -932,6 +932,16 @@ def api_sonde_sites():
     return jsonify(sonde_sites.sites())
 
 
+@app.route("/api/wind")
+def api_wind():
+    """GFS wind profiles of the 0.25° cells along a predicted sonde flight (?cells=48.75_17.25,49.00_17.50),
+    downloaded from Open-Meteo once per GFS run and kept in data/wind (wind.py)."""
+    import re
+    import wind
+    keys = [k for k in request.args.get("cells", "").split(",") if re.fullmatch(r"-?\d{1,2}\.\d{2}_-?\d{1,3}\.\d{2}", k)]
+    return jsonify(wind.cells(keys))
+
+
 @app.route("/api/sonde", methods=["GET"])
 def api_sonde():
     return jsonify(sonde.info())

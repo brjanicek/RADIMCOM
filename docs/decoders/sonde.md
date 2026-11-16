@@ -94,6 +94,11 @@ kept in `sonde.py`).
   and humidity % (descent after the burst fainter); the right edge labels the altitude with the pressure of the
   standard atmosphere (hPa, orientation only). Hover shows altitude, time, T, RH, hPa. The altitude axis is fixed
   0–41 km and the plot fills the page height.
+  Scrolled down under it: **Altitude / time UTC** – the altitude against time of the same sonde (from all its points, so
+  also for sondes without temperature), ascent bright, descent after the burst fainter with the top marked in red, the
+  average ascent rate and the climb / fall now (last 30 s) in its header; a violet curve on the right axis (0–360°,
+  N E S W) is the course the sonde drifts to (over ground, from the point about 30 s before). Hover shows the time,
+  altitude, climb and course.
 - **Radiosonde log** `data\logs\radiosonde\<YYYY-MM-DD>_<serial>.jsonl` (UTC date of the first frame): every frame
   of every sonde, written automatically whatever the LOG key, one JSON line (time, position, speeds, T, RH, sats,
   battery, frequency, VFO). After a server restart the sondes of the last 24 h of that VFO are read back with their
@@ -103,7 +108,17 @@ kept in `sonde.py`).
   heard): +1 h, +2 h, +3 h after the launch, burst (yellow ring) and landing (✕, time UTC). Wind from the sonde's own flight path in 500 m layers (above the highest one heard the top
   layer is kept, below the lowest one its speed falls off to a half at the ground; a layer heard during the fall
   takes the wind of the fall), ascent rate from the last 5 min, burst assumed at 33 km until it happens, fall from the measured
-  descent rate (mean of the last five steps), slowing down in thicker air (5 m/s at sea level before the burst), ground at 400 m. No weather model: only an estimate, best after the burst.
+  descent rate (mean of the last five steps), slowing down in thicker air (5 m/s at sea level before the burst), ground at 400 m.
+  **Model wind (GFS):** where the sonde has not flown (above it before the burst, below the lowest layer heard on the
+  way down) the wind of the GFS model on 44 pressure levels (1000 → 10 hPa, ~31 km) is used, from Open-Meteo.com
+  (NOAA GFS 0.25°, CC-BY 4.0, free for non-commercial use). The first prediction from the sonde's own winds gives the
+  path; the server downloads the wind profiles only of the 0.25° cells it goes through (from the position of the sonde,
+  nothing of the station), the prediction is made again with them and more cells are added if the path moves (usually
+  2 rounds, ~1 s). Next to the layers heard the model is moved by its difference from the measured wind there (fading
+  over 3 km), so the two join. The profiles (hourly, 6 h back to 12 h ahead) are kept in `data\wind\<run>\` per GFS
+  run (00 / 06 / 12 / 18 UTC, out about 5 h later): until the next run the same cells are not downloaded again; runs
+  older than 2 days are deleted. Without internet the prediction stays on the sonde's own winds; the landing tooltip
+  says which (*GFS wind* / *own winds only*); the source is credited at the bottom right of the map. Logged flights use only their own winds.
   The circle around the ✕ is the landing area: 60 more runs with the inputs scattered by their likely errors (wind of
   each layer, descent / ascent rate, burst altitude, ground), the circle holds 90 % of them; the label gives the landing
   time span and the radius.

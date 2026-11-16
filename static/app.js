@@ -343,7 +343,7 @@ function renderControls() {
   // The buttons stay fixed; a width set by dragging the edge in the spectrum has no button (none is lit).
   const bw = st.bandwidth[st.mode];
   // DAB: the ensemble has a fixed width – the keys stay in place, unlit and disabled
-  segButtons($("bandwidths"), BANDWIDTHS[st.mode] || BANDWIDTHS.WFM, st.dab ? null : bw, fmtBw, !!st.dab || !!st.audio_muted);
+  segButtons($("bandwidths"), BANDWIDTHS[st.mode] || BANDWIDTHS.WFM, st.dab ? null : bw, fmtBw, !!st.dab);   // with a raw-IQ decoder the filter still sets the S-meter width
   const set = stepSet(st.mode);
   stepHz = stepMem[set];
   segButtons($("steps"), STEP_SETS[set], stepHz, fmtBw);
@@ -2454,11 +2454,16 @@ function renderAudioBypass() {
   const why = audioBypassWhy(st);
   const keepIq = BASEBAND_DECS.some((k) => st[k]);   // a baseband decoder runs beside: NB and SP still act on it
   const ids = [...BYPASS_KEYS, "nbKey", "spurKey"];
-  const PRE = "Inactive now – ";
+  // a raw-IQ decoder (not DAB): the chain up to the filter still feeds the S-meter, so NB, SP and the filter keys
+  // stay active – they change only the S-meter then
+  const meter = !!why && !!st.audio_muted && !st.dab;
+  const PRE = "Inactive now – ", MPRE = "IQ decoder is active – this changes only the S-meter now. ";
+  const own = (b) => { if (!b.title.startsWith(PRE) && !b.title.startsWith(MPRE)) b.dataset.tip0 = b.title; };
   for (const id of ids) {
-    const b = $(id), by = !!why && (BYPASS_KEYS.includes(id) || !keepIq);
+    const b = $(id), base = !BYPASS_KEYS.includes(id);
+    const by = !!why && (!base || (!keepIq && !meter)), mo = meter && base && !keepIq;
     // the own tip of the key (some renderers write it anew each time, others never): kept apart from the prefix
-    if (!b.title.startsWith(PRE)) b.dataset.tip0 = b.title;
+    own(b);
     b.classList.toggle("bypassed", by);
     if (by) {
       b.disabled = true;
@@ -2466,13 +2471,17 @@ function renderAudioBypass() {
 
 ${b.dataset.tip0 || ""}`;
     } else {
-      if (b.title.startsWith(PRE)) b.title = b.dataset.tip0 || "";
+      b.title = mo ? `${MPRE}
+
+${b.dataset.tip0 || ""}` : b.dataset.tip0 || "";
       if (id === "spurKey") b.disabled = false;       // the other keys get their own state from their renderers
     }
   }
+  $("bandwidths").title = meter ? `${MPRE}(${why})` : "";
   $("audioBypassNote").hidden = !why;
-  $("audioBypassNote").textContent = why ? `${why}. The audio settings below (filter, NF, ALC, NTH, DNR, HUM, AFI, HPF / LPF, ` +
-    `squelch tones) have no effect now; they are kept and work again once it is off.` : "";
+  $("audioBypassNote").textContent = why ? `${why}. The audio settings below (${meter ? "" : "filter, "}NF, ALC, NTH, DNR, HUM, AFI, HPF / LPF, ` +
+    `squelch tones) have no effect now; they are kept and work again once it is off.` +
+    (meter ? " The filter, NB and SP still act: they change only the S-meter." : "") : "";
   $("settingsCard").querySelector('[data-set-subpanel="vfo:audio"]').classList.toggle("bypass", !!why);
 }
 
@@ -6227,6 +6236,15 @@ $("acarsRows").addEventListener("click", (e) => {
   if (!td || e.target.closest(".atn-detail") || String(getSelection())) return;   // selecting text in the detail
   td.classList.toggle("open");
 });
+/** INFO key: the description of ACARS / VDL2, hidden by default so the table or map has the room; remembered in the browser. */
+function setAcarsInfo(on) {
+  store("acarsInfo", on ? "1" : "0");
+  $("acarsInfoKey").classList.toggle("on", on);
+  $("acarsNote").hidden = !on;
+  if (acarsMap) setTimeout(() => acarsMap.invalidateSize());
+}
+$("acarsInfoKey").addEventListener("click", () => setAcarsInfo($("acarsNote").hidden));
+setAcarsInfo(recall("acarsInfo") === "1");
 $("acarsClear").addEventListener("click", () => {
   acarsDropHeld();
   acarsResume();
@@ -6859,6 +6877,18 @@ function sondeState(s) {
 
 function sondeUpdate(f) {
   if (!f.serial) return;
+  // DFM: until its serial comes the sonde is "DFM-<MHz>" (e.g. DFM-403.630). Like the server (sonde.py), with the
+  // serial that entry becomes the sonde – or is dropped when the sonde is known already (read back from the log after a
+  // restart), else the same flight would be drawn twice
+  if (f.type === "DFM" && !/^DFM-\d+\.\d{3}$/.test(f.serial)) {
+    for (const [k, ph] of sondes) {
+      if (!/^DFM-\d+\.\d{3}$/.test(k) || ph.lat == null || f.lat == null) continue;
+      if (Math.hypot(ph.lat - f.lat, (ph.lon - f.lon) * Math.cos((f.lat * Math.PI) / 180)) > 0.05) continue;   // ~5 km
+      sondes.delete(k);
+      if (sondeSel === k) sondeSel = f.serial;
+      if (!sondes.has(f.serial)) { ph.serial = f.serial; sondes.set(f.serial, ph); }
+    }
+  }
   let s = sondes.get(f.serial);
   if (!s) { s = { serial: f.serial, type: f.type, first: f.time, n: 0, pts: [], max_alt: null, burst: false }; sondes.set(f.serial, s); }
   s.n += 1;
@@ -6977,6 +7007,9 @@ async function sondeMapOpen() {
       maxZoom: 16, className: "hfdl-dark",
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors',
     }).addTo(sondeMap);
+    // the source of the model wind of the prediction (CC-BY 4.0: credited on the map itself)
+    sondeMap.attributionControl.addAttribution('prediction wind: <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo.com</a>' +
+      ' (GFS, <a href="https://www.ncei.noaa.gov/products/weather-climate-models/global-forecast" target="_blank" rel="noopener noreferrer">NOAA</a>), CC-BY 4.0');
     mapPopout(sondeMap, "sonde");
     // a click on the map (not on a mark) drops the selection: the red mark and trail get their own colors back
     sondeMap.on("click", () => { if (sondeSel != null) { sondeSel = null; renderSondeMap(); } });
@@ -7144,7 +7177,7 @@ async function renderSondeMap() {
   }
   renderSondeProfile();
   sondeHistDraw();
-  $("sondeMapNote").textContent = `${list.length} with a position · balloon = rising · parachute = falling after the burst (yellow ring) · orange = selected (its profile on the right) · grey = no frame for 10 min · green line = flight path · blue = flights of the last day / week (HISTORY 1D / 7D, a click opens one) · red dashed = prediction from the last decoded point to the landing (✕, circle = 90 % landing area), from the sonde's own winds, +1 h / +2 h / +3 h after the launch · map © OpenStreetMap`;
+  $("sondeMapNote").textContent = `${list.length} with a position · balloon = rising · parachute = falling after the burst (yellow ring) · orange = selected (its profile on the right) · grey = no frame for 10 min · green line = flight path · blue = flights of the last day / week (HISTORY 1D / 7D, a click opens one) · red dashed = prediction from the last decoded point to the landing (✕, circle = 90 % landing area), from the sonde's own winds and, where it has not flown, the GFS model wind${sondeWindVer ? "" : sondeWindErr ? ` (not available: ${sondeWindErr})` : ""}, +1 h / +2 h / +3 h after the launch · map © OpenStreetMap · wind: Open-Meteo.com (GFS, NOAA), CC-BY 4.0`;
 }
 
 // ----- SONDE PREDICTION: where the sonde will be 1, 2 and 3 h after its launch and where it lands. No weather model:
@@ -7158,6 +7191,62 @@ const SONDE_BURST = 33000, SONDE_GROUND = 400, SONDE_FALL0 = 5, SONDE_LAYER = 50
 const sondeRhoRatio = (h) => { const hh = Math.max(0, h); return (isaHpa(hh) / 1013.25) * (288.15 / (hh < 11000 ? 288.15 - 0.0065 * hh : 216.65)); };
 const sondePredCache = new Map();   // serial -> {key, res}: computed again only when a new point comes
 
+// ----- model wind (GFS on pressure levels from Open-Meteo, via /api/wind and wind.py): only the 0.25° cells the
+// predicted path goes through, asked for after a prediction from the sonde's own winds, then the prediction again
+const sondeWind = new Map();        // cell "48.75_17.25" -> {t, lv, z, u, v}
+const sondeWindAsk = new Map();     // cell -> time asked (again after 10 min if it did not come)
+let sondeWindVer = 0, sondeWindErr = null;
+const sondeCell = (lat, lon) => `${(Math.round(lat / 0.25) * 0.25).toFixed(2)}_${((((Math.round(lon / 0.25) * 0.25) + 180) % 360 + 360) % 360 - 180).toFixed(2)}`;
+
+/** GFS wind [u east, v north] m/s at a place, altitude (m) and time (s), or null without the cell: linear in time
+ *  between the hours and in height between the levels; below the lowest / above the highest level its value. */
+function sondeWindAt(lat, lon, h, t) {
+  const p = sondeWind.get(sondeCell(lat, lon));
+  if (!p || !p.t.length) return null;
+  let i = 0;
+  while (i < p.t.length - 2 && p.t[i + 1] <= t) i++;
+  const f = p.t.length > 1 ? Math.min(1, Math.max(0, (t - p.t[i]) / (p.t[i + 1] - p.t[i]))) : 0;
+  const at = (r) => {
+    const z = p.z[r], u = p.u[r], v = p.v[r];
+    let lo = -1, hi = -1;
+    for (let j = 0; j < z.length; j++) {
+      if (z[j] == null || u[j] == null) continue;
+      if (z[j] <= h) lo = j;
+      else { hi = j; break; }
+    }
+    if (lo < 0 && hi < 0) return null;
+    if (lo < 0) return [u[hi], v[hi]];
+    if (hi < 0) return [u[lo], v[lo]];
+    const g = (h - z[lo]) / (z[hi] - z[lo]);
+    return [u[lo] + g * (u[hi] - u[lo]), v[lo] + g * (v[hi] - v[lo])];
+  };
+  const a = at(i), b = p.t.length > 1 ? at(i + 1) : a;
+  if (!a || !b) return a || b;
+  return [a[0] + f * (b[0] - a[0]), a[1] + f * (b[1] - a[1])];
+}
+
+/** Asks the server for the missing cells along a predicted path; when some come, the predictions are made again. */
+function sondeWindNeed(path) {
+  const now = Date.now(), want = [];
+  for (const [lat, lon] of path) {
+    const k = sondeCell(lat, lon);
+    if (sondeWind.has(k) || want.includes(k) || now - (sondeWindAsk.get(k) || 0) < 600000) continue;
+    want.push(k);
+  }
+  if (!want.length) return;
+  const ask = want.slice(0, 40);
+  for (const k of ask) sondeWindAsk.set(k, now);
+  fetch(vbase + "/api/wind?cells=" + ask.join(",")).then((r) => r.json()).then((j) => {
+    sondeWindErr = j.error || null;
+    let n = 0;
+    for (const [k, prof] of Object.entries(j.cells || {})) { sondeWind.set(k, prof); n++; }
+    if (!n) return;
+    sondeWindVer++;
+    sondePredCache.clear();
+    if (sondeView === "map") renderSondeMap();
+  }).catch(() => { sondeWindErr = "no connection to the server"; });
+}
+
 function sondeRandom(seed) {   // mulberry32 + Box-Muller: the same scatter for the same data, so the circle does not jump
   let a = seed >>> 0;
   const u = () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
@@ -7168,7 +7257,7 @@ function sondePredict(s) {
   const P = s.pts;
   const last = P[P.length - 1];   // the prediction starts at the last decoded point
   if (P.length < 10 || last[2] < SONDE_GROUND + 200) return null;
-  const key = `${P.length}:${last[3]}`, c = sondePredCache.get(s.serial);
+  const key = `${P.length}:${last[3]}:${sondeWindVer}`, c = sondePredCache.get(s.serial);
   if (c && c.key === key) return c.res;
   const R = 111320, windUp = new Map(), windDown = new Map();
   let iTop = 0;
@@ -7179,8 +7268,10 @@ function sondePredict(s) {
     const ve = ((b[1] - a[1]) * R * Math.cos((a[0] * Math.PI) / 180)) / dt, vn = ((b[0] - a[0]) * R) / dt;
     if (Math.hypot(ve, vn) > 150) continue;
     const m = i > iTop ? windDown : windUp;
-    const k = Math.floor((a[2] + b[2]) / 2 / SONDE_LAYER), w = m.get(k) || [0, 0, 0, 0];
+    const k = Math.floor((a[2] + b[2]) / 2 / SONDE_LAYER), w = m.get(k) || [0, 0, 0, 0, 0, 0, 0];
     w[0] += ve; w[1] += vn; w[2]++; w[3] += ve * ve + vn * vn;
+    const mw = sondeWindAt(a[0], a[1], (a[2] + b[2]) / 2, a[3]);
+    if (mw) { w[4] += mw[0]; w[5] += mw[1]; w[6]++; }
     m.set(k, w);
   }
   // in a layer the sonde passed on the way down too, the wind of the fall wins: later and over the landing area
@@ -7202,8 +7293,27 @@ function sondePredict(s) {
     return [me, mn, sig];
   };
   const layers = new Map();
-  const windAt = (h, jit) => {
+  // model minus measured at the lowest / highest layer heard: the model is moved by it next to them (fading over
+  // MODEL_FADE m), so it joins the measured winds
+  const MODEL_FADE = 3000, edge = (kk) => {
+    const w = wind.get(kk);
+    return w && w[6] ? [w[0] / w[2] - w[4] / w[6], w[1] / w[2] - w[5] / w[6]] : [0, 0];
+  };
+  const biasLo = edge(kLo), biasHi = edge(kHi), hHigh = (kHi + 0.5) * SONDE_LAYER;
+  let modelUsed = false;
+  const windAt = (h, jit, lat, lon, t) => {
     const k = Math.floor(h / SONDE_LAYER);
+    // outside the layers the sonde flew through: the GFS wind (moved by the difference at the nearest layer heard)
+    if ((k < kLo || k > kHi) && lat != null) {
+      const mw = sondeWindAt(lat, lon, h, t);
+      if (mw) {
+        const below = k < kLo, bias = below ? biasLo : biasHi, d = Math.abs(h - (below ? hLow : hHigh));
+        const fade = Math.exp(-d / MODEL_FADE), ue = mw[0] + bias[0] * fade, un = mw[1] + bias[1] * fade;
+        const j = jit ? jit(k, 1.5 + 0.08 * Math.hypot(ue, un)) : [0, 0];
+        modelUsed = true;
+        return [ue + j[0], un + j[1]];
+      }
+    }
     let L = layers.get(k);
     if (!L) layers.set(k, (L = layer(k)));
     // below the lowest layer heard the speed falls off linearly to a half at the ground, the direction is kept (checked
@@ -7241,7 +7351,7 @@ function sondePredict(s) {
     const path = [[lat, lon]], marks = [];
     let next = Math.max(1, Math.ceil((t - launch) / 3600 + 1e-6));
     for (let n = 0; n < (6 * 3600) / DT; n++) {
-      const [ve, vn] = windAt(h, prm.jit);
+      const [ve, vn] = windAt(h, prm.jit, lat, lon, t);
       lat += (vn * DT) / R;
       lon += (ve * DT) / (R * Math.cos((lat * Math.PI) / 180));
       if (goingUp) {
@@ -7258,6 +7368,8 @@ function sondePredict(s) {
   const res = fly({ up, burst, fall0, ground: SONDE_GROUND }, 10, true);
   if (res) {
     res.launch = launch;
+    res.model = modelUsed;
+    if (!s.from_log) sondeWindNeed([[last[0], last[1]], ...res.path]);   // the cells it goes through: GFS wind
     const g = sondeRandom(Math.floor(t1) ^ P.length), ds = [], ts = [];
     const cosL = Math.cos((res.land.lat * Math.PI) / 180);
     for (let i = 0; i < SONDE_MC; i++) {
@@ -7299,7 +7411,7 @@ function sondeDrawPrediction(s, layer) {
     L.circle([p.land.lat, p.land.lon], { radius: p.radius, color: c, weight: 1.5, opacity: 0.7, dashArray: "3 5", fillColor: c, fillOpacity: 0.08, interactive: false }).addTo(layer);
   const span = p.tSpan ? ` (${aisUtc(p.tSpan[0]).slice(0, 5)}–${aisUtc(p.tSpan[1]).slice(0, 5)})` : "";
   L.marker([p.land.lat, p.land.lon], { icon: L.divIcon({ className: "sonde-land", html: "✕", iconSize: [16, 16], iconAnchor: [8, 8] }) })
-    .bindTooltip(`landing ≈ ${aisUtc(p.land.t)} UTC${span}${p.radius ? ` ± ${km(p.radius)}` : ""}`, lbl())
+    .bindTooltip(`landing ≈ ${aisUtc(p.land.t)} UTC${span}${p.radius ? ` ± ${km(p.radius)}` : ""}${p.model ? " · GFS wind" : " · own winds only"}`, lbl())
     .addTo(layer);
 }
 
@@ -7307,9 +7419,11 @@ function sondeDrawPrediction(s, layer) {
 // two panels side by side share it (no second x scale in one panel). Pressure is not measured by the RS41-SG: the right
 // edge labels the altitude axis with the pressure of the standard atmosphere (ISA), only as an orientation.
 const SONDE_PROF_C = { temp: "#ff8c1a", rh: "#4fb6ff" };
+const SONDE_ALT_C = "#7fd88a";   // altitude / time chart under the profile
+const SONDE_CRS_C = "#c9a4ff";   // its course curve (right axis)
 const isaHpa = (h) => (h < 11000 ? 1013.25 * Math.pow(1 - 2.25577e-5 * h, 5.25588) : 226.32 * Math.exp(-(h - 11000) / 6341.6));
 const isaAlt = (p) => (p > 226.32 ? (1 - Math.pow(p / 1013.25, 1 / 5.25588)) / 2.25577e-5 : 11000 - 6341.6 * Math.log(p / 226.32));
-let sondeProfGeom = null, sondeLogList = [];
+let sondeProfGeom = null, sondeAltGeom = null, sondeLogList = [];
 const SONDE_PROF_TOP = 41000;   // m: fixed top of the altitude axis (highest sondes burst at 35-40 km)
 
 function sondeNiceStep(span, n) {
@@ -7346,17 +7460,21 @@ function renderSondeProfile() {
   const s = sondeShown();
   renderSondeProfSel(list, s);
   const pts = s ? s.pts.filter((q) => q[4] != null) : [];
+  // both charts in the height of the panel (no scrolling): the altitude / time chart about a third, the profile the rest
+  const hBox = box.clientHeight || 640, altH = Math.round(Math.min(260, Math.max(100, hBox * 0.38)));
+  const alt = s ? sondeAltChart(s, Math.max(320, Math.min(560, box.clientWidth || 520)), altH) : "";
   if (pts.length < 2) {
     box.innerHTML = `<div class="ft8-empty">${!s ? "Temperature and humidity profile of the sonde chosen in the list above or on the map (also a flight from the log)." :
       s.type !== "RS41" ? `No temperature from a ${escHtml(s.type)} sonde.` :
-      `No temperature yet${s.cal_n != null ? ` (calibration ${s.cal_n}/51)` : ""}. The profile grows every 2 s of the flight while the sonde is heard.`}</div>`;
+      `No temperature yet${s.cal_n != null ? ` (calibration ${s.cal_n}/51)` : ""}. The profile grows every 2 s of the flight while the sonde is heard.`}</div>` +
+      alt + `<div class="sonde-prof-tip" hidden></div>`;
     $("sondeProfNote").textContent = s ? s.serial : "";
     sondeProfGeom = null;
     return;
   }
   // ascent up to the highest point, descent after it (fainter)
   const top = pts.reduce((a, q, i) => (q[2] > pts[a][2] ? i : a), 0);
-  const W = Math.max(320, Math.min(560, box.clientWidth || 520)), H = Math.max(260, (box.clientHeight || 640) - 2);
+  const W = Math.max(320, Math.min(560, box.clientWidth || 520)), H = Math.max(120, hBox - (alt ? altH + 8 : 0) - 2);
   const L = 54, R = 52, T = 26, B = 34, gap = 30, pw = (W - L - R - gap) / 2;
   const alts = pts.map((q) => q[2]);
   const aMin = 0, aMax = Math.max(SONDE_PROF_TOP, Math.ceil(Math.max(...alts) / 1000) * 1000);
@@ -7373,9 +7491,11 @@ function renderSondeProfile() {
     const y = ty(a).toFixed(1);
     svg += `<line class="g" x1="${L}" x2="${W - R}" y1="${y}" y2="${y}"/><text class="ax" x="${L - 6}" y="${y}" dy="4" text-anchor="end">${a >= 1000 ? `${a / 1000} km` : `${a} m`}</text>`;
   }
+  let yPrev = Infinity;              // hPa labels at least 12 px apart (a low plot)
   for (const hpa of [1000, 850, 700, 500, 300, 200, 100, 50, 30, 20, 10, 5, 3]) {
     const a = isaAlt(hpa);
-    if (a < aMin || a > aMax) continue;
+    if (a < aMin || a > aMax || yPrev - ty(a) < 12) continue;
+    yPrev = ty(a);
     const y = ty(a).toFixed(1);
     svg += `<line class="tk" x1="${W - R}" x2="${W - R + 4}" y1="${y}" y2="${y}"/><text class="ax" x="${W - R + 7}" y="${y}" dy="4">${hpa}</text>`;
   }
@@ -7397,12 +7517,88 @@ function renderSondeProfile() {
     if (q[p.i] != null) svg += `<circle class="dot" cx="${p.tx(q[p.i]).toFixed(1)}" cy="${ty(q[2]).toFixed(1)}" r="4" fill="${SONDE_PROF_C[p.key]}"/>`;
   }
   svg += `<g id="sondeProfHover" visibility="hidden"><line class="hv" x1="${L}" x2="${W - R}"/><circle r="4" class="hd" data-k="temp"/><circle r="4" class="hd" data-k="rh"/></g>`;
-  box.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Temperature and humidity against altitude of ${escHtml(s.serial)}">${svg}</svg><div class="sonde-prof-tip" hidden></div>`;
+  box.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Temperature and humidity against altitude of ${escHtml(s.serial)}">${svg}</svg>${alt}<div class="sonde-prof-tip" hidden></div>`;
   sondeProfGeom = { pts, panels, ty, L, R, T, B, W, H };
   const tmin = pts.reduce((a, q) => (q[4] < a[4] ? q : a));
   $("sondeProfNote").textContent = `${s.serial} · ${pts.length} points · ${sondeAlt(Math.min(...alts))}–${sondeAlt(Math.max(...alts))} m · coldest ${tmin[4].toFixed(1)} °C at ${sondeAlt(tmin[2])} m` +
     (top < pts.length - 1 ? " · fainter line = descent after the burst" : "") + " · *hPa: standard atmosphere for the altitude, not measured";
   $("sondeProfNote").title = $("sondeProfNote").textContent;
+}
+
+/** Course over ground of each point (degrees from north), from the point about 30 s before it once the sonde moved
+ *  at least 30 m (null before that or while it stands). */
+function sondeCourses(pts) {
+  const out = new Array(pts.length).fill(null), rad = Math.PI / 180;
+  let j = 0;
+  for (let i = 0; i < pts.length; i++) {
+    while (j < i && pts[i][3] - pts[j + 1][3] >= 30) j++;
+    const a = pts[j], b = pts[i];
+    if (i === j || b[3] - a[3] < 10) continue;
+    const dy = (b[0] - a[0]) * 111320, dx = (b[1] - a[1]) * 111320 * Math.cos(b[0] * rad);
+    if (Math.hypot(dx, dy) < 30) continue;
+    out[i] = (Math.atan2(dx, dy) / rad + 360) % 360;
+  }
+  return out;
+}
+
+/** Altitude against time (UTC) of a sonde, under the profile (scroll down to it): ascent, burst, descent (fainter);
+ *  from all its points, so also for sondes without temperature. "" with fewer than 2 points. */
+function sondeAltChart(s, W, H = 240) {
+  const pts = s.pts.filter((q) => q[2] != null && q[3] != null);
+  sondeAltGeom = null;
+  if (pts.length < 2) return "";
+  const L = 54, R = 52, T = 26, B = 34;
+  const t0 = pts[0][3], t1 = Math.max(pts[pts.length - 1][3], t0 + 60);
+  const aMax = Math.max(1000, Math.ceil(Math.max(...pts.map((q) => q[2])) / 1000) * 1000);
+  const tx = (t) => L + (W - L - R) * (t - t0) / (t1 - t0), ty = (a) => T + (H - T - B) * (1 - a / aMax);
+  const top = pts.reduce((a, q, i) => (q[2] > pts[a][2] ? i : a), 0), qt = pts[top];
+  const hm = (t) => new Date(t * 1000).toISOString().slice(11, 16);
+  // course over ground (right axis 0–360°): from the point about 30 s back, once it moved at least 30 m
+  const crs = sondeCourses(pts), tc = (c) => T + (H - T - B) * (1 - c / 360);
+  let svg = "";
+  for (const [c, n] of H - T - B < 110 ? [[0, "N"], [180, "S"], [360, "N"]] : [[0, "N"], [90, "E"], [180, "S"], [270, "W"], [360, "N"]]) {
+    svg += `<line class="tk" x1="${W - R}" x2="${W - R + 4}" y1="${tc(c).toFixed(1)}" y2="${tc(c).toFixed(1)}"/>` +
+      `<text class="ax crs" x="${W - R + 7}" y="${tc(c).toFixed(1)}" dy="4">${c}° ${n}</text>`;
+  }
+  const aStep = sondeNiceStep(aMax, 5);
+  for (let a = 0; a <= aMax; a += aStep) {
+    const y = ty(a).toFixed(1);
+    svg += `<line class="g" x1="${L}" x2="${W - R}" y1="${y}" y2="${y}"/><text class="ax" x="${L - 6}" y="${y}" dy="4" text-anchor="end">${a >= 1000 ? `${a / 1000} km` : `${a} m`}</text>`;
+  }
+  const tStep = [60, 120, 300, 600, 900, 1800, 3600, 7200, 14400].find((d) => (t1 - t0) / d <= 6) || 28800;
+  for (let t = Math.ceil(t0 / tStep) * tStep; t <= t1; t += tStep) {
+    const x = tx(t).toFixed(1);
+    svg += `<line class="g" x1="${x}" x2="${x}" y1="${T}" y2="${H - B}"/><text class="ax" x="${x}" y="${H - B + 16}" text-anchor="middle">${hm(t)}</text>`;
+  }
+  svg += `<rect class="frame" x="${L}" y="${T}" width="${W - L - R}" height="${H - T - B}"/>`;
+  // average climb up to the top (or now), the newest climb / fall (last 30 s)
+  const up = qt[3] > t0 ? (qt[2] - pts[0][2]) / (qt[3] - t0) : null, last = pts[pts.length - 1];
+  const k = pts.findIndex((q) => q[3] >= last[3] - 30), vNow = last[3] > pts[k][3] ? (last[2] - pts[k][2]) / (last[3] - pts[k][3]) : null;
+  svg += `<text class="ttl" x="${L}" y="${T - 10}">Altitude / time UTC</text>` +
+    `<text class="ax" x="${W - R}" y="${T - 10}" text-anchor="end">${up != null && up > 0 ? `ascent ⌀ ${up.toFixed(1)} m/s` : ""}` +
+    `${vNow != null ? ` · now ${vNow >= 0 ? "+" : "−"}${Math.abs(vNow).toFixed(1)} m/s` : ""}</text>`;
+  const path = (a, b) => pts.slice(a, b).map((q, i) => `${i ? "L" : "M"}${tx(q[3]).toFixed(1)},${ty(q[2]).toFixed(1)}`).join("");
+  svg += `<path class="ln" d="${path(0, top + 1)}" stroke="${SONDE_ALT_C}"/>`;
+  if (top < pts.length - 1) {
+    svg += `<path class="ln down" d="${path(top, pts.length)}" stroke="${SONDE_ALT_C}"/>` +
+      `<circle class="dot" cx="${tx(qt[3]).toFixed(1)}" cy="${ty(qt[2]).toFixed(1)}" r="4" fill="#ff5a4f"/>` +
+      `<text class="ax burst" x="${Math.min(Math.max(tx(qt[3]), L + 70), W - R - 70).toFixed(1)}" y="${Math.max(ty(qt[2]) - 9, T + 12).toFixed(1)}" text-anchor="middle">top ${sondeAlt(qt[2])} m · ${hm(qt[3])}</text>`;
+  }
+  // the course: a thin line, broken where it wraps over north (a jump of more than 180°)
+  let cd = "", prev = null;
+  for (let i = 0; i < pts.length; i++) {
+    if (crs[i] == null) { prev = null; continue; }
+    const x = tx(pts[i][3]).toFixed(1), y = tc(crs[i]).toFixed(1);
+    cd += `${prev == null || Math.abs(crs[i] - prev) > 180 ? "M" : "L"}${x},${y}`;
+    prev = crs[i];
+  }
+  if (cd) svg = `<path class="ln crs" d="${cd}" stroke="${SONDE_CRS_C}"/>` + svg;
+  svg += `<text class="ax crs" x="${W - R + 7}" y="${T - 10}">course</text>`;
+  svg += `<circle class="dot" cx="${tx(last[3]).toFixed(1)}" cy="${ty(last[2]).toFixed(1)}" r="4" fill="${SONDE_ALT_C}"/>`;
+  svg += `<g class="alt-hover" visibility="hidden"><line class="hv"/><circle r="4" class="hd" fill="${SONDE_ALT_C}"/>` +
+    `<circle r="3.5" class="hd hc" fill="${SONDE_CRS_C}"/></g>`;
+  sondeAltGeom = { pts, crs, tx, ty, tc, L, R, T, B, W, H };
+  return `<svg class="sonde-alt" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Altitude against time of ${escHtml(s.serial)}">${svg}</svg>`;
 }
 
 // ----- SONDE map HISTORY: OFF / 1D / 7D = the flights of all VFOs from the radiosonde log of the last day / week
@@ -7472,7 +7668,11 @@ async function sondeLogOpen(file) {
 new ResizeObserver(() => { if (sondeView === "map" && !$("sondeMapBox").hidden) renderSondeProfile(); }).observe($("sondeProf"));
 
 $("sondeProf").addEventListener("mousemove", (e) => {
-  const g = sondeProfGeom, svg = $("sondeProf").querySelector("svg");
+  const asvg = e.target.closest && e.target.closest(".sonde-alt");
+  if (asvg) { sondeAltHover(e, asvg); return; }
+  const ah = $("sondeProf").querySelector(".alt-hover");
+  if (ah) ah.setAttribute("visibility", "hidden");
+  const g = sondeProfGeom, svg = $("sondeProf").querySelector("svg:not(.sonde-alt)");
   if (!g || !svg) return;
   const r = svg.getBoundingClientRect(), y = (e.clientY - r.top) * g.H / r.height;
   const hov = svg.querySelector("#sondeProfHover"), tip = $("sondeProf").querySelector(".sonde-prof-tip");
@@ -7496,8 +7696,34 @@ $("sondeProf").addEventListener("mousemove", (e) => {
   tip.style.top = `${Math.min(yy * r.height / g.H + 8, r.height - 60)}px`;
   tip.style.left = `${(g.L + 8) * r.width / g.W}px`;
 });
+/** Hover on the altitude / time chart: the nearest point in time, its altitude and climb. */
+function sondeAltHover(e, svg) {
+  const g = sondeAltGeom, box = $("sondeProf"), tip = box.querySelector(".sonde-prof-tip"), hov = svg.querySelector(".alt-hover");
+  const ph = box.querySelector("#sondeProfHover");
+  if (ph) ph.setAttribute("visibility", "hidden");
+  if (!g || !tip || !hov) return;
+  const r = svg.getBoundingClientRect(), x = (e.clientX - r.left) * g.W / r.width;
+  if (x < g.L || x > g.W - g.R) { hov.setAttribute("visibility", "hidden"); tip.hidden = true; return; }
+  const i = g.pts.reduce((a, q, j) => (Math.abs(g.tx(q[3]) - x) < Math.abs(g.tx(g.pts[a][3]) - x) ? j : a), 0), q = g.pts[i];
+  const p = g.pts[Math.max(0, g.pts.findIndex((u) => u[3] >= q[3] - 20))], v = q[3] > p[3] ? (q[2] - p[2]) / (q[3] - p[3]) : null;
+  const xx = g.tx(q[3]), yy = g.ty(q[2]), ln = hov.querySelector("line"), c = hov.querySelector("circle");
+  hov.setAttribute("visibility", "visible");
+  ln.setAttribute("x1", xx); ln.setAttribute("x2", xx); ln.setAttribute("y1", g.T); ln.setAttribute("y2", g.H - g.B);
+  c.setAttribute("cx", xx); c.setAttribute("cy", yy);
+  const cr = g.crs[i], hc = hov.querySelector(".hc");
+  hc.setAttribute("visibility", cr == null ? "hidden" : "inherit");
+  if (cr != null) { hc.setAttribute("cx", xx); hc.setAttribute("cy", g.tc(cr)); }
+  tip.hidden = false;
+  tip.innerHTML = `<b>${sondeAlt(q[2])} m</b> · ${aisUtc(q[3])} UTC${v != null ? `<br>${v >= 0 ? "climb +" : "fall −"}${Math.abs(v).toFixed(1)} m/s` : ""}` +
+    (cr != null ? `<br><span style="color:${SONDE_CRS_C}">course ${Math.round(cr)}°</span>` : "");
+  const br = box.getBoundingClientRect();
+  tip.style.top = `${Math.min(r.top - br.top + yy * r.height / g.H + 10, br.height - 60)}px`;
+  tip.style.left = `${Math.min(xx * r.width / g.W + 10, r.width - 150)}px`;
+}
 $("sondeProf").addEventListener("mouseleave", () => {
   const hov = $("sondeProf").querySelector("#sondeProfHover"), tip = $("sondeProf").querySelector(".sonde-prof-tip");
+  const ah = $("sondeProf").querySelector(".alt-hover");
+  if (ah) ah.setAttribute("visibility", "hidden");
   if (hov) hov.setAttribute("visibility", "hidden");
   if (tip) tip.hidden = true;
 });
@@ -15497,7 +15723,30 @@ const sdgChip = (txt, cls, tip) => `<i class="sdg-c ${cls || ""}"${tip ? ` title
 const sdgOn = (on, txt, tip, warn) => sdgChip(txt, on ? (warn ? "warn" : "on") : "", tip);
 const sdgHz = (hz) => (hz >= 1e6 ? `${(hz / 1e6).toFixed(hz >= 1e8 ? 4 : 5)} MHz` : `${+(hz / 1e3).toFixed(2)} kHz`);
 const SDG_RAW_TIP = "no audio: a decoder of this VFO works on the raw samples (VDL2, ISM, HFDL, AIS, ADS-B, ACARS, SONDE)";
-const sdgBlk = (title, body, cls = "", tip = "") => `<div class="sdg-b ${cls}"${tip ? ` title="${escHtml(tip)}"` : ""}><b>${title}</b>${body}</div>`;
+// small line icons of the blocks (16 × 16, stroke = the colour of the block), shown framed in the top right corner
+const SDG_ICO = {
+  qth: '<path d="M8 14.2s-4.6-4.3-4.6-7.7a4.6 4.6 0 0 1 9.2 0c0 3.4-4.6 7.7-4.6 7.7z"/><circle cx="8" cy="6.5" r="1.6"/>',
+  rot: '<circle cx="8" cy="8" r="5.6"/><path d="M8 8l3.2-3.2M8 1.6v1.8M14.4 8h-1.8M8 14.4v-1.8M1.6 8h1.8"/>',
+  dop: '<path d="M8 5.2L10.8 8 8 10.8 5.2 8z"/><path d="M6.6 3.8L4 1.2M1.2 4l2.6 2.6M9.4 12.2l2.6 2.6M14.8 12l-2.6-2.6"/><path d="M11.5 1.8a3.5 3.5 0 0 1 2.7 2.7"/>',
+  mon: '<path d="M3 11.2V8a5 5 0 0 1 10 0v3.2"/><rect x="2" y="10" width="3" height="4.2" rx="1"/><rect x="11" y="10" width="3" height="4.2" rx="1"/>',
+  ant: '<path d="M8 6.5v8M5.2 14.5h5.6"/><circle cx="8" cy="5" r="1.2"/><path d="M5.2 2.4a3.8 3.8 0 0 0 0 5.2M10.8 2.4a3.8 3.8 0 0 1 0 5.2"/>',
+  dev: '<rect x="4" y="4" width="8" height="8" rx="1.2"/><rect x="6.4" y="6.4" width="3.2" height="3.2" rx=".4"/><path d="M6 1.8V4M10 1.8V4M6 12v2.2M10 12v2.2M1.8 6H4M1.8 10H4M12 6h2.2M12 10h2.2"/>',
+  agc: '<path d="M2.5 3v10l8.5-5z"/><path d="M11 8h3"/><path d="M12.5 2v3.5M10.8 3.8h3.4"/>',
+  iq: '<path d="M1.2 10h3.3l1.2-7 1.6 11 1.4-6.5 1 2.5h5.1"/>',
+  mix: '<circle cx="8" cy="8" r="5.6"/><path d="M4 4l8 8M12 4l-8 8"/>',
+  sp: '<path d="M1.2 5h2.6l1 6.5 1-6.5h2.4l1 6.5 1-6.5h3.6"/>',
+  filt: '<path d="M1.2 13h1.9c1.5 0 1.6-9 3.2-9h3.4c1.6 0 1.7 9 3.2 9h1.9"/>',
+  dem: '<path d="M1.5 8h4.3M10.2 8h4.3M5.8 4.4v7.2L10.2 8z M10.2 4.4v7.2"/>',
+  aud: '<path d="M4 2.2v11.6M8 2.2v11.6M12 2.2v11.6"/><path d="M2.6 10.2h2.8M6.6 5.2h2.8M10.6 8h2.8" stroke-width="2.4"/>',
+  out: '<path d="M2.5 6h2.6L8.8 3v10L5.1 10H2.5z"/><path d="M11 5.6a3.4 3.4 0 0 1 0 4.8M12.8 3.8a6 6 0 0 1 0 8.4"/>',
+  sm: '<path d="M1.8 11.5a6.2 6.2 0 0 1 12.4 0"/><path d="M8 11.5l3.2-4.4"/><path d="M3.6 7.4l.9.7M8 5.3v1.1M12.4 7.4l-.9.7"/>',
+  dec: '<path d="M5.4 4.4L1.8 8l3.6 3.6M10.6 4.4L14.2 8l-3.6 3.6M9.2 2.8l-2.4 10.4"/>',
+};
+const sdgBlk = (title, body, cls = "", tip = "") => {
+  const k = (/\bk-(\w+)/.exec(cls) || [])[1], ico = k && SDG_ICO[k];
+  return `<div class="sdg-b ${cls}"${tip ? ` title="${escHtml(tip)}"` : ""}><b>${title}</b>` +
+    (ico ? `<i class="sdg-ico"><svg viewBox="0 0 16 16">${ico}</svg></i>` : "") + `${body}</div>`;
+};
 
 async function sdgPoll() {
   const jobs = [];
@@ -15513,8 +15762,8 @@ function sdgShared() {
   const q = sdg.qth, r = sdg.rotor;
   const out = [];
   out.push(sdgBlk("QTH", q && q.locator ? `<span class="v">${escHtml(q.locator)}</span><span>${(+q.lat).toFixed(3)}° ${(+q.lon).toFixed(3)}°</span>` : "<span>not set</span>",
-    q && q.locator ? "lit" : "off", "SETTINGS › GENERAL › LOCATION"));
-  if (!r || (!r.on && !r.connected)) out.push(sdgBlk("ROTOR", "<span>off</span>", "off", "SETTINGS › GENERAL › ROTOR"));
+    q && q.locator ? "lit k-qth" : "off k-qth", "SETTINGS › GENERAL › LOCATION"));
+  if (!r || (!r.on && !r.connected)) out.push(sdgBlk("ROTOR", "<span>off</span>", "off k-rot", "SETTINGS › GENERAL › ROTOR"));
   else {
     const err = r.error || r.fault;
     const az = r.az != null ? `AZ ${Math.round(r.az)}°` : "AZ –", el = r.el != null ? ` · EL ${Math.round(r.el)}°` : "";
@@ -15522,15 +15771,15 @@ function sdgShared() {
     const tgt = tAz != null ? ` → ${Math.round(tAz)}°` : "";
     out.push(sdgBlk("ROTOR", `<span class="v">${az}${el}${tgt}</span><span>${escHtml(r.device || "")}${r.connected ? "" : " · not connected"}` +
       `${r.sat_on || r.tracker ? " · tracking" : ""}</span>${err ? `<span class="err">${escHtml(err)}</span>` : ""}`,
-      err || !r.connected ? "lit bad" : tgt ? "lit warn" : "lit", "SETTINGS › GENERAL › ROTOR · ROTOR CONTROL"));
+      (err || !r.connected ? "lit bad" : tgt ? "lit warn" : "lit") + " k-rot", "SETTINGS › GENERAL › ROTOR · ROTOR CONTROL"));
   }
   const dops = Object.entries(sdg.dop).filter(([, d]) => d && d.on);
   out.push(sdgBlk("DOPPLER", dops.length ? dops.map(([n, d]) => `<span class="v">${escHtml(d.label || d.name || "satellite")}</span>` +
       `<span>VFO-${escHtml(n)}${d.error ? ` · <span class="err">${escHtml(d.error)}</span>` : ""}</span>`).join("")
-    : "<span>no satellite</span>", dops.length ? "lit" : "off", "Satellite tracking: RX Doppler of a VFO (SATELLITES)"));
+    : "<span>no satellite</span>", dops.length ? "lit k-dop" : "off k-dop", "Satellite tracking: RX Doppler of a VFO (SATELLITES)"));
   const cues = vfos.filter((v) => v.name && v.cue && v !== active).map((v) => "VFO-" + v.name);
   out.push(sdgBlk("AUDIO", `<span class="v">MAIN ${active && active.name ? "VFO-" + escHtml(active.name) : "–"}</span><span>CUE ${cues.length ? escHtml(cues.join(" ")) : "–"}</span>`,
-    "lit", "The VFO you listen to and the VFOs on CUE"));
+    "lit k-mon", "The VFO you listen to and the VFOs on CUE"));
   return out.join("");
 }
 
@@ -15546,7 +15795,7 @@ function sdgLane(v) {
   const a = antById(s.antenna), cov = a ? antCovers(a, s.tune_hz) : null;
   const ant = sdgBlk("ANTENNA", a ? `<span class="v">${escHtml(a.name)}</span><span>${escHtml([a.type, a.pol].filter(Boolean).join(" · "))}</span>` +
     `<span>${a.rotor ? sdgChip("ROTOR", sdg.rotor && sdg.rotor.connected ? "on" : "") : ""}${cov === false ? sdgChip("OUT OF RANGE", "warn") : ""}</span>` : "<span>not chosen</span>",
-    a ? (cov === false ? "lit warn" : "lit") : "off", "SETTINGS › VFO › SDR DONGLE › ANTENNA");
+    (a ? (cov === false ? "lit warn" : "lit") : "off") + " k-ant", "SETTINGS › VFO › SDR DONGLE › ANTENNA");
   // dongle
   const chained = s.chain_owner ? `shares VFO-${s.chain_owner}` : s.chained_vfos ? `+${s.chained_vfos} VFO` : "";
   // the dongle as one block with its TUNER (gain) and A/D (sample rate, peak) inside
@@ -15561,33 +15810,64 @@ function sdgLane(v) {
     `${s.ppm ? sdgChip(`${s.ppm} ppm`, "on") : ""}${chained ? sdgChip(escHtml(chained), "on") : ""}`;
   const sdr = sdgBlk(`${escHtml(devName)} <em>${escHtml(s.serial || "")}</em>`, `<div class="sdg-inner">${tuner}${adc}</div>` +
     (chips ? `<span class="chips">${chips}</span>` : ""),
-    `sdg-dev ${s.error || clip ? "lit bad" : "lit"}`, "SETTINGS › VFO › SDR DONGLE");
+    `sdg-dev k-dev ${s.error || clip ? "lit bad" : "lit"}`, "SETTINGS › VFO › SDR DONGLE");
   // IQ: DC removal and the noise blanker on the wideband samples
-  const iq = sdgBlk("IQ", `<span class="chips">${sdgOn(s.dc_remove, "DC", "DC removal")}${sdgOn(s.nb, "NB", `noise blanker, level ${s.nb_level}`)}</span>`,
-    s.dc_remove || s.nb ? "lit" : "off", "SETTINGS › VFO › ADVANCED, NB key");
+  // the samples always go through it; with DC and NB off it only passes them on (lit all the same, "pass")
+  const iq = sdgBlk("IQ", `<span class="sdg-chain">${sdgOn(s.dc_remove, "DC", "DC removal")}<span>${sdgOn(s.nb, "NB", `noise blanker, level ${s.nb_level}`)}</span></span>` +
+    (s.dc_remove || s.nb ? "" : `<span>pass</span>`), "lit k-iq", "Wideband IQ: DC removal and the noise blanker (SETTINGS › VFO › ADVANCED, NB key); " +
+    "with both off the samples only pass through");
   // MIXER: the digital mixer (NCO) shifts the tuned frequency from its place in the band to zero, then decimation
   // (÷ 64) to the channel rate; SP (spur removal) works on that baseband
   const offHz = (s.tune_hz || 0) - (s.center_hz || 0);
   const mixer = sdgBlk("MIXER", `<span class="v">${offHz < 0 ? "−" : "+"}${sdgHz(Math.abs(offHz))}</span>` +
-    `<span>÷ 64 → ${+((s.sample_rate || 0) / 64e3).toFixed(1)} kS/s</span><span class="chips">${sdgOn(s.spur_on, "SP", "spur removal on the baseband")}</span>`,
-    "lit", "Digital mixer (NCO): the offset of the VFO frequency from the dongle centre is shifted to zero, then decimated to the channel rate");
+    `<span>÷ 64 → ${+((s.sample_rate || 0) / 64e3).toFixed(1)} kS/s</span>`,
+    "lit sdg-mix k-mix", "Digital mixer (NCO): the offset of the VFO frequency from the dongle centre is shifted to zero, then decimated to the channel rate");
+  // SP: the learned spurs removed from the baseband after the mixer, before the channel filter (the baseband decoders get it too)
+  const spB = sdgBlk("SP", `<span class="v">${s.spur_on ? "on" : "pass"}</span>`,
+    "lit k-sp", "SP: spur removal on the baseband of the channel, after the mixer and ÷ 64, before the filter; the decoders on the baseband " +
+    "(FT8, CW, RTTY …) get it too (SETTINGS › VFO › ADVANCED › SP)");
   // channel filter + demodulator
   const bw = (s.bandwidth || {})[s.mode];
-  const filt = sdgBlk("FILTER", `<span class="v">${s.dab ? "1.5 MHz" : bw ? sdgHz(bw) : "–"}</span><span>channel</span>`, "lit", "Filter width (BW)");
+  const filt = sdgBlk("FILTER", `<span class="v">${s.dab ? "1.5 MHz" : bw ? sdgHz(bw) : "–"}</span><span>channel</span>`, "lit k-filt", "Filter width (BW)");
   const samTxt = s.mode === "AM" && s.sam ? `SAM ${(s.sam_sb || "dsb").toUpperCase()}` : "";
   const demod = sdgBlk("DEMOD", `<span class="v">${escHtml(samTxt || mode)}</span>` +
     (samTxt ? `<span>${s.sam_locked ? sdgChip("LOCK", "on") : sdgChip("NO LOCK", "warn")}</span>` : "") +
     (s.dab ? `<span>${escHtml(s.dab_channel || "")}</span>` : "") +
     (s.mode === "WFM" && !s.dab ? `<span class="chips">${sdgOn(s.stereo_on !== false && s.pilot, "STEREO", "stereo pilot")}${sdgOn(!!s.rds, "RDS", "RDS")}</span>` : ""),
-    "lit", "MODE keys");
+    "lit k-dem", "MODE keys");
   // audio blocks (in the order of the chain)
   const sqlOn = s.auto_sql_on || s.tsq_on || (s.squelch != null && s.squelch > -120);
   const sqlTxt = s.auto_sql_on ? "ASQ" : s.tsq_on ? "TSQ" : "SQL";
-  const audio = sdgBlk("AUDIO", `<span class="chips">${sdgOn(s.notch, "NOTCH")}${sdgOn(s.dnr, "DNR", `noise reduction, level ${s.dnr_level}`)}` +
-    `${sdgOn(s.hum, "HUM", s.hum ? `mains ${s.hum_hz ?? s.hum_base} Hz` : "mains hum filter")}${sdgOn(s.audio_agc !== false, "ALC")}${sdgOn(s.dyn, "NTH")}` +
-    `${sdgOn(s.afi, "AFI", s.afi ? `${s.afi_hz} Hz` : "")}${sdgOn(s.hpf, "HPF", s.hpf ? `${s.hpf_hz} Hz` : "")}${sdgOn(s.lpf, "LPF", s.lpf ? `${s.lpf_hz} Hz` : "")}` +
-    `${sdgOn(sqlOn, sqlTxt, sqlOn ? (s.squelch_open ? "squelch open" : "squelch closed") : "squelch off", sqlOn && !s.squelch_open)}</span>`,
-    "lit", "AUDIO keys and SETTINGS › VFO › AUDIO");
+  // the audio stages in the order of sdr.py: HUM → NF → DNR → ALC → NTH (demodulator), AFI, LPF → HPF, squelch
+  const aChain = [sdgOn(s.hum, "HUM", s.hum ? `mains hum filter, ${s.hum_hz ?? s.hum_base} Hz` : "mains hum filter"),
+    sdgOn(s.notch, "NF", "notch filter (whistles)"), sdgOn(s.dnr, "DNR", `noise reduction${s.dnr ? `, level ${s.dnr_level}` : ""}`),
+    sdgOn(s.audio_agc !== false, "ALC", "audio level control"), sdgOn(s.dyn, "NTH", "noise threshold: expander and limiter"),
+    sdgOn(s.afi, "AFI", s.afi ? `voice inversion, ${s.afi_hz} Hz` : "voice inversion"),
+    sdgOn(s.lpf, "LPF", s.lpf ? `low pass ${s.lpf_hz} Hz` : "low pass"), sdgOn(s.hpf, "HPF", s.hpf ? `high pass ${s.hpf_hz} Hz` : "high pass"),
+    sdgOn(sqlOn, sqlTxt, sqlOn ? (s.squelch_open ? "squelch open" : "squelch closed") : "squelch off", sqlOn && !s.squelch_open)];
+  // squelch: the level set (SQL) or the auto squelch (ASQ, by its key or by AGC+ with the squelch set), each with the
+  // channel power (S-meter, dBFS) / the level it opens at
+  const sqLv = s.squelch_levels || {}, hasSq = s.mode in sqLv && !s.dab;
+  const man = hasSq ? +sqLv[s.mode] : null, manOn = man != null && man > -120, asqOn = !!s.auto_sql_on;
+  const agcAsq = smart && manOn;                       // AGC+ switches ASQ on (the squelch is set)
+  const dbf = (x) => minusSign((+x).toFixed(1));
+  const chTxt = (thr) => `<em title="channel power${thr != null ? " / the level the squelch opens at" : ""}">` +
+    `ch ${s.smeter != null ? dbf(s.smeter) : "–"}${thr != null ? ` / ${dbf(thr)}` : ""} dBFS</em>`;
+  const sqRows = hasSq ? `<span class="sdg-sq">${sdgOn(manOn && !asqOn, "SQL", manOn ? (asqOn ? "set, the auto squelch rules now" :
+      s.squelch_open ? "squelch open" : "squelch closed") : "squelch off", manOn && !asqOn && !s.squelch_open)}${chTxt(manOn && !asqOn ? man : null)}</span>` +
+    `<span class="sdg-sq">${sdgOn(asqOn, "ASQ", asqOn ? `auto squelch: noise floor + ${s.auto_sql_db} dB` + (s.squelch_open ? ", open" : ", closed") : "auto squelch off",
+      asqOn && !s.squelch_open)}` +
+    `${chTxt(asqOn && s.auto_sql_level != null ? s.auto_sql_level : null)}</span>` : `<span class="sdg-sq"><em>no squelch in ${escHtml(mode)}</em></span>`;
+  // DSD: the FM discriminator goes straight into the DSD voice decoder (no HUM … AFI), its voice through LPF / HPF to
+  // the output – the decoder sits in the audio chain, not at its end
+  const dsdOn = mode === "DSD";                        // (dsd.enabled stays on under DAB)
+  if (dsdOn) aChain.splice(0, aChain.length, aChain[6], aChain[7]);
+  // DSD as its own block between DEMOD and AUDIO (in the AUDIO column, which has the room)
+  const dsdB = dsdOn ? sdgBlk("DSD", `<span class="v">${escHtml(s.dsd.proto || "auto")}</span>` +
+    (s.dsd.error ? `<span class="err">${escHtml(s.dsd.error)}</span>` : "<span>voice</span>"), `${s.dsd.error ? "lit bad" : "lit"} k-dec sdg-dsd`,
+    "DSD voice decoder: the digital voice decoded from the FM discriminator; LPF / HPF and the output take its voice") : "";
+  const audio = sdgBlk("AUDIO", `<span class="sdg-chain">${aChain.map((c, i) => (i ? `<span>${c}</span>` : c)).join("")}</span>${sqRows}`,
+    "lit sdg-aud k-aud", "AUDIO keys and SETTINGS › VFO › AUDIO, in the order the sound goes through them");
   // output: speaker, recording, scanner
   const rec = s.recording || {}, recSq = rec.squelch && rec.squelch.on, recOn = (rec.cont && rec.cont.on) || recSq;
   const recAct = (rec.cont && rec.cont.active) || (rec.squelch && rec.squelch.active);
@@ -15597,18 +15877,17 @@ function sdgLane(v) {
     (s.audio_muted ? `<span>decoder only</span>` : "") +
     `<span class="chips">${recOn ? sdgChip(recSq ? "REC SQ" : "REC", recAct ? "bad blink" : "warn", recAct ? "recording" : "waiting for the squelch") : ""}` +
     `${scOn ? sdgChip(`SCAN ${escHtml(sc.state)}`, "on", sc.cur ? sdgHz(sc.cur) : "") : ""}</span>`,
-    where === "silent" && !recOn && !scOn ? "off" : "lit", "Speaker, recording and scanner");
+    (where === "silent" && !recOn && !scOn ? "off" : "lit") + " k-out", "Speaker, recording and scanner");
   // decoders: on the baseband / audio at the end of the row, on the raw IQ in a branch from the A/D (under the row)
   const decChip = ([k, n]) => sdgChip(k === "sonde" && sdgIsRaw(k, s) ? "SONDE MULTI" : n, s[`${k}_error`] ? "bad" : "on", s[`${k}_error`] || "");
   const rawDecs = SDG_DEC.filter(([k]) => s[k] && sdgIsRaw(k, s)).map(decChip);
   const decs = SDG_DEC.filter(([k]) => s[k] && !sdgIsRaw(k, s)).map(decChip);
-  if (s.dsd && s.dsd.enabled) decs.push(sdgChip(`DSD${s.dsd.proto ? " " + escHtml(s.dsd.proto) : ""}`, s.dsd.error ? "bad" : "on", s.dsd.error || ""));
   const d = sdg.dop[v.name];
   if (d && d.on) decs.push(sdgChip(`DOPPLER ${escHtml(d.label || d.name || "")}`, d.error ? "bad" : "dop", d.error || "RX Doppler: corrects the VFO frequency"));
-  const dec = sdgBlk("DECODERS", `<span class="chips">${decs.join("") || "<span>none</span>"}</span>`, decs.length ? "lit" : "off",
+  const dec = sdgBlk("DECODERS", `<span class="chips">${decs.join("") || "<span>none</span>"}</span>`, decs.length ? "lit k-dec" : "off k-dec",
     "Decoders on the baseband of the channel or the demodulated audio (DECODE key, DECODERS tab)");
   const raw = rawDecs.length ? `<i class="sdg-tap" title="raw A/D samples of the whole band"></i>` +
-    sdgBlk("IQ DECODERS", `<span class="chips">${rawDecs.join("")}</span><span>raw A/D samples · whole band</span>`, "lit sdg-raw",
+    sdgBlk("IQ DECODERS", `<span class="chips">${rawDecs.join("")}</span><span>raw A/D samples · whole band</span>`, "lit sdg-raw k-dec",
       "These decoders take the raw IQ samples straight from the A/D, before DC, NB and the channel filter") : "";
   // the VFO frequency goes two ways: the centre of the dongle (TUNER; moved only when the frequency leaves the band,
   // set by the owner VFO on a shared dongle) and the offset from it to the digital MIXER
@@ -15622,12 +15901,37 @@ function sdgLane(v) {
   // baseband decoder running beside (FT8, CW, …), the output still plays DAB
   const why = audioBypassWhy(s), keepIq = BASEBAND_DECS.some((k) => s[k]);
   const idle = (html, on) => (on ? html.replace('class="sdg-b ', 'class="sdg-b idle ').replace(' title="', ` title="Not used now – ${escHtml(why)}.&#10;`) : html);
+  // the chain up to the filter still runs then (sdr.py mutes only the sound): it feeds the S-meter, so it is in use,
+  // only for the meter (e.g. turning the antenna for the strongest DAB signal)
+  const meterOnly = (html, on) => (on ? html.replace('class="sdg-b ', 'class="sdg-b meter ')
+    .replace(' title="', ` title="Only for the S-meter now – ${escHtml(why)}; the sound is not used.&#10;`) : html);
   // RX Doppler: the correction goes back to the VFO frequency – an orange line from the DOPPLER chip along the bottom
   // of the row up into the VFO block (placed by sdgPlaceDop once the row is laid out)
   const dop = d && d.on ? `<i class="sdg-dop" title="RX Doppler of ${escHtml(d.label || d.name || "the satellite")}: retunes VFO-${escHtml(v.name)}` +
     `${d.f_nominal ? ` (nominal ${sdgHz(d.f_nominal)})` : ""}"><em>DOPPLER → VFO</em></i>` : "";
-  return head + [ant, sdr, idle(iq, why && !keepIq), idle(mixer, why && !keepIq), idle(filt, why), idle(demod, why), idle(audio, why),
-    idle(outB, why && s.audio_muted), dec].join("") + raw + ctl + dop;
+  // AGC+ (in RADIMCOM, not in the dongle): reads the A/D peak and sets the tuner gain – a loop under the dongle;
+  // on a shared dongle the owner VFO runs it; with the squelch set it also switches ASQ on
+  const sp = s.sagc || {};
+  const agcTxt = owner ? `by ${owner}` : smart ? `target ${minusSign(sp.target_dbfs ?? -13)} dBFS` : auto ? "AGC (tuner)" : "manual gain";
+  const agc = sdgBlk("AGC+", `<span class="v">${smart ? "on" : "off"}</span><span>${agcTxt}</span>` +
+    (smart && s.auto_sql_on && !s.auto_sql ? `<span class="chips">${sdgChip("→ ASQ", "on", "AGC+ switched the auto squelch on")}</span>` : ""),
+    `sdg-agc k-agc ${smart ? "lit" : "off"}`, "AGC+: the highest tuner gain without clipping the A/D – measures the A/D peak, sets the TUNER gain " +
+    "(SETTINGS › VFO › ADVANCED, AGC+ key). Runs in RADIMCOM on the PC") +
+    `<i class="sdg-agcl${smart ? " on" : ""}"><i class="a"></i><i class="b"></i><em class="la">peak</em><em class="lb">gain</em><em class="lc">IQ</em></i>`;
+  // S-METER: the power of the channel after the filter (the S9 calibration of SETTINGS › VFO › ADVANCED); the squelch
+  // compares the same power, so its level goes on into the SQL / ASQ lines of AUDIO
+  const smB = sdgBlk("S-METER", `<span class="v">${s.smeter != null ? sReading(s.smeter) : "–"}</span>` +
+    `<span>${s.smeter != null ? dbf(s.smeter) : "–"} dBFS</span>`, "lit k-sm sdg-sm",
+    `S-meter: the power in the channel after the filter, S9 = ${s9Dbfs} dBFS (SETTINGS › VFO › ADVANCED); the squelch compares the same level`) +
+    `<i class="sdg-sml${hasSq ? "" : " nosq"}"><i class="a"></i><i class="b"></i><em>level</em></i>`;
+  // AGC+ -> ASQ: along the bottom of the row up into the ASQ chip in AUDIO (placed by sdgPlace)
+  const asqL = !hasSq ? "" : `<i class="sdg-asql${agcAsq ? " on" : ""}" title="AGC+ ${agcAsq ? "switches the auto squelch (ASQ) on" : "does not switch ASQ on now"}">` +
+    `<i class="up"></i><em>AGC+ → ASQ ${agcAsq ? "ON" : "OFF"}</em></i>`;
+  return head + [ant, sdr, meterOnly(iq, why && !keepIq), meterOnly(mixer, why && !keepIq), meterOnly(spB, why && !keepIq), meterOnly(filt, why), idle(demod, why), dsdOn ? `<div class="sdg-pair">${dsdB}${idle(audio, why)}</div>` : idle(audio, why),
+    idle(outB, why && s.audio_muted), dec].join("") + agc + (why ? smB.replace('class="sdg-sml', 'class="sdg-sml nouse') : smB) + raw + ctl + dop + asqL +
+    // DAB: the sound comes from the DAB decoder on the raw IQ – a line from IQ DECODERS along the bottom up into OUTPUT
+    (s.dab ? `<i class="sdg-dabl" title="DAB: the audio of the station comes from the DAB decoder (welle-cli) on the raw IQ samples">` +
+      `<i class="up"></i><em>DAB AUDIO → OUTPUT</em></i>` : "");
 }
 
 function renderSdg() {
@@ -15639,8 +15943,28 @@ function renderSdg() {
   sdg.html = html;
   $("sdgShared").innerHTML = top;
   $("sdgLanes").innerHTML = lanes || `<div class="muted">No VFO running.</div>`;
-  sdgPlaceDop();
+  sdgPlace();
   $("sdgInfo").textContent = `${named.filter((v) => v.online).length} of ${named.length} VFO running`;
+}
+
+/** The lines over the blocks of each row, placed from the layout (the columns stretch with the width of the tab):
+ *  the tuning line (VFO frequency -> TUNER centre and MIXER offset), the Doppler line and the AGC+ loop. */
+function sdgPlace() {
+  const lanes = $("sdgLanes");
+  if (!sdg.ro && window.ResizeObserver) {                // the columns follow the width: place again on a resize
+    sdg.ro = new ResizeObserver(() => requestAnimationFrame(sdgPlace));
+    sdg.ro.observe(lanes);
+  }
+  for (const el of lanes.querySelectorAll(".sdg-ctl")) {
+    const lane = el.parentElement, h = lane.querySelector(".sdg-h"), f = h && h.querySelector(".f");
+    const dev = lane.querySelector(".sdg-dev"), tu = dev && dev.querySelector(".sdg-in"), mix = lane.querySelector(".sdg-mix");
+    if (!f || !tu || !mix) continue;
+    const x0 = h.offsetLeft + h.offsetWidth + 8, y0 = 8, yf = h.offsetTop + f.offsetTop + f.offsetHeight / 2;
+    const xt = dev.offsetLeft + tu.offsetLeft + tu.offsetWidth / 2, xm = mix.offsetLeft + mix.offsetWidth / 2;
+    Object.assign(el.style, { left: `${x0}px`, top: `${y0}px`, width: `${xm - x0}px`, height: `${yf - y0}px` });
+    el.style.setProperty("--d1", `${xt - x0 - 1.5}px`);
+  }
+  sdgPlaceDop();
 }
 
 /** The Doppler line of a row: from under the DOPPLER chip down, along the bottom, up into the VFO block. Layout px
@@ -15652,9 +15976,62 @@ function sdgPlaceDop() {
     if (!h || !dec) { el.hidden = true; continue; }
     const x0 = h.offsetLeft + h.offsetWidth / 2, y0 = h.offsetTop + h.offsetHeight;
     const x1 = dec.offsetLeft + chip.offsetLeft + chip.offsetWidth / 2, y1 = dec.offsetTop + dec.offsetHeight;
-    const yb = lane.clientHeight - 9;
+    const yb = lane.clientHeight - 9;          // the lowest line (AGC+ -> ASQ runs above it)
     Object.assign(el.style, { left: `${x0}px`, top: `${y0}px`, width: `${x1 - x0}px`, height: `${yb - y0}px` });
     el.style.setProperty("--dec-h", `${yb - y1}px`);
+  }
+  // AGC+ -> ASQ: from the bottom of AGC+ down, along the bottom of the row (above the Doppler line), up into AUDIO
+  for (const el of $("sdgLanes").querySelectorAll(".sdg-asql")) {
+    const lane = el.parentElement, box = lane.querySelector(".sdg-agc"), aud = lane.querySelector(".sdg-aud");
+    const chip = aud && aud.querySelector(".sdg-sq:last-child .sdg-c");
+    if (!box || !chip) { el.hidden = true; continue; }
+    const x0 = box.offsetLeft + box.offsetWidth / 2, y0 = box.offsetTop + box.offsetHeight;
+    const x1 = aud.offsetLeft + chip.offsetLeft + chip.offsetWidth / 2;   // the chip is laid out in the AUDIO block
+    const y1 = aud.offsetTop + aud.offsetHeight;
+    const yb = lane.clientHeight - (lane.querySelector(".sdg-dop") ? 26 : 9);
+    Object.assign(el.style, { left: `${x0}px`, top: `${y0}px`, width: `${x1 - x0}px`, height: `${yb - y0}px` });
+    el.style.setProperty("--up-h", `${yb - y1}px`);
+  }
+  // S-METER: from the bottom of FILTER down into it, from its right side on and up into the level of the SQL line
+  for (const el of $("sdgLanes").querySelectorAll(".sdg-sml")) {
+    const lane = el.parentElement, box = lane.querySelector(".sdg-sm"), filt = lane.querySelector(".k-filt");
+    const aud = lane.querySelector(".sdg-aud"), em = aud && aud.querySelector(".sdg-sq > em");
+    if (!box || !filt || !aud) { el.hidden = true; continue; }
+    const [a, b, lab] = el.children;
+    const xf = filt.offsetLeft + filt.offsetWidth / 2, yf = filt.offsetTop + filt.offsetHeight;
+    Object.assign(a.style, { left: `${xf}px`, top: `${yf}px`, height: `${box.offsetTop - yf}px` });
+    const x0 = box.offsetLeft + box.offsetWidth, ym = box.offsetTop + box.offsetHeight / 2, ya = aud.offsetTop + aud.offsetHeight;
+    const x1 = em ? aud.offsetLeft + em.offsetLeft + Math.min(em.offsetWidth / 2, 30) : x0;
+    Object.assign(b.style, { left: `${x0}px`, top: `${ya}px`, width: `${x1 - x0}px`, height: `${ym - ya}px` });
+    Object.assign(lab.style, { left: `${x0 + 10}px`, top: `${ym - 13}px` });
+  }
+  // DAB audio: from under IQ DECODERS down, along the bottom of the row, up into OUTPUT
+  for (const el of $("sdgLanes").querySelectorAll(".sdg-dabl")) {
+    const lane = el.parentElement, raw = lane.querySelector(".sdg-raw"), out = lane.querySelector(".k-out");
+    if (!raw || !out) { el.hidden = true; continue; }
+    const x0 = raw.offsetLeft + raw.offsetWidth / 2, y0 = raw.offsetTop + raw.offsetHeight;
+    const x1 = out.offsetLeft + out.offsetWidth / 2, y1 = out.offsetTop + out.offsetHeight;
+    const yb = lane.clientHeight - (lane.querySelector(".sdg-dop") ? 26 : 9);
+    Object.assign(el.style, { left: `${x0}px`, top: `${y0}px`, width: `${x1 - x0}px`, height: `${yb - y0}px` });
+    el.style.setProperty("--up-h", `${yb - y1}px`);
+  }
+  // AGC+ loop: from the bottom of the A/D down and left into AGC+, from its top up into the TUNER; the raw-IQ tap
+  // leaves from the same point of the A/D
+  for (const el of $("sdgLanes").querySelectorAll(".sdg-agcl")) {
+    const lane = el.parentElement, dev = lane.querySelector(".sdg-dev"), box = lane.querySelector(".sdg-agc");
+    const [tu, ad] = dev ? dev.querySelectorAll(".sdg-in") : [];
+    if (!tu || !ad || !box) continue;
+    const xa = dev.offsetLeft + ad.offsetLeft + ad.offsetWidth / 2, ya = dev.offsetTop + ad.offsetTop + ad.offsetHeight;
+    const xt = dev.offsetLeft + tu.offsetLeft + tu.offsetWidth / 2, yt = dev.offsetTop + tu.offsetTop + tu.offsetHeight;
+    const bx = box.offsetLeft + box.offsetWidth, ym = box.offsetTop + box.offsetHeight / 2;
+    const [a, b, la, lb, lc] = el.children;
+    Object.assign(a.style, { left: `${bx + 1}px`, top: `${ya}px`, width: `${xa - bx - 1}px`, height: `${ym - ya}px` });
+    Object.assign(b.style, { left: `${xt}px`, top: `${yt}px`, height: `${box.offsetTop - yt}px` });
+    Object.assign(la.style, { left: `${bx + 14}px`, top: `${ym - 13}px` });      // on the way into AGC+
+    Object.assign(lc.style, { left: `${xa + 7}px`, top: `${dev.offsetTop + dev.offsetHeight + 1}px` });   // the raw IQ on to the right
+    lc.hidden = !lane.querySelector(".sdg-tap");
+    Object.assign(lb.style, { left: `${xt + 7}px`, top: `${dev.offsetTop + dev.offsetHeight + 1}px` });
+    lane.style.setProperty("--tap-x", `${xa - dev.offsetLeft - 1}px`);
   }
 }
 
