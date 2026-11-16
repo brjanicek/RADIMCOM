@@ -83,6 +83,11 @@ Change log
 Ver. 1.0beta1
 (test beta, GitHub branch 1.0beta1; continues the release 0.115)
 New
+- WW locator grid on the FT8 map: faint Maidenhead fields (JN), squares (JN88) from zoom 5,
+  subsquares (JN88wq) from zoom 10.
+- Our report on the FT8 map: the SNR we hear a station with as a filled coloured chip (e.g. -07) beside
+  the call, in the station list and in the popup; reports inside the messages stay plain yellow text.
+- GRID / RX keys on the FT8 map: the locator grid and our report next to the calls on / off.
 - Automatic LSB / USB on ham bands: in LSB or USB, tuning into another ham band switches to its usual sideband
   (LSB on 160, 80, 40 m; USB on 60 m, 30 m and above). A sideband chosen by hand inside a band stays.
   Switch in SETTINGS > GENERAL > TUNING (was TOUCHPAD), on by default.

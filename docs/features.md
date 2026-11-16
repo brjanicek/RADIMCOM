@@ -50,7 +50,7 @@
 
 | Decoder | What it decodes | Details | SDR | More |
 |---|---|---|---|---|
-| **FT8** | FT8 on the HF ham bands (160–10 m); next to the table a **station map** (▲ by the locator in the messages, last 10 min … 24 h, list of stations with distance, also in a new tab) | band buttons; the PC clock must be accurate (±1 s) | all | [DECODE](controls.md#function-keys) |
+| **FT8** | FT8 on the HF ham bands (160–10 m); next to the table a **station map** (▲ by the locator in the messages, last 10 min … 24 h, list of stations with distance, our report as a coloured chip, faint WW locator grid, also in a new tab) | band buttons; the PC clock must be accurate (±1 s) | all | [DECODE](controls.md#function-keys) |
 | **WEFAX** | radio fax (DWD, Northwood…) | automatic format detection (LPM / IOC), slant correction (SLANT, ALIGN), AFC that retunes the VFO onto the signal, gallery of saved images | all | [DECODE](controls.md#function-keys) |
 | **CW** | Morse skimmer: up to 16 stations in the passband (or ±3.4 kHz) decoded at once | soft decoder: matched filter, Kalman fading tracker, Viterbi keying, beam search over the readings; learns the operator's timing (paddle / bug / straight key, Farnsworth); table of the stations with calls and their text (a click opens the whole text and the operator profile), text coloured by confidence, stations in the spectrum; text also in the audio spectrum bubble | all | [CW](decoders/cw.md) |
 | **RTTY** | Baudot | automatic shift 90–1000 Hz, speed 45.45 / 50 / 75 / 100 Bd and polarity; teletype-style terminal, tuning indicators CROSS / WF (click = tune) / BARS / EYE, known stations | all | [DECODE](controls.md#function-keys) |

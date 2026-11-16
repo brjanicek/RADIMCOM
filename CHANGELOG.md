@@ -6,6 +6,13 @@ Test beta (GitHub branch `1.0beta1`; continues the release 0.115).
 
 ### New
 
+- **WW locator grid on the FT8 map:** a faint Maidenhead grid under the stations: fields (JN) always, squares
+  (JN88) from zoom 5, subsquares (JN88wq) from zoom 10, each cell labelled in its lower left corner; not clickable.
+- **Our report on the FT8 map:** the SNR we hear a station with (FT8 style, e.g. -07) as a filled chip coloured by
+  strength (green from 0 dB, amber down to -12 dB, red below) next to the call on the map, in the list of stations
+  and as "RX -07 dB" in the popup; the reports inside the messages stay plain yellow text, so the two are not mixed up.
+- **GRID / RX keys on the FT8 map** (bar STATIONS): the locator grid and our report next to the calls switched on / off,
+  remembered in the browser (both on by default; the report stays in the list and the popup).
 - **Automatic LSB / USB on ham bands:** in LSB or USB, tuning into another ham band (IARU Region 1) switches to its
   usual sideband: LSB on 160, 80 and 40 m, USB on 60 m, 30 m and above (and on 2200 / 630 m). It switches only on
   entering a band, so a sideband chosen by hand inside a band stays; band keys and memories keep their own mode.

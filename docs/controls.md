@@ -70,7 +70,12 @@ of that VFO (orange LED): that VFO stays audible at CUE level while another VFO 
 - **DEC** (group DECODE): turns on the CW, FT8, PACKET, RTTY, SSTV, WEFAX, ACARS, ADS-B, HFDL, VDL2, AIS or ISM decoder (DAB and DSD are keys in MODE with their own tabs). The panels are in the
   **DECODERS** tab next to SPECTRUM; turning a decoder on opens it, a green dot signals a new message/image.
   Every panel has a LOG checkbox for the daily log:
-  - FT8: band buttons (160 m – 10 m) and CLR.
+  - FT8: band buttons (160 m – 10 m) and CLR. The station map has a faint WW locator (Maidenhead) grid: fields
+    (JN) always, squares (JN88) from zoom 5, subsquares (JN88wq) from zoom 10.
+    Next to each call is **our report**, the SNR we hear the station with, as a filled chip (green ≥ 0 dB, amber
+    down to −12 dB, red below; also in the station list and as "RX … dB" in the popup); the reports the stations give
+    each other in the messages stay plain yellow text. The keys **GRID** and **RX** in the STATIONS bar switch the grid
+    and the report next to the calls on / off (remembered in the browser; the report stays in the list and the popup).
 
     ![DECODERS tab with the FT8 decoder on 80 m: one 15 s cycle of decoded messages, CQ calls in green](images/decoders_ft8.png)
 

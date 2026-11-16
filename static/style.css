@@ -1123,7 +1123,7 @@ canvas.axis { height: 39px; background: #1c1e22; border-bottom: 1px solid #44474
 #ft8Map.leaflet-container { font: 12px system-ui, sans-serif; }
 #ft8MapNote { font-size: 11px; }
 .ft8-ml-box { width: 250px; }
-.ft8-ml { display: grid; grid-template-columns: 10px 1fr 40px 44px 30px 40px; gap: 6px; align-items: center; padding: 2px 8px;
+.ft8-ml { display: grid; grid-template-columns: 10px 1fr 40px 44px 32px 40px; gap: 6px; align-items: center; padding: 2px 8px;
   cursor: pointer; font: 12px ui-monospace, "Cascadia Mono", Consolas, monospace; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .ft8-ml:hover { background: rgba(255, 255, 255, .06); }
 .ft8-ml.sel { background: rgba(255, 75, 60, .22); }
@@ -1131,11 +1131,15 @@ canvas.axis { height: 39px; background: #1c1e22; border-bottom: 1px solid #44474
 .ft8-ml b { overflow: hidden; text-overflow: ellipsis; color: #5fd7ff; }
 .ft8-ml.cq b { color: var(--green); }
 .ft8-ml .grid { color: #ffb547; }
-.ft8-ml .km, .ft8-ml .age, .ft8-ml span[class^="s-"] { text-align: right; }
+.ft8-ml .km, .ft8-ml .age, .ft8-ml .rx { text-align: right; }
 .ft8-ml .km, .ft8-ml .age { color: var(--muted); }
-.ft8-ml .s-hi { color: var(--green); }
-.ft8-ml .s-mid { color: var(--amber); }
-.ft8-ml .s-lo { color: #ff6b6b; }
+/* our report (the SNR we hear a station with): a filled chip, unlike the reports in the messages (plain yellow text) */
+.ft8-rx { display: inline-block; padding: 0 3px; border-radius: 3px; font: 700 10px/1.3 ui-monospace, "Cascadia Mono", Consolas, monospace;
+  color: #0b0f14; font-variant-numeric: tabular-nums; vertical-align: 1px; }
+.ft8-rx.s-hi { background: #4ade80; }
+.ft8-rx.s-mid { background: #f5b942; }
+.ft8-rx.s-lo { background: #ff7b7b; }
+.leaflet-tooltip.ft8-label .ft8-rx { margin-left: 2px; font-size: 9px; padding: 0 2px; vertical-align: 0; }
 .ft8-ml .tri { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 9px solid #5fd7ff; }
 .ft8-ml.cq .tri { border-bottom-color: var(--green); }
 .ft8-ml.sel .tri { border-bottom-color: #ff4b3c; }
@@ -1156,6 +1160,10 @@ canvas.axis { height: 39px; background: #1c1e22; border-bottom: 1px solid #44474
 .leaflet-tooltip.ft8-label.cq { border-color: rgba(74, 222, 128, .7); color: #d9ffe6; }
 .leaflet-tooltip.ft8-label.sel { border-color: #ff4b3c; background: rgba(60, 10, 8, .9); }
 #ft8Map.ft8-nolbl .ft8-label { display: none; }
+#ft8Map.ft8-norx .ft8-label .ft8-rx { display: none; }
+/* WW locator grid on the FT8 map: faint labels, never in the way of a click */
+.loc-grid-lbl { background: none; border: 0; color: #8fb4d8; opacity: .45; font: 600 11px/1 system-ui, sans-serif;
+  letter-spacing: .5px; white-space: nowrap; pointer-events: none; text-shadow: 0 0 2px #000; }
 .ft8-popup .leaflet-popup-content-wrapper, .ft8-popup .leaflet-popup-tip { background: #11151b; color: #d6dde5; border: 1px solid var(--line); }
 .ft8-popup .leaflet-popup-content { margin: 10px 12px; line-height: 1.55; }
 .ft8-popup a { color: #6cb8ff; }

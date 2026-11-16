@@ -3239,6 +3239,14 @@ function ft8StUpsert(d) {
   ft8MapLater();
 }
 
+/** Our report of a station (the SNR we hear it with) as a filled chip coloured by strength: told apart from the
+ *  reports inside the messages (plain yellow text, given by the stations to each other). */
+function ft8RxChip(snr, long = false) {
+  const cls = snr >= 0 ? "s-hi" : snr >= -12 ? "s-mid" : "s-lo";
+  return `<span class="ft8-rx ${cls}" title="our report: we hear this station at ${snr > 0 ? "+" : ""}${snr} dB SNR">` +
+    `${long ? "RX " : ""}${snr < 0 ? "-" : "+"}${String(Math.abs(snr)).padStart(2, "0")}${long ? " dB" : ""}</span>`;   // FT8 style: -07, +03
+}
+
 function ft8MapLater() {
   if (ft8MapTimer || !ft8Shown()) return;
   ft8MapTimer = setTimeout(() => { ft8MapTimer = null; renderFt8Map(); }, 700);
@@ -3272,6 +3280,7 @@ async function ft8MapOpen() {
     mapPopout(ft8Map, "ft8");
     // a click on the map (not on a mark) drops the selection: the red mark and trail get their own colors back
     ft8Map.on("click", () => { if (ft8Sel != null) { ft8Sel = null; renderFt8Map(); } });
+    ft8Grid = ft8LocGrid(ft8Map);
     ft8MapLay = { path: L.layerGroup().addTo(ft8Map), st: L.layerGroup().addTo(ft8Map), marks: new Map() };
     // call labels only when zoomed in enough (a whole continent of labels is unreadable)
     const lbl = () => $("ft8Map").classList.toggle("ft8-nolbl", ft8Map.getZoom() < 5);
@@ -3287,6 +3296,60 @@ async function ft8MapOpen() {
     } catch { /* server unreachable */ }
   }
   return true;
+}
+
+/** A faint Maidenhead (WW locator) grid under the marks: fields (JN, 20° x 10°) always, squares (JN88, 2° x 1°)
+ * from zoom 5, subsquares (JN88wq, 5' x 2.5') from zoom 10; only the visible part is drawn, redrawn on a move. */
+function ft8LocGrid(map) {
+  map.createPane("locGrid");
+  const pane = map.getPane("locGrid");
+  pane.style.zIndex = 350;                 // above the tiles, below the paths and marks
+  pane.style.pointerEvents = "none";
+  const lay = L.layerGroup();
+  if (recall("ft8Grid") !== "0") lay.addTo(map);
+  const A = (n) => String.fromCharCode(65 + n), a = (n) => String.fromCharCode(97 + n);
+  const wrap = (lon) => ((lon + 180) % 360 + 360) % 360;            // 0..360 from -180
+  const loc = (lon, lat, lvl) => {
+    const x = wrap(lon + 1e-9), y = Math.min(179.999, Math.max(0, lat + 90 + 1e-9));
+    let s = A(Math.floor(x / 20)) + A(Math.floor(y / 10));
+    if (lvl >= 1) s += Math.floor((x % 20) / 2) + "" + Math.floor(y % 10);
+    if (lvl >= 2) s += a(Math.floor((x % 2) * 12)) + a(Math.floor((y % 1) * 24));
+    return s;
+  };
+  const draw = () => {
+    lay.clearLayers();
+    if (!map.hasLayer(lay)) return;
+    const z = map.getZoom();
+    const lvl = z >= 10 ? 2 : z >= 5 ? 1 : 0;
+    const steps = [[20, 10], [2, 1], [2 / 24, 1 / 24]];
+    const b = map.getBounds().pad(0.1);
+    const w = Math.max(b.getWest(), map.getCenter().lng - 540), e = Math.min(b.getEast(), map.getCenter().lng + 540);
+    const s = Math.max(-90, b.getSouth()), n = Math.min(90, b.getNorth());
+    for (let l = 0; l <= lvl; l++) {
+      const [dx, dy] = steps[l];
+      const major = l < lvl;               // the coarser levels as a bit stronger lines
+      const style = { pane: "locGrid", interactive: false, color: "#8fb4d8", weight: major ? 1.2 : 0.7,
+        opacity: major ? 0.32 : 0.2 };
+      const x0 = Math.floor((w + 180) / dx) * dx - 180, y0 = Math.floor((s + 90) / dy) * dy - 90;
+      for (let x = x0; x <= e; x += dx) lay.addLayer(L.polyline([[s, x], [n, x]], style));
+      for (let y = y0; y <= n; y += dy) lay.addLayer(L.polyline([[y, w], [y, e]], style));
+    }
+    // labels of the finest level shown, in the lower left corner of each cell (where a locator starts)
+    const [dx, dy] = steps[lvl];
+    const x0 = Math.floor((w + 180) / dx) * dx - 180, y0 = Math.floor((s + 90) / dy) * dy - 90;
+    if ((e - x0) / dx * (n - y0) / dy > 900) return;
+    for (let x = x0; x < e; x += dx) {
+      for (let y = Math.max(-90, y0); y < n && y < 90; y += dy) {
+        lay.addLayer(L.marker([y, x], {
+          pane: "locGrid", interactive: false, keyboard: false,
+          icon: L.divIcon({ className: "loc-grid-lbl", html: loc(x, y, lvl), iconSize: null, iconAnchor: [-3, 15] }),
+        }));
+      }
+    }
+  };
+  map.on("moveend zoomend", draw);
+  draw();
+  return { show(on) { if (on) { lay.addTo(map); draw(); } else lay.remove(); } };
 }
 
 function ft8Icon(s, sel) {
@@ -3307,13 +3370,15 @@ async function renderFt8Map() {
   } finally { ft8Drawing = false; }
 }
 
+const ft8LabelHtml = (s) => `${escHtml(s.call)} ${ft8RxChip(s.snr)}`;
+
 function ft8Popup(s) {
   const da = s.lat != null ? ft8DistAz(s.lat, s.lon) : null;
   const band = ft8BandOf(s.freq_hz);
   return `<b class="ft8-pop-call">${escHtml(s.call)}</b>${s.grid ? ` <span class="ft8-pop-grid">${escHtml(s.grid)}</span>` : ""}<br>` +
     (da ? `${da.km.toLocaleString("en")} km · az ${da.az}°<br>` : "") +
     `<span class="ft8-pop-msg">${ft8MsgHtml(s.msg)}</span><br>` +
-    `${s.snr > 0 ? "+" : ""}${s.snr} dB · ${fmtKHz(s.freq_hz, 1)} kHz${band ? ` (${band} m)` : ""}<br>` +
+    `${ft8RxChip(s.snr, true)} · ${fmtKHz(s.freq_hz, 1)} kHz${band ? ` (${band} m)` : ""}<br>` +
     `${ft8Ago(s.ts)} ago · ${s.n} decode${s.n === 1 ? "" : "s"} · <a href="https://www.qrz.com/db/${encodeURIComponent(s.call)}" target="_blank" rel="noopener">QRZ</a>` +
     ` · <a href="https://pskreporter.info/pskmap.html?callsign=${encodeURIComponent(s.call)}" target="_blank" rel="noopener">PSK Reporter</a>`;
 }
@@ -3335,12 +3400,13 @@ async function drawFt8Map() {
       // the popup text is made only when it opens (from the newest data of the station)
       mk = L.marker(ft8Spread(s), { icon: ft8IconOf(cls) })
         .bindPopup(() => ft8Popup(ft8St.get(call) || s), { className: "ft8-popup" })
-        .bindTooltip(escHtml(call), { permanent: true, direction: "bottom", offset: [0, -1], className: "ft8-label" }).addTo(lay.st);
+        .bindTooltip(ft8LabelHtml(s), { permanent: true, direction: "bottom", offset: [0, -1], className: "ft8-label" }).addTo(lay.st);
       mk.on("click", () => ft8Select(call, false));
-      mk._ft8 = { cls, grid: s.grid };
+      mk._ft8 = { cls, grid: s.grid, snr: s.snr };
       lay.marks.set(call, mk);
     }
     // only what changed is touched (a new icon re-creates its element)
+    if (mk._ft8.snr !== s.snr) { mk.setTooltipContent(ft8LabelHtml(s)); mk._ft8.snr = s.snr; }
     if (mk._ft8.grid !== s.grid) { mk.setLatLng(ft8Spread(s)); mk._ft8.grid = s.grid; }
     if (mk._ft8.cls !== cls) { mk.setIcon(ft8IconOf(cls)); mk._ft8.cls = cls; mk.setZIndexOffset(sel ? 1000 : s.cq ? 500 : 0); mk._ft8.lbl = null; }
     // the frame of the call label in the colour of the triangle
@@ -3362,13 +3428,12 @@ async function drawFt8Map() {
   $("ft8MapList").innerHTML = `<div class="ais-ml-head">${all.length} heard · ${all.length - list.length} without a locator yet${all.length > FT8_LIST_MAX ? ` · newest ${FT8_LIST_MAX} listed` : ""}</div>` +
     all.slice(0, FT8_LIST_MAX).map((s) => {
       const da = s.lat != null ? ft8DistAz(s.lat, s.lon) : null;
-      const snrCls = s.snr >= 0 ? "s-hi" : s.snr >= -12 ? "s-mid" : "s-lo";
       return `<div class="ft8-ml${s.call === ft8Sel ? " sel" : ""}${s.lat == null ? " nopos" : ""}${s.cq ? " cq" : ""}" data-call="${escHtml(s.call)}" title="${escHtml(s.msg)}">` +
         `<i class="tri"></i><b>${escHtml(s.call)}</b><span class="grid">${escHtml(s.grid || "")}</span>` +
-        `<span class="km">${da ? da.km.toLocaleString("en") : ""}</span><span class="${snrCls}">${s.snr > 0 ? "+" : ""}${s.snr}</span>` +
+        `<span class="km">${da ? da.km.toLocaleString("en") : ""}</span><span class="rx">${ft8RxChip(s.snr)}</span>` +
         `<span class="age">${ft8Ago(s.ts)}</span></div>`;
     }).join("");
-  $("ft8MapNote").textContent = `▲ green = calling CQ · cyan = in a QSO · red = selected · pale = not heard lately · position = centre area of the locator ` +
+  $("ft8MapNote").textContent = `▲ green = calling CQ · cyan = in a QSO · red = selected · filled chip = our report (SNR we hear the station with) · pale = not heard lately · position = centre area of the locator ` +
     `(4 characters: 2° × 1°, stations of one square spread inside it) · map © OpenStreetMap`;
 }
 
@@ -3395,6 +3460,26 @@ $("ft8MapClr").addEventListener("click", async () => {
   try { await fetch(vbase + "/api/ft8/stations", { method: "DELETE" }); } catch { /* server unreachable */ }
   ft8StClear();
 });
+// GRID and RX keys of the map: the locator grid and our report next to the calls, remembered in the browser
+var ft8GridOn = recall("ft8Grid") !== "0", ft8RxOn = recall("ft8Rx") !== "0", ft8Grid = null;   // var: the map can open before this line
+function renderFt8MapOpts() {
+  $("ft8GridKey").classList.toggle("on", ft8GridOn);
+  $("ft8RxKey").classList.toggle("on", ft8RxOn);
+  $("ft8Map").classList.toggle("ft8-norx", !ft8RxOn);
+}
+$("ft8GridKey").addEventListener("click", () => {
+  ft8GridOn = !ft8GridOn;
+  store("ft8Grid", ft8GridOn ? "1" : "0");
+  if (ft8Grid) ft8Grid.show(ft8GridOn);
+  renderFt8MapOpts();
+});
+$("ft8RxKey").addEventListener("click", () => {
+  ft8RxOn = !ft8RxOn;
+  store("ft8Rx", ft8RxOn ? "1" : "0");
+  renderFt8MapOpts();
+});
+renderFt8MapOpts();
+
 function ft8StClear() {
   ft8St.clear();
   ft8Sel = null;
