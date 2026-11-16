@@ -3592,3 +3592,13 @@ html.app-shell .r-logo-led:hover .r-logo-ledtip { display: inline; }
 .dsd-debug pre .err { color: #ff5a5a; }
 .dsd-debug pre .sync { color: var(--muted); }
 .dsd-debug pre .lc { color: var(--green); }
+
+/* STATION: the baseband decoders (FT8, CW, SONDE …) take the channel after SP, before FILTER – a violet line from the
+   arrow between SP and FILTER up over the row and down into DECODERS */
+.sdg-bbl { position: absolute; border-left: 2px solid #e07cff; border-top: 2px solid #e07cff; font-style: normal; pointer-events: auto; }
+.sdg-bbl[hidden] { display: none; }
+.sdg-bbl::before { content: ""; position: absolute; left: -5px; bottom: -4px; width: 6px; height: 6px; border-radius: 50%; background: #e07cff; }
+.sdg-bbl > i.up { position: absolute; right: 0; top: -2px; height: var(--dn-h, 0); border-right: 2px solid #e07cff; }
+.sdg-bbl > i.up::after { content: ""; position: absolute; right: -6px; bottom: -1px; border: 5px solid transparent; border-top: 6px solid #e07cff; border-bottom: 0; }
+.sdg-bbl > em { position: absolute; left: 50%; top: -14px; transform: translateX(-50%); padding: 0 6px; white-space: nowrap;
+  font: 700 9px system-ui, sans-serif; color: #e07cff; background: var(--bg, #0b0e12); }

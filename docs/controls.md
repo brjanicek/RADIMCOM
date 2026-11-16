@@ -325,8 +325,11 @@ browser – and the **CUE** key of that VFO (orange LED): that VFO stays audible
     green and connected (a dot on the bus) while that VFO is MAIN, grey and open otherwise – and **CUE** into the orange
     **CUE** bus – orange and connected while CUE of that VFO is on and another VFO is MAIN (it crosses the MAIN bus without a dot).
     Either wire is **MUTED** (red, dashed, open) by the MUTE key of the VFO or while a raw-sample decoder mutes its audio.
-    DECODERS have a third, own wire out of AUDIO (violet with a decoder on, grey without), independent of OUT and CUE:
-    the decoders get the audio whatever goes to MAIN or CUE, also when muted. DEMOD shows under the mode a small
+    DECODERS are fed where they really take the signal, independently of OUT and CUE (so also when muted): the
+    baseband decoders (FT8, CW, RTTY, PACKET, POCSAG, WEFAX, ACARS, SONDE without MULTI) demodulate the channel themselves
+    from the baseband after MIXER and SP, before FILTER – a violet line from the arrow between SP and FILTER over the row
+    into DECODERS, labelled with their names (*baseband → SONDE*); SSTV takes the demodulated audio – a third wire out of
+    AUDIO (violet with SSTV on, grey otherwise). DEMOD shows under the mode a small
     picture of the demodulation (sidebands around the carrier, one tone for CW, the FM waveform, OFDM for DAB, symbols for DSD). REC / REC SQ and the scanner are chips beside the VFO name. Decoders on the **raw IQ** (VDL2, DAB, ISM, HFDL, AIS, ADS-B, SONDE MULTI) take the samples straight from the A/D,
     before DC, NB and the channel filter: they branch off under the A/D into their own block **IQ DECODERS**, and the blocks they
     bypass (DEMOD, AUDIO) are faded and hatched; IQ, MIXER, SP and FILTER stay drawn as active (the tip says: only for the S-meter now) – they still feed

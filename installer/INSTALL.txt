@@ -92,7 +92,8 @@ New
 - DSD tab: cards of the calls on air, protocols / slots / talk groups in colour with names, country of the caller ID,
   callsign picked out of the alias, TALK GROUPS heard (click = filter), filter, hide short calls, click a frequency to tune.
 - SETTINGS > STATION: OUTPUT replaced by two vertical buses MAIN (green) and CUE (orange); OUT and CUE of each VFO
-  connect to them, grey when not used, red MUTED when muted; DEMOD shows a small picture of the demodulation; DECODERS before the buses, with their own wire from AUDIO.
+  connect to them, grey when not used, red MUTED when muted; DEMOD shows a small picture of the demodulation; DECODERS before the buses, fed from
+  the baseband (between SP and FILTER, over the row) or, for SSTV, from AUDIO.
 - ATU: switching it on autotunes the frequency tuned now at once (not only after the next tuning move).
 - MUTE key of each VFO (red LED) between the VFO and CUE keys under the VFO windows: silences that VFO in this browser
   (MAIN and CUE), the display shows the struck-through speaker; shown in SETTINGS > STATION.

@@ -16023,6 +16023,8 @@ const SDG_DEC = [["ft8", "FT8"], ["cw", "CW"], ["rtty", "RTTY"], ["packet", "PAC
 // otherwise the baseband of the channel or the demodulated audio (SSTV, DSD); SONDE MULTI works on the raw samples
 const SDG_RAW = new Set(["vdl2", "dab", "ism", "hfdl", "ais", "adsb"]);
 const sdgIsRaw = (k, s) => SDG_RAW.has(k) || (k === "sonde" && s.sonde_multi !== false);
+// the rest take the baseband after MIXER and SP, before the filter (app.py on_baseband); only these the demodulated audio
+const SDG_AUDIO_DEC = new Set(["sstv"]);
 const sdgOpen = () => bodyTab === "set" && !document.hidden && !$("settingsCard").hidden
   && !document.querySelector('[data-set-panel="sta"]').hidden;
 const sdgChip = (txt, cls, tip) => `<i class="sdg-c ${cls || ""}"${tip ? ` title="${escHtml(tip)}"` : ""}>${txt}</i>`;
@@ -16226,10 +16228,15 @@ function sdgLane(v) {
   const d = sdg.dop[v.name];
   if (d && d.on) decs.push(sdgChip(`DOPPLER ${escHtml(d.label || d.name || "")}`, d.error ? "bad" : "dop", d.error || "RX Doppler: corrects the VFO frequency"));
   const dec = sdgBlk("DECODERS", `<span class="chips">${decs.join("") || "<span>none</span>"}</span>`, `sdg-decb k-dec ${decs.length ? "lit" : "off"}`,
-    "Decoders on the baseband of the channel or the demodulated audio (DECODE key, DECODERS tab); fed by their own wire from AUDIO, so they work whatever goes to MAIN or CUE (also when muted)");
-  const fork = decs.some((c) => !c.includes("DOPPLER"));
+    "Decoders on the baseband of the channel (after SP, before FILTER: the violet line over the row) or on the demodulated audio (SSTV: the wire from AUDIO); DECODE key, DECODERS tab. They work whatever goes to MAIN or CUE (also when muted)");
+  // two feeds: the baseband (after SP, before FILTER) over the row, the demodulated audio (SSTV) out of AUDIO
+  const onDecs = SDG_DEC.filter(([k]) => s[k] && !sdgIsRaw(k, s)).map(([k]) => k);
+  const fork = onDecs.some((k) => SDG_AUDIO_DEC.has(k));
+  const bbNames = SDG_DEC.filter(([k]) => onDecs.includes(k) && !SDG_AUDIO_DEC.has(k)).map(([, n]) => n);
+  const bbl = bbNames.length ? `<i class="sdg-bbl" title="Baseband of the channel (after MIXER ÷ 64 and SP, before the filter) into ${escHtml(bbNames.join(", "))}: ` +
+    `they demodulate it themselves, so FILTER, DEMOD and AUDIO do not matter to them"><i class="up"></i><em>baseband → ${escHtml(bbNames.join(" · "))}</em></i>` : "";
   const out = `<i class="sdg-out${fork ? " fork" : ""}"><i class="wo ${mainSt}" title="${escHtml(outTip)}"></i><i class="wc ${cueSt}" title="${escHtml(cueTip)}"></i>` +
-    `<i class="br" title="${fork ? "into the decoders (whatever goes to MAIN or CUE)" : "no decoder on"}"></i><b class="dot df"></b><b class="dot do ${mainSt}"></b><b class="dot dc ${cueSt}"></b>` +
+    `<i class="br" title="${fork ? "demodulated audio into SSTV (whatever goes to MAIN or CUE)" : "no decoder on the audio (the others take the baseband)"}"></i><b class="dot df"></b><b class="dot do ${mainSt}"></b><b class="dot dc ${cueSt}"></b>` +
     `<em class="lo ${mainSt}">${mainSt === "muted" ? "MUTED" : "OUT"}</em><em class="lc ${cueSt}">${cueSt === "muted" ? "CUE MUTED" : "CUE"}</em></i>`;
   const raw = rawDecs.length ? `<i class="sdg-tap" title="raw A/D samples of the whole band"></i>` +
     sdgBlk("IQ DECODERS", `<span class="chips">${rawDecs.join("")}</span><span>raw A/D samples · whole band</span>`, "lit sdg-raw k-dec",
@@ -16273,7 +16280,7 @@ function sdgLane(v) {
   const asqL = !hasSq ? "" : `<i class="sdg-asql${agcAsq ? " on" : ""}" title="AGC+ ${agcAsq ? "switches the auto squelch (ASQ) on" : "does not switch ASQ on now"}">` +
     `<i class="up"></i><em>AGC+ → ASQ ${agcAsq ? "ON" : "OFF"}</em></i>`;
   return head + [ant, sdr, meterOnly(iq, why && !keepIq), meterOnly(mixer, why && !keepIq), meterOnly(spB, why && !keepIq), meterOnly(filt, why), idle(demod, why), dsdOn ? `<div class="sdg-pair">${dsdB}${idle(audio, why)}</div>` : idle(audio, why),
-    dec, `<i class="sdg-busc"></i>`].join("") + out + agc + (why ? smB.replace('class="sdg-sml', 'class="sdg-sml nouse') : smB) + raw + ctl + dop + asqL +
+    dec, `<i class="sdg-busc"></i>`].join("") + out + bbl + agc + (why ? smB.replace('class="sdg-sml', 'class="sdg-sml nouse') : smB) + raw + ctl + dop + asqL +
     // DAB: the sound comes from the DAB decoder on the raw IQ – a line from IQ DECODERS along the bottom up into OUTPUT
     (s.dab ? `<i class="sdg-dabl" title="DAB: the audio of the station comes from the DAB decoder (welle-cli) on the raw IQ samples">` +
       `<i class="up"></i><em>DAB AUDIO → OUT / CUE</em></i>` : "");
@@ -16347,6 +16354,14 @@ function sdgPlaceOut() {
     Object.assign(dC.style, { left: `${bcx}px`, top: `${yc}px` });
     Object.assign(lo.style, { left: `${xa + 6}px`, top: `${yo - 13}px` });
     Object.assign(lc.style, { left: `${xa + 6}px`, top: `${yc + 2}px` });
+    // baseband: from the arrow between SP and FILTER up over the row and down into DECODERS
+    const bb = lane.querySelector(".sdg-bbl"), sp = lane.querySelector(".k-sp"), filt = lane.querySelector(".k-filt");
+    if (bb && sp && filt) {
+      const x0 = (sp.offsetLeft + sp.offsetWidth + filt.offsetLeft) / 2, ya = filt.offsetTop + filt.offsetHeight / 2;
+      const yt = Math.min(filt.offsetTop, dec.offsetTop) - 9, x1 = dec.offsetLeft + dec.offsetWidth / 2;
+      Object.assign(bb.style, { left: `${x0}px`, top: `${yt}px`, width: `${x1 - x0}px`, height: `${ya - yt}px` });
+      bb.style.setProperty("--dn-h", `${dec.offsetTop - yt}px`);
+    } else if (bb) bb.hidden = true;
     lane.dataset.outX = xa + 8;
     lane.dataset.outY = yo;
     xm = lane.offsetLeft + bm; xc = lane.offsetLeft + bcx;

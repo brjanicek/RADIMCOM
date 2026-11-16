@@ -35,7 +35,9 @@ Test beta (GitHub branch `1.0beta2`; continues 1.0beta1).
   over all the rows – OUT into the green MAIN bus (green and connected while the VFO is MAIN, grey and open otherwise)
   and CUE into the orange CUE bus (while CUE is on and another VFO is MAIN); MUTED (red, dashed, open) by the MUTE key
   of the VFO or while a raw-IQ decoder mutes the audio. The buses have speaker heads on top with the level of the MAIN
-  and CUE faders (MUTED with the MUTE of the MONITOR). DECODERS stand before the buses, fed by their own wire from AUDIO (independent of OUT and CUE); the DAB
+  and CUE faders (MUTED with the MUTE of the MONITOR). DECODERS stand before the buses, fed independently of OUT and CUE where they really take the signal: the baseband
+  decoders (FT8, CW, RTTY, PACKET, POCSAG, WEFAX, ACARS, SONDE without MULTI) by a violet line from between SP and FILTER
+  over the row (*baseband → SONDE*), SSTV (demodulated audio) by a wire from AUDIO; the DAB
   audio line goes into the start of OUT / CUE; REC and SCAN moved beside the VFO name. No animation.
 - **STATION: DEMOD with a picture of the demodulation** under the mode: the spectrum around the carrier (AM / SAM with
   the carrier and both sidebands or one, DSB without the carrier, USB / LSB one sideband beside the dashed tuned
