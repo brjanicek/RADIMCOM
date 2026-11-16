@@ -1292,6 +1292,11 @@ class SondeDecoder:
             self._fs = None
         self._emit_state()
 
+    def set_types(self, names):
+        """SONDE > TYPES: the decoders listening for a new sonde (sonde_ext.ENABLED, for every channel)."""
+        sonde_ext.set_enabled(names)
+        self._emit_state()
+
     def clear(self):
         with self.lock:
             self.frames.clear()
@@ -1355,6 +1360,7 @@ class SondeDecoder:
                                                           "of": self.rec["secs"]},
                  "rec_iq_last": self.rec_last,
                  "decoders": sonde_ext.available(),
+                 "types": sonde_ext.enabled(),
                  "channels": [{"hz": round(c.hz), "level_db": c.level, "type": c.type, "serial": c.serial,
                                "frames": c.frames, "age_s": None if c.frame_t is None else round(now - c.frame_t, 1),
                                "offset_hz": None if c.dm.offset is None else round(c.dm.offset)}

@@ -34,6 +34,9 @@ WF_DB_STEP = 0.5
 MODES = ("AM", "FM", "WFM", "LSB", "USB", "CW", "DSD")
 DSD_MODE = "DSD"       # digital voice (dsd.py): FM discriminator to the decoder, its voice to the audio output
 DSD_BW = 12500.0       # channel width of the DSD mode; fixed, 12.5 kHz covers the protocols it decodes
+# FILTER of the DSD tab: the filter before the discriminator can be narrower than the channel (DMR occupies about
+# ±4.5 kHz: less noise into the decoder on a weak signal); the scale of the discriminator stays that of DSD_BW
+DSD_FILTERS = (12500.0, 11000.0, 10000.0, 9000.0, 8000.0)
 UPCONV_MAX_HZ = 30e6   # in auto mode only HF (below 30 MHz) goes through the upconverter
 TUNER_MIN_HZ = 24e6    # R820T tuner range without a converter
 V4_MIN_HZ = 0.5e6      # RTL-SDR Blog V4: HF direct (its driver switches on the built-in upconverter below 28.8 MHz)
@@ -1296,6 +1299,7 @@ class Channel:
         self.hang = 0
         self.mode = None
         self.bw = None
+        self.filt = None         # filter width when narrower than bw (DSD FILTER), None = bw
         self.h = None
         self.notch_on = False
         self.notch = AutoNotch(fs)
@@ -1326,10 +1330,11 @@ class Channel:
         self.ea_snr = None
         self._ea_reset()
 
-    def configure(self, mode, bw):
-        if (mode, bw) == (self.mode, self.bw):
+    def configure(self, mode, bw, filt=None):
+        """filt: the filter width, if it differs from bw (the FM deviation scale still follows bw)."""
+        if (mode, bw, filt) == (self.mode, self.bw, self.filt):
             return
-        self.mode, self.bw = mode, bw
+        self.mode, self.bw, self.filt = mode, bw, filt
         # Narrow filters (CW, FM 500 Hz) need a longer FIR (Blackman transition band ~ 5.5·fs/taps).
         taps = 1023 if mode == "CW" or bw < 2500 else 255
         if taps != self.taps:
@@ -1344,7 +1349,7 @@ class Channel:
                 mid = -mid
             h = lowpass(width / 2, self.fs, self.taps) * np.exp(2j * np.pi * mid / self.fs * n)
         else:
-            h = lowpass(bw / 2, self.fs, self.taps)
+            h = lowpass((filt or bw) / 2, self.fs, self.taps)
         self.h = h.astype(np.complex64)
         self.level = 1e-4
         self.last_gain = None
@@ -2269,7 +2274,8 @@ class Receiver:
                 audio, self.smeter = self.wfm.process(shifted)
                 sub_db = self.wfm.sub_db
             else:
-                self.chan.configure("FM" if dsd else mode, bw)
+                filt = float(c.get("dsd_filter", DSD_BW)) if dsd else None
+                self.chan.configure("FM" if dsd else mode, bw, filt if filt in DSD_FILTERS and filt != bw else None)
                 self.chan.notch_on = bool(c.get("notch", False))
                 self.chan.agc_on = bool(c.get("audio_agc", True))
                 self.chan.nr_on = bool(c.get("dnr", False))      # DNR key: spectral noise reduction

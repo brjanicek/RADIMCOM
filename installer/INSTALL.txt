@@ -80,6 +80,40 @@ Change log
 ----------
 (also in CHANGELOG.md)
 
+Ver. 1.0beta2
+(test beta, GitHub branch 1.0beta2; continues 1.0beta1)
+New
+- DSD AFC: the offset of the signal is measured during a call and the VFO retuned onto it (AFC box, on by default).
+- Rotor: SONDE TRACKER source (RCTRL > SETTINGS, off by default) - the rotor follows the chosen sonde,
+  AZ / EL calculated from its GPS position and altitude and the QTH.
+- DSD FILTER: narrower channel filter before the discriminator (12.5 - 8 kHz), less noise on a weak signal.
+- DSD DEBUG: raw output of DSD-FME in the DSD tab, failed CRC / FEC checks in red, sync and error counts per minute.
+- AUDIO: the CUE key removed (CUE of each VFO is the key under its VFO window).
+- DSD tab: cards of the calls on air, protocols / slots / talk groups in colour with names, country of the caller ID,
+  callsign picked out of the alias, TALK GROUPS heard (click = filter), filter, hide short calls, click a frequency to tune.
+- SETTINGS > STATION: OUTPUT replaced by two vertical buses MAIN (green) and CUE (orange); OUT and CUE of each VFO
+  connect to them, grey when not used, red MUTED when muted; DEMOD shows a small picture of the demodulation; DECODERS before the buses, with their own wire from AUDIO.
+- ATU: switching it on autotunes the frequency tuned now at once (not only after the next tuning move).
+- MUTE key of each VFO (red LED) between the VFO and CUE keys under the VFO windows: silences that VFO in this browser
+  (MAIN and CUE), the display shows the struck-through speaker; shown in SETTINGS > STATION.
+- RCTRL tab: pages MAP and SETTINGS; SETTINGS = the sources moving the rotor (was CONNECTION, now a small block scheme
+  like STATION, no animation) and the rotor controller (was SETTINGS > GENERAL > ROTOR).
+- SETTINGS > VFO > SDR DONGLE and AGC+ diagrams redrawn in the look of the STATION scheme (a colour per block,
+  gradient, icons in the dongle diagram; no animation); the whole AGC+ diagram in the same smaller text.
+- SONDE MAP: the sonde whose charts are shown is chosen by hand only (the list above the charts or a click on it on the
+  map); no automatic choice, the charts no longer switch by themselves; remembered.
+- SONDE MAP: a rising sonde is a light blue balloon (was green like the launch sites).
+- SONDE > TYPES: tick only the sonde types launched in your area (RS41, DFM, M10 / M20, ...); the other decoder
+  programs no longer run on every channel - much less CPU on the server.
+- Less CPU in the browser (about a third): the S-meter and level meter redraw only when they change (the level meter as fast as before), the moving parts
+  in their own layers, the meters on one 30 fps clock; the waterfall and spectrum are not drawn while the page or the
+  lower part is hidden; the logo LED and the sonde launch sites no longer pulse, a new FT8 station pulses twice.
+Fixes
+- RECORDINGS: play and pause as icons of the same size (list and PLAY / PAUSE key); nothing moves any more.
+- DSD under DAB: dsd-fme no longer runs beside welle-cli when DAB is switched on on a VFO in the DSD mode.
+- SONDE MULTI: the channel under the VFO showed "? · 0 fr" although the VFO decoded the sonde there; it now
+  shows its type, serial and frames. A channel with no frame says "signal, no frame yet".
+
 Ver. 1.0beta1
 (test beta, GitHub branch 1.0beta1; continues the release 0.115)
 New

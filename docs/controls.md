@@ -33,8 +33,11 @@ receive it (e.g. an HF band to the VFO with the converter).
 
 Each VFO is one dark display window; a click on an inactive window or on its **VFO** key under the window selects
 that VFO. The active one is faintly lit with a yellow line towards its key, and its key is lit (yellow LED); the key of an
-inactive VFO with an open squelch gets a green LED, a transmitting one turns red. Beside each VFO key is the **CUE** key
-of that VFO (orange LED): that VFO stays audible at CUE level while another VFO is selected (the same as CUE in the window).
+inactive VFO with an open squelch gets a green LED, a transmitting one turns red. Beside each VFO key are the **MUTE** key
+of that VFO (red LED): that VFO is silent in this browser, as MAIN and as CUE – the receiver, its decoders, recording and the
+scanner go on, and its display shows the red struck-through speaker (the same as when a decoder mutes it); remembered in the
+browser – and the **CUE** key of that VFO (orange LED): that VFO stays audible at CUE level while another VFO is selected
+(the same as CUE in the window). Neither switches the VFO.
 
 - **Top row:** VFO-x (boxed and yellow on the active VFO, green on an inactive one with an open squelch), the name of the
   memory / band plan / satellite transponder (lit on the active VFO; a memory with its own tag colour shows its name in that colour), a red struck-through speaker
@@ -65,7 +68,7 @@ of that VFO (orange LED): that VFO stays audible at CUE level while another VFO 
 
 - **MODE**: demodulation. In the 5th column **SAM** (synchronous AM, an option of AM: a click switches to AM with SAM, another click back to the plain envelope detector) and under it its sideband **DSB / SB-L / SB-U** (click: next): DSB both sidebands, SB-L / SB-U only the lower / upper one, so an interfering station on the other side stays out. SAM recovers the carrier (a narrow 30 Hz filter behind a frequency loop that follows a carrier up to ±400 Hz off) and demodulates coherently: in a selective fade, when the carrier gets weaker than its sidebands, AM does not distort. The VFO window shows SAM, SAM-L or SAM-U as the mode. SAM works with **AGC+** (a gain step costs it less than the envelope detector: back in 150–180 ms, AM 270–390 ms); on shortwave the preset **CONSERV.** keeps the steps rare and small. **With a manual RF GAIN watch it:** shortwave in the evening is full of strong broadcast stations; with the gain too high the A/D clips: the **RF bar of the VFO window and its dB value turn red** (held 1 s; also whistles, splatter and false signals all over the spectrum), with it too low weak stations sink into the noise. Set it as high as it goes without turning red, and lower it again when the band gets busier. **FILTER**: bandwidth for the current mode (WFM: 50, 75, 150 or 200 kHz, default 200 kHz = the full broadcast signal with the best stereo and RDS; 150 kHz is a compromise, 50–75 kHz help with a weak station next to a strong one but distort and usually lose stereo and RDS; any width up to 250 kHz by dragging the filter edge).
 - **GAIN**: AGC switches automatic tuner gain on/off (manual gain with the RF GAIN slider or in SET). **AGC+** sets the tuner gain from the level of the A/D converter: as high as possible without clipping it (the tuner AGC of the R820T watches only its LNA and mixer, not the A/D). The gain flag under the display shows `+` and the gain; the AGC+ key gets a red underline while the A/D clips. With the squelch set, AGC+ makes it work as auto squelch (ASQ lights up), because a fixed level would not fit the changing gain; the slider then only turns it on / off, and ASQ pressed in this state turns the squelch off.
-- **TUNE**: **ATU** (autotune) in USB, LSB and AM. With ATU on, a click on a signal in the spectrum or waterfall tunes to the clicked point (without the step grid), listens for a moment and moves the tuning onto the carrier; the key blinks while listening and the passband label shows the shift (e.g. *ATU +130 Hz*) or *no signal*. Tuning by the wheel, the arrow keys, dragging or the VFO display digits starts it too, 0.7 s after the tuning rests, when it moved by at least 150 Hz. AM: the carrier is found within a few Hz in under 1 s. SSB: the edge of the voice band goes onto the red line (the tuned frequency): the lower edge in USB, the upper one in LSB, within a few Hz after ~2 s of speech (up to 6.5 s while nobody speaks). Tuning elsewhere while listening cancels it.
+- **TUNE**: **ATU** (autotune) in USB, LSB and AM. With ATU on, a click on a signal in the spectrum or waterfall tunes to the clicked point (without the step grid), listens for a moment and moves the tuning onto the carrier; the key blinks while listening and the passband label shows the shift (e.g. *ATU +130 Hz*) or *no signal*. Tuning by the wheel, the arrow keys, dragging or the VFO display digits starts it too, 0.7 s after the tuning rests, when it moved by at least 150 Hz. Switching ATU on autotunes the frequency tuned now at once. AM: the carrier is found within a few Hz in under 1 s. SSB: the edge of the voice band goes onto the red line (the tuned frequency): the lower edge in USB, the upper one in LSB, within a few Hz after ~2 s of speech (up to 6.5 s while nobody speaks). Tuning elsewhere while listening cancels it.
 - **STEP**: tuning step: 10 Hz, 100 Hz, 1 kHz, 10 kHz in every mode, WFM included. WFM remembers its own chosen step, the other modes share one (in the browser). **Zoom** (1×–64×; at 64× the section is 24 kHz wide at 1.536 MS/s, each point 23 Hz from its own finer FFT) is the bar in the top right corner of the frequency scale: − / +, a click on a cell, or the mouse wheel over it. **Waterfall speed** (WF, 1/8 – 4×) is the same bar in the top right corner of the waterfall: below 1× several rows are averaged into one line (slower, longer history), above 1× each row is drawn taller (faster); the setting is kept in the browser. **Waterfall settings**: the gear in a square above the speed bar; with the mouse over it a half transparent window opens with the **colour scheme** (Classic, Inferno, Viridis, Turbo, Ice, Matrix; only new rows take the new colours), **colour range** and **colour offset**. Kept in the browser. **Spectrum settings**: the same gear and bar in the top right corner of the spectrum; the bar (dB) moves the **zero** (bottom edge of the spectrum) against the noise floor, −20 … +20 dB in 5 dB steps, the gear opens the **colour schemes** of the spectrum (background gradient / curve: Graphite, Waterfall, Night blue, Phosphor, Amber, Dusk, Ember, Steel). Kept in the browser.
 - **DEC** (group DECODE): turns on the CW, FT8, PACKET, RTTY, SSTV, WEFAX, ACARS, ADS-B, HFDL, VDL2, AIS or ISM decoder (DAB and DSD are keys in MODE with their own tabs). The panels are in the
   **DECODERS** tab next to SPECTRUM; turning a decoder on opens it, a green dot signals a new message/image.
@@ -203,12 +206,18 @@ of that VFO (orange LED): that VFO stays audible at CUE level while another VFO 
     measured on 6050 kHz): the filter follows it within ±1 Hz, from the phase of the harmonics. SETTINGS › VFO › AUDIO:
     **Mains** 50 / 60 Hz (the Americas), **Width** 1–8 Hz (wider takes more of a hum that fades with the station),
     *Now* the mains found and how much is taken out. First in the audio chain, before NF, DNR and the ALC.
-  - CUE: keep hearing this VFO (at the CUE level) when another VFO is selected.
   - RECS: the **RECORDINGS** tab in the bottom part (beside SPECTRUM, DECODERS, SATELLITES), see [Recordings](#recordings) below. Like MEM, the key
     shows or hides the tab for all VFOs and is remembered in the browser.
 - **TRACKING** group:
   - **SAT**: the satellite key switches to the SATELLITES tab and back, see [Satellite tracking](satellites.md).
-  - **RCTRL**: shows or hides the **ROTOR CONTROL** tab (for all VFOs, remembered in the browser): a map to aim the rotor at a place (page MAP) and the switches of the sources that move the rotor (page CONNECTION), see [Rotor control map](satellites.md#rotor-control-map).
+  - **RCTRL**: shows or hides the **ROTOR CONTROL** tab (for all VFOs, remembered in the browser): a map to aim the rotor at a place (page MAP), and page SETTINGS: on top the switches of the sources that move the rotor (the CONNECTION page until 1.0beta2), under them the rotor controller itself (below; until 1.0beta2 in SETTINGS › GENERAL › ROTOR), see [Rotor control map](satellites.md#rotor-control-map).
+    - **SETTINGS** (RCTRL page): the antenna rotor of the station, one for all VFOs (it does not change with the active VFO). **ON / OFF** at the top left: OFF only says that the rotor link is off;
+      ON opens the link with the serial port chosen under it and shows the rest: a **polar plot** (north up, centre = zenith) and beside it an **elevation column**
+      0–180° (over 90° the antenna looks back over the top). The orange cross / orange arrow is the antenna now, the green ring the requested direction (only while the rotor is on its way); beside them the actual AZ / EL (orange) and the requested AZ / EL (green). The shown position is filtered, so the ~1 % noise of the readings does not flicker. A click on the polar plot
+      turns the antenna to that azimuth and elevation, a click on the column sets only the elevation (not while TRACK moves the rotor). Keys **STOP** (both motors),
+      **RESET** (clears a fault, orange while there is one) and **MONITOR** (shows AZ / EL in the AD, see below; one switch for all VFOs, remembered in the browser).
+      Then the **azimuth calibration**. The settings are in `data\rotor.json`; the serial port is held by the receiver of the first VFO in `vfos.json`,
+      the page sends the rotor commands there whichever VFO is active. See [Satellite tracking](satellites.md).
 - **Volume** (top right, MONITOR): vertical MAIN (active VFO) and CUE faders with a dB scale between them (+3 … −∞ dB; 0 = no gain),
   stereo L/R level meter with the dB numbers (0 dB = −6 dBFS), a peak hold of 1 s and a round CLIP LED above each column (0 dBFS reached).
   Below them the speaker key is MUTE (green LED = sound on, red = muted). Under it are two recording keys for the active VFO, which work independently of each other and go on with the page closed:
@@ -247,13 +256,6 @@ of that VFO (orange LED): that VFO stays audible at CUE level while another VFO 
       **SAVE** saves the whole list and the choice of the VFOs. One VFO can also choose its antenna in **SETTINGS › VFO › SDR DONGLE › ANTENNA** (block 0 of the block diagram).
       **ANT** in the VFO window (row with CTCSS / DCS / ATU): green while the VFO is tuned within one of the bands of its antenna, **amber** outside them (wrong antenna
       or a switch to turn), grey for an antenna without bands, dark without an antenna; its tooltip names the antenna.
-    - **ROTOR**: the antenna rotor of the station, one for all VFOs (it does not change with the active VFO). **ON / OFF** at the top left: OFF only says that the rotor link is off;
-      ON opens the link with the serial port chosen under it and shows the rest: a **polar plot** (north up, centre = zenith) and beside it an **elevation column**
-      0–180° (over 90° the antenna looks back over the top). The orange cross / orange arrow is the antenna now, the green ring the requested direction (only while the rotor is on its way); beside them the actual AZ / EL (orange) and the requested AZ / EL (green). The shown position is filtered, so the ~1 % noise of the readings does not flicker. A click on the polar plot
-      turns the antenna to that azimuth and elevation, a click on the column sets only the elevation (not while TRACK moves the rotor). Keys **STOP** (both motors),
-      **RESET** (clears a fault, orange while there is one) and **MONITOR** (shows AZ / EL in the AD, see below; one switch for all VFOs, remembered in the browser).
-      Then the **azimuth calibration**. The settings are in `data\rotor.json`; the serial port is held by the receiver of the first VFO in `vfos.json`,
-      the page sends the rotor commands there whichever VFO is active. See [Satellite tracking](satellites.md).
 
     ![SETTINGS › GENERAL › SKINS: the finishes of the panel (dark, black and light brushed aluminium, mahogany, RAL paint) and the RAL colour chart](images/settings_skins.png)
 
@@ -299,7 +301,7 @@ of that VFO (orange LED): that VFO stays audible at CUE level while another VFO 
     ![SETTINGS › VFO › SDR DONGLE: keys VFO-A … D, the block diagram of the signal path from the antenna to the screen with numbered blocks, and the cards with correction, bandwidth, tuner gain, bias-tee, DC peak removal and RESET SDR DONGLE](images/settings_vfo.png)
   - **STATION**: a simplified scheme of the whole receiver, live (like the AGC+ diagram). On top the station: **QTH**
     (locator), **ROTOR** (port, azimuth / elevation, target, tracking, errors), **DOPPLER** (the satellite followed and on which
-    VFO) and **AUDIO** (the MAIN VFO and the VFOs on CUE), in one compact line. Below one row per VFO (each kind of block in its own colour with
+    VFO) and **AUDIO** (the MAIN VFO, the VFOs on CUE and the muted ones), in one compact line. Below one row per VFO (each kind of block in its own colour with
     a small icon in the corner) with its frequency and name, from the antenna to
     the speaker: **ANTENNA** (amber OUT OF RANGE outside its range, ROTOR when on the rotor), the **dongle** as one block (RTL-SDR, AIRSPY or
     LimeSDR with its serial; UPCONV, BIAS-T, ppm, a shared dongle) with two blocks inside: **TUNER** (gain, AGC+ / manual / auto)
@@ -316,12 +318,18 @@ of that VFO (orange LED): that VFO stays audible at CUE level while another VFO 
     the filter into it and a **level** line from it up into AUDIO) – and the **ASQ** line (auto squelch)
     with the channel power / the opening level in dBFS, a blue dashed line **AGC+ → ASQ ON / OFF** into the ASQ chip
     from the AGC+ block – ON when AGC+ with the squelch set switches the auto squelch on; with **DSD** a block **DSD** (the voice decoder, protocol, errors)
-    stands between DEMOD and AUDIO, AUDIO is then only LPF → HPF and OUTPUT plays the decoded voice; with **DAB** a line DAB AUDIO → OUTPUT goes from IQ DECODERS
-    into OUTPUT), **OUTPUT** (MAIN / CUE / silent, "no audio" while a raw-sample decoder runs,
-    REC / REC SQ, the scanner) and **DECODERS** (the ones on the baseband of the channel or the audio, red with an error, the RX
-    Doppler). Decoders on the **raw IQ** (VDL2, DAB, ISM, HFDL, AIS, ADS-B, SONDE MULTI) take the samples straight from the A/D,
+    stands between DEMOD and AUDIO, AUDIO is then only LPF → HPF and its output carries the decoded voice; with **DAB** a line DAB AUDIO → OUT / CUE goes from IQ DECODERS
+    up into the start of the two output wires) and **DECODERS** (the ones on the baseband of the channel or the audio, red with an error, the RX
+    Doppler). Out of AUDIO go two wires into two vertical **buses** over all the rows, with the speaker heads on top
+    (the level of the MAIN and CUE faders, MUTED with the MUTE of the MONITOR): **OUT** into the green **MAIN** bus –
+    green and connected (a dot on the bus) while that VFO is MAIN, grey and open otherwise – and **CUE** into the orange
+    **CUE** bus – orange and connected while CUE of that VFO is on and another VFO is MAIN (it crosses the MAIN bus without a dot).
+    Either wire is **MUTED** (red, dashed, open) by the MUTE key of the VFO or while a raw-sample decoder mutes its audio.
+    DECODERS have a third, own wire out of AUDIO (violet with a decoder on, grey without), independent of OUT and CUE:
+    the decoders get the audio whatever goes to MAIN or CUE, also when muted. DEMOD shows under the mode a small
+    picture of the demodulation (sidebands around the carrier, one tone for CW, the FM waveform, OFDM for DAB, symbols for DSD). REC / REC SQ and the scanner are chips beside the VFO name. Decoders on the **raw IQ** (VDL2, DAB, ISM, HFDL, AIS, ADS-B, SONDE MULTI) take the samples straight from the A/D,
     before DC, NB and the channel filter: they branch off under the A/D into their own block **IQ DECODERS**, and the blocks they
-    bypass (DEMOD, AUDIO, OUTPUT) are faded and hatched; IQ, MIXER, SP and FILTER stay drawn as active (the tip says: only for the S-meter now) – they still feed
+    bypass (DEMOD, AUDIO) are faded and hatched; IQ, MIXER, SP and FILTER stay drawn as active (the tip says: only for the S-meter now) – they still feed
     the **S-METER**, which stays lit and correct (e.g. for turning the antenna for the strongest DAB signal); they stay fully lit while
     a baseband decoder runs beside.
     With the **RX Doppler** of a satellite on, its orange chip in DECODERS leads an orange line **DOPPLER → VFO** along the bottom
@@ -399,7 +407,7 @@ of that VFO (orange LED): that VFO stays audible at CUE level while another VFO 
 1. **Error messages** (red), e.g. a refused setting, TX, a recording error, DAB on a dongle that cannot do it. A message stays until it is
    accepted by the small framed **OK**; the frame of the window blinks red (period 0.5 s) meanwhile. More waiting messages show *+n*, the next one comes after OK.
    (Errors used to show for 5 s under the logo.)
-2. **Rotor AZ / EL** while **MONITOR** is on (SETTINGS › GENERAL › ROTOR), with the requested direction while the rotor is on its way (or LINK OFF, NOT CONNECTED, FAULT).
+2. **Rotor AZ / EL** while **MONITOR** is on (RCTRL › SETTINGS), with the requested direction while the rotor is on its way (or LINK OFF, NOT CONNECTED, FAULT).
 3. **DAB now on air** while a DAB station plays: the DAB / DAB+ tag, the station name, the SNR of the ensemble (green from 12 dB, yellow from 8 dB, red below)
    and the DLS text (artist / song) under them; a text wider than the window runs to its end and back (the whole text is in the tooltip).
 4. **RDS** (station name, RadioText, PI, PTY, TP/TA); empty without RDS.

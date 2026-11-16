@@ -435,15 +435,18 @@ class RotorLink:
 SETTINGS_KEYS = ("enabled", "port", "usb_serial", "az_cal", "k3ng_az", "links")
 # Sources of the wanted AZ / EL that can be disconnected from the rotor (RCTRL › CONNECTION): the satellite tracker,
 # the recall of a memory with a location, the map of RCTRL. Connected unless switched off.
-LINK_SOURCES = ("sat", "mem", "map")
-LINK_NAMES = {"sat": "SAT TRACKER", "mem": "MEMORY RECALL", "map": "RCTRL MAP"}
+LINK_SOURCES = ("sat", "mem", "map", "sonde")
+LINK_NAMES = {"sat": "SAT TRACKER", "mem": "MEMORY RECALL", "map": "RCTRL MAP", "sonde": "SONDE TRACKER"}
+# disconnected until switched on: the sonde follow turns the rotor by itself whenever a sonde is heard
+LINK_OFF_BY_DEFAULT = ("sonde",)
 
 
 def links_of(settings):
-    """{"sat", "mem", "map": True / False} from the rotor settings (missing = connected)."""
+    """{"sat", "mem", "map", "sonde": True / False} from the rotor settings (missing = connected, the sonde
+    disconnected)."""
     links = settings.get("links")
     links = links if isinstance(links, dict) else {}
-    return {k: bool(links.get(k, True)) for k in LINK_SOURCES}
+    return {k: bool(links.get(k, k not in LINK_OFF_BY_DEFAULT)) for k in LINK_SOURCES}
 
 
 def load_settings(path):

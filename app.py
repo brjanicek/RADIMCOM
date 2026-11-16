@@ -72,7 +72,7 @@ from ais import AisDecoder
 import adsb as adsb_mod
 from adsb import RATE as ADSB_RATE, AdsbDecoder
 from tonesq import norm_ctcss, norm_dcs
-from sdr import (WF_FFT, SAM_SIDEBANDS, HUM_BASES, HUM_WIDTH_MIN_HZ, HUM_WIDTH_MAX_HZ, AFI_MAX_HZ, AFI_MIN_HZ, DNR_LEVEL_MAX, DNR_LEVEL_MIN, NB_LEVEL_MAX, NB_LEVEL_MIN, NB_WIDTH_MAX_US, NB_WIDTH_MIN_US, EXP_DEPTH_MAX_DB, EXP_DEPTH_MIN_DB, EXP_SENS_MAX, EXP_SENS_MIN, EXP_HOLD_MAX_MS, EXP_HOLD_MIN_MS, ASQ_MAX_DB, ASQ_MIN_DB, DECIM, DSD_MODE, HPF_MAX_HZ, HPF_MIN_HZ, LPF_MAX_HZ, LPF_MIN_HZ, MODES, SQUELCH_OFF,
+from sdr import (WF_FFT, DSD_BW, DSD_FILTERS, SAM_SIDEBANDS, HUM_BASES, HUM_WIDTH_MIN_HZ, HUM_WIDTH_MAX_HZ, AFI_MAX_HZ, AFI_MIN_HZ, DNR_LEVEL_MAX, DNR_LEVEL_MIN, NB_LEVEL_MAX, NB_LEVEL_MIN, NB_WIDTH_MAX_US, NB_WIDTH_MIN_US, EXP_DEPTH_MAX_DB, EXP_DEPTH_MIN_DB, EXP_SENS_MAX, EXP_SENS_MIN, EXP_HOLD_MAX_MS, EXP_HOLD_MIN_MS, ASQ_MAX_DB, ASQ_MIN_DB, DECIM, DSD_MODE, HPF_MAX_HZ, HPF_MIN_HZ, LPF_MAX_HZ, LPF_MIN_HZ, MODES, SQUELCH_OFF,
                  SAGC_PARAMS, UPCONV_MAX_HZ, ZOOMS, Receiver, list_devices, lowpass, sagc_params)
 
 
@@ -362,6 +362,23 @@ if cfg.get("dsd_protocol") in DSD_PROTOCOLS:
     dsd.protocol = cfg["dsd_protocol"]
 if cfg.get("dsd_slot") in DSD_SLOTS:
     dsd.slot = cfg["dsd_slot"]
+dsd.afc_on = cfg.get("dsd_afc", True)
+if float(cfg.get("dsd_filter", DSD_BW)) not in DSD_FILTERS:
+    cfg["dsd_filter"] = DSD_BW
+dsd.filter_hz = float(cfg.get("dsd_filter", DSD_BW))
+
+
+def dsd_retune(old_hz, new_hz):
+    """DSD AFC: the signal is off the tuned frequency -> retune the VFO onto it (not while the Doppler correction tunes,
+    nor when somebody tuned elsewhere meanwhile). In its own thread: called from the receiver thread."""
+    if cfg["mode"] != DSD_MODE or cfg["tune_hz"] != old_hz:
+        return
+    if doppler is not None and doppler.on:
+        return
+    threading.Thread(target=rotor_set_freq, args=(float(new_hz),), name="dsd-afc", daemon=True).start()
+
+
+dsd.on_retune = dsd_retune
 vdl2 = Vdl2Decoder(on_acars=acars.accept_vdl2, on_atn=acars.accept_atn, on_state=lambda i: hub.event("vdl2state", i),
                   on_pos=acars.accept_pos)
 
@@ -525,6 +542,7 @@ pocsag.set_options(cfg.get("pocsag_opts") or {})
 pocsag.set_enabled(cfg.get("pocsag", False))
 sonde.set_enabled(cfg.get("sonde", False))
 sonde.set_multi(cfg.get("sonde_multi", True))
+sonde.set_types(cfg.get("sonde_types"))
 sstv.set_enabled(cfg.get("sstv", False))
 acars.set_enabled(cfg.get("acars", False) and not cfg.get("vdl2", False))
 
@@ -560,6 +578,15 @@ if cfg.get("dab_channel") in CHANNEL_HZ:
     dab.channel = cfg["dab_channel"]          # the page shows the saved channel also while DAB is off
 if cfg.get("dab") and RTL_DONGLE and not OWNER:
     dab.set_enabled(True, cfg.get("dab_channel", DAB_DEFAULT))
+
+
+def sync_dsd(mode=None):
+    """dsd-fme runs only in the DSD mode and not under DAB (DAB keeps the mode of the VFO, but its sound comes from
+    welle-cli: dsd-fme would only decode noise there)."""
+    dsd.set_enabled((mode or cfg["mode"]) == DSD_MODE and not dab.enabled)
+
+
+sync_dsd()
 ism.set_raw(cfg.get("ism_raw", False))
 if cfg.get("ism") and RTL_DONGLE and not OWNER:
     ism.set_enabled(True)
@@ -1002,6 +1029,8 @@ def api_cpdlc_cmd():
 
 @app.route("/api/dsd", methods=["GET"])
 def api_dsd():
+    if request.args.get("debug") is not None:          # DEBUG box of the DSD tab: only the new lines of dsd-fme
+        return jsonify(dsd.debug(int(request.args.get("debug") or 0)))
     return jsonify(dict(dsd.info(), calls=dsd.history(), protocols=list(DSD_PROTOCOLS), slots=list(DSD_SLOTS)))
 
 
@@ -1015,6 +1044,20 @@ def api_dsd_cmd():
         return jsonify({"error": "unknown DSD slot"}), 400
     if body.get("action") == "clear":
         dsd.clear()
+    if "afc" in body:
+        dsd.afc_on = cfg["dsd_afc"] = bool(body["afc"])
+        save_config_later()
+        hub.event("status", state())
+    if "filter" in body:
+        try:
+            hz = float(body["filter"])
+        except (TypeError, ValueError):
+            hz = None
+        if hz not in DSD_FILTERS:
+            return jsonify({"error": "unknown DSD filter width"}), 400
+        dsd.filter_hz = cfg["dsd_filter"] = hz
+        save_config_later()
+        hub.event("status", state())
     if protocol is not None or slot is not None:
         dsd.set_options(protocol, slot)
         cfg["dsd_protocol"], cfg["dsd_slot"] = dsd.protocol, dsd.slot
@@ -1072,6 +1115,7 @@ def set_dab(on, changes, channel=None):
         dab.set_enabled(False)
         if cfg.get("dab_prev_rate") in SAMPLE_RATES and cfg["dab_prev_rate"] != DAB_RATE:
             changes["sample_rate"] = cfg.pop("dab_prev_rate")
+    sync_dsd(changes.get("mode"))
 
 
 def set_ism(on, changes):
@@ -2061,6 +2105,11 @@ def api_set():
         sonde.set_multi(cfg["sonde_multi"])
         save_config_later()
         hub.event("status", state())
+    if "sonde_types" in body:
+        t = body["sonde_types"]
+        cfg["sonde_types"] = [str(x) for x in t] if isinstance(t, list) else None
+        sonde.set_types(cfg["sonde_types"])
+        save_config_later()
     if "tx_enabled" in body:
         if not tx_capable():
             return jsonify({"error": "this VFO cannot transmit"}), 400
@@ -2216,7 +2265,7 @@ def api_set():
         receiver.scan.command("pause", why="tuned by hand")   # tuning by hand holds the scan (START continues)
     receiver.update(changes)
     if "mode" in changes:
-        dsd.set_enabled(changes["mode"] == DSD_MODE)
+        sync_dsd(changes["mode"])
     if set(changes) - {"reset"}:
         save_config_later()
     return jsonify({"ok": True})

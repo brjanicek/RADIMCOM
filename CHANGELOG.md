@@ -1,5 +1,96 @@
 # Changelog
 
+## Ver. 1.0beta2
+
+Test beta (GitHub branch `1.0beta2`; continues 1.0beta1).
+
+### New
+
+- **DSD AFC:** during a call the mean of the FM discriminator (4FSK is symmetric around the carrier) gives the offset of
+  the signal from the tuned frequency; the DSD head shows it, and with **AFC** on (default) an offset over 120 Hz retunes
+  the VFO onto the signal (at most 3 kHz at a time; on a hotspot / simplex only the slots with a carrier are measured; not
+  while the satellite Doppler correction tunes). A DMR repeater tuned 400 Hz off decoded the ID in 23 % of the calls,
+  tuned onto it in 95 %. Kept per VFO (`dsd_afc`).
+- **Rotor: SONDE TRACKER** – a fourth source in RCTRL › SETTINGS, **disconnected by default**; connected, the rotor follows the sonde chosen in DECODERS › SONDE. Only its GPS position and altitude are used: the azimuth and elevation are calculated from the QTH and its altitude (SETTINGS › GENERAL › LOCATION) on the WGS84 ellipsoid, so the curvature of the Earth is included; the elevation is held at 0–90°. The rotor moves at most every 5 s and only for a change of 2° or more. It works while the RADIMCOM page shows the VFO with the SONDE decoder (the frames come to the page) and the rotor takes commands (not while the satellite tracking holds it).
+- **DSD FILTER:** the width of the channel filter before the FM discriminator (12.5 / 11 / 10 / 9 / 8 kHz, kept per VFO
+  as `dsd_filter`, 12.5 kHz = as before). DMR occupies about ±4.5 kHz: on a weak signal 10 kHz lets about 1 dB less noise
+  into the decoder; the scale of the discriminator (and so the AFC) does not change.
+- **DSD DEBUG:** the **DEBUG** box of the DSD tab shows the raw output of DSD-FME (the last 400 lines, polled once a
+  second only while it is on): sync lines dim, link control (TG, ID, alias) green, bursts that failed a CRC / FEC / RS
+  check red, and the number of sync lines and errors of the last minute. It tells bad bits at the input (noise, too
+  much gain) from a lost sync. `GET /api/dsd?debug=<seq>` returns the lines after `seq`.
+- **AUDIO: the CUE key removed** – it duplicated CUE under the VFO windows (and CUE in the VFO window).
+- **DSD tab:**
+  - the calls on air as cards: slot, protocol, the talk group with its name, the caller with the country of its ID,
+    the alias with the callsign in green, the running time;
+  - in the head the signal state, the protocol and the DMR colour code;
+  - in the list: protocols and slots in colour, TG in amber with its name (World-wide, Europe, SK national …),
+    private calls (ID) in cyan, the country of the caller ID (the first 3 digits = MCC), the callsign in the alias
+    in green, encrypted calls reddish, short calls without TG and caller (noise) dimmed, a bar of the duration
+    under the time;
+  - **TALK GROUPS**: the talk groups of the list with the number of calls, a click shows only that one;
+  - the number of stations heard; a filter (TG, ID, callsign, protocol) and **hide short**;
+  - a click on the frequency of a call tunes the VFO there.
+- **STATION: MAIN and CUE buses instead of OUTPUT:** out of AUDIO of each VFO go two wires into two vertical buses
+  over all the rows – OUT into the green MAIN bus (green and connected while the VFO is MAIN, grey and open otherwise)
+  and CUE into the orange CUE bus (while CUE is on and another VFO is MAIN); MUTED (red, dashed, open) by the MUTE key
+  of the VFO or while a raw-IQ decoder mutes the audio. The buses have speaker heads on top with the level of the MAIN
+  and CUE faders (MUTED with the MUTE of the MONITOR). DECODERS stand before the buses, fed by their own wire from AUDIO (independent of OUT and CUE); the DAB
+  audio line goes into the start of OUT / CUE; REC and SCAN moved beside the VFO name. No animation.
+- **STATION: DEMOD with a picture of the demodulation** under the mode: the spectrum around the carrier (AM / SAM with
+  the carrier and both sidebands or one, DSB without the carrier, USB / LSB one sideband beside the dashed tuned
+  frequency, CW one tone with dots and dashes), the FM / WFM waveform (wider swing for WFM), the OFDM block of DAB and
+  the 4-level symbols of DSD.
+- **ATU on = autotune now:** switching the ATU key on (AM / USB / LSB) autotunes the frequency tuned at that moment
+  at once; until now it waited for the next move of the tuning or a click in the spectrum.
+- **MUTE of each VFO:** the keys under the VFO windows are VFO (narrower), **MUTE** (red LED) and CUE. MUTE silences that
+  VFO in this browser, as MAIN and as CUE (the receiver, its decoders, recording and the scanner go on; the audio spectrum
+  bubble still shows it); its display shows the red struck-through speaker as when a decoder mutes it. Remembered in the
+  browser per VFO. SETTINGS › STATION shows it: a MUTE chip in the VFO row and in OUTPUT, the muted VFOs in AUDIO.
+- **Rotor settings in the RCTRL tab:** ROTOR CONTROL has two pages, MAP and **SETTINGS**. SETTINGS holds the sources
+  that move the rotor (was the CONNECTION page) and under them the rotor controller (ON / OFF, serial port, polar plot
+  and elevation column, STOP / RESET / MONITOR, azimuth calibration; was SETTINGS › GENERAL › ROTOR): all the rotor in
+  one place. The sources are drawn as a smaller block scheme like SETTINGS › STATION (SAT TRACKER, MEMORY RECALL,
+  RCTRL MAP with LINKED / OPEN, lines into the ROTOR block), without the animations of the old picture;
+  the rotor link (ON / OFF, port) in one row on top, the sources and the position / calibration side by side under it,
+  all without scrolling.
+- **SETTINGS › VFO › SDR DONGLE and AGC+ diagrams in the look of the STATION scheme:** each block in the colour of its
+  kind (antenna, dongle / tuner, upconverter, bias-T, A/D, crystal, DC, SP, AGC+, filter, demodulator, audio, squelch,
+  output) with a soft gradient, the title in that colour, the card number in the same colour, and in the dongle diagram
+  a small framed icon in each block; the dongle frame dashed in the dongle colour. Static, no animation; the blocks still
+  find their cards by a click, grey when not for this dongle or VFO. The whole AGC+ diagram (signal path, decision
+  scales, gain in time) in the same smaller text size as the dongle diagram.
+- **SONDE MAP: the sonde for the charts chosen by hand only:** in the list above the charts or by a click on the sonde
+  on the map (also a row of the table or a flight from the log); no Auto any more, so the profile and the altitude chart
+  no longer jump to another sonde by themselves. A click on the empty map keeps the choice; it is remembered over a
+  reload and a restart (CLEAR drops it).
+- **SONDE > TYPES:** check boxes for the sonde types the decoder listens for (RS41, DFM, M10 / M20, LMS6, iMet-54,
+  MRZ, Meisei, MTS01, CF-06 / HT03). Until now every one of the 9 decoder programs ran on each channel until a sonde
+  was decoded (with MULTI on every channel); tick only the types launched in your area to save CPU on the server.
+  Kept per VFO (`sonde_types`).
+- **Less CPU in the browser** (measured in Edge, 1920 x 1080, the main page: about 56 % of a core before, 36 % now):
+  - the S-meter is redrawn only while the needle moves (it was 60 times a second all the time);
+  - the level meter (VU) touches only the LEDs that change (as fast as before, every frame while the sound runs);
+  - the S-meter, VU, waterfall and spectrum each in their own layer (a change no longer repaints the whole head and
+    page); the meters on one shared frame clock, at most 30 frames a second;
+  - nothing is drawn while the page is hidden (another tab, minimised) or the lower part is hidden (VIEW); the
+    waterfall is painted from the whole-band history when shown again;
+  - the logo LED glows steadily (its pulse redrew a blurred glow every frame); the launch sites with a sonde in the
+    air on the SONDE map glow without pulsing; a station just heard on the FT8 map pulses twice (was three times).
+- **SONDE MAP: a rising sonde is a light blue balloon** (was green, mixed up with the green launch sites with a sonde
+  in the air); parachute yellow, selected orange, old grey as before.
+
+### Fixes
+
+- **RECORDINGS:** play and pause drawn as icons of the same size (in the list and on the PLAY / PAUSE key, which keeps
+  its width); the ▶ and ▮▮ characters differed in size, so the columns and the key moved when a file started or stopped.
+- **DSD under DAB:** a VFO in the DSD mode with DAB switched on kept dsd-fme running beside welle-cli (decoding only
+  noise, the sound comes from DAB); dsd-fme now runs only in the DSD mode without DAB.
+- **SONDE MULTI channel under the VFO** showed "? · 0 fr" although the VFO decoded the sonde there (MULTI leaves that
+  channel to the VFO): it now shows the type, serial and frames of the sonde the VFO decodes. A channel with no frame at
+  all says "signal, no frame yet", the tip says why (a sonde on the ground before its GPS fix, too weak, an unsupported
+  type or not a sonde).
+
 ## Ver. 1.0beta1
 
 Test beta (GitHub branch `1.0beta1`; continues the release 0.115).

@@ -47,7 +47,7 @@
 
     <!-- right cell of the glass: the clock (digits, under them the date and LOC / UTC), under it the AD = additional display.
          The AD shows one thing, by priority: 1. error messages (red, confirmed by OK), 2. rotor AZ / EL (MONITOR in
-         SETTINGS › GENERAL › ROTOR), 3. DAB now on air (station, SNR, DLS text), 4. RDS -->
+         RCTRL › SETTINGS), 3. DAB now on air (station, SNR, DLS text), 4. RDS -->
     <div class="r-aux">
     <div class="r-clock" id="clockBox" role="button" tabindex="0" title="Click to switch UTC / local time">
       <span id="clock">--:--:--</span>
@@ -58,7 +58,7 @@
         <span class="ad-err-text" id="adErrText"></span><span class="ad-err-more" id="adErrMore"></span>
         <button class="ad-ok" id="adErrOk" title="Accept the message">OK</button>
       </div>
-      <div class="ad-rot" id="adRot" hidden title="Rotor of the station (MONITOR in SETTINGS › GENERAL › ROTOR)">
+      <div class="ad-rot" id="adRot" hidden title="Rotor of the station (MONITOR in RCTRL › SETTINGS)">
         <span class="ad-rot-v"><span class="ad-rot-tag">ROTOR</span><small>AZ</small><b id="adRotAz">–</b><small>EL</small><b id="adRotEl">–</b></span>
         <span class="ad-rot-tgt" id="adRotTgt"></span>
       </div>
@@ -171,7 +171,7 @@
         </a>
         <span class="r-tag">SDR COMMUNICATIONS RECEIVER</span>
         <!-- version under the logo (installer and update_check read it from .r-ver); a newer one blinks beside it, DONATE under it -->
-        <span class="r-vers"><span class="r-ver">Ver. 1.0beta1</span><a class="r-upd" id="updLink" href="https://github.com/om2amr/RADIMCOM/releases" target="_blank" rel="noopener noreferrer" hidden></a></span>
+        <span class="r-vers"><span class="r-ver">Ver. 1.0beta2</span><a class="r-upd" id="updLink" href="https://github.com/om2amr/RADIMCOM/releases" target="_blank" rel="noopener noreferrer" hidden></a></span>
         <button class="r-don" id="donBtn" type="button" title="Support RADIMCOM – buy us a coffee">☕ DONATE</button>
         </div>
         <!-- only in RADIMCOM.exe (app window): full screen as a small engraved icon in the corner (MAIN is the LED of the logo) -->
@@ -229,7 +229,6 @@
       <button id="asqKey" class="key" title="ASQ: auto squelch in AM/FM/WFM – the level follows the noise floor (margin in SETTINGS › VFO › AUDIO). Also on by itself with AGC+ and the squelch set">ASQ</button>
       <button id="tsqcKey" class="key" title="TSQ-C: CTCSS tone squelch (FM)">TSQ-C</button>
       <button id="tsqdKey" class="key" title="TSQ-D: DCS code squelch (FM)">TSQ-D</button>
-      <button id="cueKey" class="key" title="CUE: keep hearing this VFO (at CUE level) when another VFO is selected">CUE</button>
       <button id="recsKey" class="key" aria-controls="recsPane" title="RECS: the RECORDINGS tab – the MP3 files recorded by REC / REC SQ (data\recordings), play them in the browser">RECS</button>
       <button id="nbKey" class="key" title="NB – Noise Blanker (all modes except WFM / DAB): pulses (ignition, electric fences, switching supplies, radar) blanked in the wideband samples before the channel filter, where they are still a few µs long. Level and width in SETTINGS › VFO › AUDIO">NB</button>
       <button id="dnrKey" class="key" title="DNR – Digital Noise Reduction in AM/LSB/USB/CW: takes the noise out all the time, also under speech (spectral, Wiener). Level 1–10 in SETTINGS › VFO › AUDIO">DNR</button>
@@ -240,10 +239,10 @@
     </div></div>
     <div class="kgroup" data-g="TRACKING"><span class="klabel">TRACKING</span><div class="keys">
       <button id="satKey" class="key sat-key" aria-label="Satellite tracking" aria-controls="amsatPane" title="Satellite tracking: the SATELLITES tab (passes, map, Doppler, rotor)"><svg class="sat-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.6 7C3.2 12.6 8.4 18.8 15 17.4Z"/><path d="M9.8 12.2L13.4 8.6"/><circle cx="14.6" cy="7.4" r="1.6"/><path d="M16.6 3.1A5 5 0 0 1 19 5.5"/><path d="M17.2.6A8 8 0 0 1 21.5 4.9"/><path d="M7.6 15.4L5.8 20.6M11 17.2L12.4 20.6M3.2 21.2H15"/></svg></button>
-      <button id="rctrlKey" class="key" aria-controls="rotPane" title="RCTRL: the ROTOR CONTROL tab – a map where a click turns the rotor to that place (azimuth from the QTH, elevation 0), with the MEMORIES channels that have a location, by groups">RCTRL</button>
+      <button id="rctrlKey" class="key" aria-controls="rotPane" title="RCTRL: the ROTOR CONTROL tab – a map where a click turns the rotor to that place (azimuth from the QTH, elevation 0), with the MEMORIES channels that have a location, by groups; CONNECTION of the sources; SETTINGS of the rotor controller (port, calibration, MONITOR)">RCTRL</button>
     </div></div>
     <div class="kgroup" data-g="MENU"><span class="klabel">MENU</span><div class="keys">
-      <button id="setKey" class="key set-key" aria-label="Settings" aria-controls="settingsCard" title="Settings: the SETTINGS tab (SDR dongle, audio, UI, rotor)"><svg class="gear-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.4-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3.3h-4l-.4 2.7a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.4L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.4 2.5-1a7.4 7.4 0 0 0 1.7 1l.4 2.7h4l.4-2.7a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.4zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg></button>
+      <button id="setKey" class="key set-key" aria-label="Settings" aria-controls="settingsCard" title="Settings: the SETTINGS tab (SDR dongle, audio, UI, location, antennas)"><svg class="gear-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.4-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3.3h-4l-.4 2.7a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.4L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.4 2.5-1a7.4 7.4 0 0 0 1.7 1l.4 2.7h4l.4-2.7a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.4zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg></button>
       <button id="memKey" class="key mem-key" aria-controls="memPane" title="Memories: the MEMORIES tab (channels to recall and edit, groups, import, export)">MEM</button>
       <button id="scanKey" class="key" aria-controls="scanPane" title="SCAN: the SCAN tab – scanning the memories on this VFO (source, START / PAUSE / SKIP / LOCKOUT, squelch and ASQ of each channel)">SCAN</button>
       <button id="bandKey" class="key" aria-controls="bandGroups" title="BAND: show / hide the row of band keys (HF HAM, HF BROADCAST, VHF / UHF HAM, OTHER)">BAND</button>
@@ -377,12 +376,28 @@
           </select></label>
         <label class="wf-opt" title="TDMA protocols (DMR, P25 phase 2): voice of which time slot. Both talking at once: slot 1 on the left, slot 2 on the right. A change restarts the decoder.">Slot
           <select id="dsdSlot"><option value="both">Both</option><option value="1">1</option><option value="2">2</option></select></label>
+        <label class="wf-opt" title="FILTER: width of the channel filter before the FM discriminator. DMR occupies about ±4.5 kHz: on a weak signal 10 kHz lets less noise into the decoder (about 1 dB). Too narrow cuts the outer symbols: watch the errors in DEBUG. 12.5 kHz = as before.">Filter
+          <select id="dsdFilter2"><option value="12500">12.5k</option><option value="11000">11k</option><option value="10000">10k</option><option value="9000">9k</option><option value="8000">8k</option></select></label>
+        <label class="wf-opt" title="AFC: during a call the mean of the FM discriminator is the offset of the signal from the tuned frequency; with AFC on an offset over 120 Hz retunes the VFO onto the signal (4FSK decodes badly a few hundred Hz off)."><input type="checkbox" id="dsdAfc">AFC</label>
         <span class="txt-info" id="dsdInfo"></span>
         <label class="wf-opt log-opt" title="Write to the daily log data\logs\dsd_YYYY-MM-DD.txt (UTC, shared by all VFOs)"><input type="checkbox" data-log="dsd">LOG</label>
         <button id="dsdClear" class="key small" title="Clear the list">CLR</button>
       </div>
       <div class="dsd-error" id="dsdError" hidden></div>
+      <!-- the calls on air now: a card per slot -->
       <div class="dsd-now" id="dsdNow"></div>
+      <!-- heard in the list: talk groups and stations (a click on a talk group filters the list), filter -->
+      <div class="dsd-stats">
+        <span class="dsd-st-lbl">TALK GROUPS</span><span class="dsd-tgs" id="dsdTgs"></span>
+        <span class="dsd-st-sum" id="dsdSum"></span>
+        <input id="dsdFilter" type="search" placeholder="filter: TG, ID, callsign, protocol" title="Shows only the calls containing this text (TG, ID, callsign, alias, protocol)">
+        <label class="wf-opt" title="Hide the calls without a talk group and caller under 1 s (a burst of noise or a data frame taken for voice)"><input type="checkbox" id="dsdHideShort">hide short</label>
+        <label class="wf-opt" title="DEBUG: the raw output of dsd-fme – sync lines, link control, and the bursts that failed a CRC / FEC check (red), with the counts of the last minute. Shows whether the bits are already bad at the input (noise, too much gain) or the sync is lost."><input type="checkbox" id="dsdDebug">DEBUG</label>
+      </div>
+      <div class="dsd-debug" id="dsdDebugBox" hidden>
+        <div class="dsd-dbg-head" id="dsdDebugHead"></div>
+        <pre id="dsdDebugLog"></pre>
+      </div>
       <div class="ft8-table">
         <table>
           <colgroup><col class="c-utc"><col class="c-freq"><col class="c-proto"><col class="c-slot"><col class="c-to"><col class="c-from"><col class="c-time"><col></colgroup>
@@ -804,6 +819,7 @@
       <div class="ft8-head">
         <label class="key small toggle" data-dec-on="sonde" title="Radiosonde decoder (Vaisala RS41, Graw DFM, Meteomodem M10 / M20; 400–406 MHz) on/off"><input id="sondeOn" type="checkbox">ON</label>
         <label class="key small toggle" title="MULTI: decode every sonde in the visible part of the waterfall at the same time (up to 6, in 400–406 MHz), not only the one the VFO is tuned to; their frequencies are listed below. (the VFO audio is muted while SONDE is on)"><input id="sondeMulti" type="checkbox">MULTI</label>
+        <button id="sondeTypesKey" class="key small" title="TYPES: which sonde types the decoder listens for – tick only those launched in your area (each type is a decoder program per channel, with MULTI per channel, so fewer types = less CPU)">TYPES</button>
         <div class="bands"><button id="sondeGo" title="Tune the VFO to 403.000 MHz in FM, the middle of the radiosonde band 400–406 MHz, and switch the decoder on">403 MHz</button></div>
         <button id="sondeInfoKey" class="key small" title="Show / hide the description of the decoder">INFO</button>
         <div class="bands" id="sondeViews">
@@ -833,6 +849,7 @@
         <b>MULTI</b>: every sonde signal in the visible part of the waterfall (inside 400–406 MHz, up to 6) gets its own decoder,
         so several sondes are decoded at once; their frequencies, type, serial and level are listed above the table.
         Zoom out (or a wider bandwidth) to watch more of the band. <b>HISTORY</b> 1D / 7D adds the flights of the last day / week from the log.</p>
+      <div class="sonde-types" id="sondeTypes" hidden></div>
       <div class="sonde-chans" id="sondeChans" hidden></div>
       <div class="ft8-table" id="sondeListBox">
         <table class="sonde-table">
@@ -845,7 +862,7 @@
       <div class="ais-map" id="sondeMapBox" hidden>
         <div class="ais-map-main"><div id="sondeMap"></div><div id="sondeMapNote" class="muted"></div><div id="sondeSitesNote" class="muted" title="Radiosonde launch sites in Europe from the SondeHub list (downloaded once a week into data\sonde_sites.json); own sites in data\sonde_sites_extra.json. A click on a site shows its sondes, frequencies, launch times and the next launch."></div></div>
         <div class="sonde-prof" id="sondeProfBox">
-          <div class="sonde-prof-head"><select id="sondeProfSel" title="Sonde whose profile is shown (orange on the map); Auto = the one decoded on the tuned frequency"></select><span class="muted" id="sondeProfNote"></span></div>
+          <div class="sonde-prof-head"><select id="sondeProfSel" title="Sonde whose charts are shown (orange on the map): chosen by hand here or by a click on it on the map; the choice is kept"></select><span class="muted" id="sondeProfNote"></span></div>
           <div class="sonde-prof-plot" id="sondeProf"></div>
         </div>
       </div>
@@ -1045,13 +1062,13 @@
     <!-- ROTOR CONTROL tab (RCTRL key, TRACKING group): a map – a click on the map, on a channel point or on a row of the list
          turns the rotor to that place (azimuth from the QTH, elevation 0). The points are the MEMORIES channels with LAT / LON,
          shown by their groups (one checkbox per group beside the map).
-         Pages MAP and CONNECTION: the block diagram of the sources of the wanted AZ / EL (SAT TRACKER, MEMORY RECALL, RCTRL MAP),
-         each with a switch that disconnects it from the rotor (data\rotor.json, the whole station). -->
+         Pages MAP and SETTINGS: on SETTINGS the block scheme of the sources of the wanted AZ / EL (SAT TRACKER, MEMORY RECALL, RCTRL MAP),
+         each with a switch that disconnects it from the rotor (data\rotor.json, the whole station), and the rotor controller. -->
     <div class="set-pane rot-pane" id="rotPane" hidden aria-label="Rotor control">
       <div class="amsat-head">
         <div class="amsat-pages" id="rcPages" role="tablist">
           <button class="key small" data-rc-page="map" role="tab" title="The map: a click turns the rotor to that place">MAP</button>
-          <button class="key small" data-rc-page="conn" role="tab" title="Which sources of the wanted AZ / EL move the rotor: SAT TRACKER, MEMORY RECALL, RCTRL MAP">CONNECTION</button>
+          <button class="key small" data-rc-page="set" role="tab" title="Which sources move the rotor (SAT TRACKER, MEMORY RECALL, RCTRL MAP: a click connects / disconnects one) and the rotor controller: link on / off, serial port, position, calibration, MONITOR">SETTINGS</button>
         </div>
         <label class="rc-beam rc-map-only" title="Beam width of the antenna (−3 dB), drawn on the map as a sector around the line to the target">BEAM <input id="rcBeam" type="number" min="1" max="360" step="1"> °</label>
         <button id="rcClear" class="key small rc-map-only" title="Remove the target (dashed line of the wanted azimuth) from the map; the rotor stays where it is">CLEAR</button>
@@ -1066,12 +1083,86 @@
           <div class="rc-list" id="rcList"></div>
         </div>
       </div>
-      <div class="rc-body rc-conn" id="rcConnBox" hidden>
-        <div class="rc-conn-wrap" id="rcConn"></div>
-        <p class="note">A click on a source or on its switch connects / disconnects it. A disconnected source does not move the rotor:
+      <!-- SETTINGS: the rotor controller, one for the station (data\rotor.json, run by the first VFO); ON / OFF; ON = port, position on a
+           polar plot and an elevation column, calibration (was SETTINGS › GENERAL › ROTOR until 1.0beta2) -->
+      <div class="rc-body rc-set set-rotor" id="rcSetBox" hidden>
+        <!-- top: the rotor link in one row (ON / OFF, controller, port) -->
+        <div class="setting rot-head">
+          <div class="row">
+            <button id="rotorOnKey" class="key small rot-onkey" title="Rotor link on / off (one rotor for the whole station)">OFF</button>
+            <span>Rotor controller (K3NG, GS-232, 9600 baud)</span>
+            <div class="rot-port" id="rotorPortBox" hidden>
+              <select id="rotorPort"></select>
+              <button id="rotorRefresh" class="key small" title="Search for serial ports again">⟳</button>
+            </div>
+            <span class="note" id="rotorOffNote">The rotor link is off.</span>
+            <span class="note error" id="rotorError" hidden></span>
+          </div>
+        </div>
+        <!-- under it side by side: the sources moving the rotor | the position and calibration -->
+        <div class="rc-set-main">
+        <!-- the sources of the wanted AZ / EL, each with its switch, into the rotor (was the CONNECTION page until 1.0beta2) -->
+        <div class="rcx-wrap">
+          <div class="rcx" id="rcConn" role="group" aria-label="Sources of the wanted AZ / EL and the rotor"></div>
+          <div class="rcx-warn" id="rcConnWarn"></div>
+          <p class="note">A click on a source or on its switch connects / disconnects it. A disconnected source does not move the rotor:
           the SAT TRACKER only calculates the pass (CALC ONLY), a recalled memory with a location only tunes (the rotor and the
-          RCTRL tab stay), a click on the map only draws the target. The rotor block glows green while at least one source is connected.
+          RCTRL tab stay), a click on the map only draws the target. The line into the rotor is green while at least one source is connected.
           The setting belongs to the station (data\rotor.json), for all VFOs and browsers.</p>
+        </div>
+        <div class="rot-on" id="rotorOnBox" hidden>
+          <div class="setting rot-dial">
+            <div class="rot-plots">
+              <svg class="rot-polar" id="rotPolar" viewBox="-118 -118 236 236" role="img" aria-label="Antenna azimuth and elevation, north up">
+                <circle class="pg-ring" r="100"/><circle class="pg-ring" r="66.7"/><circle class="pg-ring" r="33.3"/>
+                <line class="pg-ring" x1="-100" x2="100"/><line class="pg-ring" y1="-100" y2="100"/>
+                <text class="pg-lbl" y="-106">N</text><text class="pg-lbl" x="108" y="4">E</text><text class="pg-lbl" y="114">S</text><text class="pg-lbl" x="-108" y="4">W</text>
+                <text class="pg-el" x="3" y="-56.7">30°</text><text class="pg-el" x="3" y="-23.3">60°</text>
+                <g class="pg-tgt" id="rotPolarTgt" visibility="hidden"><circle r="6"/></g>
+                <g class="pg-rot" id="rotPolarX" visibility="hidden"><line x1="-6" y1="-6" x2="6" y2="6"/><line x1="-6" y1="6" x2="6" y2="-6"/></g>
+                <g class="pg-aim" id="rotPolarAim" visibility="hidden"><line x1="-6" y1="-6" x2="6" y2="6"/><line x1="-6" y1="6" x2="6" y2="-6"/></g>
+                <circle class="pg-hit" id="rotPolarHit" r="100"/>
+              </svg>
+              <svg class="rot-elcol" id="rotEl" viewBox="0 0 64 236" role="img" aria-label="Antenna elevation 0 to 180 degrees">
+                <rect class="rot-elbar" x="30" y="8" width="16" height="216"/>
+                <g id="rotElGrid"></g>
+                <g class="pg-tgt" id="rotElTgt" visibility="hidden"><circle cx="38" r="5"/></g>
+                <g class="rot-elnow" id="rotElNow" visibility="hidden"><path d="M26 0 L18 -5 L18 5 Z"/><line x1="30" x2="46"/></g>
+                <line class="rot-elaim" id="rotElAim" x1="30" x2="46" visibility="hidden"/>
+                <rect class="pg-hit" id="rotElHit" x="18" y="2" width="40" height="228"/>
+              </svg>
+            </div>
+            <div class="rot-side">
+              <div class="rot-pos">
+                <i class="rot-cap">ACTUAL</i><span>AZ</span><b id="rotAzNow">–</b><span>EL</span><b id="rotElNowT">–</b>
+                <i class="rot-cap req">REQUESTED</i><span>AZ</span><b class="req" id="rotAzReq">–</b><span>EL</span><b class="req" id="rotElReq">–</b>
+              </div>
+              <p class="note rot-howto">▸ Click in the polar plot or in the elevation column: the rotor starts turning to that direction
+                (polar plot = azimuth and elevation, column = only the elevation). The green values are the requested direction.</p>
+              <p class="note" id="rotorTarget"></p>
+              <div class="rot-keys">
+                <button id="rotorStop" class="key" title="Stop both motors; the rotor no longer follows the satellite tracking (TRACK on the TRACK page moves it again)">STOP</button>
+                <button id="rotorReset" class="key" title="Clear a fault after checking the rotor">RESET</button>
+                <button id="rotorMon" class="key" title="MONITOR: show the antenna AZ / EL in the additional display (AD) above">MONITOR</button>
+              </div>
+              <p class="note" id="rotPolarNote">Orange cross / arrow: the antenna now (actual), green ring: the requested direction (only until the rotor gets there). Elevation 0–180°, over 90° the antenna looks back over the top.</p>
+            </div>
+          </div>
+          <div class="setting">
+            <div class="row"><span>Azimuth calibration</span></div>
+            <div class="row">
+              <label title="True azimuth where the antenna points when K3NG shows 0 (its left stop)">AZ at K3NG 0° <input id="rotorCal0" type="number" min="-180" max="360" step="0.1"></label>
+              <label title="True azimuth where the antenna points when K3NG shows 450 (its right stop)">at K3NG 450° <input id="rotorCal450" type="number" step="0.1"></label>
+              <button id="rotorCalSave" class="key small" title="Save the calibration">SAVE</button>
+            </div>
+            <p class="note">K3NG counts 0–450° from its left stop. If that stop is not exactly north, enter the true azimuth of
+              the antenna at both ends (0 and 450 = no correction). Positions, the plots, the satellite tracking and the clicks then use true azimuths.
+              <span id="rotorRaw"></span></p>
+            <p class="note">Satellite tracking: SATELLITES tab, TRACK page (TRACK key). The rotor stops
+              if the position jumps or if a move makes no progress.</p>
+          </div>
+        </div>
+        </div>
       </div>
     </div>
     <!-- SCAN tab (SCAN key in MENU): the scanner of the active VFO (scanner.py, data\poznamky_scan.md). Pages SCAN (memories or a
@@ -1233,7 +1324,7 @@ ecordings, played in the browser -->
           <button data-kind="scan" class="key small" title="Recordings of the scanner, MP3 (older ones WAV) (REC on the SCAN page; the subfolder scan of the recordings folder)">SCAN RECS</button>
         </div>
         <div class="recs-player">
-          <button id="recsPlayKey" class="key accent" title="Play / pause the selected recording (also a click on a row)">▶ PLAY</button>
+          <button id="recsPlayKey" class="key accent" title="Play / pause the selected recording (also a click on a row)"><svg class="pp-ico" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 .8L9.2 5 2 9.2z"/></svg>PLAY</button>
           <audio id="recsAudio" controls preload="none"></audio>
           <span class="recs-now" id="recsNow" title="The recording being played"></span>
         </div>
@@ -1414,7 +1505,7 @@ ecordings, played in the browser -->
       </div>
     </div>
     <!-- SETTINGS tab (gear key): two pages, covering the spectrum and waterfall like the other tabs.
-         GENERAL = settings of the whole station: SKINS, S-METER, TUNING, LOCATION, ROTOR, RECORDINGS (the rotor is not tied to a VFO).
+         GENERAL = settings of the whole station: SKINS, S-METER, TUNING, LOCATION, ANTENNAS, RECORDINGS (the rotor: RCTRL › SETTINGS).
          VFO = settings of one VFO: the VFO keys on the left (like beside the S-meter), the open one joined to its card
          with the pages SDR DONGLE, ADVANCED, AUDIO, TX. -->
     <div class="set-pane" id="settingsCard" hidden aria-label="Settings">
@@ -1426,7 +1517,7 @@ ecordings, played in the browser -->
         </div>
       </div>
       <div class="set-body">
-        <!-- ===== GENERAL: SKINS, S-METER, TUNING, LOCATION, ROTOR, RECORDINGS (the whole station) ===== -->
+        <!-- ===== GENERAL: SKINS, S-METER, TUNING, LOCATION, ANTENNAS, RECORDINGS (the whole station) ===== -->
         <div class="set-panel has-sub" data-set-panel="gen" role="tabpanel">
           <div class="set-subtabs" role="tablist">
             <button class="key small on" data-set-sub="gen:skins" role="tab" aria-selected="true">SKINS</button>
@@ -1434,7 +1525,6 @@ ecordings, played in the browser -->
             <button class="key small" data-set-sub="gen:wheel" role="tab" aria-selected="false">TUNING</button>
             <button class="key small" data-set-sub="gen:location" role="tab" aria-selected="false">LOCATION</button>
             <button class="key small" data-set-sub="gen:ant" role="tab" aria-selected="false">ANTENNAS</button>
-            <button class="key small" data-set-sub="gen:rotor" role="tab" aria-selected="false">ROTOR</button>
             <button class="key small" data-set-sub="gen:recs" role="tab" aria-selected="false">RECORDINGS</button>
           </div>
           <!-- ===== SKINS, S-METER, TOUCHPAD (look and handling of the page) ===== -->
@@ -1502,7 +1592,7 @@ ecordings, played in the browser -->
               <div class="ant-wrap"><table class="ant-table" id="antTable">
                 <thead><tr><th>Name</th><th>Type</th><th title="Bands of the antenna in MHz: lowest-highest, several separated by commas, e.g. 144-146, 430-440 (empty = not given)">Bands MHz</th><th title="Polarization">Pol.</th>
                   <th title="Gain in dBi (optional)">dBi</th><th title="Height above ground in m (optional)">Height m</th>
-                  <th title="Outdoor antenna (unticked = indoor)">Out</th><th title="The antenna is on the rotor (SETTINGS › GENERAL › ROTOR)">Rotor</th>
+                  <th title="Outdoor antenna (unticked = indoor)">Out</th><th title="The antenna is on the rotor (RCTRL › SETTINGS)">Rotor</th>
                   <th title="Between the antenna and the dongle: LNA, filters, switch …">Chain</th><th>Note</th><th title="VFOs receiving on this antenna: click a VFO key to choose it (one antenna per VFO), then SAVE">VFO</th><th></th></tr></thead>
                 <tbody id="antRows"></tbody>
               </table></div>
@@ -1515,73 +1605,6 @@ ecordings, played in the browser -->
                 <b>SETTINGS › VFO › SDR DONGLE › ANTENNA</b>. While the VFO is tuned
                 within the range of its antenna, <b>ANT</b> in its window is lit; outside the range it is amber (wrong antenna or a switch to turn).
                 Without a range ANT only shows the antenna name. The list is shared by all VFOs (<code>data\antennas.json</code>).</p>
-            </div>
-          </div>
-          <!-- ===== ROTOR: one for the station (data\rotor.json, run by the first VFO); ON / OFF; ON = port, position on a polar plot and an elevation column, calibration ===== -->
-          <div class="set-subpanel set-rotor" data-set-subpanel="gen:rotor" role="tabpanel" hidden>
-            <div class="setting rot-head">
-              <div class="row">
-                <button id="rotorOnKey" class="key small rot-onkey" title="Rotor link on / off (one rotor for the whole station)">OFF</button>
-                <span>Rotor controller (K3NG, GS-232, 9600 baud)</span>
-              </div>
-              <p class="note" id="rotorOffNote">The rotor link is off.</p>
-              <div class="rot-port" id="rotorPortBox" hidden>
-                <select id="rotorPort"></select>
-                <button id="rotorRefresh" class="key small" title="Search for serial ports again">⟳</button>
-              </div>
-              <p class="note error" id="rotorError" hidden></p>
-            </div>
-            <div class="rot-on" id="rotorOnBox" hidden>
-              <div class="setting rot-dial">
-                <div class="rot-plots">
-                  <svg class="rot-polar" id="rotPolar" viewBox="-118 -118 236 236" role="img" aria-label="Antenna azimuth and elevation, north up">
-                    <circle class="pg-ring" r="100"/><circle class="pg-ring" r="66.7"/><circle class="pg-ring" r="33.3"/>
-                    <line class="pg-ring" x1="-100" x2="100"/><line class="pg-ring" y1="-100" y2="100"/>
-                    <text class="pg-lbl" y="-106">N</text><text class="pg-lbl" x="108" y="4">E</text><text class="pg-lbl" y="114">S</text><text class="pg-lbl" x="-108" y="4">W</text>
-                    <text class="pg-el" x="3" y="-56.7">30°</text><text class="pg-el" x="3" y="-23.3">60°</text>
-                    <g class="pg-tgt" id="rotPolarTgt" visibility="hidden"><circle r="6"/></g>
-                    <g class="pg-rot" id="rotPolarX" visibility="hidden"><line x1="-6" y1="-6" x2="6" y2="6"/><line x1="-6" y1="6" x2="6" y2="-6"/></g>
-                    <g class="pg-aim" id="rotPolarAim" visibility="hidden"><line x1="-6" y1="-6" x2="6" y2="6"/><line x1="-6" y1="6" x2="6" y2="-6"/></g>
-                    <circle class="pg-hit" id="rotPolarHit" r="100"/>
-                  </svg>
-                  <svg class="rot-elcol" id="rotEl" viewBox="0 0 64 236" role="img" aria-label="Antenna elevation 0 to 180 degrees">
-                    <rect class="rot-elbar" x="30" y="8" width="16" height="216"/>
-                    <g id="rotElGrid"></g>
-                    <g class="pg-tgt" id="rotElTgt" visibility="hidden"><circle cx="38" r="5"/></g>
-                    <g class="rot-elnow" id="rotElNow" visibility="hidden"><path d="M26 0 L18 -5 L18 5 Z"/><line x1="30" x2="46"/></g>
-                    <line class="rot-elaim" id="rotElAim" x1="30" x2="46" visibility="hidden"/>
-                    <rect class="pg-hit" id="rotElHit" x="18" y="2" width="40" height="228"/>
-                  </svg>
-                </div>
-                <div class="rot-side">
-                  <div class="rot-pos">
-                    <i class="rot-cap">ACTUAL</i><span>AZ</span><b id="rotAzNow">–</b><span>EL</span><b id="rotElNowT">–</b>
-                    <i class="rot-cap req">REQUESTED</i><span>AZ</span><b class="req" id="rotAzReq">–</b><span>EL</span><b class="req" id="rotElReq">–</b>
-                  </div>
-                  <p class="note rot-howto">▸ Click in the polar plot or in the elevation column: the rotor starts turning to that direction
-                    (polar plot = azimuth and elevation, column = only the elevation). The green values are the requested direction.</p>
-                  <p class="note" id="rotorTarget"></p>
-                  <div class="rot-keys">
-                    <button id="rotorStop" class="key" title="Stop both motors; the rotor no longer follows the satellite tracking (TRACK on the TRACK page moves it again)">STOP</button>
-                    <button id="rotorReset" class="key" title="Clear a fault after checking the rotor">RESET</button>
-                    <button id="rotorMon" class="key" title="MONITOR: show the antenna AZ / EL in the additional display (AD) above">MONITOR</button>
-                  </div>
-                  <p class="note" id="rotPolarNote">Orange cross / arrow: the antenna now (actual), green ring: the requested direction (only until the rotor gets there). Elevation 0–180°, over 90° the antenna looks back over the top.</p>
-                </div>
-              </div>
-              <div class="setting">
-                <div class="row"><span>Azimuth calibration</span></div>
-                <div class="row">
-                  <label title="True azimuth where the antenna points when K3NG shows 0 (its left stop)">AZ at K3NG 0° <input id="rotorCal0" type="number" min="-180" max="360" step="0.1"></label>
-                  <label title="True azimuth where the antenna points when K3NG shows 450 (its right stop)">at K3NG 450° <input id="rotorCal450" type="number" step="0.1"></label>
-                  <button id="rotorCalSave" class="key small" title="Save the calibration">SAVE</button>
-                </div>
-                <p class="note">K3NG counts 0–450° from its left stop. If that stop is not exactly north, enter the true azimuth of
-                  the antenna at both ends (0 and 450 = no correction). Positions, the plots, the satellite tracking and the clicks then use true azimuths.
-                  <span id="rotorRaw"></span></p>
-                <p class="note">Satellite tracking: SATELLITES tab, TRACK page (TRACK key). The rotor stops
-                  if the position jumps or if a move makes no progress.</p>
-              </div>
             </div>
           </div>
           <!-- ===== RECORDINGS: folder of the MP3 recordings (data\recordings.json), shared by all VFOs ===== -->
@@ -1615,9 +1638,9 @@ ecordings, played in the browser -->
               <!-- block diagram of the receive chain: each numbered block = the card with the same number; a click shows it -->
               <div class="setting blk-diagram" id="blkDiagram">
                 <svg viewBox="0 0 1110 212" role="img" aria-label="Block diagram of the SDR dongle receive chain">
-                  <defs><marker id="blkArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="blk-arrowhead"/></marker></defs>
+                  <defs><linearGradient id="blkFadeG" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".17"/><stop offset="1" stop-color="#fff" stop-opacity=".04"/></linearGradient><mask id="blkFade" maskContentUnits="objectBoundingBox"><rect width="1" height="1" fill="url(#blkFadeG)"/></mask><marker id="blkArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="blk-arrowhead"/></marker></defs>
                   <!-- 0 antenna (SETTINGS › GENERAL › ANTENNAS) -->
-                  <g class="blk blk-ant" data-blk-for="antennaSetting" tabindex="0">
+                  <g class="blk blk-ant k-ant" data-blk-for="antennaSetting" tabindex="0">
                     <rect class="blk-hit" x="4" y="14" width="52" height="70" rx="6"/>
                     <path class="blk-wire" d="M30 40V95M16 40L30 62L44 40Z"/>
                     <text class="blk-sub" x="30" y="30">ANT</text>
@@ -1625,50 +1648,50 @@ ecordings, played in the browser -->
                   </g>
                   <line class="blk-wire" x1="30" y1="95" x2="70" y2="95" marker-end="url(#blkArrow)"/>
                   <!-- dongle frame: 1 dongle selection, 9 reset -->
-                  <g class="blk blk-frame" data-blk-for="deviceSetting vfoSetting resetSetting" tabindex="0">
-                    <rect x="232" y="22" width="476" height="160" rx="10"/>
+                  <g class="blk blk-frame k-dev" data-blk-for="deviceSetting vfoSetting resetSetting" tabindex="0">
+                    <rect class="blk-bg" x="232" y="22" width="476" height="160" rx="10" mask="url(#blkFade)"/><rect x="232" y="22" width="476" height="160" rx="10"/>
                     <text class="blk-title" x="250" y="44" style="text-anchor: start">SDR DONGLE</text>
                     <text class="blk-title" x="690" y="44" style="text-anchor: end">RESET</text>
                     <g class="blk-num"><circle cx="232" cy="22" r="10"/><text x="232" y="22">1</text></g><g class="blk-num"><circle cx="708" cy="22" r="10"/><text x="708" y="22">9</text></g>
                   </g>
                   <!-- 2 upconverter + LO -->
-                  <g class="blk" data-blk-for="upconvSetting loField" tabindex="0">
-                    <rect x="72" y="68" width="136" height="54" rx="6"/>
-                    <text class="blk-title" x="140" y="90">UPCONVERTER</text>
-                    <text class="blk-sub" x="140" y="108">auto/on/off · LO</text>
-                    <g class="blk-num"><circle cx="72" cy="68" r="10"/><text x="72" y="68">2</text></g>
+                  <g class="blk k-up" data-blk-for="upconvSetting loField" tabindex="0">
+                    <rect class="blk-bg" x="72" y="68" width="136" height="54" rx="6" mask="url(#blkFade)"/><rect x="72" y="68" width="136" height="54" rx="6"/>
+                    <text class="blk-title" x="129" y="90">UPCONVERTER</text>
+                    <text class="blk-sub" x="129" y="108">auto/on/off · LO</text>
+                    <g class="blk-ico" transform="translate(186 86)"><rect width="18" height="18" rx="4"/><svg x="3" y="3" width="12" height="12" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6"/><path d="M4 4l8 8M12 4l-8 8"/></svg></g><g class="blk-num"><circle cx="72" cy="68" r="10"/><text x="72" y="68">2</text></g>
                   </g>
                   <line class="blk-wire" x1="208" y1="95" x2="252" y2="95" marker-end="url(#blkArrow)"/>
                   <!-- 3 bias-tee: DC up the coax to the converter/LNA -->
-                  <g class="blk" data-blk-for="biasTeeSetting" tabindex="0">
-                    <rect x="254" y="72" width="78" height="46" rx="6"/>
-                    <text class="blk-title" x="293" y="92">BIAS-T</text>
-                    <text class="blk-sub" x="293" y="109">4.5 V</text>
-                    <g class="blk-num"><circle cx="254" cy="72" r="10"/><text x="254" y="72">3</text></g>
+                  <g class="blk k-bias" data-blk-for="biasTeeSetting" tabindex="0">
+                    <rect class="blk-bg" x="254" y="72" width="78" height="46" rx="6" mask="url(#blkFade)"/><rect x="254" y="72" width="78" height="46" rx="6"/>
+                    <text class="blk-title" x="282" y="92">BIAS-T</text>
+                    <text class="blk-sub" x="282" y="109">4.5 V</text>
+                    <g class="blk-ico" transform="translate(310 86)"><rect width="18" height="18" rx="4"/><svg x="3" y="3" width="12" height="12" viewBox="0 0 16 16"><path d="M9.2 1.6L4 9h4l-1.2 5.4L12 7H8z"/></svg></g><g class="blk-num"><circle cx="254" cy="72" r="10"/><text x="254" y="72">3</text></g>
                   </g>
                   <path class="blk-power" d="M293 72V58H140V68" marker-end="url(#blkArrow)"/>
                   <text class="blk-sub" x="150" y="50">DC to converter/LNA</text>
                   <line class="blk-wire" x1="332" y1="95" x2="358" y2="95" marker-end="url(#blkArrow)"/>
                   <!-- 4 tuner -->
-                  <g class="blk" data-blk-for="gainSetting" tabindex="0">
-                    <rect x="360" y="68" width="112" height="54" rx="6"/>
-                    <text class="blk-title" x="416" y="90">TUNER</text>
-                    <text class="blk-sub" x="416" y="108">gain · auto</text>
-                    <g class="blk-num"><circle cx="360" cy="68" r="10"/><text x="360" y="68">4</text></g>
+                  <g class="blk k-dev" data-blk-for="gainSetting" tabindex="0">
+                    <rect class="blk-bg" x="360" y="68" width="112" height="54" rx="6" mask="url(#blkFade)"/><rect x="360" y="68" width="112" height="54" rx="6"/>
+                    <text class="blk-title" x="405" y="90">TUNER</text>
+                    <text class="blk-sub" x="405" y="108">gain · auto</text>
+                    <g class="blk-ico" transform="translate(450 86)"><rect width="18" height="18" rx="4"/><svg x="3" y="3" width="12" height="12" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6"/><path d="M8 8V3.6"/><path d="M1.2 8h1.2M13.6 8h1.2"/></svg></g><g class="blk-num"><circle cx="360" cy="68" r="10"/><text x="360" y="68">4</text></g>
                   </g>
                   <line class="blk-wire" x1="472" y1="95" x2="508" y2="95" marker-end="url(#blkArrow)"/>
                   <!-- 5 + 6: RTL2832 A/D -->
-                  <g class="blk" data-blk-for="rtlAgcBox rateSetting" tabindex="0">
-                    <rect x="510" y="62" width="180" height="66" rx="6"/>
+                  <g class="blk k-iq" data-blk-for="rtlAgcBox rateSetting" tabindex="0">
+                    <rect class="blk-bg" x="510" y="62" width="180" height="66" rx="6" mask="url(#blkFade)"/><rect x="510" y="62" width="180" height="66" rx="6"/>
                     <text class="blk-title" x="600" y="81">A/D · RTL2832</text>
-                    <g class="blk-num"><circle cx="526" cy="97" r="8"/><text x="526" y="97">5</text></g><text class="blk-sub" x="540" y="101" style="text-anchor: start">digital gain (AGC)</text>
+                    <g class="blk-ico" transform="translate(668 66)"><rect width="18" height="18" rx="4"/><svg x="3" y="3" width="12" height="12" viewBox="0 0 16 16"><path d="M1.2 10h3.3l1.2-7 1.6 11 1.4-6.5 1 2.5h5.1"/></svg></g><g class="blk-num"><circle cx="526" cy="97" r="8"/><text x="526" y="97">5</text></g><text class="blk-sub" x="540" y="101" style="text-anchor: start">digital gain (AGC)</text>
                     <g class="blk-num"><circle cx="526" cy="115" r="8"/><text x="526" y="115">6</text></g><text class="blk-sub" x="540" y="119" style="text-anchor: start">bandwidth (sample rate)</text>
                   </g>
                   <!-- 7 crystal: clock of the tuner and the A/D -->
-                  <g class="blk" data-blk-for="ppmField" tabindex="0">
-                    <rect x="440" y="144" width="132" height="30" rx="6"/>
-                    <text class="blk-title" x="506" y="164">XTAL · ppm</text>
-                    <g class="blk-num"><circle cx="440" cy="144" r="10"/><text x="440" y="144">7</text></g>
+                  <g class="blk k-xtal" data-blk-for="ppmField" tabindex="0">
+                    <rect class="blk-bg" x="440" y="144" width="132" height="30" rx="6" mask="url(#blkFade)"/><rect x="440" y="144" width="132" height="30" rx="6"/>
+                    <text class="blk-title" x="495" y="164">XTAL · ppm</text>
+                    <g class="blk-ico" transform="translate(550 150)"><rect width="18" height="18" rx="4"/><svg x="3" y="3" width="12" height="12" viewBox="0 0 16 16"><rect x="5" y="3.4" width="6" height="9.2" rx="1"/><path d="M2.4 5v6M13.6 5v6M2.4 8H5M11 8h2.6"/></svg></g><g class="blk-num"><circle cx="440" cy="144" r="10"/><text x="440" y="144">7</text></g>
                   </g>
                   <path class="blk-clock" d="M440 159H416V122M572 159H600V128"/>
                   <!-- USB to the PC -->
@@ -1676,31 +1699,31 @@ ecordings, played in the browser -->
                   <text class="blk-sub" x="728" y="86">USB</text>
                   <text class="blk-sub" x="930" y="40">PC · RADIMCOM</text>
                   <!-- 8 DC removal -->
-                  <g class="blk" data-blk-for="dcSetting" tabindex="0">
-                    <rect x="760" y="68" width="90" height="54" rx="6"/>
+                  <g class="blk k-dc" data-blk-for="dcSetting" tabindex="0">
+                    <rect class="blk-bg" x="760" y="68" width="90" height="54" rx="6" mask="url(#blkFade)"/><rect x="760" y="68" width="90" height="54" rx="6"/>
                     <text class="blk-title" x="805" y="90">DC</text>
-                    <text class="blk-sub" x="805" y="108">peak removal</text>
-                    <g class="blk-num"><circle cx="760" cy="68" r="10"/><text x="760" y="68">8</text></g>
+                    <text class="blk-sub" x="805" y="111">peak removal</text>
+                    <g class="blk-ico" transform="translate(828 72)"><rect width="18" height="18" rx="4"/><svg x="3" y="3" width="12" height="12" viewBox="0 0 16 16"><path d="M1.2 13h5.3L8 2.5 9.5 13h5.3"/><path d="M5.6 6.2l4.8 4.8M10.4 6.2l-4.8 4.8"/></svg></g><g class="blk-num"><circle cx="760" cy="68" r="10"/><text x="760" y="68">8</text></g>
                   </g>
                   <line class="blk-wire" x1="850" y1="95" x2="868" y2="95" marker-end="url(#blkArrow)"/>
                   <!-- 10 SP spurs removal (ADVANCED): learned spur lines out of the spectrum and the VFO channel -->
-                  <g class="blk" data-blk-for="spurSetting" tabindex="0">
-                    <rect x="870" y="68" width="96" height="54" rx="6"/>
+                  <g class="blk k-sp" data-blk-for="spurSetting" tabindex="0">
+                    <rect class="blk-bg" x="870" y="68" width="96" height="54" rx="6" mask="url(#blkFade)"/><rect x="870" y="68" width="96" height="54" rx="6"/>
                     <text class="blk-title" x="918" y="90">SP</text>
-                    <text class="blk-sub" x="918" y="108">spurs removal</text>
-                    <g class="blk-num"><circle cx="870" cy="68" r="10"/><text x="870" y="68">10</text></g>
+                    <text class="blk-sub" x="918" y="111">spurs removal</text>
+                    <g class="blk-ico" transform="translate(944 72)"><rect width="18" height="18" rx="4"/><svg x="3" y="3" width="12" height="12" viewBox="0 0 16 16"><path d="M1.2 5h2.6l1 6.5 1-6.5h2.4l1 6.5 1-6.5h3.6"/></svg></g><g class="blk-num"><circle cx="870" cy="68" r="10"/><text x="870" y="68">10</text></g>
                   </g>
                   <line class="blk-wire" x1="966" y1="95" x2="984" y2="95" marker-end="url(#blkArrow)"/>
-                  <rect class="blk-end" x="986" y="62" width="116" height="66" rx="6"/>
-                  <text class="blk-sub" x="1044" y="82">spectrum</text>
-                  <text class="blk-sub" x="1044" y="99">waterfall</text>
-                  <text class="blk-sub" x="1044" y="116">VFO · decoders</text>
+                  <rect class="blk-bg k-out" x="986" y="62" width="116" height="66" rx="6" mask="url(#blkFade)"/><rect class="blk-end k-out" x="986" y="62" width="116" height="66" rx="6"/><g class="blk-end-ico k-out"><g class="blk-ico" transform="translate(1080 66)"><rect width="18" height="18" rx="4"/><svg x="3" y="3" width="12" height="12" viewBox="0 0 16 16"><path d="M2.5 6h2.6L8.8 3v10L5.1 10H2.5z"/><path d="M11 5.6a3.4 3.4 0 0 1 0 4.8M12.8 3.8a6 6 0 0 1 0 8.4"/></svg></g></g>
+                  <text class="blk-sub" x="1034" y="82">spectrum</text>
+                  <text class="blk-sub" x="1034" y="99">waterfall</text>
+                  <text class="blk-sub" x="1034" y="116">VFO · decoders</text>
                   <!-- 11 AGC+ (ADVANCED): reads the raw A/D samples, sets the tuner gain -->
                   <path class="blk-ctl" d="M726 95V157H750" marker-end="url(#blkArrow)"/>
-                  <g class="blk" data-blk-for="sagcSetting" tabindex="0">
-                    <rect x="752" y="142" width="118" height="30" rx="6"/>
-                    <text class="blk-title" x="811" y="162">AGC+</text>
-                    <g class="blk-num"><circle cx="752" cy="142" r="10"/><text x="752" y="142">11</text></g>
+                  <g class="blk k-agc" data-blk-for="sagcSetting" tabindex="0">
+                    <rect class="blk-bg" x="752" y="142" width="118" height="30" rx="6" mask="url(#blkFade)"/><rect x="752" y="142" width="118" height="30" rx="6"/>
+                    <text class="blk-title" x="800" y="162">AGC+</text>
+                    <g class="blk-ico" transform="translate(848 148)"><rect width="18" height="18" rx="4"/><svg x="3" y="3" width="12" height="12" viewBox="0 0 16 16"><path d="M2.5 3v10l8.5-5z"/><path d="M11 8h3"/><path d="M12.5 2v3.5M10.8 3.8h3.4"/></svg></g><g class="blk-num"><circle cx="752" cy="142" r="10"/><text x="752" y="142">11</text></g>
                   </g>
                   <path class="blk-ctl" d="M811 172V194H384V124" marker-end="url(#blkArrow)"/>
                   <text class="blk-sub" x="600" y="208">AGC+ sets the tuner gain from the A/D level</text>
@@ -1846,92 +1869,92 @@ ecordings, played in the browser -->
               <div class="setting blk-diagram agc-diagram" id="agcDiagram">
                 <div class="row"><span>Where AGC+ and ALC work</span></div>
                 <svg viewBox="0 0 600 498" role="img" aria-label="Diagram of the receiver: where AGC+, its settings and the audio ALC work">
-                  <defs><marker id="agcArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="blk-arrowhead"/></marker>
+                  <defs><linearGradient id="agcFadeG" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".17"/><stop offset="1" stop-color="#fff" stop-opacity=".04"/></linearGradient><mask id="agcFade" maskContentUnits="objectBoundingBox"><rect width="1" height="1" fill="url(#agcFadeG)"/></mask><marker id="agcArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="blk-arrowhead"/></marker>
                     <marker id="agcArrowG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="agc-arrow-g"/></marker>
                     <pattern id="agcHatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="6" class="agc-hatch"/></pattern></defs>
                   <!-- AGC+ loop: raw A/D samples in, tuner gain out -->
-                  <g class="blk" data-blk-for="sagcSetting" tabindex="0">
-                    <rect x="30" y="6" width="180" height="32" rx="6"/>
-                    <text class="blk-title" x="120" y="20">AGC+ <tspan id="agcdState" class="agc-state"></tspan></text>
-                    <text class="blk-sub" x="120" y="33">peak + clipping of each block</text>
+                  <g class="blk k-agc" data-blk-for="sagcSetting" tabindex="0">
+                    <rect class="blk-bg" x="30" y="6" width="180" height="32" rx="6" mask="url(#agcFade)"/><rect x="30" y="6" width="180" height="32" rx="6"/>
+                    <text class="agc-top blk-title" x="120" y="20">AGC+ <tspan id="agcdState" class="agc-state"></tspan></text>
+                    <text class="agc-top blk-sub" x="120" y="33">peak + clipping of each block</text>
                   </g>
                   <path class="blk-ctl" d="M45 38V58" marker-end="url(#agcArrowG)"/>
-                  <text class="blk-sub l" x="51" y="52">gain</text>
+                  <text class="agc-top blk-sub l" x="51" y="52">gain</text>
                   <path class="blk-ctl" d="M166 60V40" marker-end="url(#agcArrowG)"/>
-                  <text class="blk-sub l" x="172" y="52">raw samples</text>
+                  <text class="agc-top blk-sub l" x="172" y="52">raw samples</text>
                   <path class="blk-ctl" d="M210 22H529V58" marker-end="url(#agcArrowG)"/>
-                  <text class="blk-sub agc-g" x="380" y="17">a gain step: WFM plays that block in mono</text>
+                  <text class="agc-top blk-sub agc-g" x="380" y="17">a gain step: WFM plays that block in mono</text>
                   <!-- RF / IQ part -->
-                  <g class="blk" data-blk-for="gainSetting" tabindex="0">
-                    <rect x="10" y="60" width="80" height="40" rx="6"/>
-                    <text class="blk-title" x="50" y="77">TUNER</text>
-                    <text class="blk-sub agc-live" id="agcdGain" x="50" y="92">gain steps</text>
+                  <g class="blk k-dev" data-blk-for="gainSetting" tabindex="0">
+                    <rect class="blk-bg" x="10" y="60" width="80" height="40" rx="6" mask="url(#agcFade)"/><rect x="10" y="60" width="80" height="40" rx="6"/>
+                    <text class="agc-top blk-title" x="50" y="77">TUNER</text>
+                    <text class="agc-top blk-sub agc-live" id="agcdGain" x="50" y="92">gain steps</text>
                   </g>
                   <line class="blk-wire" x1="90" y1="80" x2="106" y2="80" marker-end="url(#agcArrow)"/>
-                  <rect class="blk-end" x="108" y="60" width="76" height="40" rx="6"/>
-                  <text class="blk-title" x="146" y="77">A/D</text>
-                  <text class="blk-sub agc-live" id="agcdAdc" x="146" y="92">converter</text>
+                  <rect class="blk-bg k-iq" x="108" y="60" width="76" height="40" rx="6" mask="url(#agcFade)"/><rect class="blk-end k-iq" x="108" y="60" width="76" height="40" rx="6"/>
+                  <text class="agc-top blk-title k-iq" x="146" y="77">A/D</text>
+                  <text class="agc-top blk-sub agc-live" id="agcdAdc" x="146" y="92">converter</text>
                   <line class="blk-wire" x1="184" y1="80" x2="200" y2="80" marker-end="url(#agcArrow)"/>
-                  <g class="blk" data-blk-for="dcSetting spurSetting" tabindex="0">
-                    <rect x="202" y="60" width="80" height="40" rx="6"/>
-                    <text class="blk-title" x="242" y="77">DC · SP</text>
-                    <text class="blk-sub" x="242" y="92">removal</text>
+                  <g class="blk k-sp" data-blk-for="dcSetting spurSetting" tabindex="0">
+                    <rect class="blk-bg" x="202" y="60" width="80" height="40" rx="6" mask="url(#agcFade)"/><rect x="202" y="60" width="80" height="40" rx="6"/>
+                    <text class="agc-top blk-title" x="242" y="77">DC · SP</text>
+                    <text class="agc-top blk-sub" x="242" y="92">removal</text>
                   </g>
                   <line class="blk-wire" x1="282" y1="80" x2="298" y2="80" marker-end="url(#agcArrow)"/>
-                  <g class="blk" data-blk-for="nbLevel nbWidth" tabindex="0">
-                    <rect x="300" y="60" width="56" height="40" rx="6"/>
-                    <text class="blk-title" x="328" y="77">NB</text>
-                    <text class="blk-sub" x="328" y="92">pulses</text>
+                  <g class="blk k-nb" data-blk-for="nbLevel nbWidth" tabindex="0">
+                    <rect class="blk-bg" x="300" y="60" width="56" height="40" rx="6" mask="url(#agcFade)"/><rect x="300" y="60" width="56" height="40" rx="6"/>
+                    <text class="agc-top blk-title" x="328" y="77">NB</text>
+                    <text class="agc-top blk-sub" x="328" y="92">pulses</text>
                   </g>
                   <line class="blk-wire" x1="356" y1="80" x2="372" y2="80" marker-end="url(#agcArrow)"/>
-                  <rect class="blk-end" x="374" y="60" width="76" height="40" rx="6"/>
-                  <text class="blk-title" x="412" y="77">FILTER</text>
-                  <text class="blk-sub" x="412" y="92">channel</text>
+                  <rect class="blk-bg k-filt" x="374" y="60" width="76" height="40" rx="6" mask="url(#agcFade)"/><rect class="blk-end k-filt" x="374" y="60" width="76" height="40" rx="6"/>
+                  <text class="agc-top blk-title k-filt" x="412" y="77">FILTER</text>
+                  <text class="agc-top blk-sub" x="412" y="92">channel</text>
                   <line class="blk-wire" x1="450" y1="80" x2="466" y2="80" marker-end="url(#agcArrow)"/>
-                  <rect class="blk-end" x="468" y="60" width="122" height="40" rx="6"/>
-                  <text class="blk-title" x="529" y="77">DEMOD</text>
-                  <text class="blk-sub" x="529" y="92">AM SSB CW FM WFM</text>
+                  <rect class="blk-bg k-dem" x="468" y="60" width="122" height="40" rx="6" mask="url(#agcFade)"/><rect class="blk-end k-dem" x="468" y="60" width="122" height="40" rx="6"/>
+                  <text class="agc-top blk-title k-dem" x="529" y="77">DEMOD</text>
+                  <text class="agc-top blk-sub" x="529" y="92">AM SSB CW FM WFM</text>
                   <path class="blk-wire" d="M529 100V115H41V128" marker-end="url(#agcArrow)"/>
                   <!-- audio part -->
-                  <rect class="blk-end" x="10" y="130" width="62" height="40" rx="6"/>
-                  <text class="blk-title" x="41" y="147">NOTCH</text>
-                  <text class="blk-sub" x="41" y="162">AM SSB</text>
+                  <rect class="blk-bg k-aud" x="10" y="130" width="62" height="40" rx="6" mask="url(#agcFade)"/><rect class="blk-end k-aud" x="10" y="130" width="62" height="40" rx="6"/>
+                  <text class="agc-top blk-title k-aud" x="41" y="147">NOTCH</text>
+                  <text class="agc-top blk-sub" x="41" y="162">AM SSB</text>
                   <line class="blk-wire" x1="72" y1="150" x2="86" y2="150" marker-end="url(#agcArrow)"/>
-                  <g class="blk" data-blk-for="dnrLevel" tabindex="0">
-                    <rect x="88" y="130" width="56" height="40" rx="6"/>
-                    <text class="blk-title" x="116" y="147">DNR</text>
-                    <text class="blk-sub" x="116" y="162">noise</text>
+                  <g class="blk k-aud" data-blk-for="dnrLevel" tabindex="0">
+                    <rect class="blk-bg" x="88" y="130" width="56" height="40" rx="6" mask="url(#agcFade)"/><rect x="88" y="130" width="56" height="40" rx="6"/>
+                    <text class="agc-top blk-title" x="116" y="147">DNR</text>
+                    <text class="agc-top blk-sub" x="116" y="162">noise</text>
                   </g>
                   <line class="blk-wire" x1="144" y1="150" x2="158" y2="150" marker-end="url(#agcArrow)"/>
-                  <g class="blk" data-blk-for="agcSmooth" tabindex="0">
-                    <rect x="160" y="130" width="84" height="40" rx="6"/>
-                    <text class="blk-title" x="202" y="147">ALC</text>
-                    <text class="blk-sub" x="202" y="162">AM SSB CW</text>
-                    <text class="blk-sub agc-g" x="202" y="186">Smooth ALC gain</text>
+                  <g class="blk k-aud" data-blk-for="agcSmooth" tabindex="0">
+                    <rect class="blk-bg" x="160" y="130" width="84" height="40" rx="6" mask="url(#agcFade)"/><rect x="160" y="130" width="84" height="40" rx="6"/>
+                    <text class="agc-top blk-title" x="202" y="147">ALC</text>
+                    <text class="agc-top blk-sub" x="202" y="162">AM SSB CW</text>
+                    <text class="agc-top blk-sub agc-g" x="202" y="186">Smooth ALC gain</text>
                   </g>
                   <line class="blk-wire" x1="244" y1="150" x2="258" y2="150" marker-end="url(#agcArrow)"/>
-                  <g class="blk" data-blk-for="dynExp dynLim" tabindex="0">
-                    <rect x="260" y="130" width="66" height="40" rx="6"/>
-                    <text class="blk-title" x="293" y="147">NTH</text>
-                    <text class="blk-sub" x="293" y="162">EXP · LIM</text>
+                  <g class="blk k-aud" data-blk-for="dynExp dynLim" tabindex="0">
+                    <rect class="blk-bg" x="260" y="130" width="66" height="40" rx="6" mask="url(#agcFade)"/><rect x="260" y="130" width="66" height="40" rx="6"/>
+                    <text class="agc-top blk-title" x="293" y="147">NTH</text>
+                    <text class="agc-top blk-sub" x="293" y="162">EXP · LIM</text>
                   </g>
                   <line class="blk-wire" x1="326" y1="150" x2="340" y2="150" marker-end="url(#agcArrow)"/>
-                  <g class="blk" data-blk-for="afiHz" tabindex="0">
-                    <rect x="342" y="130" width="46" height="40" rx="6"/>
-                    <text class="blk-title" x="365" y="155">AFI</text>
+                  <g class="blk k-aud" data-blk-for="afiHz" tabindex="0">
+                    <rect class="blk-bg" x="342" y="130" width="46" height="40" rx="6" mask="url(#agcFade)"/><rect x="342" y="130" width="46" height="40" rx="6"/>
+                    <text class="agc-top blk-title" x="365" y="155">AFI</text>
                   </g>
                   <line class="blk-wire" x1="388" y1="150" x2="402" y2="150" marker-end="url(#agcArrow)"/>
-                  <g class="blk" data-blk-for="hpfHz lpfHz" tabindex="0">
-                    <rect x="404" y="130" width="76" height="40" rx="6"/>
-                    <text class="blk-title" x="442" y="147">HPF·LPF</text>
-                    <text class="blk-sub" x="442" y="162">audio</text>
+                  <g class="blk k-aud" data-blk-for="hpfHz lpfHz" tabindex="0">
+                    <rect class="blk-bg" x="404" y="130" width="76" height="40" rx="6" mask="url(#agcFade)"/><rect x="404" y="130" width="76" height="40" rx="6"/>
+                    <text class="agc-top blk-title" x="442" y="147">HPF·LPF</text>
+                    <text class="agc-top blk-sub" x="442" y="162">audio</text>
                   </g>
                   <line class="blk-wire" x1="480" y1="150" x2="494" y2="150" marker-end="url(#agcArrow)"/>
-                  <g class="blk" data-blk-for="asqDb" tabindex="0">
-                    <rect x="496" y="130" width="64" height="40" rx="6"/>
-                    <text class="blk-title" x="528" y="147">SQL</text>
-                    <text class="blk-sub" x="528" y="162">ASQ</text>
-                    <text class="blk-sub agc-g" x="528" y="186">AGC+ makes it ASQ</text>
+                  <g class="blk k-sql" data-blk-for="asqDb" tabindex="0">
+                    <rect class="blk-bg" x="496" y="130" width="64" height="40" rx="6" mask="url(#agcFade)"/><rect x="496" y="130" width="64" height="40" rx="6"/>
+                    <text class="agc-top blk-title" x="528" y="147">SQL</text>
+                    <text class="agc-top blk-sub" x="528" y="162">ASQ</text>
+                    <text class="agc-top blk-sub agc-g" x="528" y="186">AGC+ makes it ASQ</text>
                   </g>
                   <line class="blk-wire" x1="560" y1="150" x2="572" y2="150" marker-end="url(#agcArrow)"/>
                   <path class="agc-spk" d="M576 144h5l7-6v24l-7-6h-5z"/>

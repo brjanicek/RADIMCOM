@@ -21,9 +21,14 @@ horizontal speed, direction and climb of the sonde, its flight path on a map, th
    RS41 / DFM / M20 demodulator. A channel without a signal and a frame for 60 s is dropped. The signal the VFO is
    tuned to (±10 kHz) is decoded by the VFO only. While SONDE is on (with or without MULTI), the audio of the VFO is
    muted (a sonde is only noise to listen to; MUTE in the VFO list); switch SONDE off to listen. Runs in its own thread; ~7 ms of CPU a channel per 64 ms of samples.
+   **TYPES** (beside MULTI) opens a row of check boxes: RS41, DFM, M10 / M20, LMS6, iMet-54, MRZ, Meisei, MTS01,
+   CF-06 / HT03. Tick only the types launched in your area: while the type of a signal is not known, each ticked type
+   is one decoder program listening on the channel (with MULTI on every channel), so fewer types = much less CPU on
+   the server. A sonde of an unticked type is not decoded. At least one type stays ticked; kept per VFO
+   (`sonde_types` in its config). A type whose program is missing in `lib\sonde` is greyed out.
 3. **SONDES**: the newest data of each sonde (serial, frequency, position, altitude, climb, km/h, direction, distance,
    azimuth / elevation from the station, RS41 temperature and humidity, GPS satellites, battery, state: rising, falling after the burst, landed, lost).
-   A click on the serial or position opens the **MAP**: a balloon while it rises, a parachute after the burst (yellow ring
+   A click on the serial or position opens the **MAP**: a light blue balloon while it rises, a parachute after the burst (yellow ring
    at the highest point), the flight path in green, the station as a red dot; the □ key opens the map in a new tab
    (`?map=sonde`). **HISTORY OFF / 1D / 7D** in the header of the page, beside SONDES / MAP / FRAMES (one choice for the table and the map): the flights of all VFOs from the
    radiosonde log of the last day / week as thin blue paths with their last point (tooltip: serial, type, frequency, time,
@@ -36,6 +41,8 @@ Around Bratislava (station JN88NC): Wien Hohe Warte (11035, 56 km, RS41, launche
 Prostějov, Budapest (403.2 MHz), Poprad-Gánovce (400.6 MHz), Praha, Graz, Linz, Zagreb – all RS41.
 DFM sondes are launched by the military (e.g. Záhorie, irregularly). A high sonde is heard 300–500 km away,
 one on the ground only a few km.
+
+- **Rotor:** with **SONDE TRACKER** connected in RCTRL › SETTINGS (disconnected by default) the rotor follows the sonde chosen in DECODERS › SONDE. Only its GPS position and altitude are used: the azimuth and elevation are calculated from the QTH and its altitude (SETTINGS › GENERAL › LOCATION) on the WGS84 ellipsoid, so the curvature of the Earth is included; the elevation is held at 0–90°. The rotor moves at most every 5 s and only for a change of 2° or more. It works while the RADIMCOM page shows the VFO with the SONDE decoder (the frames come to the page) and the rotor takes commands (not while the satellite tracking holds it). See [Rotor control map](../satellites.md#rotor-control-map).
 
 ## Launch sites on the map
 
@@ -90,7 +97,7 @@ kept in `sonde.py`).
   are known, e.g. *12/51*) and humidity right after it. Temperature as in rs41mod (rs1729): reference resistors →
   sensor resistance → polynomial; humidity with its simple empirical formula (approximate, a few %). The sonde type
   (RS41-SG / RS41-SGP) also comes from the calibration. Pressure of the RS41-SGP is not decoded.
-  **Profile** in MAP, on the right of the map: the sonde chosen in the list above it (orange icon; Auto = the one decoded on the tuned frequency; a click on a sonde on the map chooses it, a click on the map goes back to Auto), altitude on the vertical axis, two panels side by side – temperature °C
+  **Profile** in MAP, on the right of the map: the sonde chosen in the list above it (orange icon; chosen by hand only – in the list or by a click on the sonde on the map, no automatic choice; the choice is kept over a reload and a restart), altitude on the vertical axis, two panels side by side – temperature °C
   and humidity % (descent after the burst fainter); the right edge labels the altitude with the pressure of the
   standard atmosphere (hPa, orientation only). Hover shows altitude, time, T, RH, hPa. The altitude axis is fixed
   0–41 km and the plot fills the page height.
@@ -157,7 +164,7 @@ taken over.
 - **Since 1.0beta1 the frames are decoded by the decoders of rs1729** (zilog80, <https://github.com/rs1729/RS>,
   GPL v3; separate programs in `lib\sonde`, built by `installer/build_sonde.sh`, `sonde_ext.py`): RS41, DFM, M10 / M20,
   LMS6-403, iMet-54, MRZ-N1 / MP3-H1, iMS-100 / RS-11G, MTS01 and CF-06 / HT03. The baseband of the channel (the VFO
-  channel and each MULTI channel) goes as float32 I/Q into all of them (`--IQ 0.0 --lpIQ --dc --json`); under 44 kHz
+  channel and each MULTI channel) goes as float32 I/Q into all of them (only the types ticked under TYPES) (`--IQ 0.0 --lpIQ --dc --json`); under 44 kHz
   at twice the rate (rs41mod loses frames at 37.5 kHz and fails at 32 kHz). The first one that decodes a frame stays,
   the others are ended; silent for 60 s, all of them listen again. Their JSON lines become the frames of the SONDE page
   (time: rs1729's GPS time − 18 s). Without samples for 10 s the programs end. RS92 is not run: it needs GPS

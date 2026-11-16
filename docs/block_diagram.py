@@ -48,7 +48,7 @@ def label(x,y,s,kind=None,anchor="middle",size=13,rot=None):
 
 # Title
 text(40,50,"RADIMCOM: block diagram of all components",32,weight=700)
-text(40,78,"Signal flows from the hardware at the bottom up to the browser at the top. Ver. 1.0beta1",16,MUTE)
+text(40,78,"Signal flows from the hardware at the bottom up to the browser at the top. Ver. 1.0beta2",16,MUTE)
 
 # ---------- top row ----------
 group(40,115,300,215,"VFO launcher",FILL["srv"])
@@ -169,7 +169,7 @@ box(2040,823,320,46,"dumphfdl.exe (lib\\hfdl)",["HFDL, IQ from hfdl.py; GPL v3"]
 # ---------- satellite tracking ----------
 group(2420,115,340,760,"Satellite tracking",FILL["srv"],"in the VFO process (dashed link)")
 box(2440,175,300,150,"sattrack.py, satplan.py",["TLE (CelesTrak), SGP4 passes, map;","Doppler correction of the VFO;","rotor plan of each pass","(normal, overlap, flipped, over top);","satellites.py: AMSAT lists"])
-box(2440,410,300,130,"rotor.py",["K3NG azimuth 0-450, calibration,","GS-232, position checks and stop;","one per station: data\\rotor.json;","SETTINGS › GENERAL › ROTOR,","ROTOR CONTROL tab, TRACK page"])
+box(2440,410,300,130,"rotor.py",["K3NG azimuth 0-450, calibration,","GS-232, position checks and stop;","one per station: data\\rotor.json;","RCTRL › SETTINGS,","ROTOR CONTROL tab, TRACK page"])
 box(2440,640,300,80,"K3NG rotor controller",["Arduino, USB serial"],mono=False)
 box(2440,775,300,70,"Antenna rotor",["azimuth and elevation"],mono=False)
 

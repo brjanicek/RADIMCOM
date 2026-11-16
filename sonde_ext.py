@@ -37,6 +37,23 @@ DECODERS = (
     ("mts01mod", []),                                  # MTS01 (Meteosis MTS01)
     ("cf06ht03mod", []),                               # CF-06-AH, HT03G-1U (Chinese)
 )
+# SONDE > TYPES: the decoders that listen while the type is not known yet (only the sondes launched in the area);
+# None = all. Each one is a program per channel (with MULTI per channel), so fewer types = much less CPU.
+ENABLED = None
+
+
+def set_enabled(names):
+    """Decoders allowed to listen (program names of DECODERS); None or an empty list = all."""
+    global ENABLED
+    known = [n for n, _ in DECODERS]
+    sel = [n for n in (names or []) if n in known]
+    ENABLED = None if not sel or len(sel) == len(known) else set(sel)
+
+
+def enabled():
+    return [n for n, _ in DECODERS if ENABLED is None or n in ENABLED]
+
+
 SEARCH_AFTER_S = 60.0        # the locked decoder silent this long: all decoders listen again
 IDLE_S = 10.0                # no samples this long: the programs are ended
 QUEUE_S = 2.0                # seconds of samples waiting for a program (more: the block is dropped for it)
@@ -189,9 +206,10 @@ class ExtChannel:
             if self._watch is None:
                 self._watch = threading.Thread(target=self._idle_watch, name="sonde-idle", daemon=True)
                 self._watch.start()
-            if self.locked and (self.last_frame is None or now - self.last_frame > SEARCH_AFTER_S):
-                self.locked = None                    # silent: listen for every type again
-            want = [self.locked] if self.locked else [n for n, _ in DECODERS]
+            if self.locked and (self.last_frame is None or now - self.last_frame > SEARCH_AFTER_S
+                                or (ENABLED is not None and self.locked not in ENABLED)):
+                self.locked = None                    # silent (or its type switched off): listen for the types again
+            want = [self.locked] if self.locked else enabled()
             for name in [n for n in self.procs if not self.procs[n].alive]:
                 self.procs.pop(name).close()          # a program that ended is started again
             self._stop(keep=want)
