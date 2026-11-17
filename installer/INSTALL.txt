@@ -119,7 +119,7 @@ VFO window:
 Audio and recording:
 - MUTE key of each VFO (red LED) between the VFO and CUE keys under the VFO windows: silences that VFO in this browser
   (MAIN and CUE), the display shows the struck-through speaker; shown in SETTINGS > STATION.
-- MONITOR: the CUE / MAIN faders and the L-R meter centred vertically against the keys beside them.
+- MONITOR: the CUE / MAIN faders, dB scale and L-R meter as tall as the speaker and RECORD keys beside them.
 - AUDIO: the CUE key removed (CUE of each VFO is the key under its VFO window).
 - REC IQ (under REC SQ, dark blue LED): the whole IQ of the dongle to WAV as SDR# records it (I/Q stereo,
   8 bit RTL / 16 bit LimeSDR, Airspy; centre frequency in the name), folder recordings\iq; ~290 MB/min at 2.4 MS/s.

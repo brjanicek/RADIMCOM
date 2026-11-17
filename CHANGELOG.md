@@ -118,8 +118,8 @@ Release candidate (GitHub branch `1.0rc1`; continues the test betas `1.0beta1` a
   VFO in this browser, as MAIN and as CUE (the receiver, its decoders, recording and the scanner go on; the audio spectrum
   bubble still shows it); its display shows the red struck-through speaker as when a decoder mutes it. Remembered in the
   browser per VFO. SETTINGS › STATION shows it: a MUTE chip in the VFO row and in OUTPUT, the muted VFOs in AUDIO.
-- **MONITOR:** the CUE / MAIN faders with the dB scale and the L · R meter centred vertically against the speaker and
-  RECORD keys beside them.
+- **MONITOR:** the CUE / MAIN faders, the dB scale and the L · R meter as tall as the speaker and RECORD keys beside
+  them (from the top of the speaker key to the bottom of REC IQ; the head does not grow).
 - **AUDIO: the CUE key removed** – it duplicated CUE under the VFO windows (and CUE in the VFO window).
 - **REC IQ** (under REC SQ, dark blue LED): the whole IQ of the dongle – the full band at its sample rate – to WAV as SDR#
   records it: I left, Q right, 8 bit unsigned from an RTL-SDR (its bytes as they come), 16 bit from LimeSDR / Airspy; in

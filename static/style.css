@@ -2709,7 +2709,11 @@ html[data-skin="alu-light"] .r-bands, html[data-ink="dark"] .r-bands { border-to
 .r-master .r-logo { height: 42px; margin: 4px 0 0; }
 .r-master .vol { align-self: stretch; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 6px 16px; }
 .vol > .r-gh:first-child { grid-column: 1 / -1; margin-bottom: 0; }
-.vol > .vol-sliders { grid-column: 1; grid-row: 2 / span 5; align-self: center; }   /* centred against the keys at the right */
+/* faders, dB scale and meter as tall as the speaker + RECORD keys at the right (the rows come from the keys) */
+.vol > .vol-sliders { grid-column: 1; grid-row: 2 / span 5; align-self: stretch; }
+.r-master .vol-ch, .r-master .vol-scale, .r-master .vu { align-self: stretch; }
+.r-master .vol input[type=range], .r-master .vol-scale > div, .r-master .vu-cols { flex: 1 1 0; height: 0; min-height: 60px; }
+.r-master .vol-scale i { bottom: calc(6px + var(--f) * (100% - 12px)); }
 .vol > .spk { grid-column: 2; grid-row: 2; }
 .vol > .spk + .r-gh { grid-column: 2; grid-row: 3; margin-top: 8px; }
 .vol > #recBtn { grid-column: 2; grid-row: 4; }
