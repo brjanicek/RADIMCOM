@@ -303,9 +303,14 @@ browser – and the **CUE** key of that VFO (orange LED): that VFO stays audible
           *Overload: clipping above*) cuts at once by at least *cut*, 6 / 9 / 14 / 30 dB at 0.1 / 1 / 5 / 20 % clipped, and leaves a
           ceiling 3 dB under that gain for 20 s (90 s after three in a minute); then it climbs back to the gain before (4 dB per 1.2 s).
           Headroom under target − *dead band*: down by the error (every 0.8 s). Room: up by at most *up* every *between steps* – not
-          while the noise floor is more than *gain wasted* over its goal (narrow 10 dB, FM 5, DAB 8, ADS-B 12; HF −2), 3 dB more
+          while the noise floor is more than *gain wasted* over its goal (narrow 10 dB, FM 5, DAB 8, ADS-B 12; HF +2), 3 dB more
           takes a step down; inside the dead band a floor under its goal raises the gain 3 dB. After a step down a step up needs
           1.5× the dead band for 8 s; the first 8 s after a start or a retune climb faster. *Settle*: blocks ignored after a change.
+          **HF:** below 30 MHz (narrow channel), while the floor is under its goal (+ the dead band), the sensitivity wins:
+          AGC+ climbs 3 dB at a time down to a headroom of **4 dB** instead of stopping at the headroom target (on 31 m and 80 m the
+          S/N was 5–10 dB better there); clipping still cuts at once. A step up for the sensitivity must not take the floor over
+          its goal + the dead band (predicted by the measured step), and a step down for the headroom goes no deeper than the
+          floor's goal, so it does not hunt across it.
           **Real steps:** AGC+ measures how far each gain step really moved the headroom (the low steps of an R820T are much bigger
           than the table says: on HF 0 → 3.7 dB moved the A/D by ~15 dB) and steps up only when the measured step (or a chain of
           measured ones) does not take it under the dead band. A step down within 10 s of a step up holds the gain there for 30 s

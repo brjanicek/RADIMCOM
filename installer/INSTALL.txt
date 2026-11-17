@@ -83,6 +83,8 @@ Change log
 Ver. 1.1beta1
 (test beta, GitHub branch 1.1beta1; continues the release 1.0)
 Changes
+- AGC+ on HF: more gain where it buys SNR – while the band's noise is close to the A/D's own noise, it climbs down to
+  4 dB of headroom (was ~15 dB), the floor's goal on HF 12 dB over the A/D's noise (was 8); clipping still cuts at once.
 - AGC+: only the former preset BOLD, now the default (the others set too little gain); a VFO saved with another one gets it.
 - AGC+ card: the warning and the "why" line keep their place, nothing jumps.
 Fixes

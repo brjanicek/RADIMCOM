@@ -6,6 +6,16 @@ Test beta (GitHub branch `1.1beta1`; continues the release 1.0).
 
 ### Changes
 
+- **AGC+ on HF: the sensitivity wins over the headroom.** A temporary SNR sweep (the S/N of the tuned signal at every tuner gain) on 31 m (AM) showed AGC+ holding 3.7 dB with the
+  band's floor only ~3 dB over the A/D's noise, while the S/N was 5–10 dB better at 15–20 dB of gain (7 dB of headroom,
+  no clipping); on 80 m (RWM) it kept rising up to a floor 11–14 dB over the A/D's noise with 2.5–4.5 dB of headroom.
+  On HF the floor's goal is now 12 dB over the A/D's noise (narrow channel; was 8) and, below 30 MHz while the floor is
+  under its goal (+ the dead band as hysteresis), AGC+ climbs 3 dB at a time down to a headroom of 4 dB instead of
+  stopping at the headroom target; clipping still cuts at once. A step up for the sensitivity must not take the floor over
+  its goal + the dead band (predicted by the measured step), a step down for the headroom goes no deeper than the floor's
+  goal, so it does not hunt across it. On 80 m (RWM) AGC+ then sat at 19.7 dB of gain (floor 9.8 dB over the A/D's noise,
+  5.7 dB of headroom), in the best S/N of the sweep (16.6–20.7 dB; clipping from 28 dB). Test
+  `test_hf_sensitivity_wins_over_the_headroom`.
 - **AGC+ only BOLD:** the defaults are now the former preset BOLD (−4 dB headroom, clipping up to 0.03 %, faster steps up);
   CONSERV., CAREFUL and MODERATE set too little gain (on HF the A/D's own noise limited the sensitivity) and are no longer
   offered. A VFO saved with one of them gets the defaults; DEFAULT sets them. The sliders stay.
