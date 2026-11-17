@@ -40,14 +40,16 @@ class Front:
     """Levels in dBFS at the A/D for 0 dB gain; the front end is linear except the radio's own noise
     (rx0 + rx_slope * gain) and the product (3 * strong - 2 * iip3, output referred)."""
 
-    def __init__(self, ant=-118.0, rx0=-112.0, rx_slope=0.55, strong=-55.0, iip3=40.0, center=CENTER, seed=1):
+    def __init__(self, ant=-118.0, rx0=-112.0, rx_slope=0.55, strong=-55.0, iip3=40.0, center=CENTER, seed=1, real=None):
         self.ant, self.rx0, self.rx_slope, self.strong, self.iip3 = ant, rx0, rx_slope, strong, iip3
+        self.real = real or (lambda g: g)       # the real gain of a table value (the R820T's low steps are not what it says)
         self.center, self.rng = center, np.random.default_rng(seed)
         b = lambda hz: int((hz - (center - FS / 2)) / (FS / NFFT))     # noqa: E731
         self.k_strong, self.k_prod = b(center - 500e3), b(center + 600e3)
         self.phase = 0.0
 
     def levels(self, g, extra=0.0):
+        g = self.real(g)
         floor = 10 ** ((self.ant + g) / 10) + 10 ** ((self.rx0 + self.rx_slope * g) / 10)
         s = self.strong + g + extra
         return floor, s, 3 * s - 2 * self.iip3
@@ -118,6 +120,21 @@ class Auto(unittest.TestCase):
         self.assertLess(g, 40)                                      # the headroom alone would take it to the top
         self.assertLessEqual(margin, tgt.goal + p["wasted_db"] + 3)
         self.assertGreater(margin, tgt.goal)
+
+    def test_no_hunting_on_a_step_bigger_than_it_says(self):
+        # 40 m, a strong station: the table step 0 -> 3.7 dB moves the A/D by ~15 dB (seen on an R820T), the target
+        # lies between the two; AGC+ went up and down every 2.5 s (a line across the waterfall each time)
+        p = gainctl.sagc_params({})
+        front = Front(ant=-100.0, strong=-31.0, center=7.1e6, real=lambda g: g * 4.0 if g < 4 else g + 11.1)
+        tgt = gainctl.Target("narrow", 7.1e6 + 300e3, True, 0)
+        log = run_auto(front, p, tgt, seconds=300, g0=0.0)
+        n, early = changes(log, 90), changes(log, 0)
+        heads = [h for t, g, h, m, c in log if t > 90]
+        print(f"\nbig step: gain {log[-1][1]} dB, headroom median {np.median(heads):.1f} (target {tgt.head}), "
+              f"changes {early} in all, {n} after 90 s")
+        self.assertEqual(n, 0)                                              # it learnt the real steps: no hunting
+        self.assertLessEqual(early, 8)                                      # learning costs a few steps, 30 s apart
+        self.assertGreater(min(heads), tgt.head - p["window_db"])
 
     def test_recovers_after_an_overload_burst(self):
         p = gainctl.sagc_params({})

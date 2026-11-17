@@ -67,7 +67,7 @@ class Target:
             head, goal, band = head - 2, goal + 2, "above 1 GHz: sensitivity first"
         if wide_capture:
             head += 2                           # the band is much wider than the channel: more strong signals reach the A/D
-        self.kind, self.band = kind, band
+        self.kind, self.band, self.freq_hz = kind, band, freq_hz
         self.head, self.goal, self.use_hold = head + adj, goal, hold
 
     def as_dict(self):
@@ -217,6 +217,8 @@ class SmartAgc:
         self.last_up = self.last_down = -1e9
         self.acq_until = 0.0
         self.limit, self.last, self.last_t = "", "", None
+        self.step_db = {}                       # (band, low gain, high gain): the headroom it really moved, measured
+        self.pend = None                        # the last change (old gain, new gain, headroom before), to measure it
         self.reset()
 
     def reset(self, settle=0, acquire=True):
@@ -228,6 +230,37 @@ class SmartAgc:
 
     def _note(self, text):
         self.last, self.last_t = text, time.time()
+
+    @staticmethod
+    def _band(tgt):
+        f = getattr(tgt, "freq_hz", 145e6)
+        return "hf" if f < 30e6 else int(math.log2(f / 30e6))
+
+    def _est(self, tgt, gain, up, dpu):
+        """How much a step from gain to up takes off the headroom: measured if it was made before, else by the table.
+        The low steps of an R820T are not what the table says (on HF 0 -> 3.7 dB moved the A/D by ~15 dB)."""
+        band = self._band(tgt)
+        # a chain of measured steps from gain to up (0 -> 2.7 and 0 -> 3.7 measured give 2.7 -> 3.7)
+        seen, todo = {gain: 0.0}, [gain]
+        while todo:
+            a = todo.pop()
+            for (b, lo, hi), d in self.step_db.items():
+                if b != band or a not in (lo, hi):
+                    continue
+                n, v = (hi, seen[a] + d) if a == lo else (lo, seen[a] - d)
+                if n not in seen:
+                    seen[n] = v
+                    todo.append(n)
+        return seen[up] if up in seen else (up - gain) * dpu
+
+    def _fit(self, gains, gain, up, tgt, dpu, head, floor):
+        """The highest gain from gain to up (exclusive / inclusive) whose predicted headroom stays at or over floor."""
+        if up is None:
+            return None
+        for g in reversed([g for g in gains if gain < g <= up + 1e-9]):
+            if head - self._est(tgt, gain, g, dpu) >= floor:
+                return g
+        return None
 
     def measure(self, raw, block_s):
         self.t += block_s
@@ -247,6 +280,15 @@ class SmartAgc:
         new, ppm, win = None, self.clip * 1e6, p["window_db"]
         head = self.meter.headroom(tgt.use_hold)
         margin = self.meter.spec.get("margin")
+        if self.pend:
+            # the first look after a change: how far it really moved the headroom (the table may lie)
+            g0, g1, h0 = self.pend
+            self.pend = None
+            if g1 == gain and ppm <= p["clip_ppm"]:
+                k = (self._band(tgt), min(g0, g1), max(g0, g1))
+                d = max(abs(h0 - head), 0.3)
+                self.step_db[k] = d if k not in self.step_db else 0.5 * self.step_db[k] + 0.5 * d
+        hunt = t - self.last_up < 10.0         # a step down this soon after a step up: the step up was too big
         if ppm > p["clip_ppm"]:
             # overload: cut at once by how bad it is; a soft ceiling 3 dB under this gain, longer when it repeats
             cut = _cut_db(ppm, p["down_db"])
@@ -270,7 +312,8 @@ class SmartAgc:
             if t - self.last_down >= 0.8:
                 new = _down(gains, gain, max(tgt.head - head, 1.0), dpu)
                 if new != gain:
-                    self._note(f"down {(gain - new) * dpu:.1f} dB: headroom {head:.1f} dB under the target {tgt.head:.0f} dB")
+                    self._note(f"down {(gain - new) * dpu:.1f} dB: headroom {head:.1f} dB under the target {tgt.head:.0f} dB"
+                               + self._hunting(hunt, new, t))
                     self.last_down = t
                     self.before = None
         else:
@@ -287,7 +330,8 @@ class SmartAgc:
                 below = [g for g in gains if g < gain]
                 if below and margin - (gain - below[-1]) * dpu > tgt.goal + p["wasted_db"] and t - self.last_down >= 2.5:
                     new = below[-1]
-                    self._note(f"down {(gain - new) * dpu:.1f} dB: the noise floor is {margin:.0f} dB over the A/D's (gain wasted)")
+                    self._note(f"down {(gain - new) * dpu:.1f} dB: the noise floor is {margin:.0f} dB over the A/D's (gain wasted)"
+                               + self._hunting(hunt, new, t))
                     self.last_down = t
                 self.limit = "wasted"
             elif wasted:
@@ -300,6 +344,7 @@ class SmartAgc:
                 if recovering and up is not None and up > self.before:
                     cap = [g for g in gains if gain < g <= self.before]
                     up = cap[-1] if cap else None
+                up = self._fit(gains, gain, up, tgt, dpu, self.win_head, tgt.head - win + 1.0)
                 if up is not None and up != gain:
                     new = up
                     why = "back toward the gain before the overload" if recovering else f"headroom {head:.1f} dB, target {tgt.head:.0f} dB"
@@ -314,7 +359,7 @@ class SmartAgc:
                     self.limit = "headroom"
             elif (margin is not None and margin < tgt.goal and abs(room) <= win and head - 3 >= tgt.head - win
                   and t - self.last_up >= hold):
-                up = _up(gains, gain, 3.0, dpu, ceil)
+                up = self._fit(gains, gain, _up(gains, gain, 3.0, dpu, ceil), tgt, dpu, head, tgt.head - win)
                 if up is not None:
                     new = up
                     self._note(f"up {(new - gain) * dpu:.1f} dB: the noise floor only {margin:.1f} dB over the A/D's (goal {tgt.goal:.0f} dB)")
@@ -327,7 +372,16 @@ class SmartAgc:
         if new is None or new == gain:
             return None
         self.reset(backlog + int(p["settle"]) + 1, acquire=False)
+        self.pend = (gain, new, head)
         return new
+
+    def _hunting(self, hunt, new, t):
+        """A step down right after a step up: hold the gain under the one that was too hot for 30 s."""
+        if not hunt:
+            return ""
+        self.ceil = new if self.ceil is None or t >= self.ceil_until else min(self.ceil, new)
+        self.ceil_until = max(self.ceil_until, t + 30.0)
+        return " (right after a step up: held here 30 s)"
 
     def why(self, tgt, gain_text, p):
         """The line "why this gain" for the page."""
