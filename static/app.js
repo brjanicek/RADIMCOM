@@ -2648,7 +2648,8 @@ function sagcText(k, v, unit) {
   if (k === "settle") return `${v} ${Number(v) === 1 ? "block" : "blocks"}`;
   return `${v} ${unit}`;
 }
-// AGC+ presets, conservative to bold. MODERATE = the defaults of the server (SAGC_PARAMS in gainctl.py)
+// AGC+ presets, conservative to bold. BOLD = the defaults of the server (SAGC_PARAMS in gainctl.py) and the only one
+// offered after the release 1.0 (the others set too little gain on HF; their keys are hidden, a config saved with one gets BOLD)
 const SAGC_PRESETS = {
   // 6 dB more headroom, every clipped sample cuts, small slow steps up
   conservative: { headroom_adj: 6, window_db: 3, clip_ppm: 0, down_db: 4, up_db: 3, hold_s: 4, wasted_db: 12, settle: 3 },
@@ -2725,11 +2726,12 @@ function renderAgcMeter() {
   if (a.snr != null) parts.push(`channel SNR ${dbTxt(a.snr)}`);
   if (a.kind_text) parts.push(`${a.kind_text}${a.band ? ` · ${a.band}` : ""}`);
   $("agcNums").innerHTML = parts.join(" · ");
+  // fixed lines (the place stays when empty, long text is cut with … and is whole in the tooltip): nothing jumps
   $("agcWarn").textContent = a.warn || "";
-  $("agcWarn").hidden = !a.warn;
+  $("agcWarn").title = a.warn || "";
   const why = smart && a.why ? `Why: ${a.why}${a.last ? `. Last: ${a.last}` : ""}` : "";
   $("agcWhy").textContent = why;
-  $("agcWhy").hidden = !why;
+  $("agcWhy").title = why;
 }
 function renderSagc() {
   const p = st.sagc || {}, a = st.agc || {};
@@ -2765,7 +2767,7 @@ document.querySelectorAll("#sagcPresets [data-preset]").forEach((b) => b.addEven
   send({ sagc: SAGC_PRESETS[b.dataset.preset] });
 }));
 
-$("sagcDefault").addEventListener("click", () => document.querySelector('#sagcPresets [data-preset="moderate"]').click());
+$("sagcDefault").addEventListener("click", () => document.querySelector('#sagcPresets [data-preset="bold"]').click());
 
 // DEFAULT keys: data-def-for names the inputs, each input has its default in data-def. All are set first, then each
 // one is set again just before its own events, so a handler that redraws the others (HPF / LPF) cannot undo it.

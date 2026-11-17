@@ -3667,7 +3667,10 @@ html.app-shell .r-logo-led:hover .r-logo-ledtip { display: inline; }
 .agc-lamp.on { background: var(--red); border-color: var(--red); color: #fff; }
 .agc-nums { font-size: 11px; color: var(--muted); line-height: 1.45; }
 .agc-nums b { color: var(--text); font-weight: 600; }
-.agc-warn { margin: 4px 0 0; font-size: 11px; color: var(--amber); }
-.agc-why { margin: 4px 0 0; font-size: 11px; color: var(--text); }
+/* fixed heights: the warning one line, the why two lines; the place stays when empty, so the keys below do not jump */
+.agc-warn { margin: 4px 0 0; font-size: 11px; line-height: 1.45; height: 1.45em; color: var(--amber);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.agc-why { margin: 4px 0 0; font-size: 11px; line-height: 1.45; height: 2.9em; color: var(--text); overflow: hidden;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .agc-diagram .z-ok { fill: color-mix(in srgb, var(--muted) 35%, transparent); }
 .agc-diagram .agc-ceil { stroke: var(--amber); stroke-width: 1.5; stroke-dasharray: 4 3; }

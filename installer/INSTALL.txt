@@ -146,6 +146,8 @@ Other:
 Fixes
 - AGC+ no longer hunts on HF (quick fix after the release): with a strong station on 40 m / 80 m it went up and down
   every ~2.5 s (a line across the waterfall each time); it now measures the real effect of each gain step.
+- AGC+ (quick fix 2): only the former preset BOLD, now the default (the others set too little gain); the warning and the
+  "why" line keep their place, nothing jumps.
 - A frozen dongle recovers by itself (USB reset after 3 failed attempts); the server log says so.
 - Server log: every line with the time and the VFO letter, the lines of different VFOs no longer mixed.
 - Restart server from the tray icon works again (console.log of the previous start was held open).

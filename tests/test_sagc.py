@@ -154,7 +154,9 @@ class Auto(unittest.TestCase):
             for k, (d, lo, hi) in gainctl.SAGC_PARAMS.items():
                 self.assertTrue(lo <= pre[name][k] <= hi, (name, k))   # the server accepts every value
         for k, (d, lo, hi) in gainctl.SAGC_PARAMS.items():
-            self.assertEqual(pre["moderate"][k], d, k)                   # MODERATE = the server's defaults
+            self.assertEqual(pre["bold"][k], d, k)                       # BOLD = the server's defaults
+        for name in ("conservative", "careful", "moderate"):                # a config saved with an old preset: BOLD
+            self.assertEqual(gainctl.sagc_params({"sagc": pre[name]}), gainctl.sagc_params({}), name)
         heads = {}
         for name in ("conservative", "bold"):
             p = {**gainctl.sagc_params({}), **pre[name]}

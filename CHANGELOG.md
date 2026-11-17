@@ -309,6 +309,10 @@ Released after the test betas (GitHub branches `1.0beta1`, `1.0beta2`) and the r
   the A/D far more than the table says (0 → 3.7 dB by ~15 dB). AGC+ now measures how far each step really moved the
   headroom (per band, also a chain of steps) and steps up only when that keeps it in the dead band; a step down within 10 s
   of a step up holds the gain for 30 s while it learns.
+- **AGC+ only BOLD** (quick fix 2 after the release): the defaults are now the former preset BOLD (−4 dB headroom, clipping up
+  to 0.03 %, faster steps up); CONSERV., CAREFUL and MODERATE set too little gain (on HF the A/D's own noise limited the
+  sensitivity) and are no longer offered. A VFO saved with one of them gets the defaults; DEFAULT sets them. The warning and
+  the *why* line of the AGC+ card keep their place (the whole text in the tooltip), so the keys below no longer jump.
 - **A frozen dongle recovers by itself:** a dongle that stays on USB but stops sending data was only closed and opened again
   every few seconds, which does not wake it. After 3 failed attempts in a row its USB device is now reset (with administrator
   rights `pnputil /restart-device`, like replugging it; otherwise `libusb_reset_device`), then again every 30 attempts; the

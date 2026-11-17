@@ -21,23 +21,31 @@ from collections import deque
 import numpy as np
 
 # Settings of AGC+ (SETTINGS › VFO › ADVANCED), name: (default, min, max). Kept in the config as "sagc".
-# The defaults = the preset MODERATE of the page (SAGC_PRESETS in app.js); CONSERVATIVE, CAREFUL and BOLD are there too.
+# The defaults = BOLD (SAGC_PRESETS.bold in app.js); after the release 1.0 the only one (the others set too little gain on HF).
 SAGC_PARAMS = {
-    "headroom_adj": (0.0, -10, 10),   # dB added to the headroom target of the signal kind and band
+    "headroom_adj": (-4.0, -10, 10),  # dB added to the headroom target of the signal kind and band
     "window_db": (3.0, 1, 10),        # dead band around the headroom target
-    "clip_ppm": (100, 0, 2000),       # clipped samples per million in a block above which the gain is cut at once
-    "down_db": (3.0, 1, 10),          # the cut on a mild overload (6 / 9 / 14 / 30 dB on heavier ones)
+    "clip_ppm": (300, 0, 2000),       # clipped samples per million in a block above which the gain is cut at once
+    "down_db": (2.0, 1, 10),          # the cut on a mild overload (6 / 9 / 14 / 30 dB on heavier ones)
     "up_db": (6.0, 1, 12),            # at most per step up
-    "hold_s": (2.5, 0.2, 10),         # at least this between steps up
-    "wasted_db": (15.0, 6, 30),       # no step up while the noise floor is this far over the goal ("gain wasted")
+    "hold_s": (1.5, 0.2, 10),         # at least this between steps up
+    "wasted_db": (18.0, 6, 30),       # no step up while the noise floor is this far over the goal ("gain wasted")
     "settle": (2, 0, 20),             # blocks ignored after a gain change (the tuner settles), plus those already queued
 }
 SAGC_SETTLE = SAGC_PARAMS["settle"][0]
+# The presets of 1.0 no longer offered: a config saved with one of them gets the defaults (BOLD)
+OLD_PRESETS = (
+    {"headroom_adj": 6, "window_db": 3, "clip_ppm": 0, "down_db": 4, "up_db": 3, "hold_s": 4, "wasted_db": 12, "settle": 3},
+    {"headroom_adj": 3, "window_db": 3, "clip_ppm": 20, "down_db": 3, "up_db": 4, "hold_s": 3, "wasted_db": 15, "settle": 2},
+    {"headroom_adj": 0, "window_db": 3, "clip_ppm": 100, "down_db": 3, "up_db": 6, "hold_s": 2.5, "wasted_db": 15, "settle": 2},
+)
 
 
 def sagc_params(cfg):
     """The AGC+ settings of a config, missing ones by default (old keys of before 1.0beta2 are ignored)."""
     own = cfg.get("sagc") or {}
+    if any(all(own.get(k) == v for k, v in pre.items()) for pre in OLD_PRESETS):
+        own = {}
     return {k: own.get(k, d) for k, (d, _lo, _hi) in SAGC_PARAMS.items()}
 
 
