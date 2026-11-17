@@ -80,6 +80,9 @@ Change log
 ----------
 (also in CHANGELOG.md)
 
+Ver. 1.1beta1
+(test beta, GitHub branch 1.1beta1; continues the release 1.0)
+
 Ver. 1.0
 (after the test betas 1.0beta1, 1.0beta2 and the release candidate 1.0rc1)
 New

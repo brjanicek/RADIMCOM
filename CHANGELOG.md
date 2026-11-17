@@ -1,5 +1,9 @@
 # Changelog
 
+## Ver. 1.1beta1
+
+Test beta (GitHub branch `1.1beta1`; continues the release 1.0).
+
 ## Ver. 1.0
 
 Released after the test betas (GitHub branches `1.0beta1`, `1.0beta2`) and the release candidate (`1.0rc1`); continues 0.115.
