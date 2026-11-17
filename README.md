@@ -12,7 +12,7 @@ with a transceiver-style screen (S-meter, 7-segment displays, spectrum, waterfal
 What each part of the screen does: [annotated main screen](docs/images/main_annotated.png).
 
 > [!NOTE]
-> **A word from us.** Thank you for visiting our project – we really appreciate it. We are Radim (OM2AMR) and Brano,
+> **A word from us.** Thank you for visiting our project – we really appreciate it. We are Radim and Brano,
 > two radio amateurs, and RADIMCOM grew out of our years on the bands.
 >
 > It is not meant to be a receiver that can do absolutely everything. We built in what is close to us and what we
