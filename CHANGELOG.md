@@ -1,8 +1,8 @@
 # Changelog
 
-## Ver. 1.0beta2
+## Ver. 1.0rc1
 
-Test beta (GitHub branch `1.0beta2`; continues 1.0beta1).
+Release candidate (GitHub branch `1.0rc1`; continues the test betas `1.0beta1` and `1.0beta2`).
 
 ### New
 

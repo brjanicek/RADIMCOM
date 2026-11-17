@@ -80,8 +80,8 @@ Change log
 ----------
 (also in CHANGELOG.md)
 
-Ver. 1.0beta2
-(test beta, GitHub branch 1.0beta2; continues 1.0beta1)
+Ver. 1.0rc1
+(release candidate, GitHub branch 1.0rc1; continues the test betas 1.0beta1 and 1.0beta2)
 New
 Gain and tuning (AGC+, ATU):
 - AGC+ reworked after the auto gain of OnAir: AUTO keeps an A/D headroom target by the signal kind and
