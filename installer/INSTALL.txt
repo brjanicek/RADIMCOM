@@ -82,6 +82,9 @@ Change log
 
 Ver. 1.1beta1
 (test beta, GitHub branch 1.1beta1; continues the release 1.0)
+Changes
+- AGC+: only the former preset BOLD, now the default (the others set too little gain); a VFO saved with another one gets it.
+- AGC+ card: the warning and the "why" line keep their place, nothing jumps.
 Fixes
 - AGC+ no longer hunts on HF: with a strong station on 40 m / 80 m it went up and down every ~2.5 s (a line across the
   waterfall each time), because the low gain steps of the R820T are much bigger than they say. It now measures the real

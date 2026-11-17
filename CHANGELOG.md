@@ -4,6 +4,14 @@
 
 Test beta (GitHub branch `1.1beta1`; continues the release 1.0).
 
+### Changes
+
+- **AGC+ only BOLD:** the defaults are now the former preset BOLD (−4 dB headroom, clipping up to 0.03 %, faster steps up);
+  CONSERV., CAREFUL and MODERATE set too little gain (on HF the A/D's own noise limited the sensitivity) and are no longer
+  offered. A VFO saved with one of them gets the defaults; DEFAULT sets them. The sliders stay.
+- **AGC+ card does not jump:** the warning (one line) and the *why* line (two lines) keep their place when empty or longer,
+  the whole text is in the tooltip; before, the keys below moved with every message and BOLD was hard to click.
+
 ### Fixes
 
 - **AGC+ no longer hunts on HF:** with a strong station on 40 m / 80 m it went up and down every ~2.5 s (gain 0 ↔ 3.7 dB),

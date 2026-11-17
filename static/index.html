@@ -1844,15 +1844,13 @@ ecordings, played in the browser -->
                   <span class="agc-lamp" id="agcLamp" title="Clip lamp: the A/D clipped in the last 2 s">CLIP</span>
                 </div>
                 <div class="agc-nums" id="agcNums"></div>
-                <p class="agc-warn" id="agcWarn" hidden></p>
-                <p class="agc-why" id="agcWhy" hidden></p>
-                <div class="sagc-presets" id="sagcPresets"><span class="sagc-presets-label">PRESETS</span>
-                  <button data-preset="conservative" class="key small" title="Conservative: 6 dB more headroom, every clipped sample cuts, slow small steps up">CONSERV.</button>
-                  <button data-preset="careful" class="key small" title="Careful: 3 dB more headroom, clipping up to 0.002 % tolerated">CAREFUL</button>
-                  <button data-preset="moderate" class="key small" title="Moderate (default): the headroom of the signal kind and band, short clipping up to 0.01 % tolerated">MODERATE</button>
-                  <button data-preset="bold" class="key small" title="Bold: 4 dB less headroom, clipping up to 0.03 % tolerated, faster steps up">BOLD</button></div>
+                <p class="agc-warn" id="agcWarn"></p>
+                <p class="agc-why" id="agcWhy"></p>
+                <!-- only BOLD from 1.1beta1 (the others set too little gain on HF); kept hidden for DEFAULT -->
+                <div class="sagc-presets" id="sagcPresets" hidden>
+                  <button data-preset="bold" class="key small">BOLD</button></div>
                 <div id="sagcRows"></div>
-                <div class="def-row"><button id="sagcDefault" class="key small def-btn" title="All AGC+ settings back to the defaults (= MODERATE)">DEFAULT</button></div>
+                <div class="def-row"><button id="sagcDefault" class="key small def-btn" title="All AGC+ settings back to the defaults">DEFAULT</button></div>
                 <dl class="sagc-legend">
                   <dt>headroom</dt><dd><b>A/D headroom</b>: how far the 99.9 % peak of the samples stays under the top of the A/D converter
                     (one spike does not count). The target depends on the signal: narrow channel 14 dB, FM broadcast 9, DAB 7.5, ADS-B 3
