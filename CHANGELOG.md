@@ -104,12 +104,22 @@ Release candidate (GitHub branch `1.0rc1`; continues the test betas `1.0beta1` a
   the rotor link (ON / OFF, port) in one row on top, the sources and the position / calibration side by side under it,
   all without scrolling.
 
+#### VFO window
+
+- **ADC bar** under RF GAIN: the A/D converter level in dBFS (the 99.9 % peak AGC+ measures, else the block peak), scale
+  −40 … 0 dBFS in the colours of the AGC+ meter – green around the AGC+ headroom target of the signal kind and band
+  (target ± dead band), blue too quiet, amber too hot, red the last dB and clipping; the value coloured the same, the
+  tooltip with both peaks, clipping and the target. **RF** renamed **RF GAIN**; labels, bars and values of RF GAIN, ADC
+  and SQL in one grid (same start and width, nothing overflows), the window taller by the new row.
+
 #### Audio and recording
 
 - **MUTE of each VFO:** the keys under the VFO windows are VFO (narrower), **MUTE** (red LED) and CUE. MUTE silences that
   VFO in this browser, as MAIN and as CUE (the receiver, its decoders, recording and the scanner go on; the audio spectrum
   bubble still shows it); its display shows the red struck-through speaker as when a decoder mutes it. Remembered in the
   browser per VFO. SETTINGS › STATION shows it: a MUTE chip in the VFO row and in OUTPUT, the muted VFOs in AUDIO.
+- **MONITOR:** the CUE / MAIN faders with the dB scale and the L · R meter centred vertically against the speaker and
+  RECORD keys beside them.
 - **AUDIO: the CUE key removed** – it duplicated CUE under the VFO windows (and CUE in the VFO window).
 - **REC IQ** (under REC SQ, dark blue LED): the whole IQ of the dongle – the full band at its sample rate – to WAV as SDR#
   records it: I left, Q right, 8 bit unsigned from an RTL-SDR (its bytes as they come), 16 bit from LimeSDR / Airspy; in

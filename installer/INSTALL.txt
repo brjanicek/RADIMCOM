@@ -112,9 +112,14 @@ SONDE and the rotor:
   AZ / EL calculated from its GPS position and altitude and the QTH.
 - RCTRL tab: pages MAP and SETTINGS; SETTINGS = the sources moving the rotor (was CONNECTION, now a small block scheme
   like STATION, no animation) and the rotor controller (was SETTINGS > GENERAL > ROTOR).
+VFO window:
+- ADC bar under RF GAIN: the A/D converter level in dBFS (-40 ... 0) on a scale in the AGC+ colours
+  (green = AGC+ headroom target, blue too quiet, amber too hot, red clipping); RF renamed RF GAIN,
+  all bars aligned and of the same width, the window taller by one row.
 Audio and recording:
 - MUTE key of each VFO (red LED) between the VFO and CUE keys under the VFO windows: silences that VFO in this browser
   (MAIN and CUE), the display shows the struck-through speaker; shown in SETTINGS > STATION.
+- MONITOR: the CUE / MAIN faders and the L-R meter centred vertically against the keys beside them.
 - AUDIO: the CUE key removed (CUE of each VFO is the key under its VFO window).
 - REC IQ (under REC SQ, dark blue LED): the whole IQ of the dongle to WAV as SDR# records it (I/Q stereo,
   8 bit RTL / 16 bit LimeSDR, Airspy; centre frequency in the name), folder recordings\iq; ~290 MB/min at 2.4 MS/s.

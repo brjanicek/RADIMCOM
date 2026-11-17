@@ -14126,12 +14126,38 @@ function renderSpareVfos() {
       `<div class="vfo-ind"><span class="vfo-stat off">NO SDR</span></div></div>` +
       `<div class="vfo-disp"><div class="freq">${seg7("          ")}${freqUnitHtml("MHz")}</div></div>` +
       vfoInfoHtml() + vfoAnnsHtml("---") +
-      `<div class="vfo-foot"><label class="vfo-rf"><span>RF</span>` +
+      `<div class="vfo-foot"><label class="vfo-rf"><span>RF GAIN</span>` +
       `<input type="range" min="0" max="1" value="0" disabled></label><span class="vfo-gain">---</span></div>` +
+      `<div class="vfo-foot vfo-adcrow" title="A/D converter level"><span class="vfo-lbl">ADC</span>` +
+      `<div class="vfo-adc"></div><span class="vfo-adcv">---</span></div>` +
       `<div class="vfo-foot vfo-sqrow"><label class="vfo-rf vfo-sq"><span>SQL</span>` +
       `<input type="range" min="0" max="1" value="0" disabled></label><span class="vfo-sql">---</span></div>`;
     $("vfoList").append(row);
   }
+}
+
+/** ADC bar of a VFO window: the A/D level (the 99.9 % peak of the samples AGC+ measures, else the block peak) from
+ *  −40 dBFS to full scale, on a scale in the colours of the AGC+ meter: blue too quiet, green around the headroom target
+ *  of AGC+ (its signal kind and band), amber too hot, red the last dB and clipping. */
+function renderVfoAdc(row, s) {
+  const a = s.agc || {}, bar = row.querySelector(".vfo-adc"), val = row.querySelector(".vfo-adcv");
+  const lvl = a.head != null ? -a.head : s.adc_peak != null ? Number(s.adc_peak) : null;
+  const t = a.target ?? 17, w = a.window ?? 3;
+  const pos = (db) => `${Math.max(0, Math.min(100, (db + 40) / 40 * 100)).toFixed(1)}%`;
+  bar.style.setProperty("--p", lvl == null ? "0%" : pos(lvl));
+  bar.style.setProperty("--z1", pos(-(t + w + 6)));
+  bar.style.setProperty("--z2", pos(-(t - w)));
+  bar.style.setProperty("--z3", pos(-1));
+  const clip = !!s.adc_clip || !!a.lamp;
+  const zone = lvl == null ? "" : clip || lvl > -1 ? "clip" : lvl > -(t - w) ? "hot" : lvl < -(t + w + 6) ? "quiet" : "ok";
+  val.className = `vfo-adcv ${zone}`;
+  val.textContent = lvl == null ? "---" : `${minusSign(lvl.toFixed(1))} dBFS`;
+  const tip = lvl == null ? "A/D converter: not measured" :
+    `A/D converter: 99.9 % peak ${minusSign(lvl.toFixed(1))} dBFS, block peak ${minusSign(s.adc_peak)} dBFS` +
+    `${clip ? `, CLIPPING ${ppmPct(s.adc_clip_ppm || 0)}` : ""}\nScale: green = the AGC+ headroom target ${t} ± ${w} dB under full scale` +
+    `${a.kind_text ? ` (${a.kind_text}${a.band ? `, ${a.band.split(":")[0]}` : ""})` : ""}, amber too hot, red clipping, blue too quiet`;
+  const foot = bar.closest(".vfo-foot");
+  if (!foot.matches(":hover")) foot.title = tip;
 }
 
 /** Frequency displays of all VFOs side by side (fixed order A, B, C) with a button to switch.
@@ -14151,9 +14177,11 @@ function renderVfoDisplays() {
         `<span class="mute-tag" title="Audio muted while the ACARS, VDL2, HFDL or ISM decoder runs" hidden></span>` +
         (v.name ? `<span class="vfo-stat"></span>` : "") + `</div></div>` +
         `<div class="vfo-disp"><div class="freq"></div></div>` +
-        (v.name ? vfoToneHtml() + vfoInfoHtml() + vfoAnnsHtml() + `<div class="vfo-foot"><label class="vfo-rf"><span>RF</span>` +
+        (v.name ? vfoToneHtml() + vfoInfoHtml() + vfoAnnsHtml() + `<div class="vfo-foot"><label class="vfo-rf"><span>RF GAIN</span>` +
         `<input type="range" min="0" max="0" step="1" value="0"></label>` +
         `<span class="vfo-gain" title="RF gain"></span></div>` +
+        `<div class="vfo-foot vfo-adcrow"><span class="vfo-lbl">ADC</span><div class="vfo-adc"></div>` +
+        `<span class="vfo-adcv"></span></div>` +
         `<div class="vfo-foot vfo-sqrow"><label class="vfo-rf vfo-sq"><span>SQL</span>` +
         `<input type="range" min="${SQUELCH_OFF}" max="-20" step="1" value="${SQUELCH_OFF}"></label>` +
         `<span class="vfo-sql"></span></div>` : "");
@@ -14230,7 +14258,8 @@ function renderVfoDisplays() {
     stat.title = `${stTxt}: ${stTitle}`;
     const mode = row.querySelector(".vfo-mode"), gain = row.querySelector(".vfo-gain"), sql = row.querySelector(".vfo-sql");
     // without a state only make it invisible, so the layout does not shift
-    mode.style.visibility = gain.style.visibility = sql.style.visibility = s ? "" : "hidden";
+    const adcv = row.querySelector(".vfo-adcv");
+    mode.style.visibility = gain.style.visibility = sql.style.visibility = adcv.style.visibility = s ? "" : "hidden";
     if (s) {
       mode.textContent = s.dab ? "DAB" : samLabel(s) || s.mode;
       const smart = s.smart_agc && s.gain !== "auto";
@@ -14253,6 +14282,7 @@ function renderVfoDisplays() {
       const rfClip = manual && now - (row._rfClipAt ?? -1e9) < 1000;
       gain.closest(".vfo-foot").classList.toggle("clip", rfClip);
       if (manual && !gain.matches(":hover")) gain.title = `RF gain, A/D peak ${s.adc_peak} dBFS${rfClip ? ", CLIPPING – lower the RF gain" : ""}`;
+      renderVfoAdc(row, s);
       // squelch only in AM/FM/WFM; in other modes it stays in place but dimmed and inactive
       const levels = s.squelch_levels || {};
       const sqOk = s.mode in levels, set = sqOk ? levels[s.mode] : SQUELCH_OFF;

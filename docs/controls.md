@@ -55,8 +55,12 @@ browser – and the **CUE** key of that VFO (orange LED): that VFO stays audible
   (red while AGC+ sees A/D clipping), NF, SP, ALC, NB, NTH, DNR, ASQ, AFI (blinking) and the satellite icon (frequency
   corrected for Doppler by satellite tracking). **REC** and **CUE** sit above the kHz / MHz unit beside the frequency (REC red while recording, blinking while a
   file is written; CUE just above the unit, orange when on; click to toggle CUE for that VFO without switching).
-- **RF** and **SQL** segment bars with their values (squelch only in AM/FM/WFM): drag, click or turn the mouse wheel over
+- **RF GAIN** and **SQL** segment bars with their values (squelch only in AM/FM/WFM): drag, click or turn the mouse wheel over
   them. They work on inactive VFOs too, without switching.
+- **ADC** bar between them (read only): the A/D converter level in dBFS, −40 … 0 dBFS (the 99.9 % peak of the samples that
+  AGC+ measures, else the block peak). The scale has the colours of the AGC+ meter: **green** around the AGC+ headroom target
+  for the signal kind and band (target ± dead band under full scale), **blue** too quiet, **amber** too hot, **red** the last dB
+  and clipping; the value is coloured by the zone it is in. The tooltip shows both peaks, the clipping share and the target.
 
 ## Frequency display
 
