@@ -171,7 +171,7 @@
         </a>
         <span class="r-tag">SDR COMMUNICATIONS RECEIVER</span>
         <!-- version under the logo (installer and update_check read it from .r-ver); a newer one blinks beside it, DONATE under it -->
-        <span class="r-vers"><span class="r-ver">Ver. 1.0rc1</span><a class="r-upd" id="updLink" href="https://github.com/om2amr/RADIMCOM/releases" target="_blank" rel="noopener noreferrer" hidden></a></span>
+        <span class="r-vers"><span class="r-ver">Ver. 1.0</span><a class="r-upd" id="updLink" href="https://github.com/om2amr/RADIMCOM/releases" target="_blank" rel="noopener noreferrer" hidden></a></span>
         <button class="r-don" id="donBtn" type="button" title="Support RADIMCOM – buy us a coffee">☕ DONATE</button>
         </div>
         <!-- only in RADIMCOM.exe (app window): full screen as a small engraved icon in the corner (MAIN is the LED of the logo) -->
@@ -1838,7 +1838,7 @@ ecordings, played in the browser -->
               </div>
               <div class="setting" id="sagcSetting" data-blk="11">
                 <div class="row"><span>AGC+</span><span id="sagcNow" class="value"></span></div>
-                <!-- meter strip (after OnAir): A/D headroom bar with the target tick and the clip lamp, the numbers, a warning, why this gain -->
+                <!-- meter strip (inspired by OnAir): A/D headroom bar with the target tick and the clip lamp, the numbers, a warning, why this gain -->
                 <div class="agc-meter" id="agcMeter">
                   <div class="agc-bar" id="agcBar" title="A/D level: the 99.9 % peak of the samples from −40 dBFS (left) to full scale (right); the tick = the headroom target. Green = at the target, amber = too hot, red = clipping, blue = too quiet"><i class="fill" id="agcBarFill"></i><i class="tick" id="agcBarTick"></i></div>
                   <span class="agc-lamp" id="agcLamp" title="Clip lamp: the A/D clipped in the last 2 s">CLIP</span>
@@ -1873,7 +1873,7 @@ ecordings, played in the browser -->
                   not while the noise floor is <i>gain wasted</i> over its goal (3 dB more: a step down); inside the dead band a floor under
                   its goal raises the gain 3 dB. After a step down, a step up needs 1.5× the dead band for 8 s. The first 8 s after a start or a
                   retune climb faster. The meter strip shows the A/D level, the clip lamp, the numbers, the first
-                  warning and <i>why</i> the gain is where it is. After the auto gain of OnAir (adswill/OnAir, the ideas, no code).
+                  warning and <i>why</i> the gain is where it is. Inspired by the auto gain of OnAir (adswill/OnAir, the ideas, no code).
                   <b>PRESETS</b> from conservative to bold, the one matching the sliders is lit.
                   With WFM a block with a gain step is played in mono (the step would turn the stereo into noise).
                   <b>Smooth ALC gain</b> (on by default, for this VFO): the audio ALC in AM/LSB/USB/CW raises its gain in a smooth ramp

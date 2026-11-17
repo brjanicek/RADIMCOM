@@ -291,7 +291,7 @@ browser – and the **CUE** key of that VFO (orange LED): that VFO stays audible
       - **SP – Spurs removal**: for a switching power supply and the like. **LEARN** finds lines at a regular spacing of 12 kHz or more in the band received now, so learn on a quiet band.
         Each line gets a band-stop set by **Width**, **Edge**, **Shift** and **Depth**, which takes it down to the noise around it. Cleans the waterfall and the channel you listen to (not WFM and wide FM).
         A signal on a spur is removed with it.
-      - **AGC+** (after the auto gain of OnAir, adswill/OnAir; `gainctl.py`):
+      - **AGC+** (inspired by the auto gain of OnAir, adswill/OnAir; `gainctl.py`):
         - **Meter strip**: the A/D level bar (the 99.9 % peak of the samples from −40 dBFS to full scale, a tick at the headroom
           target; green at the target, amber too hot, red clipping, blue too quiet) and the **CLIP** lamp (held 2 s); under it the
           headroom, the noise floor over the A/D's own noise (with its goal and the *gain wasted* line), the channel SNR, the signal

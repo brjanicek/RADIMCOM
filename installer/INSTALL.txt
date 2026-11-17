@@ -80,172 +80,77 @@ Change log
 ----------
 (also in CHANGELOG.md)
 
-Ver. 1.0rc1
-(release candidate, GitHub branch 1.0rc1; continues the test betas 1.0beta1 and 1.0beta2)
+Ver. 1.0
+(after the test betas 1.0beta1, 1.0beta2 and the release candidate 1.0rc1)
 New
-Gain and tuning (AGC+, ATU):
-- AGC+ reworked after the auto gain of OnAir: AUTO keeps an A/D headroom target by the signal kind and
-  band (no more driving the A/D to the top), cuts at once on an overload and climbs back, does not climb
-  when more gain buys nothing (noise floor far over the A/D's own); a meter strip with a clip lamp,
-  warnings and "why this gain", the AGC+ diagram redrawn. Old AGC+ settings are not taken over (MODERATE).
-- ATU in SSB: the suppressed carrier on the red line, snapped onto a whole kHz (e.g. 14.265) when within
-  300 Hz, otherwise rounded to 100 Hz (voice band edge found in a held spectrum);
-  on real 40 m / 20 m / 17 m stations ~60 Hz from the tuning by ear (median).
-- ATU: switching it on autotunes the frequency tuned now at once (not only after the next tuning move).
+SETTINGS > STATION:
+- A live scheme of the whole receiver: one row per VFO from the antenna through the dongle (TUNER, A/D, the AGC+
+  loop), IQ (DC, NB), spectrum / waterfall, mixer, SP, filter, demodulator (with a picture of the demodulation),
+  S-meter and audio (its stages in their order, SQL / ASQ) to the MAIN and CUE buses (MUTED when muted) and the
+  decoders, each fed where it really takes the signal; raw-IQ decoders in their own block, what they bypass faded.
+- SETTINGS > VFO > SDR DONGLE and AGC+ diagrams in the same look.
+Gain and tuning (AGC+, ATU, ADC):
+- AGC+ reworked, inspired by the auto gain of OnAir: AUTO keeps an A/D headroom target by the signal kind and band (no more
+  driving the A/D to the top), cuts at once on an overload and climbs back, does not climb when more gain buys
+  nothing; a meter strip with a clip lamp, warnings and "why this gain", presets CONSERV. / CAREFUL / MODERATE / BOLD,
+  the diagram beside it redrawn. Old AGC+ settings are not taken over (MODERATE).
+- ADC bar in every VFO window under RF GAIN (was RF): the A/D level in dBFS on a scale in the AGC+ colours
+  (green = headroom target, blue too quiet, amber too hot, red clipping).
+- Improved function of ATU in SSB: the suppressed carrier onto the red line, snapped onto a whole kHz (e.g. 14.265) when within 300 Hz,
+  otherwise rounded to 100 Hz; switching ATU on autotunes at once.
+Audio and demodulation:
+- NB: noise blanker (ignition, electric fences, switching supplies) before the channel filter, stations untouched.
+- DNR: digital noise reduction in AM / SSB / CW, the noise lowered also under speech. The former DNR
+  (quiet between words) is now called NTH, so the names follow factory receivers (DNR = noise reduction, NTH = noise threshold).
+- HUM: mains hum filter (50 / 60 Hz and all multiples, the mains of the transmitter followed).
+- SAM: synchronous AM against selective fading on shortwave, DSB / SB-L / SB-U (MODE, 5th column).
+- LPF as steep as the filter width; automatic LSB / USB on ham bands and AM on shortwave broadcast bands
+  (SETTINGS > GENERAL > TUNING, was TOUCHPAD).
+- Audio keys inactive (with the reason in their tip) while a raw-IQ decoder or DAB runs on the VFO.
+- S-meter reading red above S9.
+VFO window and station:
+- CUE and REC above the kHz / MHz unit; NB, NTH and DNR in the annunciator row.
+- Antennas of the station (SETTINGS > GENERAL > ANTENNAS) with their bands; each VFO picks its antenna, ANT in
+  the VFO window turns amber outside its range.
+- MUTE key of each VFO (red LED, under the VFO window) silences that VFO in this browser; the AUDIO CUE key is gone.
+- MONITOR faders and the L-R meter as tall as the keys beside them.
+Recording:
+- REC IQ (under REC SQ): the whole IQ of the dongle to WAV as SDR# records it (I/Q stereo, 8 bit RTL / 16 bit
+  LimeSDR, Airspy), folder recordings\iq; ~290 MB/min at 2.4 MS/s.
+- DAB recorded by REC / REC SQ (the MP3 of the station); the scanner records MP3; RECORDINGS has RECS / SCAN RECS.
+- REC / REC SQ blink only while audio goes into the file, steady while REC SQ waits.
 DSD (digital voice):
-- DSD AFC: the offset of the signal is measured during a call and the VFO retuned onto it (AFC box, on by default).
-- DSD FILTER: narrower channel filter before the discriminator (12.5 - 8 kHz), less noise on a weak signal.
-- DSD DEBUG: raw output of DSD-FME in the DSD tab, failed CRC / FEC checks in red, sync and error counts per minute.
-- DSD tab: cards of the calls on air, protocols / slots / talk groups in colour with names, country of the caller ID,
-  callsign picked out of the alias, TALK GROUPS heard (click = filter), filter, hide short calls, click a frequency to tune.
-SONDE and the rotor:
-- SONDE prediction: the fall after the burst no longer comes out 3-5x too long (descent law fitted to
-  the fall heard, checked on 12 logged flights).
-- SONDE profile: temperature, RH and wind speed in one chart, wind direction in the second, ascent /
-  descent below; no pressure axis.
-- SONDE MAP: the sonde whose charts are shown is chosen by hand only (the list above the charts or a click on it on the
-  map); no automatic choice, the charts no longer switch by themselves; remembered.
-- SONDE MAP: a rising sonde is a light blue balloon (was green like the launch sites).
-- SONDE > TYPES: tick only the sonde types launched in your area (RS41, DFM, M10 / M20, ...); the other decoder
-  programs no longer run on every channel - much less CPU on the server.
-- Rotor: SONDE TRACKER source (RCTRL > SETTINGS, off by default) - the rotor follows the chosen sonde,
-  AZ / EL calculated from its GPS position and altitude and the QTH.
-- RCTRL tab: pages MAP and SETTINGS; SETTINGS = the sources moving the rotor (was CONNECTION, now a small block scheme
-  like STATION, no animation) and the rotor controller (was SETTINGS > GENERAL > ROTOR).
-VFO window:
-- ADC bar under RF GAIN: the A/D converter level in dBFS (-40 ... 0) on a scale in the AGC+ colours
-  (green = AGC+ headroom target, blue too quiet, amber too hot, red clipping); RF renamed RF GAIN,
-  all bars aligned and of the same width, the window taller by one row.
-SDR setup:
-- Rename any RTL-SDR dongle: SERIAL NUMBERS lists all connected RTL-SDRs, type a new serial (up to the old length)
-  and WRITE TO EEPROM (EEPROM backed up first); a dongle on a VFO stays on it under its new number.
-Audio and recording:
-- MUTE key of each VFO (red LED) between the VFO and CUE keys under the VFO windows: silences that VFO in this browser
-  (MAIN and CUE), the display shows the struck-through speaker; shown in SETTINGS > STATION.
-- MONITOR: the CUE / MAIN faders, dB scale and L-R meter as tall as the speaker and RECORD keys beside them.
-- AUDIO: the CUE key removed (CUE of each VFO is the key under its VFO window).
-- REC IQ (under REC SQ, dark blue LED): the whole IQ of the dongle to WAV as SDR# records it (I/Q stereo,
-  8 bit RTL / 16 bit LimeSDR, Airspy; centre frequency in the name), folder recordings\iq; ~290 MB/min at 2.4 MS/s.
-SETTINGS > STATION and the diagrams:
-- SETTINGS > STATION: OUTPUT replaced by two vertical buses MAIN (green) and CUE (orange); OUT and CUE of each VFO
-  connect to them, grey when not used, red MUTED when muted; DEMOD shows a small picture of the demodulation; DECODERS before the buses, fed from
-  the baseband (between SP and FILTER, over the row) or, for SSTV, from AUDIO.
-- SETTINGS > STATION: SPECTRUM / WATERFALL block under IQ (taken after DC, before NB).
-- SETTINGS > STATION: DAB audio line from the right side of IQ DECODERS, into CUE when the VFO is heard on CUE only.
-- SETTINGS > STATION: a click on the scheme no longer opens VFO settings.
-- SETTINGS > VFO > SDR DONGLE and AGC+ diagrams redrawn in the look of the STATION scheme (a colour per block,
-  gradient, icons in the dongle diagram; no animation); the whole AGC+ diagram in the same smaller text.
-Decoders:
+- AFC (the VFO retuned onto the signal during a call), FILTER (12.5 - 8 kHz), DEBUG (raw DSD-FME output, errors red).
+- DSD tab: cards of the calls on air, talk groups with names, country of the caller ID, callsign from the alias,
+  TALK GROUPS heard (click = filter), hide short calls, click a frequency to tune.
+DAB:
+- Buffering shown (DAB blinks until the sound plays), no new buffering when switching to a VFO playing on CUE.
+- PLAYED: the history of the songs of each station (data\dab_history\); VIEW keeps the station card under the keys.
+Radiosondes (SONDE) and the rotor:
+- Decoded by the decoders of rs1729: RS41, DFM, M10 / M20 and new LMS6-403, iMet-54, MRZ-N1 / MP3-H1,
+  iMS-100 / RS-11G, MTS01, CF-06 / HT03. SONDE > TYPES: tick only the types launched in your area (less CPU).
+- MULTI: all sondes in the visible spectrum (400-406 MHz, up to 6) decoded at once.
+- A bad GPS position (no fix after the burst, a jump, an impossible fall) is dropped, also in the old logs.
+- Prediction with the GFS wind (Open-Meteo.com, only the cells along the path) and a corrected fall after the burst.
+- Profile with temperature, humidity and wind, wind direction, altitude / time chart; the sonde for the charts chosen
+  by hand; HISTORY 1D / 7D in the table and on the map; a rising sonde is a light blue balloon, its label with MHz.
+- Rotor: SONDE TRACKER source (RCTRL > SETTINGS, off by default) - the rotor follows the chosen sonde.
+- RCTRL tab: pages MAP and SETTINGS (the sources moving the rotor and the rotor controller, was SETTINGS > GENERAL > ROTOR).
+Other:
+- FT8 map: WW locator grid and our report beside the calls (GRID / RX keys).
 - One decoder on the IQ of a VFO: DAB, ACARS, VDL2, ISM, AIS, ADS-B, HFDL and SONDE exclude each other.
-Performance:
-- Less CPU in the browser (about a third): the S-meter and level meter redraw only when they change (the level meter as fast as before), the moving parts
-  in their own layers, the meters on one 30 fps clock; the waterfall and spectrum are not drawn while the page or the
-  lower part is hidden; the logo LED and the sonde launch sites no longer pulse, a new FT8 station pulses twice.
+- ACARS / VDL2: the description under INFO.
+- DEFAULT keys set adjustable values back to their defaults.
+- SDR setup: rename any RTL-SDR dongle (up to the old length); a dongle on a VFO stays on it.
+- Less CPU in the browser (about a third).
 Fixes
-- SONDE MAP: the label under the balloon / parachute shows the frequency too.
-- SONDE FRAMES: the FRAME column wider, long frame numbers (M20) no longer cut ("152...").
-- What's new: MORE INFO of a test version (beta / rc) opens the CHANGELOG of its own GitHub branch
-  (main has only up to 0.115, so e.g. REC IQ was not there).
-- RECORDINGS: play and pause as icons of the same size (list and PLAY / PAUSE key); nothing moves any more.
-- DSD under DAB: dsd-fme no longer runs beside welle-cli when DAB is switched on on a VFO in the DSD mode.
-- SONDE MULTI: the channel under the VFO showed "? · 0 fr" although the VFO decoded the sonde there; it now
-  shows its type, serial and frames. A channel with no frame says "signal, no frame yet".
-
-Ver. 1.0beta1
-(test beta, GitHub branch 1.0beta1; continues the release 0.115)
-New
-- SETTINGS > STATION: a live scheme of the whole receiver: QTH, rotor, Doppler, audio on top, one row per VFO
-  from the antenna through the dongle (TUNER and A/D inside, AGC+ in a loop from the A/D peak to the TUNER gain), IQ (DC -> NB), mixer, SP, filter,
-  demodulator and audio (its stages with arrows in their order: HUM, NF, DNR, ALC, NTH, AFI, LPF, HPF, SQL;
-  SQL and ASQ lines with the channel level from a new S-METER block, an arrow from AGC+ into ASQ) to the output and the
-  decoders. Decoders on the raw IQ (VDL2, DAB, ISM, HFDL, AIS, ADS-B, SONDE MULTI) branch off the A/D
-  output into their own block; the blocks they bypass are faded,
-  the chain up to the filter stays active: it still feeds the S-meter. RX Doppler: an orange line back into the VFO. A click on a row opens the settings of that VFO.
-- Audio keys (NF, ALC, NTH, DNR, HUM, AFI, HPF / LPF, ASQ, TSQ) inactive while a raw-IQ decoder or DAB runs on the
-  VFO, with the reason in their tip; SETTINGS > VFO > AUDIO says so too. The filter, NB and SP keys stay active with a raw-IQ
-  decoder (tip: IQ decoder is active – changes only the S-meter); with DAB they are inactive too.
-- WW locator grid on the FT8 map: faint Maidenhead fields (JN), squares (JN88) from zoom 5,
-  subsquares (JN88wq) from zoom 10.
-- Our report on the FT8 map: the SNR we hear a station with as a filled coloured chip (e.g. -07) beside
-  the call, in the station list and in the popup; reports inside the messages stay plain yellow text.
-- GRID / RX keys on the FT8 map: the locator grid and our report next to the calls on / off.
-- STATION scheme: DSD decoder as its own block between DEMOD and AUDIO (then LPF -> HPF -> output), DAB audio line from IQ DECODERS to OUTPUT.
-- SONDE MAP: altitude / time chart under the temperature profile (scroll down), also for sondes without temperature,
-  with the course of the sonde as a second curve (right axis 0-360°).
-- SONDE prediction: GFS model wind (Open-Meteo.com, CC-BY 4.0) where the sonde has not flown; only the cells along
-  its path, once per GFS run, kept in data\wind.
-- ACARS / VDL2: the description hidden under an INFO key (like HFDL, AIS, ISM).
-- Automatic LSB / USB on ham bands: in LSB or USB, tuning into another ham band switches to its usual sideband
-  (LSB on 160, 80, 40 m; USB on 60 m, 30 m and above). A sideband chosen by hand inside a band stays.
-  Switch in SETTINGS > GENERAL > TUNING (was TOUCHPAD), on by default.
-- Antennas of the station: SETTINGS > GENERAL > ANTENNAS (name, type, bands such as 144-146, 430-440 MHz, ...).
-  Each VFO chooses its antenna in SETTINGS > VFO > SDR DONGLE > ANTENNA; ANT in the VFO window turns amber
-  when the VFO is tuned outside the range of its antenna.
-- DAB buffering: after choosing a station or switching to a DAB VFO, DAB on the VFO display and the DAB key
-  blink until the sound plays. On an inactive VFO with CUE on, only its grey DAB blinks. Switching to a VFO
-  whose DAB plays on CUE (or away from one with CUE on) keeps the running stream: no new buffering.
-- DAB history of the songs: PLAYED under the station card lists the DLS texts with the time, newest first.
-  All stations of the ensemble are recorded to data\dab_history\ (one file per station); a text repeated
-  within 30 minutes is not recorded again.
-- Diagram of AGC+ and the ALC in SETTINGS > VFO > ADVANCED, beside AGC+: the signal path with the AGC+ loop
-  and the audio ALC, what AGC+ does with each block (clipping, peak, target) and a step down and up in time
-  (settle, hold), with the values of the sliders. A click on a block or a setting shows its slider or card.
-- DEFAULT keys set adjustable values back to their defaults: AGC+ (= MODERATE), DC peak removal, SP, S9,
-  HPF / LPF, AFI, NTH, ASQ margin, wheel speed, waterfall colours, scan options and FM scan LISTEN.
-- AGC+ settings in plain units: clipping as % of the samples (100 ppm = 0.01 %), peaks in dBFS also as % of
-  the A/D full scale; a legend under the sliders explains %, dBFS, dB, s and blocks.
-- New NB key (AUDIO, right of NTH): noise blanker, pulses (ignition, electric fences, switching supplies) blanked
-  before the channel filter, strong stations untouched; level 1-10 and width in SETTINGS > VFO > AUDIO.
-- New DNR key (AUDIO, under NTH): digital noise reduction in AM/LSB/USB/CW, the noise lowered all the time, also
-  under speech; level 1-10 in SETTINGS > VFO > AUDIO. The former DNR key (quiet between words) is now called NTH.
-- VIEW (lower part hidden) with the active VFO on DAB: the station card (logo, name, NOW ON AIR) stays under
-  the keys as a small display behind glass.
-- New HUM key (AUDIO, under NB): mains hum filter for AM / SSB stations that hum (notches at 50 Hz and all its
-  multiples, the exact mains frequency of the transmitter followed); 50 / 60 Hz and width in SETTINGS > VFO > AUDIO.
-- SAM (MODE, 5th column, AM moved beside it): synchronous AM against the distortion of selective fading on shortwave; DSB / SB-L / SB-U
-  key under it (one sideband keeps an interfering station on the other side out). SAM works with AGC+ (CONSERV. on
-  shortwave); with a manual RF GAIN keep it under the red RF bar of the VFO window (A/D clipping).
-- Automatic AM on the shortwave broadcast bands (120 ... 11 m): tuning into one in LSB / USB / CW / FM switches
-  to AM, from it into a ham band back to the sideband (SETTINGS > GENERAL > TUNING, the same switch).
-- RECORDINGS: RECS / SCAN RECS keys choose the folder, the MP3 of REC / REC SQ or the recordings of the scanner
-  (subfolder scan); the scanner records MP3 now (64 kbit/s mono) instead of WAV, played and deleted the same way.
-- DAB is recorded: REC / REC SQ save the MP3 of the station playing (named by the station, a new file on a new
-  station).
-- AGC+ preset CONSERV. (SETTINGS > VFO > ADVANCED): more careful than CAREFUL, every clipped sample turns the
-  gain down, the A/D peak kept around -10 dBFS, up only after 3 s without clipping.
-- LPF key as steep as the filter width (-6 dB at the cutoff, -80 dB 100 Hz above); it was a soft 36 dB per octave.
-- VFO window: NB, NTH and DNR in the annunciator row; CUE moved above the kHz / MHz unit (click still toggles it),
-  REC above it in the same style instead of the red dot of the top row (red, blinking while a file is written).
-- Recording shown the same everywhere: REC / REC SQ keys and REC in the VFO window blink while audio goes into the
-  file (REC from the press on, REC SQ while the squelch is open) and stay steady while REC SQ waits; blinking half as fast.
-- Radiosondes decoded by the decoders of rs1729 (github.com/rs1729/RS, in lib\sonde): RS41, DFM, M10 / M20 and
-  new types LMS6-403, iMet-54, MRZ-N1 / MP3-H1, iMS-100 / RS-11G, MTS01, CF-06 / HT03; the type is found by
-  itself. IQ recording of the sonde channel for later analysis (data\sonde_iq).
-- Radiosondes: Meteomodem M20 (experimental, 9600 Bd, needs a bandwidth of 2.048 MHz or more): position,
-  altitude, speed, climb. Tested on a real M20 on 403.5 MHz.
-- SONDE map: HISTORY OFF / 1D / 7D shows the logged flights of the last day / week; a click opens one.
-- Radiosondes after rs1729 / radiosonde_auto_rx: M20 serial as on the label, new Meteomodem M10, M10 / M20
-  temperature, humidity and pressure, DFM serial (also DFM-06 and PS-15), type, temperature and battery.
-- Radiosondes: a bad GPS position (no fix after the burst, under the ground, a jump, an impossible fall) is dropped;
-  also in the old logs.
-- SONDE MULTI: all sondes in the visible part of the waterfall (400-406 MHz, up to 6) are decoded at once;
-  their frequencies, type, serial and level are listed above the table;
-  the VFO audio is muted while the SONDE decoder is on.
-- SONDES table and map: HISTORY OFF / 1D / 7D in the header beside SONDES / MAP / FRAMES adds the logged flights of the last day / week
-  (grey in the table, blue on the map, a click opens it).
-- AGC+ diagram with live values: AGC+ on/off, tuner gain, A/D peak and clipping, marks on both scales.
-- S-meter: the reading under it is red above S9.
-Fixes
-- WEFAX no longer stops the receiver of its VFO on noise (error "max() iterable argument is empty",
-  the dongle was reopened every few seconds).
-- A frozen dongle recovers by itself: a dongle on USB that stops sending data is reset after 3 failed attempts
-  (with administrator rights like replugging it, otherwise a libusb reset), then every 30 attempts. The server log
-  shows a dongle error, each USB reset and when the dongle sends data again.
-- Server log: every line starts with the time and the VFO letter ([A]; none = the launcher); the lines of
-  different VFOs and of the C libraries are no longer mixed.
-- CUE of a VFO with DAB on plays its DAB station (it was silent: DAB sound is a separate MP3 stream).
-- Restart server from the tray icon works again ("RADIMCOM could not start ... console.log is being used
-  by another process": the log file of the previous start stayed open).
+- A frozen dongle recovers by itself (USB reset after 3 failed attempts); the server log says so.
+- Server log: every line with the time and the VFO letter, the lines of different VFOs no longer mixed.
+- Restart server from the tray icon works again (console.log of the previous start was held open).
+- WEFAX no longer stops the receiver of its VFO on noise.
+- CUE of a VFO with DAB plays its DAB station (was silent).
+- DSD under DAB: dsd-fme no longer runs beside welle-cli.
+- SONDE: a DFM sonde no longer drawn twice after a restart.
 
 Ver. 0.115
 (after the test beta 0.115beta1 and the release candidate 0.115rc1; many parts by Brano, github.com/brjanicek)

@@ -48,7 +48,7 @@ def label(x,y,s,kind=None,anchor="middle",size=13,rot=None):
 
 # Title
 text(40,50,"RADIMCOM: block diagram of all components",32,weight=700)
-text(40,78,"Signal flows from the hardware at the bottom up to the browser at the top. Ver. 1.0rc1",16,MUTE)
+text(40,78,"Signal flows from the hardware at the bottom up to the browser at the top. Ver. 1.0",16,MUTE)
 
 # ---------- top row ----------
 group(40,115,300,215,"VFO launcher",FILL["srv"])
@@ -121,7 +121,8 @@ Yd=972;Hd=58
 chain=[(90,150,"Shift",["NCO to the tuned freq."]),(258,155,"Decimator",["polyphase FIR /64"]),(431,175,"Channel filter",["by mode, LPF/HPF, notch"]),(624,180,"Demodulator",["AM FM LSB USB CW WFM"]),(822,170,"ALC, DYN",["EXP + AUTO, LIM"]),(1010,196,"Squelch",["SQL, ASQ; tonesq.py"]),]
 for x,w,n,l in chain:
     box(x,Yd,w,Hd,n,l,mono=False,size=14.5)
-box(190,1042,270,44,"Remove DC peak, spurs",["from IQ and waterfall; SP key, LEARN"],mono=False,size=13.5)
+box(190,1042,140,44,"DC peak, spurs",["SP key, LEARN"],mono=False,size=13.5)
+box(336,1042,124,44,"gainctl.py",["AGC+ gain"],size=13.5)
 path([(165,1064),(190,1064)],"iq",sw=2)
 box(1000,1042,120,44,"Waterfall",["FFT, zoom 1–64×"],mono=False,size=13.5)
 box(1224,Yd,100,Hd,"PCM",["stereo audio"],mono=False,size=14.5)
@@ -154,7 +155,7 @@ group(1460,930,300,305,"Storage modules",FILL["data"])
 box(1480,968,260,42,"memories.py",["memories, SDR# import"])
 box(1480,1016,260,42,"paths.py",["locates data\\, migrates old files"])
 box(1480,1064,260,42,"daylog.py",["daily decoder logs"])
-box(1480,1112,260,42,"recorder.py",["REC, REC SQ: MP3 files"])
+box(1480,1112,260,42,"recorder.py, iqrec.py",["REC / REC SQ MP3, REC IQ WAV"])
 box(1480,1160,260,42,"location.py",["station location, locator"])
 text(1610,1224,"serverlog.py: server log; config: app.py",13,MUTE,anchor="middle")
 
