@@ -84,6 +84,8 @@ Ver. 1.0beta2
 (test beta, GitHub branch 1.0beta2; continues 1.0beta1)
 New
 - DSD AFC: the offset of the signal is measured during a call and the VFO retuned onto it (AFC box, on by default).
+- SONDE profile: temperature, RH and wind speed in one chart, wind direction in the second, ascent /
+  descent below; no pressure axis.
 - Rotor: SONDE TRACKER source (RCTRL > SETTINGS, off by default) - the rotor follows the chosen sonde,
   AZ / EL calculated from its GPS position and altitude and the QTH.
 - DSD FILTER: narrower channel filter before the discriminator (12.5 - 8 kHz), less noise on a weak signal.

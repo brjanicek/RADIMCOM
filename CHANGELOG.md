@@ -11,6 +11,10 @@ Test beta (GitHub branch `1.0beta2`; continues 1.0beta1).
   the VFO onto the signal (at most 3 kHz at a time; on a hotspot / simplex only the slots with a carrier are measured; not
   while the satellite Doppler correction tunes). A DMR repeater tuned 400 Hz off decoded the ID in 23 % of the calls,
   tuned onto it in 95 %. Kept per VFO (`dsd_afc`).
+- **SONDE profile: wind.** The left panel shows temperature, humidity and **wind speed** (the horizontal drift of
+  the sonde from its GPS positions over 30 s) on one axis, the right panel the **wind direction** (where it blows from,
+  N E S W); also for sondes without temperature. The chart under it shows only the ascent / descent in time (with the
+  average descent rate); the course moved into the wind direction. The pressure (hPa of the standard atmosphere) is gone.
 - **Rotor: SONDE TRACKER** – a fourth source in RCTRL › SETTINGS, **disconnected by default**; connected, the rotor follows the sonde chosen in DECODERS › SONDE. Only its GPS position and altitude are used: the azimuth and elevation are calculated from the QTH and its altitude (SETTINGS › GENERAL › LOCATION) on the WGS84 ellipsoid, so the curvature of the Earth is included; the elevation is held at 0–90°. The rotor moves at most every 5 s and only for a change of 2° or more. It works while the RADIMCOM page shows the VFO with the SONDE decoder (the frames come to the page) and the rotor takes commands (not while the satellite tracking holds it).
 - **DSD FILTER:** the width of the channel filter before the FM discriminator (12.5 / 11 / 10 / 9 / 8 kHz, kept per VFO
   as `dsd_filter`, 12.5 kHz = as before). DMR occupies about ±4.5 kHz: on a weak signal 10 kHz lets about 1 dB less noise

@@ -97,15 +97,15 @@ kept in `sonde.py`).
   are known, e.g. *12/51*) and humidity right after it. Temperature as in rs41mod (rs1729): reference resistors →
   sensor resistance → polynomial; humidity with its simple empirical formula (approximate, a few %). The sonde type
   (RS41-SG / RS41-SGP) also comes from the calibration. Pressure of the RS41-SGP is not decoded.
-  **Profile** in MAP, on the right of the map: the sonde chosen in the list above it (orange icon; chosen by hand only – in the list or by a click on the sonde on the map, no automatic choice; the choice is kept over a reload and a restart), altitude on the vertical axis, two panels side by side – temperature °C
-  and humidity % (descent after the burst fainter); the right edge labels the altitude with the pressure of the
-  standard atmosphere (hPa, orientation only). Hover shows altitude, time, T, RH, hPa. The altitude axis is fixed
-  0–41 km and the plot fills the page height.
-  Scrolled down under it: **Altitude / time UTC** – the altitude against time of the same sonde (from all its points, so
-  also for sondes without temperature), ascent bright, descent after the burst fainter with the top marked in red, the
-  average ascent rate and the climb / fall now (last 30 s) in its header; a violet curve on the right axis (0–360°,
-  N E S W) is the course the sonde drifts to (over ground, from the point about 30 s before). Hover shows the time,
-  altitude, climb and course.
+  **Profile** in MAP, on the right of the map: the sonde chosen in the list above it (orange icon; chosen by hand only – in the list or by a click on the sonde on the map, no automatic choice; the choice is kept over a reload and a restart), altitude on the vertical axis, two panels side by side (descent after the burst fainter): **temperature °C,
+  humidity % and wind speed m/s** on one axis, as on a sounding chart, and the **wind direction** (where it blows
+  from, 0–360°, N E S W, as in meteorology). The wind is the drift of the sonde: its horizontal speed and course from
+  the GPS position about 30 s before (no direction while it moved under 30 m), so it is shown for every sonde type,
+  also without temperature. Hover shows altitude, time, T, RH, wind speed (m/s and km/h) and direction. The altitude
+  axis is fixed 0–41 km and the plot fills the page height; the note above names the coldest point and the strongest wind.
+  Under it: **Ascent / descent UTC** – the altitude against time of the same sonde (from all its points), ascent
+  bright, descent after the burst fainter with the top marked in red, the average ascent and descent rates and the
+  climb / fall now (last 30 s) in its header. Hover shows the time, altitude and climb.
 - **Radiosonde log** `data\logs\radiosonde\<YYYY-MM-DD>_<serial>.jsonl` (UTC date of the first frame): every frame
   of every sonde, written automatically whatever the LOG key, one JSON line (time, position, speeds, T, RH, sats,
   battery, frequency, VFO). After a server restart the sondes of the last 24 h of that VFO are read back with their

@@ -7533,11 +7533,10 @@ function sondeDrawPrediction(s, layer) {
 // ----- SONDE PROFILE: temperature and humidity against altitude, one sonde; altitude is the vertical axis (tall plot),
 // two panels side by side share it (no second x scale in one panel). Pressure is not measured by the RS41-SG: the right
 // edge labels the altitude axis with the pressure of the standard atmosphere (ISA), only as an orientation.
-const SONDE_PROF_C = { temp: "#ff8c1a", rh: "#4fb6ff" };
+// profile: temperature, humidity and wind speed on one axis, the wind direction in the second panel
+const SONDE_PROF_C = { temp: "#ff8c1a", rh: "#4fb6ff", ws: "#ff6fae", wd: "#c9a4ff" };
 const SONDE_ALT_C = "#7fd88a";   // altitude / time chart under the profile
-const SONDE_CRS_C = "#c9a4ff";   // its course curve (right axis)
 const isaHpa = (h) => (h < 11000 ? 1013.25 * Math.pow(1 - 2.25577e-5 * h, 5.25588) : 226.32 * Math.exp(-(h - 11000) / 6341.6));
-const isaAlt = (p) => (p > 226.32 ? (1 - Math.pow(p / 1013.25, 1 / 5.25588)) / 2.25577e-5 : 11000 - 6341.6 * Math.log(p / 226.32));
 let sondeProfGeom = null, sondeAltGeom = null, sondeLogList = [];
 const SONDE_PROF_TOP = 41000;   // m: fixed top of the altitude axis (highest sondes burst at 35-40 km)
 
@@ -7571,14 +7570,14 @@ function renderSondeProfile() {
   const box = $("sondeProf");
   const s = sondeShown();
   renderSondeProfSel(list, s);
-  const pts = s ? s.pts.filter((q) => q[4] != null) : [];
+  // every point with a position: temperature and humidity where the sonde measures them, the wind from the positions
+  const pts = s ? s.pts.filter((q) => q[2] != null && q[3] != null) : [];
   // both charts in the height of the panel (no scrolling): the altitude / time chart about a third, the profile the rest
-  const hBox = box.clientHeight || 640, altH = Math.round(Math.min(260, Math.max(100, hBox * 0.38)));
+  const hBox = box.clientHeight || 640, altH = Math.round(Math.min(220, Math.max(90, hBox * 0.3)));
   const alt = s ? sondeAltChart(s, Math.max(320, Math.min(560, box.clientWidth || 520)), altH) : "";
   if (pts.length < 2) {
-    box.innerHTML = `<div class="ft8-empty">${!s ? "Choose a sonde in the list above or click it on the map (also a flight from the log): its temperature and humidity profile and its altitude / course in time." :
-      s.type !== "RS41" ? `No temperature from a ${escHtml(s.type)} sonde.` :
-      `No temperature yet${s.cal_n != null ? ` (calibration ${s.cal_n}/51)` : ""}. The profile grows every 2 s of the flight while the sonde is heard.`}</div>` +
+    box.innerHTML = `<div class="ft8-empty">${!s ? "Choose a sonde in the list above or click it on the map (also a flight from the log): its temperature, humidity and wind against the altitude, and its altitude in time." :
+      "No positions yet: the profile grows every 2 s of the flight while the sonde is heard."}</div>` +
       alt + `<div class="sonde-prof-tip" hidden></div>`;
     $("sondeProfNote").textContent = s ? s.serial : "";
     sondeProfGeom = null;
@@ -7587,92 +7586,110 @@ function renderSondeProfile() {
   // ascent up to the highest point, descent after it (fainter)
   const top = pts.reduce((a, q, i) => (q[2] > pts[a][2] ? i : a), 0);
   const W = Math.max(320, Math.min(560, box.clientWidth || 520)), H = Math.max(120, hBox - (alt ? altH + 8 : 0) - 2);
-  const L = 54, R = 52, T = 26, B = 34, gap = 30, pw = (W - L - R - gap) / 2;
+  const L = 54, R = 12, T = 26, B = 34, gap = 22, avail = W - L - R - gap, pw1 = Math.round(avail * 0.62), pw2 = avail - pw1;
   const alts = pts.map((q) => q[2]);
   const aMin = 0, aMax = Math.max(SONDE_PROF_TOP, Math.ceil(Math.max(...alts) / 1000) * 1000);
   const ty = (a) => T + (H - T - B) * (1 - (a - aMin) / (aMax - aMin));
-  const ts = pts.map((q) => q[4]), tLo = Math.floor((Math.min(...ts) - 3) / 10) * 10, tHi = Math.ceil((Math.max(...ts) + 3) / 10) * 10;
-  const panels = [
-    { key: "temp", i: 4, lo: tLo, hi: tHi, x0: L, title: "Temperature °C" },
-    { key: "rh", i: 5, lo: 0, hi: 100, x0: L + pw + gap, title: "Humidity %" },
+  // the wind = the horizontal motion of the sonde (it drifts with the air), from the point about 30 s before
+  const wind = sondeWinds(pts);
+  const ser = [
+    { key: "temp", name: "temp °C", v: pts.map((q) => q[4] ?? null), p: 0 },
+    { key: "rh", name: "RH %", v: pts.map((q) => q[5] ?? null), p: 0 },
+    { key: "ws", name: "wind m/s", v: wind.map((w) => (w ? w.spd : null)), p: 0 },
+    { key: "wd", name: "wind from °", v: wind.map((w) => (w ? w.from : null)), p: 1, wrap: true },
   ];
-  for (const p of panels) p.tx = (v) => p.x0 + pw * (v - p.lo) / (p.hi - p.lo);
+  const num = (k) => ser.find((x) => x.key === k).v.filter((v) => v != null);
+  const ts = num("temp"), ws = num("ws");
+  const lo = ts.length ? Math.min(0, Math.floor((Math.min(...ts) - 3) / 10) * 10) : 0;
+  const hi = Math.max(100, Math.ceil((Math.max(...ts, ...ws, 0) + 3) / 10) * 10);
+  const panels = [{ x0: L, w: pw1, lo, hi }, { x0: L + pw1 + gap, w: pw2, lo: 0, hi: 360 }];
+  for (const p of panels) p.tx = (v) => p.x0 + p.w * (v - p.lo) / (p.hi - p.lo);
+  for (const x of ser) x.tx = panels[x.p].tx;
   let svg = "";
   const aStep = sondeNiceStep(aMax - aMin, H > 420 ? 9 : 5);
   for (let a = Math.ceil(aMin / aStep) * aStep; a <= aMax; a += aStep) {
     const y = ty(a).toFixed(1);
     svg += `<line class="g" x1="${L}" x2="${W - R}" y1="${y}" y2="${y}"/><text class="ax" x="${L - 6}" y="${y}" dy="4" text-anchor="end">${a >= 1000 ? `${a / 1000} km` : `${a} m`}</text>`;
   }
-  let yPrev = Infinity;              // hPa labels at least 12 px apart (a low plot)
-  for (const hpa of [1000, 850, 700, 500, 300, 200, 100, 50, 30, 20, 10, 5, 3]) {
-    const a = isaAlt(hpa);
-    if (a < aMin || a > aMax || yPrev - ty(a) < 12) continue;
-    yPrev = ty(a);
-    const y = ty(a).toFixed(1);
-    svg += `<line class="tk" x1="${W - R}" x2="${W - R + 4}" y1="${y}" y2="${y}"/><text class="ax" x="${W - R + 7}" y="${y}" dy="4">${hpa}</text>`;
+  // panel 1: one axis for °C, % and m/s (like a sounding chart); panel 2: the direction the wind blows from
+  const p1 = panels[0], p2 = panels[1], step = sondeNiceStep(hi - lo, pw1 > 260 ? 7 : 5);
+  for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) {
+    const x = p1.tx(v).toFixed(1);
+    svg += `<line class="g" x1="${x}" x2="${x}" y1="${T}" y2="${H - B}"/><text class="ax" x="${x}" y="${H - B + 16}" text-anchor="middle">${Math.round(v)}</text>`;
   }
-  svg += `<text class="ax" x="${W - R + 7}" y="${T - 10}">hPa*</text>`;
-  for (const p of panels) {
-    const step = p.key === "rh" ? 20 : sondeNiceStep(p.hi - p.lo, 5);
-    for (let v = Math.ceil(p.lo / step) * step; v <= p.hi + 1e-9; v += step) {
-      const x = p.tx(v).toFixed(1);
-      svg += `<line class="g" x1="${x}" x2="${x}" y1="${T}" y2="${H - B}"/><text class="ax" x="${x}" y="${H - B + 16}" text-anchor="middle">${Math.round(v)}</text>`;
+  if (lo < 0) svg += `<line class="zero" x1="${p1.tx(0)}" x2="${p1.tx(0)}" y1="${T}" y2="${H - B}"/>`;
+  for (const [v, n] of [[0, "N"], [90, "E"], [180, "S"], [270, "W"], [360, "N"]]) {
+    const x = p2.tx(v).toFixed(1);
+    svg += `<line class="g" x1="${x}" x2="${x}" y1="${T}" y2="${H - B}"/><text class="ax" x="${x}" y="${H - B + 16}" text-anchor="middle">${n}</text>`;
+  }
+  for (const p of panels) svg += `<rect class="frame" x="${p.x0}" y="${T}" width="${p.w}" height="${H - T - B}"/>`;
+  const leg = (k, t) => `<tspan fill="${SONDE_PROF_C[k]}">${t}</tspan>`;
+  svg += `<text class="ttl" x="${p1.x0 + p1.w / 2}" y="${T - 10}" text-anchor="middle">${leg("temp", "°C")} · ${leg("rh", "RH %")} · ${leg("ws", "wind m/s")}</text>` +
+    `<text class="ttl" x="${p2.x0 + p2.w / 2}" y="${T - 10}" text-anchor="middle">${leg("wd", "wind from")}</text>` +
+    `<text class="ax" x="${p1.x0 + p1.w / 2}" y="${H - 3}" text-anchor="middle">°C · % · m/s</text>` +
+    `<text class="ax" x="${p2.x0 + p2.w / 2}" y="${H - 3}" text-anchor="middle">°</text>`;
+  // the lines: broken where a value is missing, the direction also where it wraps over north
+  const path = (x, a, b) => {
+    let d = "", prev = null;
+    for (let k = a; k < b; k++) {
+      const v = x.v[k];
+      if (v == null) { prev = null; continue; }
+      d += `${prev == null || (x.wrap && Math.abs(v - prev) > 180) ? "M" : "L"}${x.tx(v).toFixed(1)},${ty(pts[k][2]).toFixed(1)}`;
+      prev = v;
     }
-    if (p.key === "temp" && p.lo < 0 && p.hi > 0) svg += `<line class="zero" x1="${p.tx(0)}" x2="${p.tx(0)}" y1="${T}" y2="${H - B}"/>`;
-    svg += `<rect class="frame" x="${p.x0}" y="${T}" width="${pw}" height="${H - T - B}"/>`;
-    svg += `<text class="ttl" x="${p.x0 + pw / 2}" y="${T - 10}" text-anchor="middle">${p.title}</text>`;
-    const path = (a, b) => pts.slice(a, b).filter((q) => q[p.i] != null)
-      .map((q, k) => `${k ? "L" : "M"}${p.tx(q[p.i]).toFixed(1)},${ty(q[2]).toFixed(1)}`).join("");
-    svg += `<path class="ln" d="${path(0, top + 1)}" stroke="${SONDE_PROF_C[p.key]}"/>`;
-    if (top < pts.length - 1) svg += `<path class="ln down" d="${path(top, pts.length)}" stroke="${SONDE_PROF_C[p.key]}"/>`;
-    const q = pts[pts.length - 1];
-    if (q[p.i] != null) svg += `<circle class="dot" cx="${p.tx(q[p.i]).toFixed(1)}" cy="${ty(q[2]).toFixed(1)}" r="4" fill="${SONDE_PROF_C[p.key]}"/>`;
+    return d;
+  };
+  for (const x of ser) {
+    const w = x.key === "ws" || x.key === "wd" ? " wind" : "";
+    svg += `<path class="ln${w}" d="${path(x, 0, top + 1)}" stroke="${SONDE_PROF_C[x.key]}"/>`;
+    if (top < pts.length - 1) svg += `<path class="ln down${w}" d="${path(x, top, pts.length)}" stroke="${SONDE_PROF_C[x.key]}"/>`;
+    const k = x.v.findLastIndex((v) => v != null);
+    if (k >= 0) svg += `<circle class="dot" cx="${x.tx(x.v[k]).toFixed(1)}" cy="${ty(pts[k][2]).toFixed(1)}" r="3.5" fill="${SONDE_PROF_C[x.key]}"/>`;
   }
-  svg += `<g id="sondeProfHover" visibility="hidden"><line class="hv" x1="${L}" x2="${W - R}"/><circle r="4" class="hd" data-k="temp"/><circle r="4" class="hd" data-k="rh"/></g>`;
-  box.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Temperature and humidity against altitude of ${escHtml(s.serial)}">${svg}</svg>${alt}<div class="sonde-prof-tip" hidden></div>`;
-  sondeProfGeom = { pts, panels, ty, L, R, T, B, W, H };
-  const tmin = pts.reduce((a, q) => (q[4] < a[4] ? q : a));
-  $("sondeProfNote").textContent = `${s.serial} · ${pts.length} points · ${sondeAlt(Math.min(...alts))}–${sondeAlt(Math.max(...alts))} m · coldest ${tmin[4].toFixed(1)} °C at ${sondeAlt(tmin[2])} m` +
-    (top < pts.length - 1 ? " · fainter line = descent after the burst" : "") + " · *hPa: standard atmosphere for the altitude, not measured";
+  svg += `<g id="sondeProfHover" visibility="hidden"><line class="hv" x1="${L}" x2="${W - R}"/>` +
+    ser.map((x) => `<circle r="4" class="hd" data-k="${x.key}" fill="${SONDE_PROF_C[x.key]}"/>`).join("") + "</g>";
+  box.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Temperature, humidity and wind against altitude of ${escHtml(s.serial)}">${svg}</svg>${alt}<div class="sonde-prof-tip" hidden></div>`;
+  sondeProfGeom = { pts, ser, ty, L, R, T, B, W, H };
+  const tq = pts.filter((q) => q[4] != null), tmin = tq.length ? tq.reduce((a, q) => (q[4] < a[4] ? q : a)) : null;
+  const wk = ws.length ? wind.reduce((a, w, i) => (w && (a < 0 || w.spd > wind[a].spd) ? i : a), -1) : -1;
+  $("sondeProfNote").textContent = `${s.serial} · ${pts.length} points · ${sondeAlt(Math.min(...alts))}–${sondeAlt(Math.max(...alts))} m` +
+    (tmin ? ` · coldest ${tmin[4].toFixed(1)} °C at ${sondeAlt(tmin[2])} m` : s.type !== "RS41" ? ` · no temperature from a ${s.type} sonde` : " · no temperature yet") +
+    (wk >= 0 ? ` · strongest wind ${wind[wk].spd.toFixed(0)} m/s at ${sondeAlt(pts[wk][2])} m` : "") +
+    (top < pts.length - 1 ? " · fainter line = descent after the burst" : "") +
+    " · wind = the drift of the sonde from its GPS positions (over 30 s)";
   $("sondeProfNote").title = $("sondeProfNote").textContent;
 }
 
-/** Course over ground of each point (degrees from north), from the point about 30 s before it once the sonde moved
- *  at least 30 m (null before that or while it stands). */
-function sondeCourses(pts) {
+/** Wind at each point from the drift of the sonde: speed (m/s) and the direction it blows FROM (degrees, as in
+ *  meteorology; the sonde moves the other way), from the point about 30 s before; null before that. The direction is
+ *  null while the sonde moved less than 30 m (on the ground, a calm). */
+function sondeWinds(pts) {
   const out = new Array(pts.length).fill(null), rad = Math.PI / 180;
   let j = 0;
   for (let i = 0; i < pts.length; i++) {
     while (j < i && pts[i][3] - pts[j + 1][3] >= 30) j++;
-    const a = pts[j], b = pts[i];
-    if (i === j || b[3] - a[3] < 10) continue;
-    const dy = (b[0] - a[0]) * 111320, dx = (b[1] - a[1]) * 111320 * Math.cos(b[0] * rad);
-    if (Math.hypot(dx, dy) < 30) continue;
-    out[i] = (Math.atan2(dx, dy) / rad + 360) % 360;
+    const a = pts[j], b = pts[i], dt = b[3] - a[3];
+    if (i === j || dt < 10) continue;
+    const dy = (b[0] - a[0]) * 111320, dx = (b[1] - a[1]) * 111320 * Math.cos(b[0] * rad), d = Math.hypot(dx, dy);
+    out[i] = { spd: d / dt, from: d < 30 ? null : (Math.atan2(dx, dy) / rad + 180) % 360 };
   }
   return out;
 }
 
-/** Altitude against time (UTC) of a sonde, under the profile (scroll down to it): ascent, burst, descent (fainter);
- *  from all its points, so also for sondes without temperature. "" with fewer than 2 points. */
+/** Altitude against time (UTC) of a sonde, under the profile: ascent, burst, descent (fainter); from all its points,
+ *  so also for sondes without temperature. "" with fewer than 2 points. */
 function sondeAltChart(s, W, H = 240) {
   const pts = s.pts.filter((q) => q[2] != null && q[3] != null);
   sondeAltGeom = null;
   if (pts.length < 2) return "";
-  const L = 54, R = 52, T = 26, B = 34;
+  const L = 54, R = 12, T = 26, B = 34;
   const t0 = pts[0][3], t1 = Math.max(pts[pts.length - 1][3], t0 + 60);
   const aMax = Math.max(1000, Math.ceil(Math.max(...pts.map((q) => q[2])) / 1000) * 1000);
   const tx = (t) => L + (W - L - R) * (t - t0) / (t1 - t0), ty = (a) => T + (H - T - B) * (1 - a / aMax);
   const top = pts.reduce((a, q, i) => (q[2] > pts[a][2] ? i : a), 0), qt = pts[top];
   const hm = (t) => new Date(t * 1000).toISOString().slice(11, 16);
-  // course over ground (right axis 0–360°): from the point about 30 s back, once it moved at least 30 m
-  const crs = sondeCourses(pts), tc = (c) => T + (H - T - B) * (1 - c / 360);
   let svg = "";
-  for (const [c, n] of H - T - B < 110 ? [[0, "N"], [180, "S"], [360, "N"]] : [[0, "N"], [90, "E"], [180, "S"], [270, "W"], [360, "N"]]) {
-    svg += `<line class="tk" x1="${W - R}" x2="${W - R + 4}" y1="${tc(c).toFixed(1)}" y2="${tc(c).toFixed(1)}"/>` +
-      `<text class="ax crs" x="${W - R + 7}" y="${tc(c).toFixed(1)}" dy="4">${c}° ${n}</text>`;
-  }
-  const aStep = sondeNiceStep(aMax, 5);
+  const aStep = sondeNiceStep(aMax, H - T - B < 90 ? 3 : 5);
   for (let a = 0; a <= aMax; a += aStep) {
     const y = ty(a).toFixed(1);
     svg += `<line class="g" x1="${L}" x2="${W - R}" y1="${y}" y2="${y}"/><text class="ax" x="${L - 6}" y="${y}" dy="4" text-anchor="end">${a >= 1000 ? `${a / 1000} km` : `${a} m`}</text>`;
@@ -7686,9 +7703,10 @@ function sondeAltChart(s, W, H = 240) {
   // average climb up to the top (or now), the newest climb / fall (last 30 s)
   const up = qt[3] > t0 ? (qt[2] - pts[0][2]) / (qt[3] - t0) : null, last = pts[pts.length - 1];
   const k = pts.findIndex((q) => q[3] >= last[3] - 30), vNow = last[3] > pts[k][3] ? (last[2] - pts[k][2]) / (last[3] - pts[k][3]) : null;
-  svg += `<text class="ttl" x="${L}" y="${T - 10}">Altitude / time UTC</text>` +
-    `<text class="ax" x="${W - R}" y="${T - 10}" text-anchor="end">${up != null && up > 0 ? `ascent ⌀ ${up.toFixed(1)} m/s` : ""}` +
-    `${vNow != null ? ` · now ${vNow >= 0 ? "+" : "−"}${Math.abs(vNow).toFixed(1)} m/s` : ""}</text>`;
+  const tf = top < pts.length - 1 && last[3] > qt[3] ? (last[2] - qt[2]) / (last[3] - qt[3]) : null;
+  svg += `<text class="ttl" x="${L}" y="${T - 10}">Ascent / descent · UTC</text>` +
+    `<text class="ax" x="${W - R}" y="${T - 10}" text-anchor="end">${up != null && up > 0 ? `up ⌀ ${up.toFixed(1)} m/s` : ""}` +
+    `${tf != null ? ` · down ⌀ ${Math.abs(tf).toFixed(1)} m/s` : ""}${vNow != null ? ` · now ${vNow >= 0 ? "+" : "−"}${Math.abs(vNow).toFixed(1)} m/s` : ""}</text>`;
   const path = (a, b) => pts.slice(a, b).map((q, i) => `${i ? "L" : "M"}${tx(q[3]).toFixed(1)},${ty(q[2]).toFixed(1)}`).join("");
   svg += `<path class="ln" d="${path(0, top + 1)}" stroke="${SONDE_ALT_C}"/>`;
   if (top < pts.length - 1) {
@@ -7696,20 +7714,9 @@ function sondeAltChart(s, W, H = 240) {
       `<circle class="dot" cx="${tx(qt[3]).toFixed(1)}" cy="${ty(qt[2]).toFixed(1)}" r="4" fill="#ff5a4f"/>` +
       `<text class="ax burst" x="${Math.min(Math.max(tx(qt[3]), L + 70), W - R - 70).toFixed(1)}" y="${Math.max(ty(qt[2]) - 9, T + 12).toFixed(1)}" text-anchor="middle">top ${sondeAlt(qt[2])} m · ${hm(qt[3])}</text>`;
   }
-  // the course: a thin line, broken where it wraps over north (a jump of more than 180°)
-  let cd = "", prev = null;
-  for (let i = 0; i < pts.length; i++) {
-    if (crs[i] == null) { prev = null; continue; }
-    const x = tx(pts[i][3]).toFixed(1), y = tc(crs[i]).toFixed(1);
-    cd += `${prev == null || Math.abs(crs[i] - prev) > 180 ? "M" : "L"}${x},${y}`;
-    prev = crs[i];
-  }
-  if (cd) svg = `<path class="ln crs" d="${cd}" stroke="${SONDE_CRS_C}"/>` + svg;
-  svg += `<text class="ax crs" x="${W - R + 7}" y="${T - 10}">course</text>`;
   svg += `<circle class="dot" cx="${tx(last[3]).toFixed(1)}" cy="${ty(last[2]).toFixed(1)}" r="4" fill="${SONDE_ALT_C}"/>`;
-  svg += `<g class="alt-hover" visibility="hidden"><line class="hv"/><circle r="4" class="hd" fill="${SONDE_ALT_C}"/>` +
-    `<circle r="3.5" class="hd hc" fill="${SONDE_CRS_C}"/></g>`;
-  sondeAltGeom = { pts, crs, tx, ty, tc, L, R, T, B, W, H };
+  svg += `<g class="alt-hover" visibility="hidden"><line class="hv"/><circle r="4" class="hd" fill="${SONDE_ALT_C}"/></g>`;
+  sondeAltGeom = { pts, tx, ty, L, R, T, B, W, H };
   return `<svg class="sonde-alt" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Altitude against time of ${escHtml(s.serial)}">${svg}</svg>`;
 }
 
@@ -7789,23 +7796,25 @@ $("sondeProf").addEventListener("mousemove", (e) => {
   const r = svg.getBoundingClientRect(), y = (e.clientY - r.top) * g.H / r.height;
   const hov = svg.querySelector("#sondeProfHover"), tip = $("sondeProf").querySelector(".sonde-prof-tip");
   if (y < g.T || y > g.H - g.B) { hov.setAttribute("visibility", "hidden"); tip.hidden = true; return; }
-  const q = g.pts.reduce((a, p) => (Math.abs(g.ty(p[2]) - y) < Math.abs(g.ty(a[2]) - y) ? p : a));
+  const i = g.pts.reduce((a, p, k) => (Math.abs(g.ty(p[2]) - y) < Math.abs(g.ty(g.pts[a][2]) - y) ? k : a), 0), q = g.pts[i];
   const yy = g.ty(q[2]), ln = hov.querySelector("line");
   hov.setAttribute("visibility", "visible");
   ln.setAttribute("y1", yy);
   ln.setAttribute("y2", yy);
-  for (const p of g.panels) {
-    const c = hov.querySelector(`[data-k="${p.key}"]`);
-    if (q[p.i] == null) { c.setAttribute("visibility", "hidden"); continue; }
-    c.setAttribute("visibility", "visible");
-    c.setAttribute("cx", p.tx(q[p.i]));
-    c.setAttribute("cy", yy);
-    c.setAttribute("fill", SONDE_PROF_C[p.key]);
+  const val = {};
+  for (const x of g.ser) {
+    const c = hov.querySelector(`[data-k="${x.key}"]`), v = x.v[i];
+    val[x.key] = v;
+    c.setAttribute("visibility", v == null ? "hidden" : "inherit");
+    if (v != null) { c.setAttribute("cx", x.tx(v)); c.setAttribute("cy", yy); }
   }
+  const col = (k, t) => `<span style="color:${SONDE_PROF_C[k]}">${t}</span>`;
+  const parts = [val.temp != null ? col("temp", `${val.temp.toFixed(1)} °C`) : "", val.rh != null ? col("rh", `RH ${Math.round(val.rh)} %`) : ""].filter(Boolean);
   tip.hidden = false;
-  tip.innerHTML = `<b>${sondeAlt(q[2])} m</b> · ${aisUtc(q[3])} UTC<br>${q[4].toFixed(1)} °C${q[5] != null ? ` · RH ${Math.round(q[5])} %` : ""}` +
-    `<br><span class="muted">≈ ${Math.round(isaHpa(q[2]))} hPa (standard atmosphere)</span>`;
-  tip.style.top = `${Math.min(yy * r.height / g.H + 8, r.height - 60)}px`;
+  tip.innerHTML = `<b>${sondeAlt(q[2])} m</b> · ${aisUtc(q[3])} UTC` + (parts.length ? `<br>${parts.join(" · ")}` : "") +
+    (val.ws != null ? `<br>${col("ws", `wind ${val.ws.toFixed(1)} m/s (${(val.ws * 3.6).toFixed(0)} km/h)`)}` +
+      (val.wd != null ? ` ${col("wd", `from ${Math.round(val.wd)}° ${["N", "NE", "E", "SE", "S", "SW", "W", "NW"][Math.round(val.wd / 45) % 8]}`)}` : "") : "");
+  tip.style.top = `${Math.min(yy * r.height / g.H + 8, r.height - 80)}px`;
   tip.style.left = `${(g.L + 8) * r.width / g.W}px`;
 });
 /** Hover on the altitude / time chart: the nearest point in time, its altitude and climb. */
@@ -7822,12 +7831,8 @@ function sondeAltHover(e, svg) {
   hov.setAttribute("visibility", "visible");
   ln.setAttribute("x1", xx); ln.setAttribute("x2", xx); ln.setAttribute("y1", g.T); ln.setAttribute("y2", g.H - g.B);
   c.setAttribute("cx", xx); c.setAttribute("cy", yy);
-  const cr = g.crs[i], hc = hov.querySelector(".hc");
-  hc.setAttribute("visibility", cr == null ? "hidden" : "inherit");
-  if (cr != null) { hc.setAttribute("cx", xx); hc.setAttribute("cy", g.tc(cr)); }
   tip.hidden = false;
-  tip.innerHTML = `<b>${sondeAlt(q[2])} m</b> · ${aisUtc(q[3])} UTC${v != null ? `<br>${v >= 0 ? "climb +" : "fall −"}${Math.abs(v).toFixed(1)} m/s` : ""}` +
-    (cr != null ? `<br><span style="color:${SONDE_CRS_C}">course ${Math.round(cr)}°</span>` : "");
+  tip.innerHTML = `<b>${sondeAlt(q[2])} m</b> · ${aisUtc(q[3])} UTC${v != null ? `<br>${v >= 0 ? "climb +" : "fall −"}${Math.abs(v).toFixed(1)} m/s` : ""}`;
   const br = box.getBoundingClientRect();
   tip.style.top = `${Math.min(r.top - br.top + yy * r.height / g.H + 10, br.height - 60)}px`;
   tip.style.left = `${Math.min(xx * r.width / g.W + 10, r.width - 150)}px`;
