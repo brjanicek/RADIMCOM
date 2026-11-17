@@ -174,18 +174,43 @@ def fix_serials(rtl):
     return True
 
 
-DEVICE_NAMES = {"rtl": "RTL-SDR", "lime": "LimeSDR", "airspy": "Airspy"}
+DEVICE_NAMES = {"rtl": "RTL-SDR", "rtltcp": "rtl_tcp", "lime": "LimeSDR", "airspy": "Airspy"}
+
+
+def rtltcp_servers():
+    """rtl_tcp servers saved in vfos.json ("rtltcp_servers": ["192.168.1.50", "10.0.0.7:1234"])."""
+    try:
+        with open(VFOS_PATH, encoding="utf-8") as f:
+            return [s for s in json.load(f).get("rtltcp_servers", []) if str(s).strip()]
+    except (OSError, ValueError):
+        return []
+
+
+def net_devices(servers):
+    """Dongles on rtl_tcp servers: ([{driver, serial (= network address), name}], [errors])."""
+    import rtltcp
+    devs, errors = [], []
+    for d in rtltcp.list_devices(servers):
+        if d.get("error"):
+            errors.append(f"{d['server']}: {d['error']}")
+        else:
+            devs.append({"driver": "rtltcp", "serial": d["serial"], "name": d["name"]})
+    return devs, errors
 
 
 def label(d):
     return f"{DEVICE_NAMES[d['driver']]} '{d['serial']}'"
 
 
-def devices():
-    """All connected SDRs: [{driver, serial, name, index (RTL-SDR)}]."""
+def devices(servers=None):
+    """All connected SDRs: [{driver, serial, name, index (RTL-SDR)}], with the dongles of the rtl_tcp servers
+    (servers None = the saved ones)."""
     devs = [dict(d, driver="rtl", name=f"{d.get('vendor', '')} {d.get('product', '')}".strip()) for d in rtl_devices()]
     devs += [dict(d, driver="lime") for d in lime_devices()]
     devs += [dict(d, driver="airspy", name=d.get("name", "Airspy")) for d in airspy_devices()]
+    servers = rtltcp_servers() if servers is None else servers
+    if servers:
+        devs += net_devices(servers)[0]
     return devs
 
 
@@ -323,9 +348,11 @@ def make_chained(owner, name, port, note=None):
     return entry
 
 
-def save(vfos):
+def save(vfos, servers=None):
     """Writes vfos.json; old VFO settings belong to other dongles: they are moved to data/config_backup/<time>/
     (new ones are created from "init" at the next start). -> the backup folder or None."""
+    if servers is None:
+        servers = rtltcp_servers()
     stamp = time.strftime("%Y%m%d_%H%M%S")
     old = [f for f in os.listdir(DATA) if f == "vfos.json" or (f.startswith("config_") and f.endswith(".json"))]
     bdir = None
@@ -335,7 +362,10 @@ def save(vfos):
         for f in old:
             shutil.move(data(f), os.path.join(bdir, f))
     with open(VFOS_PATH, "w", encoding="utf-8") as f:
-        json.dump({"port": 8434, "vfos": vfos}, f, indent=2, ensure_ascii=False)
+        out = {"port": 8434, "vfos": vfos}
+        if servers:
+            out["rtltcp_servers"] = list(servers)
+        json.dump(out, f, indent=2, ensure_ascii=False)
     return bdir
 
 

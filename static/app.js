@@ -2291,9 +2291,9 @@ function resizeWaterfall() {
 
 // ---------- nastavenia ----------
 
-const DEVICE_NAMES = { lime: "LimeSDR", airspy: "Airspy" };
-/** VDL2, DAB and ISM need the sample rates and raw samples of an RTL dongle. */
-const noRtlDongle = (s) => (s.driver || "rtl") !== "rtl";
+const DEVICE_NAMES = { lime: "LimeSDR", airspy: "Airspy", rtltcp: "rtl_tcp" };
+/** VDL2, DAB and ISM need the sample rates and raw samples of an RTL dongle (USB or rtl_tcp). */
+const noRtlDongle = (s) => !["rtl", "rtltcp"].includes(s.driver || "rtl");
 /** The Airspy gain is a preset 0–21, not dB. */
 const gainLabel = (s) => (s.driver === "airspy" ? `${Number(s.gain)} / 21` : `${Number(s.gain).toFixed(1)} dB`);
 
@@ -11509,6 +11509,7 @@ function setSubOpened(name) {
   if (name === "gen:recs") setTimeout(() => recDirLoad());
   if (name === "vfo:dongle" || name === "vfo:adv") setTimeout(loadDongleList);   // ADVANCED: dongles and VFOs
   if (name === "" && !document.querySelector('[data-set-panel="sta"]').hidden) setTimeout(sdgStart);   // STATION: no sub-pages
+  if (name === "" && !document.querySelector('[data-set-panel="rtl"]').hidden) setTimeout(rtlStart);   // RTL_TCP: no sub-pages
 }
 /** The rotor settings (RCTRL › SETTINGS; SETTINGS › GENERAL › ROTOR until 1.0beta2) are on the screen. */
 function rotorPageOpen() {
@@ -11619,7 +11620,7 @@ for (const b of document.querySelectorAll("[data-set-sub]")) {
   if (vfoSub && vfoSub !== "vfo:tx" && document.querySelector(`[data-set-sub="${vfoSub}"]`)) showSetSub(vfoSub);
   if (genSub && document.querySelector(`[data-set-sub="${genSub}"]`)) showSetSub(genSub);
   const t = recall("setTab");
-  showSetTab(t === "vfo" || (oldTab && oldTab.startsWith("vfo:")) ? "vfo" : t === "sta" ? "sta" : "gen");
+  showSetTab(t === "vfo" || (oldTab && oldTab.startsWith("vfo:")) ? "vfo" : t === "sta" || t === "rtl" ? t : "gen");
 }
 
 // ---------- RCTRL › SETTINGS (SETTINGS › GENERAL › ROTOR until 1.0beta2): K3NG rotor (rotor.py) ----------
@@ -13955,6 +13956,13 @@ const USB_ICON = `<svg class="usb-icon" viewBox="0 0 690 440" aria-label="runnin
   `<circle cx="78" cy="222" r="76"/><path d="M560 146 L690 222 L560 298 Z"/><circle cx="414" cy="56" r="52"/>` +
   `<rect x="430" y="322" width="118" height="118" rx="10"/></g><g fill="none" stroke="currentColor" stroke-width="38">` +
   `<path d="M140 222 H580"/><path d="M200 222 C250 160 250 56 370 56"/><path d="M290 222 C340 280 330 381 440 381"/></g></svg>`;
+// Lightning next to the network symbol: the rtl_tcp server of this VFO has under-voltage (or overheats).
+const NET_WARN_ICON = `<svg class="net-warn" viewBox="0 0 24 24" aria-label="server warning"><path fill="currentColor" d="M13 1 3 14h7l-2 9 11-14h-7z"/></svg>`;
+// Network symbol (three connected nodes) instead of USB for a dongle on another computer (rtl_tcp).
+const NET_ICON = `<svg class="usb-icon" viewBox="0 0 600 440" aria-label="running"><g fill="currentColor">` +
+  `<rect x="220" y="0" width="160" height="120" rx="14"/><rect x="10" y="320" width="160" height="120" rx="14"/>` +
+  `<rect x="430" y="320" width="160" height="120" rx="14"/></g><g fill="none" stroke="currentColor" stroke-width="38">` +
+  `<path d="M300 120 V220 M90 320 V220 H510 V320"/></g></svg>`;
 
 // Annunciators of a VFO window: lit like LCD segments when on, dark when off or not used in the current mode.
 // [class, text, tooltip]; the order is fixed, so nothing moves. SAT = Doppler correction from satellite tracking.
@@ -14256,14 +14264,22 @@ function renderVfoDisplays() {
       : s.status === "opening dongle" ? ["OPENING", "wait", "opening dongle"]
       : s.status === "calibrating" ? ["CAL", "wait", "LimeSDR calibration"]
       : ["OFFLINE", "off", `receiver ${s.status}`];
-    // Connection as a USB icon: green = running, blinking orange = connecting (WAIT / OPENING / CAL),
+    // Connection as a USB icon (network icon for rtl_tcp): green = running, blinking orange = connecting (WAIT / OPENING / CAL),
     // grey = disconnected (OFFLINE); CHAIN and OOR stay as text. Details in the tooltip.
     const connecting = ["WAIT", "OPENING", "CAL"].includes(stTxt);
     const icon = connecting || stTxt === "RUNNING" || stTxt === "OFFLINE";
-    const stHtml = icon ? USB_ICON : stTxt;
+    const net = ((s && s.driver) || v.driver) === "rtltcp";
+    const netWarn = net && s && s.net_warn && s.net_warn.length ? s.net_warn : null;
+    const stHtml = icon ? (net ? NET_ICON + (netWarn ? NET_WARN_ICON : "") : USB_ICON) : stTxt;
     if (stat.dataset.html !== stHtml) { stat.innerHTML = stHtml; stat.dataset.html = stHtml; }
-    stat.className = `vfo-stat ${stCls}${connecting ? " blink" : ""}`;
-    stat.title = `${stTxt}: ${stTitle}`;
+    // rtl_tcp: orange = the network does not carry all samples, red = no connection or no data from the server
+    const netSlow = net && stTxt === "RUNNING" && s.net_ratio != null && s.net_ratio < 0.97;
+    const netErr = net && stTxt === "OFFLINE" && v.online && !!s;
+    stat.className = `vfo-stat ${netErr ? "neterr" : netSlow ? "netslow" : stCls}${connecting ? " blink" : ""}`;
+    stat.title = netSlow ? `NETWORK TOO SLOW: only ${Math.round(s.net_ratio * 100)} % of the samples arrive, `
+      + "the rest is lost on the rtl_tcp server (lower the sample rate or use a faster link)" : `${stTxt}: ${stTitle}`;
+    if (netWarn) stat.title += `
+rtl_tcp SERVER: ${netWarn.join(", ").toUpperCase()} (SETTINGS › RTL_TCP SERVER)`;
     const mode = row.querySelector(".vfo-mode"), gain = row.querySelector(".vfo-gain"), sql = row.querySelector(".vfo-sql");
     // without a state only make it invisible, so the layout does not shift
     const adcv = row.querySelector(".vfo-adcv");
@@ -16250,7 +16266,7 @@ function sdgLane(v) {
   const chained = s.chain_owner ? `shares VFO-${s.chain_owner}` : s.chained_vfos ? `+${s.chained_vfos} VFO` : "";
   // the dongle as one block with its TUNER (gain) and A/D (sample rate, peak) inside
   const auto = s.gain === "auto", smart = s.smart_agc && !auto, clip = !auto && s.adc_clip;
-  const devName = { rtl: "RTL-SDR", airspy: "AIRSPY", lime: "LimeSDR" }[s.driver] || String(s.driver || "SDR").toUpperCase();
+  const devName = { rtl: "RTL-SDR", rtltcp: "RTL_TCP", airspy: "AIRSPY", lime: "LimeSDR" }[s.driver] || String(s.driver || "SDR").toUpperCase();
   const tuner = `<div class="sdg-in" title="Tuner gain: SETTINGS › VFO › ADVANCED › AGC+ and the RF GAIN key"><b>TUNER</b>` +
     `<span class="v">${auto ? "auto" : gainLabel(s)}</span><span>${smart ? "AGC+" : auto ? (s.rtl_agc ? "RTL AGC" : "tuner auto") : "manual"}</span></div>`;
   const adc = `<div class="sdg-in${clip ? " bad" : ""}" title="A/D converter: sample rate and the peak of the raw samples"><b>A/D</b>` +
@@ -16577,6 +16593,231 @@ function sdgTick() {
   renderSdg();
   sdg.timer = setTimeout(sdgTick, 1000);
 }
+// ---------- SETTINGS › RTL_TCP SERVER: rtl_tcp servers with remote dongles (rtltcp.py, rpi/rtltcp_manager.py) ----------
+// One card per server, under each other: link, ping, computer, power, time, version, history graphs, dongles.
+const rtl = { timer: null, at: 0, busy: false, data: null, html: "", ping: {} };
+const RTL_PING_KEEP = 200;            // ping samples kept per server (every 3 s -> 10 min, like the server's history)
+const rtlOpen = () => bodyTab === "set" && !document.hidden && !$("settingsCard").hidden
+  && !document.querySelector('[data-set-panel="rtl"]').hidden;
+function rtlStart() {
+  if (rtl.timer) return;
+  rtl.at = 0;
+  rtlTick();
+}
+function rtlTick() {
+  if (!rtlOpen()) { rtl.timer = null; return; }
+  if (!rtl.busy && Date.now() - rtl.at > 3000) {
+    rtl.busy = true;
+    rtl.at = Date.now();
+    fetch(vbase + "/api/rtltcp/servers").then((r) => r.json()).then((d) => {
+      rtl.data = d;
+      const now = Date.now() / 1000;
+      for (const x of d.servers || []) {
+        const h = rtl.ping[x.server] || (rtl.ping[x.server] = []);
+        h.push({ t: now, v: x.ping_ms });
+        if (h.length > RTL_PING_KEEP) h.splice(0, h.length - RTL_PING_KEEP);
+      }
+    }).catch((e) => { rtl.data = { servers: [], error: String(e) }; })
+      .finally(() => { rtl.busy = false; renderRtl(); });
+  }
+  rtl.timer = setTimeout(rtlTick, 1000);
+}
+const rtlEsc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+function rtlBar(pct, txt, warn = 70, bad = 90) {
+  if (pct == null) return '<span class="muted">–</span>';
+  const cls = pct >= bad ? "bad" : pct >= warn ? "warn" : "";
+  return `<div class="rtl-bar ${cls}"><i style="width:${Math.min(100, Math.max(0, pct)).toFixed(0)}%"></i><em>${txt}</em></div>`;
+}
+function rtlUptime(s) {
+  const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
+  return d ? `${d} d ${h} h` : h ? `${h} h ${m} min` : `${m} min`;
+}
+const RTL_COLORS = ["var(--green)", "var(--cyan, #4fd6ff)", "var(--amber)", "#c58cff", "#ff7aa8", "var(--yellow)"];
+/** Small line chart: series [{name, color, pts: [{t, v}]}] over the last span seconds; null values = gaps. */
+function rtlChart(title, unit, series, span, opt = {}) {
+  const W = 300, H = 64, now = Date.now() / 1000, t0 = now - span;
+  const vals = series.flatMap((s) => s.pts.filter((p) => p.v != null && p.t >= t0).map((p) => p.v));
+  if (opt.ref != null) vals.push(opt.ref);
+  let lo = opt.min ?? Math.min(...vals, 0), hi = opt.max ?? Math.max(...vals, 1);
+  if (hi - lo < 1e-6) hi = lo + 1;
+  hi += (hi - lo) * 0.08;
+  const x = (t) => ((t - t0) / span * W).toFixed(1), y = (v) => (H - (v - lo) / (hi - lo) * H).toFixed(1);
+  const lines = series.map((s) => {
+    let d = "", pen = false;
+    for (const p of s.pts) {
+      if (p.t < t0) continue;
+      if (p.v == null) { pen = false; continue; }
+      d += `${pen ? "L" : "M"}${x(p.t)} ${y(p.v)}`;
+      pen = true;
+    }
+    return d ? `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="1.5" vector-effect="non-scaling-stroke"/>` : "";
+  }).join("");
+  const ref = opt.ref != null ? `<path d="M0 ${y(opt.ref)}H${W}" stroke="var(--muted)" stroke-dasharray="3 3" stroke-width="1" vector-effect="non-scaling-stroke"/>` : "";
+  const last = series.map((s) => {
+    const p = [...s.pts].reverse().find((q) => q.v != null);
+    return `<span style="color:${s.color}">${rtlEsc(s.name)} ${p ? p.v.toFixed(opt.dec ?? 1) : "–"}</span>`;
+  }).join(" ");
+  const empty = vals.length ? "" : '<text x="150" y="36" text-anchor="middle" class="rtl-ch-empty">collecting…</text>';
+  return `<div class="rtl-chart"><div class="rtl-ch-head"><b>${title}</b><span>${last} ${unit}</span></div>
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${ref}${lines}${empty}</svg>
+    <div class="rtl-ch-axis"><span>−${Math.round(span / 60)} min</span><span>${opt.refTxt || ""}</span><span>now</span></div></div>`;
+}
+function rtlCard(x, latest) {
+  const st = x.status, esc = rtlEsc;
+  const ping = x.ping_ms == null ? '<span class="rtl-tag bad">NO PING</span>'
+    : `<span class="rtl-tag ${x.ping_ms > 50 ? "warn" : "ok"}">PING ${x.ping_ms.toFixed(x.ping_ms < 10 ? 1 : 0)} ms</span>`;
+  if (!st) {
+    const body = x.plain ? `plain rtl_tcp on port ${x.plain.port}, tuner ${esc(x.plain.tuner)} (no rtltcp-manager: no details)`
+      : esc(x.error || "no answer");
+    return `<div class="rtl-card ${x.plain ? "" : "err"}"><div class="rtl-head"><b>${esc(x.server)}</b>${ping}<span class="grow"></span></div>
+      <div class="muted small">${body}</div></div>`;
+  }
+  const ln = st.link || {};
+  const wifi = ln.freq_mhz ? ` · ${esc(ln.ssid || "")} ${(ln.freq_mhz / 1000).toFixed(2)} GHz · ${ln.signal_dbm ?? "?"} dBm` : "";
+  const rate = ln.bitrate_mbps ? ` · ${ln.bitrate_mbps} Mb/s` : "";
+  const kindCls = ln.kind === "LAN" || ln.kind === "WIFI 5G" ? "ok" : ln.kind === "WIFI 2G" ? "warn" : "";
+  const thr = st.throttled, now = thr ? thr.flags.filter((f) => !f.includes("since boot")) : [];
+  const power = !thr ? '<span class="muted">–</span>'
+    : now.length ? `<span class="rtl-tag bad">${esc(now.join(", ").toUpperCase())}</span>`
+    : thr.flags.length ? `<span class="rtl-tag warn">OK now · earlier: ${esc(thr.flags.map((f) => f.replace(" since boot", "")).join(", "))}</span>`
+    : '<span class="rtl-tag ok">OK</span>';
+  const mem = st.mem_total ? 100 * st.mem_used / st.mem_total : null;
+  const memTxt = st.mem_total ? `${(st.mem_used / 2 ** 20).toFixed(0)} / ${(st.mem_total / 2 ** 20).toFixed(0)} MB` : "";
+  const diskTxt = st.disk_total ? `${(st.disk_free / 2 ** 30).toFixed(1)} GB free of ${(st.disk_total / 2 ** 30).toFixed(1)} GB` : "";
+  const diskPct = st.disk_total ? 100 * (1 - st.disk_free / st.disk_total) : null;
+  // time: server clock against this PC (FT8 and the time stamps of the decoders need both right)
+  const off = x.clock_offset_s;
+  const offTxt = off == null ? "" : `${off >= 0 ? "+" : "−"}${Math.abs(off).toFixed(Math.abs(off) < 10 ? 2 : 0)} s against this PC`;
+  const timeTag = off == null ? '<span class="muted">–</span>'
+    : `<span class="rtl-tag ${Math.abs(off) > 1 ? "bad" : Math.abs(off) > 0.3 || !st.ntp ? "warn" : "ok"}">${st.ntp ? "NTP SYNCED" : "NO NTP"}</span> ${offTxt}`;
+  // version of the server program against the one shipped with this RADIMCOM
+  const newer = latest && st.version && rtlVer(latest) > rtlVer(st.version);
+  const ver = `rtltcp-manager ${esc(st.version || "?")}` + (newer ? ` <span class="rtl-tag warn">${esc(latest)} AVAILABLE</span>
+      ${st.update ? `<button class="key small" data-rtl-update data-server="${esc(x.server)}">UPDATE</button>`
+        : '<span class="muted">(UPDATE=0 on the server)</span>'}` : ' <span class="rtl-tag ok">UP TO DATE</span>');
+  const vfos = x.vfos || {}, vst = x.vfo_state || {};
+  const rows = (st.dongles || []).map((d) => {
+    const users = (d.clients || []).join(", ");
+    const names = vfos[d.serial] || [];
+    const v = names.length ? "VFO " + names.join(", ") : "";
+    const own = vst[names[0]] || {};          // the owner VFO (the first) sets frequency and sample rate
+    const tune = own.center_hz ? `${(own.center_hz / 1e6).toFixed(3)} MHz · ${(own.sample_rate / 1e6).toFixed(3)} MS/s` : "";
+    const need = own.sample_rate ? own.sample_rate * 16 / 1e6 : null;     // 8 bit I + Q
+    const ratio = own.net_ratio;
+    const samples = ratio == null ? "" : `<span class="rtl-tag ${ratio < 0.97 ? "warn" : "ok"}" title="share of the samples arriving at RADIMCOM">${(ratio * 100).toFixed(ratio < 0.995 ? 1 : 0)} %</span>`;
+    const rateTxt = d.tx_mbps == null ? "" : `${d.tx_mbps.toFixed(1)}${need ? ` / ${need.toFixed(1)}` : ""} Mb/s`;
+    const state = d.error ? `<span class="rtl-tag warn">${esc(d.error)}</span>`
+      : d.running ? (users ? '<span class="rtl-tag ok">IN USE</span>' : '<span class="rtl-tag">FREE</span>')
+      : '<span class="rtl-tag bad">STOPPED</span>';
+    const btn = d.running ? `<button class="key small" data-rtl-restart="${esc(d.serial)}" data-server="${esc(x.server)}"
+      title="Restart the rtl_tcp of this dongle; its VFO reconnects in a few seconds">RESTART</button>` : "";
+    return `<tr><td class="mono">${esc(d.serial || "?")}</td><td class="mono">${d.port || "–"}</td><td>${esc(d.product || "")}</td>
+      <td>${state}</td><td>${esc(v)}</td><td class="muted">${tune}</td><td class="mono">${rateTxt}</td><td>${samples}</td>
+      <td class="mono">${esc(users)}</td><td class="r">${btn}</td></tr>`;
+  }).join("") || '<tr><td colspan="10" class="muted">no dongle connected</td></tr>';
+  // warnings: red while under-voltage lasts, amber when it happened since the last start; temperature
+  const uvNow = thr && thr.flags.includes("under-voltage"), uvBoot = thr && thr.flags.includes("under-voltage since boot");
+  const warn = uvNow ? `<div class="rtl-warn"><b>UNDER-VOLTAGE NOW</b> – the supply gives less than 4.63 V, the CPU is slowed down
+      ${st.cpu_mhz ? `(${st.cpu_mhz} MHz now)` : ""} and the dongles may lose samples or disconnect. Use a 5.1 V / 2.5 A supply
+      with a short, thick cable, or put the dongles on a powered USB hub.</div>`
+    : uvBoot ? `<div class="rtl-warn amber"><b>UNDER-VOLTAGE EARLIER</b> – the supply voltage dropped since the last start
+      (at a load peak). Not now, but a stronger supply or a shorter cable is recommended.</div>` : "";
+  const hot = st.temp_c != null && st.temp_c >= 80
+    ? `<div class="rtl-warn amber"><b>HOT</b> – ${st.temp_c} °C, the CPU slows down at 80–85 °C. Add a heatsink or airflow.</div>` : "";
+  const clockWarn = off != null && Math.abs(off) > 1
+    ? `<div class="rtl-warn amber"><b>CLOCK OFF BY ${Math.abs(off).toFixed(1)} s</b> – the server or this PC has the wrong time
+      (FT8 needs ±1 s). ${st.ntp ? "The server is NTP synced: check the clock of this PC." : "Turn on NTP on the server (timedatectl set-ntp true)."}</div>` : "";
+  // history: data rate per dongle and WiFi signal from the server, ping from this page
+  const hist = st.history || [], span = 600;
+  const serials = (st.dongles || []).filter((d) => d.port).map((d) => d.serial);
+  const needAll = (st.dongles || []).reduce((a, d) => {
+    const o = vst[(vfos[d.serial] || [])[0]];
+    return a + (o && o.sample_rate && (d.clients || []).length ? o.sample_rate * 16 / 1e6 : 0);
+  }, 0);
+  const dataSeries = serials.map((s, i) => ({ name: s, color: RTL_COLORS[i % RTL_COLORS.length],
+    pts: hist.map((h) => ({ t: h.t - (off || 0), v: h.mbps ? h.mbps[s] ?? null : null })) }));
+  const charts = rtlChart("DATA SENT", "Mb/s", dataSeries, span, { min: 0, ref: needAll / Math.max(1, serials.length) || null,
+    refTxt: needAll ? "- - needed per dongle" : "" })
+    + rtlChart("PING", "ms", [{ name: "", color: "var(--green)", pts: rtl.ping[x.server] || [] }], span, { min: 0, dec: 1 })
+    + (hist.some((h) => h.signal != null) ? rtlChart("WIFI SIGNAL", "dBm",
+      [{ name: "", color: "var(--amber)", pts: hist.map((h) => ({ t: h.t - (off || 0), v: h.signal })) }], span, { dec: 0 }) : "");
+  const ifs = (st.interfaces || []).map((i) => `${esc(i.kind)} ${esc(i.addr)}`).join(" · ");
+  return `<div class="rtl-card ${uvNow ? "err" : ""}">
+    <div class="rtl-head"><b>${esc(st.host)}</b><span class="mono">${esc(x.host)}</span>
+      <span class="rtl-tag ${kindCls}" title="${esc(ln.dev || "")}: the way the server reaches this PC">${esc(ln.kind || "?")}</span>${ping}
+      <span class="grow"></span>
+      <span class="rtl-btns">${st.power ? `<button class="key small" data-rtl-power="reboot" data-server="${esc(x.server)}">RESTART SERVER</button>
+        <button class="key small danger" data-rtl-power="poweroff" data-server="${esc(x.server)}">SHUTDOWN</button>`
+        : '<span class="muted small">power control off on the server (POWER=0)</span>'}</span></div>
+    ${warn}${hot}${clockWarn}
+    <div class="rtl-body">
+      <div class="rtl-grid">
+        <span>Link</span><span>${esc(ln.dev || "?")} ${esc(ln.addr || "")}${wifi}${rate}</span>
+        <span>Interfaces</span><span>${ifs || "–"}</span>
+        <span>Computer</span><span>${esc(st.model)} · ${esc(st.os)} · up ${rtlUptime(st.uptime_s || 0)}</span>
+        <span>CPU</span><span>${rtlBar(st.cpu_pct, st.cpu_pct == null ? "" : `${st.cpu_pct.toFixed(0)} % · ${st.cpus} cores${st.cpu_mhz ? ` · ${st.cpu_mhz} MHz` : ""} · ${st.temp_c ?? "?"} °C`)}</span>
+        <span>RAM</span><span>${rtlBar(mem, memTxt, 80, 92)}</span>
+        <span>Disk</span><span>${rtlBar(diskPct, diskTxt, 85, 95)}</span>
+        <span>Power</span><span>${power}</span>
+        <span>Time</span><span>${timeTag}</span>
+        <span>Software</span><span>${ver}</span>
+      </div>
+      <div class="rtl-charts">${charts}</div>
+    </div>
+    <div class="rtl-tablewrap"><table class="rtl-dongles"><tr><th>Dongle</th><th>Port</th><th>Type</th><th>State</th><th>Used by</th>
+      <th>Tuned</th><th title="sent by the server / needed at the sample rate">Data</th>
+      <th title="share of the samples arriving at RADIMCOM">Arrive</th><th>Client</th><th></th></tr>${rows}</table></div>
+  </div>`;
+}
+const rtlVer = (v) => String(v || "").split(".").map((n) => +n || 0).reduce((a, n) => a * 1000 + n, 0);
+function renderRtl() {
+  const d = rtl.data;
+  if (!d) return;
+  const list = d.servers || [];
+  const html = d.error ? `<span class="muted">${rtlEsc(d.error)}</span>`
+    : list.length ? list.map((x) => rtlCard(x, d.latest_manager)).join("")
+    : '<span class="muted">No rtl_tcp server. Add one in SDR setup (Network dongles) and give it to a VFO.</span>';
+  if (html !== rtl.html) { $("rtlServers").innerHTML = html; rtl.html = html; }
+  $("rtlInfo").textContent = list.length ? `${list.length} server${list.length > 1 ? "s" : ""} · refreshed every 3 s` : "";
+}
+async function rtlPost(path, body) {
+  const r = await fetch(vbase + path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+$("rtlServers").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-rtl-power],[data-rtl-restart],[data-rtl-update]");
+  if (!b) return;
+  const server = b.dataset.server;
+  let path, body, msg;
+  if (b.dataset.rtlPower) {
+    const action = b.dataset.rtlPower;
+    const tail = action === "reboot" ? "Its dongles are back in about a minute; the VFOs reconnect by themselves."
+      : "It stays off until its power is switched off and on again. The VFOs on its dongles stop receiving.";
+    if (!confirm(`${action === "reboot" ? "RESTART" : "SHUT DOWN"} the rtl_tcp server ${server}?\n\n${tail}`)) return;
+    [path, body, msg] = ["/api/rtltcp/power", { server, action }, action === "reboot" ? "restarting…" : "shutting down…"];
+  } else if (b.dataset.rtlRestart) {
+    const serial = b.dataset.rtlRestart;
+    if (!confirm(`Restart rtl_tcp of dongle ${serial} on ${server}?\n\nIts VFO loses the signal for a few seconds and reconnects.`)) return;
+    [path, body, msg] = ["/api/rtltcp/restart", { server, serial }, `rtl_tcp of ${serial} restarted`];
+  } else {
+    if (!confirm(`Update rtltcp-manager on ${server} to ${rtl.data && rtl.data.latest_manager}?\n\n`
+      + "The service restarts: the VFOs on its dongles lose the signal for a few seconds and reconnect.")) return;
+    [path, body, msg] = ["/api/rtltcp/update", { server }, "updated, restarting…"];
+  }
+  b.disabled = true;
+  try {
+    await rtlPost(path, body);
+    $("rtlInfo").textContent = `${server}: ${msg}`;
+    rtl.at = 0;
+  } catch (err) {
+    alert(`${server}: ${err.message}`);
+  } finally {
+    b.disabled = false;
+  }
+});
+
 function sdgStart() {
   if (sdg.timer) return;
   sdg.at = 0;

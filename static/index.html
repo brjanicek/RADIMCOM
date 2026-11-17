@@ -1514,8 +1514,9 @@ ecordings, played in the browser -->
       <div class="amsat-head">
         <div class="amsat-pages set-tabs" id="setTabs" role="tablist">
           <button class="key small on" data-set-tab="gen" role="tab" aria-selected="true">GENERAL</button>
-          <button class="key small" data-set-tab="vfo" role="tab" aria-selected="false">VFO</button>
           <button class="key small" data-set-tab="sta" role="tab" aria-selected="false">STATION</button>
+          <button class="key small" data-set-tab="vfo" role="tab" aria-selected="false">VFO</button>
+          <button class="key small" data-set-tab="rtl" role="tab" aria-selected="false">RTL_TCP SERVER</button>
         </div>
       </div>
       <div class="set-body">
@@ -2155,6 +2156,17 @@ ecordings, played in the browser -->
                   upconverter must be off). Retuning ends the transmission.</p>
               </div>
             </div>
+          </div>
+        </div>
+        <!-- ===== RTL_TCP: the servers with remote dongles (rpi/install_rtltcp.sh), live: link, ping, CPU, RAM,
+             power, dongles and who uses them, REBOOT / SHUTDOWN. Filled by the script. ===== -->
+        <div class="set-panel rtl-panel" data-set-panel="rtl" role="tabpanel" hidden>
+          <div class="setting">
+            <div class="row"><span>rtl_tcp servers (remote dongles)</span><span class="muted" id="rtlInfo"></span></div>
+            <div class="rtl-servers" id="rtlServers"><span class="muted">loading…</span></div>
+            <p class="note">The servers in SDR setup and those the VFOs use. Ping = TCP connect from this PC. Link = how the
+              server reaches this PC. Power from the Raspberry Pi firmware (under-voltage slows the CPU and can drop samples).
+              Servers are installed with rpi/install_rtltcp.sh.</p>
           </div>
         </div>
         <!-- ===== STATION: a simplified scheme of the whole receiver, live: the station (QTH, rotor, audio) on top,

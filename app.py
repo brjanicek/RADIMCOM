@@ -163,7 +163,8 @@ if VFO:
         cfg["ism"] = False           # ISM too
     else:
         cfg.pop("chain", None)
-RTL_DONGLE = cfg.get("driver", "rtl") == "rtl"   # VDL2, DAB and ISM need the rates and raw samples of an RTL dongle
+# VDL2, DAB and ISM need the rates and raw samples of an RTL dongle (over USB or rtl_tcp)
+RTL_DONGLE = cfg.get("driver", "rtl") in ("rtl", "rtltcp")
 if not RTL_DONGLE:
     cfg["vdl2"] = cfg["dab"] = cfg["ism"] = False
 if cfg.get("driver") in DRIVER_SAMPLE_RATES:
@@ -1384,6 +1385,72 @@ def api_dongles():
     except OSError as e:  # librtlsdr.dll missing etc.
         out["error"] = str(e)
     return jsonify(out)
+
+
+def _vfos_cfg():
+    try:
+        with open(VFOS_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+@app.route("/api/rtltcp/servers")
+def api_rtltcp_servers():
+    """SETTINGS › RTL_TCP: state of the rtl_tcp servers (saved ones and those the VFOs use), asked in parallel."""
+    import rtltcp
+    from concurrent.futures import ThreadPoolExecutor
+    vc = _vfos_cfg()
+    servers = rtltcp.servers_in_use(vc)
+    with ThreadPoolExecutor(max_workers=max(1, min(8, len(servers)))) as ex:
+        out = list(ex.map(lambda s: rtltcp.server_status(s, vc), servers))
+    return jsonify({"servers": out, "latest_manager": rtltcp.latest_manager()[0]})
+
+
+def _rtltcp_post(action):
+    """Common part of the RTL_TCP SERVER keys: only this RADIMCOM's pages, only servers of vfos.json."""
+    import rtltcp
+    if not same_host(request):
+        return None, None, (jsonify({"error": "not allowed"}), 403)
+    body = request.get_json(force=True, silent=True) or {}
+    server = str(body.get("server", ""))
+    if server not in rtltcp.servers_in_use(_vfos_cfg()):
+        return None, None, (jsonify({"error": "unknown server"}), 400)
+    return rtltcp, (server, body), None
+
+
+@app.route("/api/rtltcp/restart", methods=["POST"])
+def api_rtltcp_restart():
+    """{"server": …, "serial": "SDR1_060"}: restarts the rtl_tcp of one dongle."""
+    rtltcp, args, err = _rtltcp_post("restart")
+    if err:
+        return err
+    res = rtltcp.server_restart_dongle(args[0], str(args[1].get("serial", "")))
+    return jsonify(res), (200 if res.get("ok") else 502)
+
+
+@app.route("/api/rtltcp/update", methods=["POST"])
+def api_rtltcp_update():
+    """{"server": …}: installs rpi/rtltcp_manager.py of this RADIMCOM on the server."""
+    rtltcp, args, err = _rtltcp_post("update")
+    if err:
+        return err
+    res = rtltcp.server_update(args[0])
+    return jsonify(res), (200 if res.get("ok") else 502)
+
+
+@app.route("/api/rtltcp/power", methods=["POST"])
+def api_rtltcp_power():
+    """{"server": "192.168.1.50", "action": "reboot" | "poweroff"}: only for a server in vfos.json."""
+    import rtltcp
+    if not same_host(request):
+        return jsonify({"error": "not allowed"}), 403
+    body = request.get_json(force=True, silent=True) or {}
+    server = str(body.get("server", ""))
+    if server not in rtltcp.servers_in_use(_vfos_cfg()):
+        return jsonify({"error": "unknown server"}), 400
+    res = rtltcp.server_power(server, str(body.get("action", "")))
+    return jsonify(res), (200 if res.get("ok") else 502)
 
 
 @app.route("/api/satellites", methods=["GET", "POST"])
