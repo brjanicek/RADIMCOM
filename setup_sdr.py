@@ -14,6 +14,7 @@ The receiver (start.bat) must be stopped during setup, otherwise the dongles are
 """
 import json
 import os
+import re
 import shutil
 import string
 import sys
@@ -133,11 +134,13 @@ def eeprom_serial(index):
 
 
 def write_serial(index, new):
-    """Writes a new serial number (same length as the old one) into RTL-SDR #index; the EEPROM is backed up first."""
+    """Writes a new serial number (up to the length of the old one) into RTL-SDR #index; the EEPROM is backed up first."""
     import eeprom_tool
     old, backup = eeprom_serial(index)
-    if len(new) != len(old):
-        raise ValueError(f"the serial must have exactly {len(old)} characters")
+    if not 1 <= len(new) <= len(old):
+        raise ValueError(f"the serial may have 1 to {len(old)} characters")
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", new):
+        raise ValueError("the serial may have letters, digits and - _ . only")
     eeprom_tool.write(index, new)
     return backup
 
@@ -159,7 +162,7 @@ def fix_serials(rtl):
         except RuntimeError as e:
             print(f"  #{d['index']}: cannot read the EEPROM ({e}), skipped")
             continue
-        new = ask(f"  #{d['index']}: new serial ({len(old)} characters)", unique_serial(old, taken) or "")
+        new = ask(f"  #{d['index']}: new serial (up to {len(old)} characters)", unique_serial(old, taken) or "")
         try:
             write_serial(d["index"], new)
         except (ValueError, RuntimeError) as e:

@@ -95,7 +95,7 @@ Lists the connected dongles and backs up their EEPROM to `data\eeprom_backup\`.
 python eeprom_tool.py write INDEX SERIAL
 ```
 
-Writes a new serial number. It must have the same length as the original. After writing, unplug and replug the dongle.
+Writes a new serial number. It may be shorter than the original, not longer (the EEPROM has a fixed place for it). After writing, unplug and replug the dongle.
 
 ```bash
 python eeprom_tool.py restore INDEX FILE

@@ -7308,7 +7308,7 @@ async function renderSondeMap() {
     }
     mk.setLatLng([s.lat, s.lon]);
     mk.setIcon(sondeIcon(s, sel));
-    mk.setTooltipContent(`${escHtml(s.serial)}<br>${sondeAlt(s.alt)} m ${sondeClimb(s.vv)}`);
+    mk.setTooltipContent(`${escHtml(s.serial)}<br>${s.freq_hz ? `${fmtMHz(s.freq_hz, 3)} MHz<br>` : ""}${sondeAlt(s.alt)} m ${sondeClimb(s.vv)}`);
     mk.setPopupContent(sondePopup(s));
   }
   for (const [k, mk] of lay.m) if (!keep.has(k)) { mk.remove(); lay.m.delete(k); }
@@ -14143,11 +14143,17 @@ function renderVfoAdc(row, s) {
   const a = s.agc || {}, bar = row.querySelector(".vfo-adc"), val = row.querySelector(".vfo-adcv");
   const lvl = a.head != null ? -a.head : s.adc_peak != null ? Number(s.adc_peak) : null;
   const t = a.target ?? 17, w = a.window ?? 3;
-  const pos = (db) => `${Math.max(0, Math.min(100, (db + 40) / 40 * 100)).toFixed(1)}%`;
+  // positions snapped into the gap between segments (period 7 px: 5 px segment, 2 px gap, as in style.css), so a
+  // zone colour or the lit end never splits a segment
+  const wpx = bar.clientWidth || 100, last = (Math.floor((wpx + 2) / 7) - 1) * 7 - 1;   // gap before the last segment
+  const pos = (db, cap = Infinity) => {
+    const x = Math.max(0, Math.min(1, (db + 40) / 40)) * wpx;
+    return `${Math.max(0, Math.min(cap, Math.round(x / 7) * 7 - 1))}px`;
+  };
   bar.style.setProperty("--p", lvl == null ? "0%" : pos(lvl));
   bar.style.setProperty("--z1", pos(-(t + w + 6)));
   bar.style.setProperty("--z2", pos(-(t - w)));
-  bar.style.setProperty("--z3", pos(-1));
+  bar.style.setProperty("--z3", pos(-1, last));
   const clip = !!s.adc_clip || !!a.lamp;
   const zone = lvl == null ? "" : clip || lvl > -1 ? "clip" : lvl > -(t - w) ? "hot" : lvl < -(t + w + 6) ? "quiet" : "ok";
   val.className = `vfo-adcv ${zone}`;

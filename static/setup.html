@@ -53,6 +53,7 @@ label.chk { display: inline-flex; align-items: center; gap: 6px; cursor: pointer
 .err { background: rgba(255,75,62,.1); border: 1px solid rgba(255,75,62,.45); color: #ffb3ab; }
 .ok { background: rgba(60,240,124,.08); border: 1px solid rgba(60,240,124,.35); color: #b6f7cb; }
 .info { background: rgba(111,183,255,.07); border: 1px solid rgba(111,183,255,.3); color: #cfe3fa; }
+.warn-txt { color: #ffb547; }
 .tag { display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 3px; border: 1px solid var(--line2); color: var(--muted); }
 .tag.rtl { color: var(--green); border-color: rgba(60,240,124,.4); }
 .tag.lime { color: var(--blue); border-color: rgba(111,183,255,.4); }
@@ -117,13 +118,15 @@ label.chk { display: inline-flex; align-items: center; gap: 6px; cursor: pointer
 
   <section id="serialSec" class="hidden">
     <h2>SERIAL NUMBERS</h2>
-    <p class="small" style="margin:0 0 8px">These RTL-SDR dongles have the same (or an empty) serial number, so RADIMCOM cannot tell them apart:
-      after replugging they could swap VFOs. A unique number can be written into their EEPROM (a backup of each goes to
-      <span class="mono">data\eeprom_backup</span>). It must keep the same length.</p>
+    <p class="small note-box warn" id="serialDup" style="margin:0 0 8px">Some RTL-SDR dongles have the same (or an empty) serial number, so
+      RADIMCOM cannot tell them apart: after replugging they could swap VFOs. A unique number is offered for them (marked
+      <b>SAME</b>); or leave them, such dongles are then opened by their USB order.</p>
+    <p class="small" style="margin:0 0 8px">Any RTL-SDR dongle can be renamed: type a new serial number (up to the length of the old one, letters,
+      digits and - _ . only) and WRITE TO EEPROM; only the changed ones are written, a backup of each EEPROM goes to
+      <span class="mono">data\eeprom_backup</span>. A dongle on a VFO stays there under its new number.</p>
     <table><thead><tr><th>#</th><th>NOW</th><th>NEW SERIAL</th><th></th></tr></thead><tbody id="serialRows"></tbody></table>
     <div class="footer" style="margin-top:10px">
       <button class="key accent" id="writeSerials">WRITE TO EEPROM</button>
-      <span class="muted small">or leave them: such dongles are then opened by their USB order</span>
     </div>
     <div id="serialMsg"></div>
   </section>
@@ -190,11 +193,17 @@ async function load(keep) {
     ? `No SDR found. Check the USB connection and the driver (RTL-SDR and Airspy: WinUSB with Zadig, LimeSDR: FTDI D3XX;
        see DRIVERS.txt), then REFRESH.`
     : j.no_serials ? "No serial numbers could be read: is RADIMCOM still running (start.bat)? Close it and REFRESH." : "");
-  const bad = devs.filter((d) => d.rewrite);
-  $("serialSec").classList.toggle("hidden", !bad.length);
-  $("serialRows").innerHTML = bad.map((d) => `<tr><td>#${d.index}</td><td class="mono">${esc(d.serial) || '<span class="muted">(empty)</span>'}</td>
-    <td><input type="text" class="mono" data-index="${d.index}" value="${esc(d.suggest)}" maxlength="${(d.serial || d.suggest).length || 8}"></td>
-    <td class="muted small">${(d.serial || d.suggest).length} characters</td></tr>`).join("");
+  // SERIAL NUMBERS: every RTL-SDR dongle can be renamed; the ones with the same / an empty number get a unique proposal
+  const rtl = devs.filter((d) => d.driver === "rtl");
+  $("serialSec").classList.toggle("hidden", !rtl.length);
+  $("serialDup").hidden = !rtl.some((d) => d.rewrite);
+  $("serialRows").innerHTML = rtl.map((d) => {
+    const len = (d.serial || d.suggest || "").length || 8;
+    return `<tr><td>#${d.index}</td><td class="mono">${esc(d.serial) || '<span class="muted">(empty)</span>'}</td>
+    <td><input type="text" class="mono" data-index="${d.index}" data-old="${esc(d.serial)}" value="${esc(d.rewrite ? d.suggest : d.serial)}"
+      maxlength="${len}" size="${len + 2}" spellcheck="false"></td>
+    <td class="small">${d.rewrite ? '<b class="warn-txt">SAME</b> · ' : ""}<span class="muted">up to ${len} characters</span></td></tr>`;
+  }).join("");
   if (!keep) slots = fromCurrent(j.current);
   draw();
 }
@@ -386,16 +395,27 @@ $("refresh").onclick = () => load(true);
 
 $("writeSerials").onclick = async () => {
   const inputs = [...$("serialRows").querySelectorAll("input")];
-  const items = inputs.map((x) => ({ index: +x.dataset.index, serial: x.value.trim() }));
-  const bad = items.find((x, k) => x.serial.length !== inputs[k].maxLength);
-  if (bad) { box("serialMsg", "err", `#${bad.index}: the serial must keep its length`); return; }
+  const all = inputs.map((x) => ({ index: +x.dataset.index, serial: x.value.trim(), old: x.dataset.old, len: x.maxLength }));
+  const items = all.filter((x) => x.serial !== x.old).map(({ index, serial }) => ({ index, serial }));
+  if (!items.length) { box("serialMsg", "info", "Nothing changed: type a new serial number first."); return; }
+  const bad = all.find((x) => x.serial !== x.old && !(x.serial.length >= 1 && x.serial.length <= x.len));
+  if (bad) { box("serialMsg", "err", `#${bad.index}: the serial may have 1 to ${bad.len} characters`); return; }
+  const badCh = all.find((x) => x.serial !== x.old && !/^[A-Za-z0-9_.-]+$/.test(x.serial));
+  if (badCh) { box("serialMsg", "err", `#${badCh.index}: letters, digits and - _ . only`); return; }
+  const dup = all.find((x, k) => x.serial && all.some((y, m) => m !== k && y.serial === x.serial));
+  if (dup) { box("serialMsg", "err", `Serial ${esc(dup.serial)} would be on two dongles: each needs its own`); return; }
   $("writeSerials").disabled = true;
   box("serialMsg", "info", '<span class="spin"></span> writing…');
   try {
     const j = await api("/api/serials", { items });
     const failed = j.results.filter((r) => !r.ok);
+    // a renamed dongle keeps its VFO: the slot follows the new number (saved with SAVE)
+    for (const r of j.results.filter((x) => x.ok)) {
+      const it = all.find((x) => x.index === r.index);
+      if (it && it.old) slots.forEach((sl) => { if (sl.dev === "rtl|" + it.old) sl.dev = "rtl|" + it.serial; });
+    }
     box("serialMsg", failed.length ? "err" : "ok", (failed.length ? failed.map((r) => `#${r.index}: ${esc(r.error)}`).join("<br>") + "<br>" : "")
-      + "<b>Unplug all dongles, plug them back in</b>, then click REFRESH (the new numbers count only after that).");
+      + "<b>Unplug the renamed dongles, plug them back in</b>, click REFRESH (the new numbers count only after that), then SAVE.");
   } catch (e) {
     box("serialMsg", "err", esc(e.message));
   } finally { $("writeSerials").disabled = false; }

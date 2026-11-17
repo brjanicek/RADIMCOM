@@ -112,6 +112,13 @@ Release candidate (GitHub branch `1.0rc1`; continues the test betas `1.0beta1` a
   tooltip with both peaks, clipping and the target. **RF** renamed **RF GAIN**; labels, bars and values of RF GAIN, ADC
   and SQL in one grid (same start and width, nothing overflows), the window taller by the new row.
 
+#### SDR setup
+
+- **Rename any RTL-SDR dongle:** SERIAL NUMBERS lists every connected RTL-SDR (not only those with the same or an empty
+  number); a new serial typed in (up to the length of the old one, shorter is fine; letters, digits and - _ .) is written to its EEPROM with WRITE TO
+  EEPROM (only the changed ones, each EEPROM backed up to `data\eeprom_backup`, no serial twice). A dongle on a VFO
+  stays on it under the new number; the same / empty ones are marked SAME with a unique number offered.
+
 #### Audio and recording
 
 - **MUTE of each VFO:** the keys under the VFO windows are VFO (narrower), **MUTE** (red LED) and CUE. MUTE silences that
@@ -184,6 +191,17 @@ Release candidate (GitHub branch `1.0rc1`; continues the test betas `1.0beta1` a
   channel to the VFO): it now shows the type, serial and frames of the sonde the VFO decodes. A channel with no frame at
   all says "signal, no frame yet", the tip says why (a sonde on the ground before its GPS fix, too weak, an unsupported
   type or not a sonde).
+
+#### SONDE
+
+- **SONDE MAP:** the label under the balloon / parachute shows the frequency too (serial, MHz, altitude and climb).
+- **SONDE FRAMES:** the FRAME column was 54 px, the long frame numbers of an M20 were cut ("152…", the counter has 10 digits); now 104 px.
+
+#### What's new
+
+- **MORE INFO** in the What's new window opened the CHANGELOG of the `main` branch (only up to 0.115), so the news of
+  a test version (e.g. REC IQ) were not there; a beta / rc now opens the CHANGELOG of its own branch (e.g. `1.0rc1`), a
+  release the one of `main`.
 
 #### Recordings
 

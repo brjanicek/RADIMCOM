@@ -3253,7 +3253,8 @@ html.app-shell .r-logo-led:hover .r-logo-ledtip { display: inline; }
 #sondeMap .leaflet-control-layers { background: rgba(10, 13, 18, .9); color: #dfe4ea; border: 1px solid var(--line2); }
 .sonde table { table-layout: fixed; }
 .sonde table.sonde-table { min-width: 1455px; }
-.sonde table.sonde-frame-table { min-width: 1240px; }
+.sonde table.sonde-frame-table { min-width: 1290px; }
+.sonde .sonde-frame-table .c-n { width: 104px; }   /* the frame counter of an M20 has 10 digits */
 .sonde .c-utc { width: 104px; } .sonde .c-type { width: 52px; } .sonde .c-ser { width: 132px; } .sonde .c-mhz { width: 84px; }
 .sonde .c-pos { width: 200px; } .sonde .c-alt { width: 70px; } .sonde .c-vv { width: 58px; } .sonde .c-vh { width: 54px; }
 .sonde .c-dir { width: 58px; } .sonde .c-dist { width: 56px; } .sonde .c-az { width: 104px; } .sonde .c-sat { width: 44px; }

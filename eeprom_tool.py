@@ -1,7 +1,7 @@
 """Reading and changing the serial number in the EEPROM of an RTL-SDR dongle (like rtl_eeprom, via librtlsdr.dll).
 
   python eeprom_tool.py                    prints the EEPROM of all dongles and saves backups to eeprom_backup/
-  python eeprom_tool.py write INDEX SERIAL sets the serial number of dongle INDEX (same length as the original)
+  python eeprom_tool.py write INDEX SERIAL sets the serial number of dongle INDEX (up to the length of the original)
   python eeprom_tool.py restore INDEX FILE restores the EEPROM from a backup
 
 The receiver server must be stopped. The new serial number takes effect after unplugging and replugging the dongle.
@@ -77,10 +77,14 @@ def write(index, new_serial):
     if not s:
         raise RuntimeError("EEPROM has no valid string table, not writing")
     pos, n, serial = s[2]
-    if len(new_serial) != len(serial):
-        raise RuntimeError(f"new serial must have {len(serial)} characters like '{serial}'")
+    # shorter is fine: the length byte of the string says where it ends, the freed bytes are cleared; longer would
+    # overwrite what follows the strings in the EEPROM
+    if not 1 <= len(new_serial) <= len(serial):
+        raise RuntimeError(f"new serial must have 1 to {len(serial)} characters ('{serial}' has {len(serial)})")
     data = bytearray(old)
-    data[pos + 2:pos + n] = new_serial.encode("utf-16-le")
+    enc = new_serial.encode("utf-16-le")
+    data[pos] = 2 + len(enc)
+    data[pos + 2:pos + n] = enc + bytes(n - 2 - len(enc))
     data[6] = 0xA5
     changed = [i for i in range(EEPROM_SIZE) if data[i] != old[i]]
     print(f"dongle {index}: '{serial}' -> '{new_serial}', bytes changed at {changed}")

@@ -116,6 +116,9 @@ VFO window:
 - ADC bar under RF GAIN: the A/D converter level in dBFS (-40 ... 0) on a scale in the AGC+ colours
   (green = AGC+ headroom target, blue too quiet, amber too hot, red clipping); RF renamed RF GAIN,
   all bars aligned and of the same width, the window taller by one row.
+SDR setup:
+- Rename any RTL-SDR dongle: SERIAL NUMBERS lists all connected RTL-SDRs, type a new serial (up to the old length)
+  and WRITE TO EEPROM (EEPROM backed up first); a dongle on a VFO stays on it under its new number.
 Audio and recording:
 - MUTE key of each VFO (red LED) between the VFO and CUE keys under the VFO windows: silences that VFO in this browser
   (MAIN and CUE), the display shows the struck-through speaker; shown in SETTINGS > STATION.
@@ -139,6 +142,10 @@ Performance:
   in their own layers, the meters on one 30 fps clock; the waterfall and spectrum are not drawn while the page or the
   lower part is hidden; the logo LED and the sonde launch sites no longer pulse, a new FT8 station pulses twice.
 Fixes
+- SONDE MAP: the label under the balloon / parachute shows the frequency too.
+- SONDE FRAMES: the FRAME column wider, long frame numbers (M20) no longer cut ("152...").
+- What's new: MORE INFO of a test version (beta / rc) opens the CHANGELOG of its own GitHub branch
+  (main has only up to 0.115, so e.g. REC IQ was not there).
 - RECORDINGS: play and pause as icons of the same size (list and PLAY / PAUSE key); nothing moves any more.
 - DSD under DAB: dsd-fme no longer runs beside welle-cli when DAB is switched on on a VFO in the DSD mode.
 - SONDE MULTI: the channel under the VFO showed "? · 0 fr" although the VFO decoded the sonde there; it now

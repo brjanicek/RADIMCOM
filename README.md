@@ -11,6 +11,27 @@ with a transceiver-style screen (S-meter, 7-segment displays, spectrum, waterfal
 
 What each part of the screen does: [annotated main screen](docs/images/main_annotated.png).
 
+> [!NOTE]
+> **A word from us.** Thank you for visiting our project – we really appreciate it. We are Radim (OM2AMR) and Brano,
+> two radio amateurs, and RADIMCOM grew out of our years on the bands.
+>
+> It is not meant to be a receiver that can do absolutely everything. We built in what is close to us and what we
+> enjoy: listening to the amateur bands, to air traffic, because we are aviation fans, and to other interesting
+> bands as well. AI could surely help us
+> build a huge number of tools to decode any unencrypted traffic out there, but that is not really our aim. Instead,
+> RADIMCOM brings together the tools we used to run as separate applications over the years: the SDR itself,
+> listening to amateur satellites with Doppler correction, the antenna rotor, weather radiosonde decoding and the like.
+>
+> It may not look like it at first glance, but we try hard to keep it friendly and understandable for less experienced
+> listeners too – see for example the block diagram in SETTINGS › STATION, which shows where the signal goes.
+>
+> We test every kind of traffic on real signals on the air. Synthetic traffic is enough to write the code, but what
+> matters is tuning it and proving it in the real world – that takes time and dedication, which we do not lack.
+>
+> Take RADIMCOM as our spare-time project that we build for the fun of it. We firmly believe it will bring you joy too,
+> and that you will spend many pleasant moments with it. And we will be glad if, while playing with the receiver,
+> you learn something new along the way. 73!
+
 ## Installation
 
 RADIMCOM comes as one Windows setup, **`RADIMCOM_Setup_v<version>.exe`** (about 65 MB), from
