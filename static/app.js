@@ -2305,8 +2305,11 @@ function renderGain() {
   $("agcPlusKey").classList.toggle("clip", smart && !!st.adc_clip);
   // The browser hides a tooltip whose text changes (several times a second here): under the mouse it keeps
   // the values from the moment the mouse came, and they are refreshed when it comes again.
-  const plusTip = "AGC+: tuner gain as high as possible without clipping the A/D converter (the R820T tuner AGC does not watch the A/D)" +
-    (smart ? `\nnow ${gainLabel(st)}, A/D peak ${st.adc_peak} dBFS${st.adc_clip ? `, clipping ${ppmPct(st.adc_clip_ppm)} of the samples` : ""}` : "");
+  const a = st.agc || {};
+  const plusTip = "AGC+ (AUTO): the tuner gain keeps the A/D headroom of the signal kind and band, cuts at once on clipping, " +
+    "stops climbing when more gain buys nothing (SETTINGS › VFO › ADVANCED)" +
+    (smart ? `\nnow ${gainLabel(st)}, A/D peak ${st.adc_peak} dBFS${st.adc_clip ? `, clipping ${ppmPct(st.adc_clip_ppm)} of the samples` : ""}` +
+      (a.why ? `\n${a.why}` : "") : "");
   if (!$("agcPlusKey").matches(":hover")) $("agcPlusKey").title = plusTip;
   $("rtlAgc").checked = !!st.rtl_agc;
   $("rtlAgc").disabled = smart;
@@ -2625,16 +2628,14 @@ $("gainAuto").addEventListener("change", () => setAgc($("gainAuto").checked));
 $("agcKey").addEventListener("click", () => { if (st) setAgc(st.gain !== "auto" || st.smart_agc); });
 // AGC+ settings in SET: one slider per parameter, sent shortly after moving (as one "sagc" object)
 const SAGC_UI = [
-  ["clip_ppm", "Clipping above", 0, 1000, 5, "ppm"],
-  ["down_db", "Down by", 0.5, 10, 0.5, "dB"],
-  ["heavy_ppm", "Heavy clipping above", 50, 10000, 50, "ppm"],
-  ["heavy_db", "Heavy: down by", 1, 20, 0.5, "dB"],
-  ["low_dbfs", "Up below", -30, -2, 1, "dBFS"],
-  ["target_dbfs", "Target", -25, -1, 1, "dBFS"],
-  ["hold_s", "Hold before up", 0.2, 10, 0.1, "s"],
-  ["up_db", "Up at most", 0.5, 15, 0.5, "dB"],
+  ["headroom_adj", "Headroom: target ±", -10, 10, 1, "dB"],
+  ["window_db", "Dead band ±", 1, 10, 0.5, "dB"],
+  ["clip_ppm", "Overload: clipping above", 0, 2000, 5, "ppm"],
+  ["down_db", "Overload: cut at least", 1, 10, 0.5, "dB"],
+  ["up_db", "Up at most", 1, 12, 0.5, "dB"],
+  ["hold_s", "Between steps up", 0.2, 10, 0.1, "s"],
+  ["wasted_db", "Gain wasted: floor over goal +", 6, 30, 1, "dB"],
   ["settle", "Settle", 0, 10, 1, "blocks"],
-  ["allow_ppm", "Bold: up while clipping ≤", 0, 200, 1, "ppm"],
 ];
 // shown in the units of the legend: clipping as % of the samples (kept in ppm: 100 ppm = 0.01 %),
 // a peak in dBFS also as % of the full scale of the A/D (−6 dBFS ≈ 50 %)
@@ -2642,31 +2643,24 @@ const ppmPct = (ppm) => `${+(Number(ppm) / 1e4).toFixed(4)} %`;
 const dbfsPct = (db) => `${Math.round(100 * 10 ** (Number(db) / 20))} %`;
 const minusSign = (v) => String(v).replace("-", "−");
 function sagcText(k, v, unit) {
-  if (k === "allow_ppm" && !Number(v)) return "0 % (off)";
   if (unit === "ppm") return ppmPct(v);
-  if (unit === "dBFS") return `${minusSign(v)} dBFS · ${dbfsPct(v)}`;
+  if (k === "headroom_adj") return Number(v) ? `${Number(v) > 0 ? "+" : "−"}${Math.abs(Number(v))} dB` : "0 dB";
   if (k === "settle") return `${v} ${Number(v) === 1 ? "block" : "blocks"}`;
   return `${v} ${unit}`;
 }
-// AGC+ presets, conservative to bold. MODERATE = the defaults of the server (SAGC_PARAMS in sdr.py)
+// AGC+ presets, conservative to bold. MODERATE = the defaults of the server (SAGC_PARAMS in gainctl.py)
 const SAGC_PRESETS = {
-  // any clipped sample turns the gain down; 10 dB headroom kept, up only after 3 s quiet, in small steps
-  conservative: { clip_ppm: 0, heavy_ppm: 100, down_db: 4, heavy_db: 8, low_dbfs: -14, target_dbfs: -10,
-    hold_s: 3, up_db: 3, settle: 3, allow_ppm: 0 },
-  careful: { clip_ppm: 20, heavy_ppm: 1000, down_db: 3, heavy_db: 6, low_dbfs: -8, target_dbfs: -5,
-    hold_s: 0.2, up_db: 6, settle: 2, allow_ppm: 0 },
-  moderate: { clip_ppm: 100, heavy_ppm: 2000, down_db: 2.5, heavy_db: 6, low_dbfs: -5, target_dbfs: -2,
-    hold_s: 0.5, up_db: 6, settle: 2, allow_ppm: 0 },
-  bold: { clip_ppm: 300, heavy_ppm: 5000, down_db: 2, heavy_db: 4, low_dbfs: -6, target_dbfs: -2,
-    hold_s: 1, up_db: 6, settle: 2, allow_ppm: 20 },
+  // 6 dB more headroom, every clipped sample cuts, small slow steps up
+  conservative: { headroom_adj: 6, window_db: 3, clip_ppm: 0, down_db: 4, up_db: 3, hold_s: 4, wasted_db: 12, settle: 3 },
+  careful: { headroom_adj: 3, window_db: 3, clip_ppm: 20, down_db: 3, up_db: 4, hold_s: 3, wasted_db: 15, settle: 2 },
+  moderate: { headroom_adj: 0, window_db: 3, clip_ppm: 100, down_db: 3, up_db: 6, hold_s: 2.5, wasted_db: 15, settle: 2 },
+  bold: { headroom_adj: -4, window_db: 3, clip_ppm: 300, down_db: 2, up_db: 6, hold_s: 1.5, wasted_db: 18, settle: 2 },
 };
 $("sagcRows").innerHTML = SAGC_UI.map(([k, label, min, max, step]) =>
   `<div class="sagc-row"><div class="row"><span>${label}</span><span id="sagc_${k}_t" class="value"></span></div>` +
   `<input id="sagc_${k}" type="range" min="${min}" max="${max}" step="${step}"></div>`).join("");
 let sagcTimer = null, sagcLocalAt = 0;
-// diagram beside AGC+ (SETTINGS › VFO › ADVANCED): the values of the sliders in its labels
-// y of the bars in the diagram: clipping from 0 up to heavy (and above), the peak from −40 dBFS up to 0
-const AGCD_CLIP_Y = [378, 344, 312, 280, 250], AGCD_PEAK_Y = [378, 330, 280, 250];
+const dbTxt = (v) => (v == null ? "–" : `${minusSign(Number(v).toFixed(1))} dB`);
 function agcdInterp(v, xs, ys) {
   if (v <= xs[0]) return ys[0];
   for (let i = 1; i < xs.length; i++) {
@@ -2674,28 +2668,35 @@ function agcdInterp(v, xs, ys) {
   }
   return ys[ys.length - 1];
 }
+// diagram beside AGC+ (SETTINGS › VFO › ADVANCED): the values of the sliders and the live state in its labels
 function renderAgcLive() {
-  const p = st.sagc || {}, auto = st.gain === "auto", smart = !!st.smart_agc && !auto;
-  // the A/D is measured with AGC+ or a manual gain (not with the automatic tuner gain)
-  const live = !auto && st.adc_peak != null, clip = live && !!st.adc_clip;
-  $("agcdState").textContent = smart ? "ON" : "OFF";
+  const p = st.sagc || {}, a = st.agc || {}, auto = st.gain === "auto", smart = !!st.smart_agc && !auto;
+  const live = !auto && a.head != null, clip = live && !!st.adc_clip;
+  $("agcdState").textContent = smart ? "AUTO" : "OFF";
   $("agcdState").classList.toggle("off", !smart);
   $("agcdState").classList.toggle("clip", smart && clip);
   $("agcdGain").textContent = auto ? "auto" : gainLabel(st);
   $("agcdAdc").textContent = live ? `${minusSign(st.adc_peak)} dBFS` : "converter";
   $("agcdAdc").classList.toggle("clip", clip);
-  $("agcdClipNow").textContent = live ? ` · now ${ppmPct(st.adc_clip_ppm || 0)}` : "";
-  $("agcdClipNow").classList.toggle("clip", clip);
-  $("agcdPeakNow").textContent = live ? ` · now ${minusSign(st.adc_peak)} dBFS · ${dbfsPct(st.adc_peak)}` : "";
-  $("agcdPeakNow").classList.toggle("clip", clip);
-  for (const id of ["agcdClipMark", "agcdPeakMark"]) $(id).toggleAttribute("hidden", !live);   // SVG: no .hidden property
-  if (!live) return;
-  const allow = Number(p.allow_ppm) || 0, cp = Number(p.clip_ppm) || 0, heavy = Number(p.heavy_ppm) || 0;
-  const ppm = Number(st.adc_clip_ppm) || 0;
-  const yc = ppm <= 0 ? 372 : agcdInterp(ppm, [0, allow, cp, heavy, heavy * 3], AGCD_CLIP_Y);
-  const yp = agcdInterp(Number(st.adc_peak), [-40, Number(p.low_dbfs), Number(p.target_dbfs), 0], AGCD_PEAK_Y);
-  $("agcdClipMark").setAttribute("transform", `translate(0 ${yc.toFixed(1)})`);
-  $("agcdPeakMark").setAttribute("transform", `translate(0 ${yp.toFixed(1)})`);
+  $("agcdKind").textContent = a.kind_text ? `${a.kind_text}${a.band ? `, ${a.band.split(":")[0]}` : ""}` : "";
+  $("agcdTarget").textContent = a.target != null ? `${a.target} dB` : "";
+  $("agcdGoal").textContent = a.goal != null ? `${a.goal} dB` : "";
+  $("agcdWasted").textContent = a.wasted != null ? `${a.wasted} dB` : "";
+  const head = a.target != null && a.kind === "pulsed" ? a.head_hold : a.head;
+  $("agcdHeadNow").textContent = live ? ` · now ${dbTxt(head)}` : "";
+  $("agcdHeadNow").classList.toggle("clip", clip);
+  $("agcdFloorNow").textContent = a.margin != null ? ` · now ${dbTxt(a.margin)}` : "";
+  $("agcdHeadMark").toggleAttribute("hidden", !live);       // SVG: no .hidden property
+  $("agcdFloorMark").toggleAttribute("hidden", a.margin == null);
+  const w = Number(p.window_db) || 3;
+  if (live) {
+    const y = clip ? 254 : agcdInterp(head, [0, a.target - w, a.target + w, a.target + w + 15], [262, 292, 330, 372]);
+    $("agcdHeadMark").setAttribute("transform", `translate(0 ${y.toFixed(1)})`);
+  }
+  if (a.margin != null) {
+    const y = agcdInterp(-a.margin, [-(a.wasted + 8), -(a.wasted + 3), -a.wasted, -a.goal, -a.goal + 12], [246, 262, 292, 330, 372]);
+    $("agcdFloorMark").setAttribute("transform", `translate(0 ${y.toFixed(1)})`);
+  }
 }
 function renderAgcDiagram() {
   const p = st.sagc || {};
@@ -2706,8 +2707,32 @@ function renderAgcDiagram() {
   }
   renderAgcLive();
 }
+// the meter strip of the AGC+ card (after OnAir): A/D level bar with the target tick, clip lamp, numbers, warning, why
+function renderAgcMeter() {
+  const a = st.agc || {}, p = st.sagc || {}, auto = st.gain === "auto", smart = !!st.smart_agc && !auto;
+  const head = a.kind === "pulsed" ? a.head_hold : a.head, w = Number(p.window_db) || 3;
+  const live = !auto && head != null;
+  const lvl = live ? Math.max(0, Math.min(1, (40 - head) / 40)) : 0;
+  const col = !live ? "" : st.adc_clip || a.lamp ? "clip" : head < a.target - w ? "hot" : head > a.target + w + 6 ? "quiet" : "ok";
+  $("agcBarFill").style.width = `${(lvl * 100).toFixed(1)}%`;
+  $("agcBarFill").className = `fill ${col}`;
+  $("agcBarTick").style.left = a.target != null ? `${Math.max(0, Math.min(100, (40 - a.target) / 40 * 100))}%` : "-10px";
+  $("agcLamp").classList.toggle("on", !!a.lamp);
+  const parts = [];
+  if (live) parts.push(`headroom <b>${dbTxt(head)}</b> (target ${a.target} ± ${w})`);
+  else if (auto) parts.push("tuner AGC (auto gain): the A/D is not measured");
+  if (a.margin != null) parts.push(`floor <b>${dbTxt(a.margin)}</b> over the A/D's noise (goal ${a.goal}, wasted over ${a.wasted})`);
+  if (a.snr != null) parts.push(`channel SNR ${dbTxt(a.snr)}`);
+  if (a.kind_text) parts.push(`${a.kind_text}${a.band ? ` · ${a.band}` : ""}`);
+  $("agcNums").innerHTML = parts.join(" · ");
+  $("agcWarn").textContent = a.warn || "";
+  $("agcWarn").hidden = !a.warn;
+  const why = smart && a.why ? `Why: ${a.why}${a.last ? `. Last: ${a.last}` : ""}` : "";
+  $("agcWhy").textContent = why;
+  $("agcWhy").hidden = !why;
+}
 function renderSagc() {
-  const p = st.sagc || {};
+  const p = st.sagc || {}, a = st.agc || {};
   for (const [k, , , , , unit] of SAGC_UI) {
     const el = $(`sagc_${k}`);
     if (p[k] == null) continue;
@@ -2715,8 +2740,9 @@ function renderSagc() {
     $(`sagc_${k}_t`).textContent = sagcText(k, el.value, unit);
   }
   renderAgcDiagram();
+  renderAgcMeter();
   const smart = st.smart_agc && st.gain !== "auto";
-  $("sagcNow").textContent = smart ? `${gainLabel(st)} · A/D ${st.adc_peak} dBFS${st.adc_clip ? ` · clip ${ppmPct(st.adc_clip_ppm)}` : ""}` : "off";
+  $("sagcNow").textContent = smart ? `AUTO · ${gainLabel(st)} · A/D ${st.adc_peak} dBFS${st.adc_clip ? ` · clip ${ppmPct(st.adc_clip_ppm)}` : ""}` : "off";
   for (const b of document.querySelectorAll("#sagcPresets [data-preset]")) {
     const pre = SAGC_PRESETS[b.dataset.preset];
     b.classList.toggle("on", Object.keys(pre).every((k) => Number(p[k]) === pre[k]));
@@ -7299,10 +7325,13 @@ async function renderSondeMap() {
 // the wind comes from the sonde's own flight path (its drift between frames, averaged in 500 m layers; above the highest
 // layer heard the top one is kept, below the lowest one its speed falls off towards the ground), the ascent rate from
 // the last minutes of the climb, the burst at 33 km (or just above the current altitude), the fall from the measured
-// descent rate (mean of the last five steps) slowing down in thicker air (rate ∝ 1/√density, ISA).
+// descent rate v = v0 · ρ^−a (ρ = ISA density ratio) fitted to the fall heard so far below the first 1500 m after the burst
+// (the sonde still speeds up there), with a prior a = 0.4, v0 = 10 m/s; scaled to the rate of the last 30 s. Fitted on
+// 12 logged flights (2026-11-17): a 0.05–0.6, so the fall high up is slower than 1/√ρ; the old rule (rate of the last
+// five steps × √ρ) predicted a fall 3–5× too long just after the burst, this one 0.99× in the median.
 // Landing area: the same flight again SONDE_MC times with the inputs scattered by their likely errors (each wind layer,
 // the descent / ascent rate, the burst altitude, the ground); the circle holds 90 % of those landings.
-const SONDE_BURST = 33000, SONDE_GROUND = 400, SONDE_FALL0 = 5, SONDE_LAYER = 500, SONDE_MC = 60;
+const SONDE_BURST = 33000, SONDE_GROUND = 400, SONDE_FALL_A = 0.4, SONDE_FALL_V0 = 10, SONDE_LAYER = 500, SONDE_MC = 60;
 const sondeRhoRatio = (h) => { const hh = Math.max(0, h); return (isaHpa(hh) / 1013.25) * (288.15 / (hh < 11000 ? 288.15 - 0.0065 * hh : 216.65)); };
 const sondePredCache = new Map();   // serial -> {key, res}: computed again only when a new point comes
 
@@ -7446,17 +7475,41 @@ function sondePredict(s) {
     if (dt >= 1 && dt <= 120) vs.push((P[i][2] - P[i - 1][2]) / dt);
   }
   const vNow = vs.length ? vs.reduce((x, y) => x + y, 0) / vs.length : s.vv || 0;
-  const vSd = vs.length > 1 ? Math.sqrt(vs.reduce((x, y) => x + (y - vNow) ** 2, 0) / (vs.length - 1)) : 0;
   const rising = vNow > -1 && !s.burst;
   let up = 5;
   if (rising && recent.length > 1) up = (recent[recent.length - 1][2] - recent[0][2]) / Math.max(1, recent[recent.length - 1][3] - recent[0][3]);
   else if (top[3] > P[0][3]) up = (top[2] - P[0][2]) / (top[3] - P[0][3]);
   if (!(up > 1.5 && up < 12)) up = 5;
-  // falling: the measured descent rate taken back to sea level by the air density, so the parachute slows down as the
-  // air gets thicker; 5 m/s at sea level only while the sonde is still rising
-  let fall0 = SONDE_FALL0, fallErr = 0.25;
-  if (!rising && vNow < -0.5) { fall0 = -vNow * Math.sqrt(sondeRhoRatio(last[2])); fallErr = Math.max(0.15, vSd / -vNow); }
-  if (!(fall0 > 1 && fall0 < 60)) { fall0 = SONDE_FALL0; fallErr = 0.25; }
+  // falling: v = v0 · ρ^−a. Least squares of ln v on ln ρ over the fall heard (below the first 1500 m after the top),
+  // pulled towards the prior (worth 8 samples, the exponent 3× more); then v0 so that it gives the rate of the last
+  // 30 s. Without such samples (rising, or just after the burst) the prior.
+  let fallA = SONDE_FALL_A, fallV0 = SONDE_FALL_V0, fallErr = 0.3;
+  if (!rising) {
+    const sm = [];
+    for (let i = iTop + 1; i < P.length; i++) {
+      const dt = P[i][3] - P[i - 1][3], h = (P[i][2] + P[i - 1][2]) / 2, v = (P[i - 1][2] - P[i][2]) / dt;
+      if (dt >= 1 && dt <= 120 && h < top[2] - 1500 && v > 0.5 && v < 200) sm.push([Math.log(sondeRhoRatio(h)), Math.log(v), P[i][3], h, v]);
+    }
+    if (sm.length >= 3) {
+      const W = 8, wa = W * 9, la = Math.log(SONDE_FALL_V0);
+      // unknowns c (= ln v0) and a: rows [1, −x] · [c, a] = y, plus the prior rows
+      let s11 = W, s12 = 0, s22 = wa, b1 = W * la, b2 = wa * SONDE_FALL_A;
+      for (const [x, y] of sm) { s11 += 1; s12 -= x; s22 += x * x; b1 += y; b2 -= x * y; }
+      const det = s11 * s22 - s12 * s12;
+      if (det > 0) {
+        fallA = Math.min(0.6, Math.max(0.05, (s11 * b2 - s12 * b1) / det));
+        const c = (b1 - s12 * fallA) / s11, res = sm.map(([x, y]) => y - c + fallA * x);
+        fallV0 = Math.exp(c);
+        const rec = sm.filter((q) => q[2] > t1 - 30);
+        if (rec.length) {
+          const vm = rec.reduce((a, q) => a + q[4], 0) / rec.length, hm = rec.reduce((a, q) => a + q[3], 0) / rec.length;
+          fallV0 = vm * Math.pow(sondeRhoRatio(hm), fallA);
+        }
+        fallErr = Math.max(0.12, Math.sqrt(res.reduce((a, r) => a + r * r, 0) / res.length) / Math.sqrt(Math.min(sm.length, 30) / 5));
+      }
+    }
+  }
+  if (!(fallV0 > 1 && fallV0 < 80)) { fallV0 = SONDE_FALL_V0; fallA = SONDE_FALL_A; fallErr = 0.3; }
   const burst = s.burst || !rising ? top[2] : Math.max(SONDE_BURST, last[2] + 500);
   // launch: back from the first point heard at the ascent rate (from the ground)
   const launch = P[0][3] - Math.max(0, P[0][2] - SONDE_GROUND) / up;
@@ -7472,7 +7525,7 @@ function sondePredict(s) {
       if (goingUp) {
         h += prm.up * DT;
         if (h >= prm.burst) { h = prm.burst; goingUp = false; if (keep) marks.push({ lat, lon, t: t + DT, h, burst: true }); }
-      } else h -= (prm.fall0 / Math.sqrt(sondeRhoRatio(h))) * DT;
+      } else h -= prm.v0 * Math.pow(sondeRhoRatio(h), -prm.a) * DT;
       t += DT;
       if (keep && n % 3 === 0) path.push([lat, lon]);
       if (h <= prm.ground) { path.push([lat, lon]); return { path, marks, land: { lat, lon, t } }; }
@@ -7480,7 +7533,7 @@ function sondePredict(s) {
     }
     return null;
   };
-  const res = fly({ up, burst, fall0, ground: SONDE_GROUND }, 10, true);
+  const res = fly({ up, burst, v0: fallV0, a: fallA, ground: SONDE_GROUND }, 10, true);
   if (res) {
     res.launch = launch;
     res.model = modelUsed;
@@ -7493,7 +7546,8 @@ function sondePredict(s) {
       const r = fly({
         up: up * (1 + 0.1 * g()),
         burst: rising && !s.burst ? Math.max(last[2] + 200, burst + 3000 * g()) : burst,
-        fall0: fall0 * Math.max(0.3, 1 + fallErr * g()),
+        v0: fallV0 * Math.max(0.3, 1 + fallErr * g()),
+        a: Math.min(0.6, Math.max(0.05, fallA + 0.06 * g())),
         ground: Math.max(0, SONDE_GROUND + 250 * g()),
         jit,
       }, 20, false);
@@ -7655,9 +7709,9 @@ function renderSondeProfile() {
   $("sondeProfNote").textContent = `${s.serial} · ${pts.length} points · ${sondeAlt(Math.min(...alts))}–${sondeAlt(Math.max(...alts))} m` +
     (tmin ? ` · coldest ${tmin[4].toFixed(1)} °C at ${sondeAlt(tmin[2])} m` : s.type !== "RS41" ? ` · no temperature from a ${s.type} sonde` : " · no temperature yet") +
     (wk >= 0 ? ` · strongest wind ${wind[wk].spd.toFixed(0)} m/s at ${sondeAlt(pts[wk][2])} m` : "") +
-    (top < pts.length - 1 ? " · fainter line = descent after the burst" : "") +
-    " · wind = the drift of the sonde from its GPS positions (over 30 s)";
-  $("sondeProfNote").title = $("sondeProfNote").textContent;
+    (top < pts.length - 1 ? " · fainter = descent" : "");
+  $("sondeProfNote").title = $("sondeProfNote").textContent + (top < pts.length - 1 ? " after the burst" : "") +
+    "\nWind = the drift of the sonde from its GPS positions (over 30 s); wind from = where it blows from, as in meteorology.";
 }
 
 /** Wind at each point from the drift of the sonde: speed (m/s) and the direction it blows FROM (degrees, as in
@@ -7864,6 +7918,10 @@ function setSondeView(v, save = true) {
   $("sondeMapBox").hidden = v !== "map";
   $("sondeFrameBox").hidden = v !== "frames";
   $("sondeHistRow").hidden = v === "frames";
+  // MAP: the MULTI channels and the TYPES go over the map only, so the profile column starts right under the keys
+  const main = $("sondeMapBox").querySelector(".ais-map-main");
+  if (v === "map") main.prepend($("sondeTypes"), $("sondeChans"));
+  else $("sondeListBox").before($("sondeTypes"), $("sondeChans"));
   if (v === "map") sondeLogsLoad();
   renderSondeView();
 }
@@ -14622,20 +14680,25 @@ const REC_BUTTONS = [
     title: "Record everything to MP3 until switched off, a new file every 15 min (folder: SETTINGS › GENERAL › RECORDINGS)" },
   { btn: "recSqBtn", time: "recSqTime", key: "squelch", send: "rec_sq", label: "REC SQ",
     title: "Record to MP3 only while the squelch is open, each session in its own file (folder: SETTINGS › GENERAL › RECORDINGS)" },
+  { btn: "recIqBtn", time: "recIqTime", key: "iq", send: "rec_iq", label: "REC IQ",
+    title: "Record the whole IQ of the dongle (the full band at its sample rate) to WAV as SDR# does: I / Q stereo, 8 bit (RTL) or 16 bit, the centre frequency in the name; subfolder iq of the recordings folder. Large: RTL at 2.4 MS/s about 290 MB a minute" },
 ];
 const recErrors = {};
+/** State of a REC key: REC / REC SQ in st.recording, REC IQ in st.iq_rec. */
+const recState = (b) => (b.key === "iq" ? st && st.iq_rec : st && st.recording && st.recording[b.key]) || {};
 
 function renderRec() {
-  const rec = (st && st.recording) || {};
   for (const b of REC_BUTTONS) {
-    const r = rec[b.key] || {};
+    const r = recState(b);
     const btn = $(b.btn);
     // blinks while audio goes into the file, steady while REC SQ waits for the squelch (also in the pause after it)
-    const active = !!r.on && (b.key === "cont" || !!(r.active ?? r.open));   // REC blinks from the press on
+    const active = !!r.on && (b.key !== "squelch" || !!(r.active ?? r.open));   // REC and REC IQ blink from the press on
     btn.classList.toggle("on", active);
     btn.classList.toggle("armed", !!r.on && !active);
     $(b.time).textContent = r.on && r.open ? `${Math.floor(r.secs / 60)}:${String(r.secs % 60).padStart(2, "0")}` : b.label;
-    btn.title = r.error || (r.on ? `Recording, click to stop${r.file ? "\n" + r.file : ""}` : b.title);
+    const iqInfo = b.key === "iq" && r.open
+      ? `\n${r.mb} MB, ${(r.rate / 1e6).toFixed(3)} MS/s${r.dropped ? `, ${r.dropped} blocks lost (the disk is too slow)` : ""}` : "";
+    btn.title = r.error || (r.on ? `Recording, click to stop${r.file ? "\n" + r.file : ""}${iqInfo}` : b.title);
     if (r.error && r.error !== recErrors[b.key]) adError(r.error);
     recErrors[b.key] = r.error;
   }
@@ -14643,8 +14706,8 @@ function renderRec() {
 
 for (const b of REC_BUTTONS) {
   $(b.btn).addEventListener("click", () => {
-    const r = (st && st.recording && st.recording[b.key]) || {};
-    memRec[b.key] = false;   // pressed by hand: the recording no longer follows the recalled memory
+    const r = recState(b);
+    if (b.key !== "iq") memRec[b.key] = false;   // pressed by hand: the recording no longer follows the recalled memory
     send({ [b.send]: !r.on });
   });
 }
@@ -16038,6 +16101,7 @@ const sdgHz = (hz) => (hz >= 1e6 ? `${(hz / 1e6).toFixed(hz >= 1e8 ? 4 : 5)} MHz
 const SDG_RAW_TIP = "no audio: a decoder of this VFO works on the raw samples (VDL2, ISM, HFDL, AIS, ADS-B, ACARS, SONDE)";
 // small line icons of the blocks (16 × 16, stroke = the colour of the block), shown framed in the top right corner
 const SDG_ICO = {
+  wf: '<path d="M2 8.5h2.5l1.5-5 1.5 7 1.5-4 1 2H14"/><path d="M2 11.5h12M2 13.8h12" opacity=".6"/>',
   qth: '<path d="M8 14.2s-4.6-4.3-4.6-7.7a4.6 4.6 0 0 1 9.2 0c0 3.4-4.6 7.7-4.6 7.7z"/><circle cx="8" cy="6.5" r="1.6"/>',
   rot: '<circle cx="8" cy="8" r="5.6"/><path d="M8 8l3.2-3.2M8 1.6v1.8M14.4 8h-1.8M8 14.4v-1.8M1.6 8h1.8"/>',
   dop: '<path d="M8 5.2L10.8 8 8 10.8 5.2 8z"/><path d="M6.6 3.8L4 1.2M1.2 4l2.6 2.6M9.4 12.2l2.6 2.6M14.8 12l-2.6-2.6"/><path d="M11.5 1.8a3.5 3.5 0 0 1 2.7 2.7"/>',
@@ -16135,6 +16199,7 @@ function sdgLane(v) {
     `<span class="f">${off ? "offline" : sdgHz(s.tune_hz || 0)}</span><span class="n">${escHtml(v.note || "")}</span>` +
     `<span>${v === active ? sdgChip("MAIN", "on") : ""}${v.cue && v !== active ? sdgChip("CUE", "cue") : ""}${v.mute ? sdgChip("MUTE", "bad", "silenced in this browser (MUTE key)") : ""}${s.tx ? sdgChip("TX", "bad") : ""}` +
     `${!off && recOn ? sdgChip(recSq ? "REC SQ" : "REC", recAct ? "bad blink" : "warn", recAct ? "recording" : "waiting for the squelch") : ""}` +
+    `${!off && s.iq_rec && s.iq_rec.on ? sdgChip("REC IQ", "iq blink", "recording the whole IQ of the dongle (WAV)") : ""}` +
     `${!off && scOn ? sdgChip(`SCAN ${escHtml(sc.state)}`, "on", sc.cur ? sdgHz(sc.cur) : "") : ""}</span></div>`;
   if (off) return head + `<div class="sdg-b off sdg-span"><b>RECEIVER</b><span>not running${s.error ? ": " + escHtml(s.error) : ""}</span></div>`;
   const mode = s.dab ? "DAB" : s.dsd && s.dsd.enabled ? "DSD" : s.mode || "";
@@ -16240,12 +16305,21 @@ function sdgLane(v) {
   const bbNames = SDG_DEC.filter(([k]) => onDecs.includes(k) && !SDG_AUDIO_DEC.has(k)).map(([, n]) => n);
   const bbl = bbNames.length ? `<i class="sdg-bbl" title="Baseband of the channel (after MIXER ÷ 64 and SP, before the filter) into ${escHtml(bbNames.join(", "))}: ` +
     `they demodulate it themselves, so FILTER, DEMOD and AUDIO do not matter to them"><i class="up"></i><em>baseband → ${escHtml(bbNames.join(" · "))}</em></i>` : "";
-  const out = `<i class="sdg-out${fork ? " fork" : ""}"><i class="wo ${mainSt}" title="${escHtml(outTip)}"></i><i class="wc ${cueSt}" title="${escHtml(cueTip)}"></i>` +
+  // where the sound of a source outside AUDIO (DAB) goes in: OUT while this VFO is MAIN, CUE while it is heard on CUE
+  const outTo = mainSt !== "on" && cueSt === "on" ? "cue" : "main";
+  const out = `<i class="sdg-out${fork ? " fork" : ""}" data-to="${outTo}"><i class="wo ${mainSt}" title="${escHtml(outTip)}"></i><i class="wc ${cueSt}" title="${escHtml(cueTip)}"></i>` +
     `<i class="br" title="${fork ? "demodulated audio into SSTV (whatever goes to MAIN or CUE)" : "no decoder on the audio (the others take the baseband)"}"></i><b class="dot df"></b><b class="dot do ${mainSt}"></b><b class="dot dc ${cueSt}"></b>` +
     `<em class="lo ${mainSt}">${mainSt === "muted" ? "MUTED" : "OUT"}</em><em class="lc ${cueSt}">${cueSt === "muted" ? "CUE MUTED" : "CUE"}</em></i>`;
   const raw = rawDecs.length ? `<i class="sdg-tap" title="raw A/D samples of the whole band"></i>` +
     sdgBlk("IQ DECODERS", `<span class="chips">${rawDecs.join("")}</span><span>raw A/D samples · whole band</span>`, "lit sdg-raw k-dec",
       "These decoders take the raw IQ samples straight from the A/D, before DC, NB and the channel filter") : "";
+  // SPECTRUM / WATERFALL: the FFT of the whole band the dongle receives, taken after DC removal and before NB (sdr.py
+  // _waterfall: the band as it is); a line from between DC and NB of the IQ block down into it. On screen for the
+  // VFO shown (the others are computed and kept in the band history of the page)
+  const wfB = sdgBlk("SPECTRUM · WATERFALL", `<span class="v">${s.sample_rate ? sdgHz(s.sample_rate) : "–"}</span>` +
+    `<span>whole band · FFT</span><span class="chips">${v === active ? sdgChip("ON SCREEN", "on", "the spectrum and waterfall of the page show this VFO") : sdgChip("background", "", "computed; shown when this VFO is chosen")}</span>`,
+    "lit k-wf sdg-wf", "Spectrum and waterfall: an FFT of the whole band of the dongle, after DC removal and before the noise blanker (the band as it is)") +
+    `<i class="sdg-wfl" title="IQ after DC removal, before NB → spectrum and waterfall"></i>`;
   // the VFO frequency goes two ways: the centre of the dongle (TUNER; moved only when the frequency leaves the band,
   // set by the owner VFO on a shared dongle) and the offset from it to the digital MIXER
   const tunerHz = (s.center_hz || 0) + (s.lo_hz || 0);
@@ -16268,12 +16342,13 @@ function sdgLane(v) {
     `${d.f_nominal ? ` (nominal ${sdgHz(d.f_nominal)})` : ""}"><em>DOPPLER → VFO</em></i>` : "";
   // AGC+ (in RADIMCOM, not in the dongle): reads the A/D peak and sets the tuner gain – a loop under the dongle;
   // on a shared dongle the owner VFO runs it; with the squelch set it also switches ASQ on
-  const sp = s.sagc || {};
-  const agcTxt = owner ? `by ${owner}` : smart ? `target ${minusSign(sp.target_dbfs ?? -13)} dBFS` : auto ? "AGC (tuner)" : "manual gain";
+  const ag = s.agc || {};
+  const agcTxt = owner ? `by ${owner}` : smart ? `headroom ${ag.head ?? "–"} / ${ag.target ?? "–"} dB` : auto ? "AGC (tuner)" : "manual gain";
   const agc = sdgBlk("AGC+", `<span class="v">${smart ? "on" : "off"}</span><span>${agcTxt}</span>` +
     (smart && s.auto_sql_on && !s.auto_sql ? `<span class="chips">${sdgChip("→ ASQ", "on", "AGC+ switched the auto squelch on")}</span>` : ""),
-    `sdg-agc k-agc ${smart ? "lit" : "off"}`, "AGC+: the highest tuner gain without clipping the A/D – measures the A/D peak, sets the TUNER gain " +
-    "(SETTINGS › VFO › ADVANCED, AGC+ key). Runs in RADIMCOM on the PC") +
+    `sdg-agc k-agc ${smart ? "lit" : "off"}`, "AGC+: keeps the A/D headroom of the signal kind and band – measures the A/D peak and the noise floor of the band, " +
+    "sets the TUNER gain (SETTINGS › VFO › ADVANCED, AGC+ key). Runs in RADIMCOM on the PC" +
+    (ag.why ? `&#10;${escHtml(ag.why)}` : "")) +
     `<i class="sdg-agcl${smart ? " on" : ""}"><i class="a"></i><i class="b"></i><em class="la">peak</em><em class="lb">gain</em><em class="lc">IQ</em></i>`;
   // S-METER: the power of the channel after the filter (the S9 calibration of SETTINGS › VFO › ADVANCED); the squelch
   // compares the same power, so its level goes on into the SQL / ASQ lines of AUDIO
@@ -16285,16 +16360,16 @@ function sdgLane(v) {
   const asqL = !hasSq ? "" : `<i class="sdg-asql${agcAsq ? " on" : ""}" title="AGC+ ${agcAsq ? "switches the auto squelch (ASQ) on" : "does not switch ASQ on now"}">` +
     `<i class="up"></i><em>AGC+ → ASQ ${agcAsq ? "ON" : "OFF"}</em></i>`;
   return head + [ant, sdr, meterOnly(iq, why && !keepIq), meterOnly(mixer, why && !keepIq), meterOnly(spB, why && !keepIq), meterOnly(filt, why), idle(demod, why), dsdOn ? `<div class="sdg-pair">${dsdB}${idle(audio, why)}</div>` : idle(audio, why),
-    dec, `<i class="sdg-busc"></i>`].join("") + out + bbl + agc + (why ? smB.replace('class="sdg-sml', 'class="sdg-sml nouse') : smB) + raw + ctl + dop + asqL +
+    dec, `<i class="sdg-busc"></i>`].join("") + out + bbl + wfB + agc + (why ? smB.replace('class="sdg-sml', 'class="sdg-sml nouse') : smB) + raw + ctl + dop + asqL +
     // DAB: the sound comes from the DAB decoder on the raw IQ – a line from IQ DECODERS along the bottom up into OUTPUT
     (s.dab ? `<i class="sdg-dabl" title="DAB: the audio of the station comes from the DAB decoder (welle-cli) on the raw IQ samples">` +
-      `<i class="up"></i><em>DAB AUDIO → OUT / CUE</em></i>` : "");
+      `<i class="up"></i><em>DAB AUDIO → ${outTo === "cue" ? "CUE" : "OUT"}</em></i>` : "");
 }
 
 function renderSdg() {
   const named = vfos.filter((v) => v.name);
   const top = sdgShared();
-  const lanes = named.map((v) => `<div class="sdg-lane" data-vfo="${escHtml(v.name)}" title="Settings of VFO-${escHtml(v.name)}">${sdgLane(v)}</div>`).join("");
+  const lanes = named.map((v) => `<div class="sdg-lane" data-vfo="${escHtml(v.name)}">${sdgLane(v)}</div>`).join("");
   // MAIN and CUE: two vertical buses over all rows, the speaker side at the top (the faders of the MONITOR)
   const anyMain = named.some((v) => v === active && v.online && v.st && !v.mute && !(v.st || {}).audio_muted);
   const anyCue = named.some((v) => v !== active && v.cue && v.online && v.st && !v.mute && !(v.st || {}).audio_muted);
@@ -16368,7 +16443,7 @@ function sdgPlaceOut() {
       bb.style.setProperty("--dn-h", `${dec.offsetTop - yt}px`);
     } else if (bb) bb.hidden = true;
     lane.dataset.outX = xa + 8;
-    lane.dataset.outY = yo;
+    lane.dataset.outY = el.dataset.to === "cue" ? yc : yo;   // DAB: into the wire that is heard
     xm = lane.offsetLeft + bm; xc = lane.offsetLeft + bcx;
     ys.push(lane.offsetTop + yc);
   }
@@ -16420,15 +16495,14 @@ function sdgPlaceDop() {
     Object.assign(b.style, { left: `${x0}px`, top: `${ya}px`, width: `${x1 - x0}px`, height: `${ym - ya}px` });
     Object.assign(lab.style, { left: `${x0 + 10}px`, top: `${ym - 13}px` });
   }
-  // DAB audio: from under IQ DECODERS down, along the bottom of the row, up into OUTPUT
+  // DAB audio: from the right side of IQ DECODERS straight right, then up into the wire that is heard (OUT / CUE)
   for (const el of $("sdgLanes").querySelectorAll(".sdg-dabl")) {
     const lane = el.parentElement, raw = lane.querySelector(".sdg-raw");
     if (!raw || !lane.dataset.outX) { el.hidden = true; continue; }
-    const x0 = raw.offsetLeft + raw.offsetWidth / 2, y0 = raw.offsetTop + raw.offsetHeight;
+    const x0 = raw.offsetLeft + raw.offsetWidth, ym = raw.offsetTop + raw.offsetHeight / 2;
     const x1 = +lane.dataset.outX, y1 = +lane.dataset.outY;
-    const yb = lane.clientHeight - (lane.querySelector(".sdg-dop") ? 26 : 9);
-    Object.assign(el.style, { left: `${x0}px`, top: `${y0}px`, width: `${x1 - x0}px`, height: `${yb - y0}px` });
-    el.style.setProperty("--up-h", `${yb - y1}px`);
+    Object.assign(el.style, { left: `${x0}px`, top: `${ym}px`, width: `${x1 - x0}px`, height: "0px" });
+    el.style.setProperty("--up-h", `${ym - y1}px`);
   }
   // AGC+ loop: from the bottom of the A/D down and left into AGC+, from its top up into the TUNER; the raw-IQ tap
   // leaves from the same point of the A/D
@@ -16447,6 +16521,15 @@ function sdgPlaceDop() {
     lc.hidden = !lane.querySelector(".sdg-tap");
     Object.assign(lb.style, { left: `${xt + 7}px`, top: `${dev.offsetTop + dev.offsetHeight + 1}px` });
     lane.style.setProperty("--tap-x", `${xa - dev.offsetLeft - 1}px`);
+    const raw = lane.querySelector(".sdg-raw"), tap = lane.querySelector(".sdg-tap");
+    if (raw && tap) lane.style.setProperty("--tap-y", `${raw.offsetTop + raw.offsetHeight / 2 - tap.offsetTop}px`);
+  }
+  for (const el of $("sdgLanes").querySelectorAll(".sdg-wfl")) {
+    const lane = el.parentElement, iq = lane.querySelector(".k-iq"), wf = lane.querySelector(".sdg-wf");
+    const dc = iq && iq.querySelector(".sdg-chain .sdg-c");
+    if (!iq || !wf) { el.hidden = true; continue; }
+    const x = iq.offsetLeft + (dc ? dc.offsetLeft + dc.offsetWidth + 5 : iq.offsetWidth / 2), y = iq.offsetTop + iq.offsetHeight;
+    Object.assign(el.style, { left: `${x}px`, top: `${y}px`, height: `${wf.offsetTop - y}px` });
   }
 }
 
@@ -16462,11 +16545,3 @@ function sdgStart() {
   sdg.html = "";
   sdgTick();
 }
-$("sdgLanes").addEventListener("click", async (e) => {
-  const l = e.target.closest(".sdg-lane");
-  const v = l && vfos.find((x) => String(x.name) === l.dataset.vfo);
-  if (!v) return;
-  if (v !== active) await selectVfo(v, "set");
-  showSetTab("vfo");
-  store("setTab", "vfo");
-});

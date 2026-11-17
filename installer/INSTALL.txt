@@ -83,31 +83,53 @@ Change log
 Ver. 1.0beta2
 (test beta, GitHub branch 1.0beta2; continues 1.0beta1)
 New
+Gain and tuning (AGC+, ATU):
+- AGC+ reworked after the auto gain of OnAir: AUTO keeps an A/D headroom target by the signal kind and
+  band (no more driving the A/D to the top), cuts at once on an overload and climbs back, does not climb
+  when more gain buys nothing (noise floor far over the A/D's own); a meter strip with a clip lamp,
+  warnings and "why this gain", the AGC+ diagram redrawn. Old AGC+ settings are not taken over (MODERATE).
+- ATU in SSB: the suppressed carrier on the red line, snapped onto a whole kHz (e.g. 14.265) when within
+  300 Hz, otherwise rounded to 100 Hz (voice band edge found in a held spectrum);
+  on real 40 m / 20 m / 17 m stations ~60 Hz from the tuning by ear (median).
+- ATU: switching it on autotunes the frequency tuned now at once (not only after the next tuning move).
+DSD (digital voice):
 - DSD AFC: the offset of the signal is measured during a call and the VFO retuned onto it (AFC box, on by default).
-- SONDE profile: temperature, RH and wind speed in one chart, wind direction in the second, ascent /
-  descent below; no pressure axis.
-- Rotor: SONDE TRACKER source (RCTRL > SETTINGS, off by default) - the rotor follows the chosen sonde,
-  AZ / EL calculated from its GPS position and altitude and the QTH.
 - DSD FILTER: narrower channel filter before the discriminator (12.5 - 8 kHz), less noise on a weak signal.
 - DSD DEBUG: raw output of DSD-FME in the DSD tab, failed CRC / FEC checks in red, sync and error counts per minute.
-- AUDIO: the CUE key removed (CUE of each VFO is the key under its VFO window).
 - DSD tab: cards of the calls on air, protocols / slots / talk groups in colour with names, country of the caller ID,
   callsign picked out of the alias, TALK GROUPS heard (click = filter), filter, hide short calls, click a frequency to tune.
-- SETTINGS > STATION: OUTPUT replaced by two vertical buses MAIN (green) and CUE (orange); OUT and CUE of each VFO
-  connect to them, grey when not used, red MUTED when muted; DEMOD shows a small picture of the demodulation; DECODERS before the buses, fed from
-  the baseband (between SP and FILTER, over the row) or, for SSTV, from AUDIO.
-- ATU: switching it on autotunes the frequency tuned now at once (not only after the next tuning move).
-- MUTE key of each VFO (red LED) between the VFO and CUE keys under the VFO windows: silences that VFO in this browser
-  (MAIN and CUE), the display shows the struck-through speaker; shown in SETTINGS > STATION.
-- RCTRL tab: pages MAP and SETTINGS; SETTINGS = the sources moving the rotor (was CONNECTION, now a small block scheme
-  like STATION, no animation) and the rotor controller (was SETTINGS > GENERAL > ROTOR).
-- SETTINGS > VFO > SDR DONGLE and AGC+ diagrams redrawn in the look of the STATION scheme (a colour per block,
-  gradient, icons in the dongle diagram; no animation); the whole AGC+ diagram in the same smaller text.
+SONDE and the rotor:
+- SONDE prediction: the fall after the burst no longer comes out 3-5x too long (descent law fitted to
+  the fall heard, checked on 12 logged flights).
+- SONDE profile: temperature, RH and wind speed in one chart, wind direction in the second, ascent /
+  descent below; no pressure axis.
 - SONDE MAP: the sonde whose charts are shown is chosen by hand only (the list above the charts or a click on it on the
   map); no automatic choice, the charts no longer switch by themselves; remembered.
 - SONDE MAP: a rising sonde is a light blue balloon (was green like the launch sites).
 - SONDE > TYPES: tick only the sonde types launched in your area (RS41, DFM, M10 / M20, ...); the other decoder
   programs no longer run on every channel - much less CPU on the server.
+- Rotor: SONDE TRACKER source (RCTRL > SETTINGS, off by default) - the rotor follows the chosen sonde,
+  AZ / EL calculated from its GPS position and altitude and the QTH.
+- RCTRL tab: pages MAP and SETTINGS; SETTINGS = the sources moving the rotor (was CONNECTION, now a small block scheme
+  like STATION, no animation) and the rotor controller (was SETTINGS > GENERAL > ROTOR).
+Audio and recording:
+- MUTE key of each VFO (red LED) between the VFO and CUE keys under the VFO windows: silences that VFO in this browser
+  (MAIN and CUE), the display shows the struck-through speaker; shown in SETTINGS > STATION.
+- AUDIO: the CUE key removed (CUE of each VFO is the key under its VFO window).
+- REC IQ (under REC SQ, dark blue LED): the whole IQ of the dongle to WAV as SDR# records it (I/Q stereo,
+  8 bit RTL / 16 bit LimeSDR, Airspy; centre frequency in the name), folder recordings\iq; ~290 MB/min at 2.4 MS/s.
+SETTINGS > STATION and the diagrams:
+- SETTINGS > STATION: OUTPUT replaced by two vertical buses MAIN (green) and CUE (orange); OUT and CUE of each VFO
+  connect to them, grey when not used, red MUTED when muted; DEMOD shows a small picture of the demodulation; DECODERS before the buses, fed from
+  the baseband (between SP and FILTER, over the row) or, for SSTV, from AUDIO.
+- SETTINGS > STATION: SPECTRUM / WATERFALL block under IQ (taken after DC, before NB).
+- SETTINGS > STATION: DAB audio line from the right side of IQ DECODERS, into CUE when the VFO is heard on CUE only.
+- SETTINGS > STATION: a click on the scheme no longer opens VFO settings.
+- SETTINGS > VFO > SDR DONGLE and AGC+ diagrams redrawn in the look of the STATION scheme (a colour per block,
+  gradient, icons in the dongle diagram; no animation); the whole AGC+ diagram in the same smaller text.
+Decoders:
+- One decoder on the IQ of a VFO: DAB, ACARS, VDL2, ISM, AIS, ADS-B, HFDL and SONDE exclude each other.
+Performance:
 - Less CPU in the browser (about a third): the S-meter and level meter redraw only when they change (the level meter as fast as before), the moving parts
   in their own layers, the meters on one 30 fps clock; the waterfall and spectrum are not drawn while the page or the
   lower part is hidden; the logo LED and the sonde launch sites no longer pulse, a new FT8 station pulses twice.

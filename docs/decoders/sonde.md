@@ -9,7 +9,8 @@ horizontal speed, direction and climb of the sonde, its flight path on a map, th
    the VFO; a few kHz off is fine, the **offset** in the status line shows how far the signal is from the dial).
    **403 MHz** in the header of the page tunes the VFO to the middle of the band in FM and switches the decoder on
    (the dongle moves there when 403 MHz is outside its band).
-2. Switch **ON** on the SONDE page. RS41, DFM and M20 run at once, in both polarities.
+2. Switch **ON** on the SONDE page (one decoder on the IQ of a VFO: it switches off DAB, ACARS, VDL2, ISM, AIS, ADS-B
+   and HFDL of the VFO; switching one of them on switches SONDE off). RS41, DFM and M20 run at once, in both polarities.
    **MULTI** (on by default): every sonde signal in the visible part of the waterfall (inside 400–406 MHz, up to 6)
    gets its own decoder too, so several sondes are decoded at once without retuning. Their frequencies are listed above
    the SONDES table (`MULTI 402.000–404.000 MHz:` and one key per signal: frequency, type and serial once decoded,
@@ -114,8 +115,13 @@ kept in `sonde.py`).
 - **Flight prediction** in MAP (red dashed line from the last decoded point, every sonde in the air, also one no longer
   heard): +1 h, +2 h, +3 h after the launch, burst (yellow ring) and landing (✕, time UTC). Wind from the sonde's own flight path in 500 m layers (above the highest one heard the top
   layer is kept, below the lowest one its speed falls off to a half at the ground; a layer heard during the fall
-  takes the wind of the fall), ascent rate from the last 5 min, burst assumed at 33 km until it happens, fall from the measured
-  descent rate (mean of the last five steps), slowing down in thicker air (5 m/s at sea level before the burst), ground at 400 m.
+  takes the wind of the fall), ascent rate from the last 5 min, burst assumed at 33 km until it happens, fall at v = v0 · ρ^−a
+  (ρ = density of the standard atmosphere / sea level): the exponent a and v0 are fitted to the fall heard so far, leaving
+  out the first 1500 m after the burst (the sonde still speeds up there), pulled towards a = 0.4 and v0 = 10 m/s and
+  scaled to the descent rate of the last 30 s; before the burst and just after it the prior alone (about 65 m/s at 33 km,
+  15 m/s at 10 km, 10 m/s at the ground). Fitted on 12 logged flights: a was 0.05–0.6, the fall high up slower than
+  1/√ρ. The old rule (rate of the last five steps × √ρ) caught the sonde still speeding up after the burst and predicted
+  a fall 3–5× too long; the new one 0.99× in the median (worst 2.1× / 0.37×). Ground at 400 m.
   **Model wind (GFS):** where the sonde has not flown (above it before the burst, below the lowest layer heard on the
   way down) the wind of the GFS model on 44 pressure levels (1000 → 10 hPa, ~31 km) is used, from Open-Meteo.com
   (NOAA GFS 0.25°, CC-BY 4.0, free for non-commercial use). The first prediction from the sonde's own winds gives the

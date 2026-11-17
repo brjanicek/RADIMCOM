@@ -199,6 +199,8 @@
         <span class="r-gh">RECORD</span>
         <button id="recBtn" class="rec"><span class="rec-dot"></span><span id="recTime">REC</span></button>
         <button id="recSqBtn" class="rec"><span class="rec-dot"></span><span id="recSqTime">REC SQ</span></button>
+        <!-- the whole IQ of the dongle to WAV (SDR# style) in the subfolder iq of the recordings folder; dark blue LED -->
+        <button id="recIqBtn" class="rec iq"><span class="rec-dot"></span><span id="recIqTime">REC IQ</span></button>
       </div>
   </div>
 
@@ -211,7 +213,7 @@
     <div class="kgroup" data-g="FILTER"><span class="klabel">FILTER</span><div class="keys" id="bandwidths"></div></div>
     <div class="kgroup" data-g="GAIN"><span class="klabel">GAIN</span><div class="keys">
       <button id="agcKey" class="key" title="Automatic tuner gain on/off for this VFO (manual gain in SETTINGS)">AGC</button>
-      <button id="agcPlusKey" class="key" title="AGC+: tuner gain as high as possible without clipping the A/D converter (the R820T tuner AGC does not watch the A/D)">AGC+</button>
+      <button id="agcPlusKey" class="key" title="AGC+ (AUTO): the tuner gain keeps the A/D headroom of the signal kind and band, cuts at once on clipping, stops climbing when more gain buys nothing (SETTINGS › VFO › ADVANCED)">AGC+</button>
     </div></div>
     <div class="kgroup" data-g="STEP"><span class="klabel">STEP</span><div class="keys" id="steps"></div></div>
     <div class="kgroup" data-g="TUNE"><span class="klabel">TUNE</span><div class="keys">
@@ -1836,30 +1838,43 @@ ecordings, played in the browser -->
               </div>
               <div class="setting" id="sagcSetting" data-blk="11">
                 <div class="row"><span>AGC+</span><span id="sagcNow" class="value"></span></div>
+                <!-- meter strip (after OnAir): A/D headroom bar with the target tick and the clip lamp, the numbers, a warning, why this gain -->
+                <div class="agc-meter" id="agcMeter">
+                  <div class="agc-bar" id="agcBar" title="A/D level: the 99.9 % peak of the samples from −40 dBFS (left) to full scale (right); the tick = the headroom target. Green = at the target, amber = too hot, red = clipping, blue = too quiet"><i class="fill" id="agcBarFill"></i><i class="tick" id="agcBarTick"></i></div>
+                  <span class="agc-lamp" id="agcLamp" title="Clip lamp: the A/D clipped in the last 2 s">CLIP</span>
+                </div>
+                <div class="agc-nums" id="agcNums"></div>
+                <p class="agc-warn" id="agcWarn" hidden></p>
+                <p class="agc-why" id="agcWhy" hidden></p>
                 <div class="sagc-presets" id="sagcPresets"><span class="sagc-presets-label">PRESETS</span>
-                  <button data-preset="conservative" class="key small" title="Conservative: every clipped sample turns the gain down, A/D peak kept around −10 dBFS, up only after 3 s without clipping">CONSERV.</button>
-                  <button data-preset="careful" class="key small" title="Careful: no A/D clipping tolerated (the defaults before 0.114)">CAREFUL</button>
-                  <button data-preset="moderate" class="key small" title="Moderate (default): up to the A/D peak at −5 dBFS, short clipping up to 0.01 % of the samples tolerated">MODERATE</button>
-                  <button data-preset="bold" class="key small" title="Bold: the gain climbs into occasional A/D clipping (up to 0.002 % of the samples), down only above 0.03 %">BOLD</button></div>
+                  <button data-preset="conservative" class="key small" title="Conservative: 6 dB more headroom, every clipped sample cuts, slow small steps up">CONSERV.</button>
+                  <button data-preset="careful" class="key small" title="Careful: 3 dB more headroom, clipping up to 0.002 % tolerated">CAREFUL</button>
+                  <button data-preset="moderate" class="key small" title="Moderate (default): the headroom of the signal kind and band, short clipping up to 0.01 % tolerated">MODERATE</button>
+                  <button data-preset="bold" class="key small" title="Bold: 4 dB less headroom, clipping up to 0.03 % tolerated, faster steps up">BOLD</button></div>
                 <div id="sagcRows"></div>
                 <div class="def-row"><button id="sagcDefault" class="key small def-btn" title="All AGC+ settings back to the defaults (= MODERATE)">DEFAULT</button></div>
                 <dl class="sagc-legend">
-                  <dt>%</dt><dd><b>Clipping</b>: the share of the samples of one block that hit the top of the A/D converter
-                    (clipped – distortion and false signals). 0.01 % = 1 sample in 10 000.</dd>
-                  <dt>dBFS</dt><dd><b>Peak</b> of the signal under the top of the A/D: 0 dBFS = the top (100 %), −2 dBFS ≈ 79 %,
-                    −6 dBFS ≈ half, −20 dBFS = a tenth. Shown also as % of the top.</dd>
-                  <dt>dB</dt><dd><b>Step of the tuner gain</b>: how much it goes down or up at once (not a level of the signal).</dd>
-                  <dt>s · blocks</dt><dd><b>Time</b>: <i>hold</i> in seconds, <i>settle</i> in blocks of samples (1 block ≈ 55–130 ms by the bandwidth).</dd>
+                  <dt>headroom</dt><dd><b>A/D headroom</b>: how far the 99.9 % peak of the samples stays under the top of the A/D converter
+                    (one spike does not count). The target depends on the signal: narrow channel 14 dB, FM broadcast 9, DAB 7.5, ADS-B 3
+                    (from the 2 s peak-hold); HF +3, FM band (not WFM) +3, VHF +1, above 1 GHz −2; a band much wider than the channel +2.</dd>
+                  <dt>floor</dt><dd><b>Noise floor over the A/D's own noise</b> (its quantisation noise, 8 bits RTL, 12 bits Airspy / Lime):
+                    under the goal (narrow 10 dB, FM 5, DAB 8, ADS-B 12; HF −2) the weak signals drown in the A/D; far over it more
+                    gain buys nothing (<i>gain wasted</i>) and only takes room from strong signals.</dd>
+                  <dt>%</dt><dd><b>Clipping</b>: the share of the samples of one block that hit the top of the A/D (distortion and false
+                    signals). 0.01 % = 1 sample in 10 000.</dd>
+                  <dt>s · blocks</dt><dd><b>Time</b>: between steps up in seconds, <i>settle</i> in blocks of samples (1 block ≈ 55–130 ms by the bandwidth).</dd>
                 </dl>
                 <label class="switch" title="Smooth gain of the audio ALC: the gain rises in a ramp instead of steps every 2.5 ms (falls at once). Off = the old steps"><input id="agcSmooth" type="checkbox"><span></span> Smooth ALC gain</label>
-                <p class="note">AGC+ key (GAIN): the tuner gain from the A/D level. On clipping it goes down at once, then waits
-                  <i>settle</i> blocks; it goes up only after <i>hold</i> without clipping and with the A/D peak under <i>up below</i>,
-                  aiming at <i>target</i>. One block ≈ 55–130 ms by the sample rate.
-                  <b>Bold</b> (<i>up while clipping</i> &gt; 0): after each <i>hold</i> the gain goes one step up while the clipping stays
-                  at or under this share, also with the peak at full scale; between that and <i>clipping above</i> it holds, above it
-                  goes down and then waits 4× <i>hold</i>. Keep <i>clipping above</i> ≥ 10× of it. <b>PRESETS</b> from conservative to bold, the one matching
-                  the sliders is lit: <b>CONSERV.</b> = every clipped sample turns the gain down, peak kept around −10 dBFS, up only after 3 s quiet; <b>CAREFUL</b> = no clipping (the defaults before 0.114), <b>MODERATE</b> (default) = gain up to
-                  a −5 dBFS peak, short clipping up to 0.01 % tolerated, <b>BOLD</b> = climbs into clipping up to 0.002 %, down above 0.03 %.
+                <p class="note">AGC+ key (GAIN) = <b>AUTO</b>: the tuner gain keeps the A/D headroom at its target instead of driving the
+                  A/D to the top (that gave intermodulation on HF and near FM stations). An overload (clipping above the limit) cuts at once –
+                  at least <i>cut</i>, 6 / 9 / 14 / 30 dB when 0.1 / 1 / 5 / 20 % of the samples clip – and leaves a ceiling 3 dB under that
+                  gain for 20 s (90 s after three overloads in a minute); then the gain climbs back to where it was (4 dB per 1.2 s).
+                  Too hot (headroom under the target − dead band): down by the error. Room: up by at most <i>up</i> every <i>between steps</i>,
+                  not while the noise floor is <i>gain wasted</i> over its goal (3 dB more: a step down); inside the dead band a floor under
+                  its goal raises the gain 3 dB. After a step down, a step up needs 1.5× the dead band for 8 s. The first 8 s after a start or a
+                  retune climb faster. The meter strip shows the A/D level, the clip lamp, the numbers, the first
+                  warning and <i>why</i> the gain is where it is. After the auto gain of OnAir (adswill/OnAir, the ideas, no code).
+                  <b>PRESETS</b> from conservative to bold, the one matching the sliders is lit.
                   With WFM a block with a gain step is played in mono (the step would turn the stereo into noise).
                   <b>Smooth ALC gain</b> (on by default, for this VFO): the audio ALC in AM/LSB/USB/CW raises its gain in a smooth ramp
                   instead of steps, so it does not click and pump; it still falls at once. It is the audio gain after the demodulator,
@@ -1876,12 +1891,12 @@ ecordings, played in the browser -->
                   <g class="blk k-agc" data-blk-for="sagcSetting" tabindex="0">
                     <rect class="blk-bg" x="30" y="6" width="180" height="32" rx="6" mask="url(#agcFade)"/><rect x="30" y="6" width="180" height="32" rx="6"/>
                     <text class="agc-top blk-title" x="120" y="20">AGC+ <tspan id="agcdState" class="agc-state"></tspan></text>
-                    <text class="agc-top blk-sub" x="120" y="33">peak + clipping of each block</text>
+                    <text class="agc-top blk-sub" x="120" y="33">A/D headroom + band floor</text>
                   </g>
                   <path class="blk-ctl" d="M45 38V58" marker-end="url(#agcArrowG)"/>
                   <text class="agc-top blk-sub l" x="51" y="52">gain</text>
                   <path class="blk-ctl" d="M166 60V40" marker-end="url(#agcArrowG)"/>
-                  <text class="agc-top blk-sub l" x="172" y="52">raw samples</text>
+                  <text class="agc-top blk-sub l" x="172" y="52">raw samples · spectrum</text>
                   <path class="blk-ctl" d="M210 22H529V58" marker-end="url(#agcArrowG)"/>
                   <text class="agc-top blk-sub agc-g" x="380" y="17">a gain step: WFM plays that block in mono</text>
                   <!-- RF / IQ part -->
@@ -1959,54 +1974,52 @@ ecordings, played in the browser -->
                   <line class="blk-wire" x1="560" y1="150" x2="572" y2="150" marker-end="url(#agcArrow)"/>
                   <path class="agc-spk" d="M576 144h5l7-6v24l-7-6h-5z"/>
                   <line class="agc-sep" x1="10" y1="200" x2="590" y2="200"/>
-                  <!-- AGC+ decision of each block -->
-                  <text class="blk-title l" x="10" y="220">AGC+ decides once per block (≈ 55–130 ms)</text>
-                  <text class="blk-sub l" x="10" y="240">clipped samples (%)<tspan class="agc-live" id="agcdClipNow"></tspan></text>
-                  <rect class="agc-z z-heavy" x="10" y="250" width="14" height="30"/>
-                  <rect class="agc-z z-down" x="10" y="280" width="14" height="32"/>
-                  <rect class="agc-z z-hold" x="10" y="312" width="14" height="32"/>
-                  <rect class="agc-z z-up" x="10" y="344" width="14" height="34"/>
-                  <path class="agc-tick" d="M24 280H150M24 312H150M24 344H150"/>
-                  <g class="blk blk-txt" data-blk-for="sagc_heavy_db" tabindex="0"><text class="l agc-r" x="32" y="269">↓ heavy: down by <tspan id="agcd_heavy_db"></tspan></text></g>
-                  <g class="blk blk-txt" data-blk-for="sagc_heavy_ppm" tabindex="0"><text class="r agc-p" x="290" y="284">heavy above <tspan id="agcd_heavy_ppm"></tspan></text></g>
-                  <g class="blk blk-txt" data-blk-for="sagc_down_db" tabindex="0"><text class="l agc-r" x="32" y="301">↓ down by <tspan id="agcd_down_db"></tspan></text></g>
-                  <g class="blk blk-txt" data-blk-for="sagc_clip_ppm" tabindex="0"><text class="r agc-p" x="290" y="316">clipping above <tspan id="agcd_clip_ppm"></tspan></text></g>
-                  <text class="l agc-a" x="32" y="333">= holds, does not go up</text>
-                  <g class="blk blk-txt" data-blk-for="sagc_allow_ppm" tabindex="0"><text class="r agc-p" x="290" y="348">bold: up while ≤ <tspan id="agcd_allow_ppm"></tspan></text></g>
-                  <text class="l agc-gt" x="32" y="366">quiet: may go up →</text>
-                  <text class="blk-sub l" x="310" y="240">A/D peak (dBFS)<tspan class="agc-live" id="agcdPeakNow"></tspan></text>
-                  <rect class="agc-z z-stay" x="310" y="250" width="14" height="80"/>
-                  <rect class="agc-z z-up" x="310" y="330" width="14" height="48"/>
-                  <path class="agc-tick" d="M324 250H430M324 280H430M324 330H430"/>
-                  <text class="r agc-p" x="590" y="254">0 dBFS = 100 % = full scale</text>
-                  <g class="blk blk-txt" data-blk-for="sagc_target_dbfs" tabindex="0"><text class="r agc-p" x="590" y="284">target <tspan id="agcd_target_dbfs"></tspan></text></g>
-                  <text class="l agc-a" x="342" y="309">= stays</text>
-                  <g class="blk blk-txt" data-blk-for="sagc_low_dbfs" tabindex="0"><text class="r agc-p" x="590" y="334">up below <tspan id="agcd_low_dbfs"></tspan></text></g>
-                  <path class="blk-ctl" d="M334 372V284" marker-end="url(#agcArrowG)"/>
-                  <g class="blk blk-txt" data-blk-for="sagc_up_db" tabindex="0"><text class="l agc-gt" x="342" y="352">↑ up toward the target,</text>
-                    <text class="l agc-gt" x="342" y="368">at most <tspan id="agcd_up_db"></tspan> per step</text></g>
+                  <!-- AUTO: what each block decides, by the A/D headroom (left) and the noise floor over the A/D's noise (right) -->
+                  <text class="blk-title l" x="10" y="218">AUTO decides once per block (≈ 55–130 ms) · <tspan class="agc-live" id="agcdKind"></tspan></text>
+                  <text class="blk-sub l" x="10" y="236">A/D headroom: target <tspan id="agcdTarget"></tspan> (set <tspan id="agcd_headroom_adj"></tspan>)<tspan class="agc-live" id="agcdHeadNow"></tspan></text>
+                  <rect class="agc-z z-heavy" x="10" y="246" width="14" height="16"/>
+                  <rect class="agc-z z-down" x="10" y="262" width="14" height="30"/>
+                  <rect class="agc-z z-hold" x="10" y="292" width="14" height="38"/>
+                  <rect class="agc-z z-up" x="10" y="330" width="14" height="42"/>
+                  <path class="agc-tick" d="M24 262H290M24 292H290M24 330H290"/>
+                  <g class="blk blk-txt" data-blk-for="sagc_clip_ppm sagc_down_db" tabindex="0"><text class="l agc-r" x="32" y="258">↓ clipping above <tspan id="agcd_clip_ppm"></tspan>: cut ≥ <tspan id="agcd_down_db"></tspan> at once</text></g>
+                  <g class="blk blk-txt" data-blk-for="sagc_headroom_adj" tabindex="0"><text class="l agc-r" x="32" y="281">↓ under the target − dead band: down by the error</text></g>
+                  <g class="blk blk-txt" data-blk-for="sagc_window_db" tabindex="0"><text class="l agc-a" x="32" y="309">= dead band ± <tspan id="agcd_window_db"></tspan>: stays</text></g>
+                  <text class="l agc-gt" x="32" y="323">(+3 dB when the floor is under its goal)</text>
+                  <g class="blk blk-txt" data-blk-for="sagc_up_db sagc_hold_s" tabindex="0"><text class="l agc-gt" x="32" y="350">↑ room: up ≤ <tspan id="agcd_up_db"></tspan> every <tspan id="agcd_hold_s"></tspan></text></g>
+                  <text class="l agc-gt" x="32" y="364">(after an overload back 4 dB per 1.2 s)</text>
+                  <text class="blk-sub l" x="310" y="236">floor over the A/D's noise<tspan class="agc-live" id="agcdFloorNow"></tspan></text>
+                  <rect class="agc-z z-down" x="310" y="246" width="14" height="16"/>
+                  <rect class="agc-z z-stay" x="310" y="262" width="14" height="30"/>
+                  <rect class="agc-z z-ok" x="310" y="292" width="14" height="38"/>
+                  <rect class="agc-z z-up" x="310" y="330" width="14" height="42"/>
+                  <path class="agc-tick" d="M324 262H590M324 292H590M324 330H590"/>
+                  <text class="l agc-r" x="332" y="258">↓ 3 dB more: one step down</text>
+                  <g class="blk blk-txt" data-blk-for="sagc_wasted_db" tabindex="0"><text class="l agc-a" x="332" y="281">= over <tspan id="agcdWasted"></tspan> (goal + <tspan id="agcd_wasted_db"></tspan>): gain wasted, no step up</text></g>
+                  <text class="l agc-p" x="332" y="314">the headroom decides</text>
+                  <text class="l agc-gt" x="332" y="350">↑ under the goal <tspan id="agcdGoal"></tspan>: up 3 dB</text>
+                  <text class="l agc-gt" x="332" y="364">(inside the dead band of the headroom)</text>
                   <!-- live: where the last block lies on each scale -->
-                  <g class="agc-mark" id="agcdClipMark" hidden><path d="M0 -6L9 0L0 6Z"/><line x1="9" y1="0" x2="28" y2="0"/></g>
-                  <g class="agc-mark" id="agcdPeakMark" hidden><path d="M300 -6L309 0L300 6Z"/><line x1="309" y1="0" x2="328" y2="0"/></g>
-                  <line class="agc-sep" x1="10" y1="390" x2="590" y2="390"/>
-                  <!-- after a step down: settle, hold, step up -->
-                  <text class="blk-sub l" x="10" y="408">tuner gain in time</text>
-                  <rect class="agc-settle" x="110" y="412" width="56" height="34"/>
-                  <path class="agc-gain" d="M10 418H110V438H470V422H590"/>
-                  <path class="agc-clip" d="M104 404l8 6-6 2 8 7"/>
+                  <g class="agc-mark" id="agcdHeadMark" hidden><path d="M0 -6L9 0L0 6Z"/><line x1="9" y1="0" x2="28" y2="0"/></g>
+                  <g class="agc-mark" id="agcdFloorMark" hidden><path d="M300 -6L309 0L300 6Z"/><line x1="309" y1="0" x2="328" y2="0"/></g>
+                  <line class="agc-sep" x1="10" y1="382" x2="590" y2="382"/>
+                  <!-- AUTO after an overload: cut, settle, ceiling, back up -->
+                  <text class="blk-sub l" x="10" y="398">AUTO: an overload and the way back</text>
+                  <rect class="agc-settle" x="130" y="408" width="40" height="38"/>
+                  <line class="agc-ceil" x1="130" y1="418" x2="392" y2="418"/>
+                  <path class="agc-gain" d="M10 412H130V440H220V430H290V421H400V412H590"/>
+                  <path class="agc-clip" d="M122 400l8 6-6 2 8 7"/>
                   <line class="agc-axis" x1="10" y1="446" x2="590" y2="446"/>
-                  <g class="blk blk-txt" data-blk-for="sagc_settle" tabindex="0"><text class="agc-p" x="132" y="466">settle <tspan id="agcd_settle"></tspan></text></g>
-                  <path class="agc-tick" d="M166 452H462" marker-start="url(#agcArrow)" marker-end="url(#agcArrow)"/>
-                  <g class="blk blk-txt" data-blk-for="sagc_hold_s" tabindex="0"><text class="agc-p" x="336" y="468">hold <tspan id="agcd_hold_s"></tspan>: no clipping above the bold limit</text></g>
-                  <text class="l agc-r" x="10" y="436">clipping</text>
-                  <text class="l agc-gt" x="478" y="436">↑ step up</text>
-                  <text class="l agc-r" x="176" y="432">↓ step down</text>
-                  <text class="l blk-sub" x="10" y="492">Bold: after a step down it waits 4× hold, and the gain that clipped is not tried again for 60× hold.</text>
+                  <g class="blk blk-txt" data-blk-for="sagc_settle" tabindex="0"><text class="l agc-p" x="124" y="460">settle <tspan id="agcd_settle"></tspan></text></g>
+                  <text class="l agc-r" x="10" y="432">clip → cut at once</text>
+                  <text class="l agc-a" x="180" y="406">ceiling 3 dB under that gain for 20 s (90 s after 3 in a minute)</text>
+                  <text class="l agc-gt" x="300" y="460">↑ back to the gain before, 4 dB per 1.2 s</text>
+                  <text class="l blk-sub" x="10" y="484">The ceiling keeps the gain from climbing straight back into the overload; a burst that has gone leaves no low gain behind.</text>
                 </svg>
                 <p class="note">Top: the path of the signal. AGC+ reads the raw A/D samples and sets only the tuner gain (green), before any filter,
                   so it also sees strong signals outside the channel. The ALC is the audio gain after the demodulator (AM, SSB, CW; FM and WFM have
-                  a constant level). Middle: what AGC+ does with each block – clipping first, the peak only when there is no clipping.
-                  Bottom: one step down and back up. Click a block or a setting to find its slider or card.</p>
+                  a constant level). Middle: what AUTO does with each block – an overload first, then the A/D headroom, the noise floor
+                  over the A/D's own noise limits it; the triangles show the last block. Bottom: an overload and the way back. Click a block or a setting to find its slider or card.</p>
               </div>
             </div>
             <!-- ===== AUDIO ===== -->
@@ -2155,8 +2168,7 @@ ecordings, played in the browser -->
             <span class="sdg-sec">RECEIVE CHAIN · ONE ROW PER VFO</span>
             <div class="sdg-scroll"><div class="sdg-lanes" id="sdgLanes"></div></div>
             <p class="note">Each row is one VFO, from the antenna to the speaker and the decoders. Lit = on, faint = off, red = an error
-              or clipping, amber = waiting (squelch closed, buffering). MAIN = the VFO you listen to, CUE = audible at CUE level.
-              A click on a row opens the settings of that VFO.</p>
+              or clipping, amber = waiting (squelch closed, buffering). MAIN = the VFO you listen to, CUE = audible at CUE level.</p>
           </div>
         </div>
       </div>

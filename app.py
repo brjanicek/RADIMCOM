@@ -56,6 +56,7 @@ from sonde import SondeDecoder
 from daylog import LOG_DIR, DayLog, TextLog
 import recorder as recorder_mod
 from recorder import Recorder
+from iqrec import IqRecorder
 import rotor as rotor_module
 from wefax import WefaxDecoder
 from sstv import SstvDecoder
@@ -420,7 +421,7 @@ def state():
     capable = tx_capable()
     return dict(receiver.state(), ft8=ft8.enabled, ft8_error=ft8.error, wefax=wefax.enabled, cw=cw.enabled, rtty=rtty.enabled, packet=packet.enabled, pocsag=pocsag.enabled, sonde=sonde.enabled, sonde_multi=sonde.multi,
                 sstv=sstv.enabled, acars=acars.enabled, vdl2=vdl2.enabled, vdl2_error=vdl2.error, vdl2_region=vdl2.region, cpdlc=acars.cpdlc_on,
-                dsd=dsd.info(), dab=dab.enabled, dab_error=dab.error, dab_channel=dab.channel, dab_sids=cfg.get("dab_sids") or {}, ism=ism.enabled, ism_error=ism.error, ism_raw=ism.raw, hfdl=hfdl.enabled, hfdl_error=hfdl.error, ais=ais.enabled, ais_error=ais.error, adsb=adsb.enabled, adsb_error=adsb.error, ism_hz=cfg.get("ism_hz", ISM_DEFAULT), audio_muted=audio_muted(), recording=recorder.state(), logs={k: log_on(k) for k in LOG_KEYS},
+                dsd=dsd.info(), dab=dab.enabled, dab_error=dab.error, dab_channel=dab.channel, dab_sids=cfg.get("dab_sids") or {}, ism=ism.enabled, ism_error=ism.error, ism_raw=ism.raw, hfdl=hfdl.enabled, hfdl_error=hfdl.error, ais=ais.enabled, ais_error=ais.error, adsb=adsb.enabled, adsb_error=adsb.error, ism_hz=cfg.get("ism_hz", ISM_DEFAULT), audio_muted=audio_muted(), recording=recorder.state(), iq_rec=iq_recorder.state(), logs={k: log_on(k) for k in LOG_KEYS},
                 **doppler_trsp(), antenna=cfg.get("antenna", ""),
                 tx_capable=capable, tx_enabled=bool(cfg.get("tx_enabled", False)),
                 can_tx=capable and bool(cfg.get("tx_enabled", False)) and hasattr(receiver.sdr, "tx_start"))
@@ -468,6 +469,8 @@ def on_baseband(base, fs, dial_hz):
 
 
 recorder = Recorder()
+# REC IQ: the raw samples of the dongle to WAV (SDR# style) in the subfolder iq of the recordings folder (iqrec.py)
+iq_recorder = IqRecorder(lambda: os.path.join(recorder.folder, "iq"), (VFO or {}).get("name", ""))
 
 
 def _dab_recording():
@@ -525,6 +528,11 @@ receiver = Receiver(
     on_dsd=dsd.process,
 )
 dsd.set_enabled(cfg["mode"] == DSD_MODE)
+# one decoder on the IQ (IQ_ONE): a config from an older version may have several on (e.g. DAB with SONDE); the first of
+# this order stays, the others are left off
+_iq_on = [k for k in ("dab", "adsb", "vdl2", "acars", "ism", "hfdl", "ais", "sonde") if cfg.get(k)]
+for _k in _iq_on[1:]:
+    cfg[_k] = False
 ft8.set_enabled(cfg.get("ft8", False))
 wefax.slant_ppm = float(cfg.get("wefax_slant_ppm", 0.0))
 wefax.afc_vfo = bool(cfg.get("wefax_afc_vfo", True))
@@ -548,6 +556,7 @@ acars.set_enabled(cfg.get("acars", False) and not cfg.get("vdl2", False))
 
 
 def on_raw(raw, fs, center_hz):
+    iq_recorder.feed(raw, fs, center_hz)
     vdl2.feed_raw(raw, fs, center_hz)
     dab.feed_raw(raw, fs, center_hz, receiver.lo)
     ism.feed_raw(raw, fs, center_hz)
@@ -1089,6 +1098,39 @@ def set_vdl2(on, changes):
         changes["sample_rate"] = cfg.pop("vdl2_prev_rate")
     vdl2.set_enabled(on)
     acars.set_vdl2(on)
+
+
+# One decoder on the IQ of a VFO: these take the raw samples (or the baseband) for themselves, mute the audio of the VFO
+# (DAB plays its own) and most hold the dongle on their band, so at most one of them runs; switching one on switches the
+# others off (their sample rate, centre and gain come back). Request key -> decoder.
+IQ_ONE = {"dab": "dab", "acars": "acars", "vdl2": "vdl2", "ism": "ism", "ais": "ais", "ais_center": "ais", "adsb": "adsb",
+          "hfdl": "hfdl", "hfdl_band": "hfdl", "sonde": "sonde"}
+
+
+def iq_only(keep, changes):
+    """Switches off every IQ decoder of IQ_ONE except keep; True when one was on."""
+    was = False
+    if keep != "dab" and dab.enabled:
+        set_dab(False, changes); was = True
+    if keep != "vdl2" and cfg.get("vdl2"):
+        set_vdl2(False, changes); was = True
+    if keep != "ism" and cfg.get("ism"):
+        set_ism(False, changes); was = True
+    if keep != "acars" and cfg.get("acars"):
+        cfg["acars"] = False
+        acars.set_enabled(False); was = True
+    if keep != "adsb" and adsb.enabled:
+        set_adsb(False, changes); was = True
+    if keep != "hfdl" and hfdl.enabled:
+        set_hfdl(False); was = True
+    if keep != "ais" and ais.enabled:
+        set_ais(False); was = True
+    if keep != "sonde" and cfg.get("sonde"):
+        cfg["sonde"] = False
+        sonde.set_enabled(False); was = True
+    if was:
+        sync_cpdlc()
+    return was
 
 
 def set_dab(on, changes, channel=None):
@@ -2095,6 +2137,10 @@ def api_set():
         pocsag.set_enabled(cfg["pocsag"])
         save_config_later()
         hub.event("status", state())
+    on_iq = {d for k, d in IQ_ONE.items() if body.get(k)}
+    if len(on_iq) == 1 and iq_only(next(iter(on_iq)), changes):   # one decoder on the IQ: the one switched on stays
+        save_config_later()
+        hub.event("status", state())
     if "sonde" in body:
         cfg["sonde"] = bool(body["sonde"])
         sonde.set_enabled(cfg["sonde"])
@@ -2245,7 +2291,9 @@ def api_set():
             recorder.set("squelch", bool(body["rec_sq"]))
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
-    if "rec" in body or "rec_sq" in body:
+    if "rec_iq" in body:
+        iq_recorder.set(bool(body["rec_iq"]))
+    if "rec" in body or "rec_sq" in body or "rec_iq" in body:
         hub.event("status", state())
     if "tune_hz" in changes and changes["tune_hz"] != cfg.get("tune_hz"):
         with tx_lock:
@@ -2495,6 +2543,7 @@ def exit_with_parent():
     """The VFO process ends when the launcher ends (its input is closed)."""
     sys.stdin.read()
     recorder.stop_all()
+    iq_recorder.stop()
     rotor_link.stop()
     if doppler is not None:
         doppler.stop()
@@ -2523,5 +2572,6 @@ if __name__ == "__main__":
         app.run(host=cfg.get("host", "0.0.0.0"), port=port, threaded=True, use_reloader=False)
     finally:
         recorder.stop_all()
+        iq_recorder.stop()
         rotor_link.stop()
         receiver.stop()

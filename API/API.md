@@ -91,6 +91,7 @@ Main fields:
 | `vdl2_region` | selected VDL2 channel set, `"eu"` or `"us"` |
 | `audio_muted` | the audio of this VFO is muted because the ACARS, VDL2, HFDL, AIS or ISM decoder runs |
 | `recording` | `{"cont": {...}, "squelch": {...}, "dropped": n}`: REC and REC SQ, each with `on`, `open` (a file is being written), `active` (the REC blinks: REC from switching on, REC SQ while the squelch is open, not in the pause after it), `file` (current or last file in `data\recordings`), `secs` (length of the current file), `saved` (files finished since switched on), `error`; `dropped` = audio blocks lost because the disk did not keep up |
+| `iq_rec` | REC IQ: `on`, `open`, `file` (current or last WAV), `secs`, `mb` (size of the current file), `rate` (samples/s), `saved`, `dropped` (blocks lost, disk too slow), `error` |
 | `dab`, `dab_channel`, `dab_sids`, `dab_error` | DAB on/off, Band III channel (e.g. `12C`), last station of each channel (`{"12C": "0x5464"}`, `null` = stopped), welle-cli error |
 | `logs` | daily logs on/off: `{"ft8", "wefax", "cw", "rtty", "sstv", "acars", "dsd", "ism", "packet", "pocsag", "sonde", "hfdl", "ais"}` (`acars` covers both the ACARS and the VDL2 log) |
 | `trsp_name`, `trsp_sat` | transmitter and satellite of the Doppler correction (`/api/sat/doppler`) while it is on, empty otherwise |
@@ -168,6 +169,7 @@ Send any combination of these keys:
 | `ism_raw` | ISM: also show packages no decoder read (rtl_433 pulse analyzer), saved per VFO |
 | `ism`, `ism_hz` | ISM decoder on / off and preset (one of `ism_freqs`). `ism: true` starts rtl_433, mutes the audio and switches the VFO to 2.048 MS/s on that preset in AM (ACARS, VDL2 and DAB off, RTL-SDR only); `ism: false` restores the sample rate; `ism_hz` alone re-centres a running decoder |
 | `rec`, `rec_sq` | MP3 recording on / off: `rec` everything, a new file after 15 min; `rec_sq` only with an open squelch, each session in its own file |
+| `rec_iq` | REC IQ on / off: the raw IQ of the dongle to WAV (SDR# style) in the subfolder `iq` of the recordings folder |
 | `log` | daily logs, e.g. `{"log": {"cw": true, "ft8": false}}` |
 | `tx_enabled` | allow transmitting (only on a VFO that can transmit) |
 

@@ -6,16 +6,53 @@ Test beta (GitHub branch `1.0beta2`; continues 1.0beta1).
 
 ### New
 
+#### Gain and tuning: AGC+, ATU
+
+- **AGC+ reworked after the auto gain of OnAir** (adswill/OnAir, the ideas, no code; new `gainctl.py`):
+  - **Measurement** of every block: the clipped share and the peak of the A/D, a **robust peak** (the 99.9 % point of the
+    samples, one spike does not decide), a 2 s peak-hold; from the spectrum of the whole band the **noise floor over the A/D's
+    own quantisation noise** (8 bits RTL, 12 bits Airspy / Lime), the **SNR of the channel** against its flanks and the strongest
+    signal outside the channel.
+  - **AUTO** (the AGC+ key) keeps an **A/D headroom target** instead of driving the A/D to −2 dBFS (which gave intermodulation on
+    HF and near FM stations): narrow channel 14 dB, FM broadcast 9, DAB 7.5, ADS-B 3 from the peak-hold; HF +3 dB, the FM band
+    (not WFM) +3, VHF +1, above 1 GHz −2, a band much wider than the channel +2. An overload cuts at once by how bad it is (at
+    least 3 dB, 6 / 9 / 14 / 30 dB at 0.1 / 1 / 5 / 20 % clipped) and leaves a **soft ceiling** 3 dB under that gain for 20 s
+    (90 s after three overloads in a minute); then the gain **climbs back** to where it was (4 dB per 1.2 s). Too hot: down by the
+    error every 0.8 s. **Gain wasted**: no step up while the floor is 15 dB over its goal (narrow 10, FM 5, DAB 8, ADS-B 12; HF −2),
+    3 dB more takes a step down; a floor under its goal raises the gain 3 dB inside the dead band. **Hysteresis**: after a step
+    down, a step up needs 1.5× the dead band for 8 s; the first 8 s after a start or a retune climb faster.
+  - SETTINGS › VFO › ADVANCED › AGC+: a **meter strip** (A/D level bar with the target tick, green / amber / red / blue, a
+    **CLIP lamp** held 2 s, headroom, floor over the A/D, channel SNR, signal kind and band), the first **warning** in plain words
+    (clipping, a strong signal nearby with its frequency, gain too low, antenna noise far over the A/D's) and **why** the gain is
+    where it is (*limited by the headroom – strong signal at 144.500 MHz*, *more gain buys nothing*, the last decision); new
+    sliders (headroom ±, dead band, clipping limit, cut, up, between steps, gain wasted, settle) and presets
+    (CONSERV. +6 dB headroom, CAREFUL +3, MODERATE, BOLD −4). The diagram **Where AGC+ and ALC work** redrawn: what AUTO
+    decides by the headroom and by the floor (live marks on both scales), an overload and the way back. The STATION scheme shows the headroom and its target in the AGC+ block. Old AGC+ settings are not taken over.
+  - `tests/test_sagc.py`: a simulated front end (R820T table, antenna and radio noise, a strong neighbour and its third-order
+    product, a clipping 8-bit A/D): convergence from three start gains without hunting, gain wasted on a noisy HF band, the
+    way back after an overload burst, the presets.
+- **ATU in SSB tunes onto the carrier, snapped to a whole kHz or rounded to 100 Hz**:
+  the edge of the voice band on the carrier side is found in a held spectrum of the channel
+  (max-hold over 0.5 s windows falling 0.6 dB a window, so the pauses of speech do not break it; smoothed over 250 Hz;
+  walking down from the band's peak to where it falls to 40 % of the peak's height in dB, found between bins, so splatter
+  and noise under the voice do not pull it down; a voice with a strong low formant and weaker highs stays one band),
+  the carrier 120 Hz beyond it, then snapped onto a whole kHz when within 300 Hz of it (SSB stations sit on whole kHz,
+  e.g. 14.265 MHz), otherwise rounded to 100 Hz. The voice sounds natural at once. Checked on 39 real 40 m LSB, 20 m and
+  17 m SSB stations tuned by ear: about 60 Hz from the tuning by ear (median; the ear itself scatters ~±100 Hz around
+  the whole kHz the stations use) where the first version
+  was always too low (up to 630 Hz) and missed a lumpy voice by 1.2 kHz; on a synthetic voice (`tests/test_atu.py`,
+  USB and LSB, 10–40 dB) 50–76 Hz (median) before the rounding. ATU keeps its last 8 analysed blocks in `data/logs/atu`
+  (a few MB) to check it on real signals.
+- **ATU on = autotune now:** switching the ATU key on (AM / USB / LSB) autotunes the frequency tuned at that moment
+  at once; until now it waited for the next move of the tuning or a click in the spectrum.
+
+#### DSD (digital voice)
+
 - **DSD AFC:** during a call the mean of the FM discriminator (4FSK is symmetric around the carrier) gives the offset of
   the signal from the tuned frequency; the DSD head shows it, and with **AFC** on (default) an offset over 120 Hz retunes
   the VFO onto the signal (at most 3 kHz at a time; on a hotspot / simplex only the slots with a carrier are measured; not
   while the satellite Doppler correction tunes). A DMR repeater tuned 400 Hz off decoded the ID in 23 % of the calls,
   tuned onto it in 95 %. Kept per VFO (`dsd_afc`).
-- **SONDE profile: wind.** The left panel shows temperature, humidity and **wind speed** (the horizontal drift of
-  the sonde from its GPS positions over 30 s) on one axis, the right panel the **wind direction** (where it blows from,
-  N E S W); also for sondes without temperature. The chart under it shows only the ascent / descent in time (with the
-  average descent rate); the course moved into the wind direction. The pressure (hPa of the standard atmosphere) is gone.
-- **Rotor: SONDE TRACKER** – a fourth source in RCTRL › SETTINGS, **disconnected by default**; connected, the rotor follows the sonde chosen in DECODERS › SONDE. Only its GPS position and altitude are used: the azimuth and elevation are calculated from the QTH and its altitude (SETTINGS › GENERAL › LOCATION) on the WGS84 ellipsoid, so the curvature of the Earth is included; the elevation is held at 0–90°. The rotor moves at most every 5 s and only for a change of 2° or more. It works while the RADIMCOM page shows the VFO with the SONDE decoder (the frames come to the page) and the rotor takes commands (not while the satellite tracking holds it).
 - **DSD FILTER:** the width of the channel filter before the FM discriminator (12.5 / 11 / 10 / 9 / 8 kHz, kept per VFO
   as `dsd_filter`, 12.5 kHz = as before). DMR occupies about ±4.5 kHz: on a weak signal 10 kHz lets about 1 dB less noise
   into the decoder; the scale of the discriminator (and so the AFC) does not change.
@@ -23,7 +60,6 @@ Test beta (GitHub branch `1.0beta2`; continues 1.0beta1).
   second only while it is on): sync lines dim, link control (TG, ID, alias) green, bursts that failed a CRC / FEC / RS
   check red, and the number of sync lines and errors of the last minute. It tells bad bits at the input (noise, too
   much gain) from a lost sync. `GET /api/dsd?debug=<seq>` returns the lines after `seq`.
-- **AUDIO: the CUE key removed** – it duplicated CUE under the VFO windows (and CUE in the VFO window).
 - **DSD tab:**
   - the calls on air as cards: slot, protocol, the talk group with its name, the caller with the country of its ID,
     the alias with the callsign in green, the running time;
@@ -35,6 +71,55 @@ Test beta (GitHub branch `1.0beta2`; continues 1.0beta1).
   - **TALK GROUPS**: the talk groups of the list with the number of calls, a click shows only that one;
   - the number of stations heard; a filter (TG, ID, callsign, protocol) and **hide short**;
   - a click on the frequency of a call tunes the VFO there.
+
+#### SONDE and the rotor
+
+- **SONDE prediction: the fall after the burst was far too long.** The descent rate was taken from the last five steps
+  just after the burst, when the sonde still speeds up (−10 to −26 m/s instead of −100), and kept by 1/√density all the
+  way down: the predicted path came out 3–5× too long. Now v = v0 · ρ^−a, fitted to the fall heard (without the first
+  1500 m after the burst) with a prior a = 0.4, v0 = 10 m/s, scaled to the last 30 s; checked on 12 logged flights:
+  median 0.99× of the real fall time (was 1.38×), worst 2.1× (was 5×).
+- **SONDE profile: wind.** The left panel shows temperature, humidity and **wind speed** (the horizontal drift of
+  the sonde from its GPS positions over 30 s) on one axis, the right panel the **wind direction** (where it blows from,
+  N E S W); also for sondes without temperature. The chart under it shows only the ascent / descent in time (with the
+  average descent rate); the course moved into the wind direction. The pressure (hPa of the standard atmosphere) is gone.
+  The note above the charts has two lines (the explanations in its tooltip); in MAP the MULTI channels and TYPES sit over
+  the map, so the chart column starts right under the keys.
+- **SONDE MAP: the sonde for the charts chosen by hand only:** in the list above the charts or by a click on the sonde
+  on the map (also a row of the table or a flight from the log); no Auto any more, so the profile and the altitude chart
+  no longer jump to another sonde by themselves. A click on the empty map keeps the choice; it is remembered over a
+  reload and a restart (CLEAR drops it).
+- **SONDE MAP: a rising sonde is a light blue balloon** (was green, mixed up with the green launch sites with a sonde
+  in the air); parachute yellow, selected orange, old grey as before.
+- **SONDE > TYPES:** check boxes for the sonde types the decoder listens for (RS41, DFM, M10 / M20, LMS6, iMet-54,
+  MRZ, Meisei, MTS01, CF-06 / HT03). Until now every one of the 9 decoder programs ran on each channel until a sonde
+  was decoded (with MULTI on every channel); tick only the types launched in your area to save CPU on the server.
+  Kept per VFO (`sonde_types`).
+- **Rotor: SONDE TRACKER** – a fourth source in RCTRL › SETTINGS, **disconnected by default**; connected, the rotor follows the sonde chosen in DECODERS › SONDE. Only its GPS position and altitude are used: the azimuth and elevation are calculated from the QTH and its altitude (SETTINGS › GENERAL › LOCATION) on the WGS84 ellipsoid, so the curvature of the Earth is included; the elevation is held at 0–90°. The rotor moves at most every 5 s and only for a change of 2° or more. It works while the RADIMCOM page shows the VFO with the SONDE decoder (the frames come to the page) and the rotor takes commands (not while the satellite tracking holds it).
+- **Rotor settings in the RCTRL tab:** ROTOR CONTROL has two pages, MAP and **SETTINGS**. SETTINGS holds the sources
+  that move the rotor (was the CONNECTION page) and under them the rotor controller (ON / OFF, serial port, polar plot
+  and elevation column, STOP / RESET / MONITOR, azimuth calibration; was SETTINGS › GENERAL › ROTOR): all the rotor in
+  one place. The sources are drawn as a smaller block scheme like SETTINGS › STATION (SAT TRACKER, MEMORY RECALL,
+  RCTRL MAP with LINKED / OPEN, lines into the ROTOR block), without the animations of the old picture;
+  the rotor link (ON / OFF, port) in one row on top, the sources and the position / calibration side by side under it,
+  all without scrolling.
+
+#### Audio and recording
+
+- **MUTE of each VFO:** the keys under the VFO windows are VFO (narrower), **MUTE** (red LED) and CUE. MUTE silences that
+  VFO in this browser, as MAIN and as CUE (the receiver, its decoders, recording and the scanner go on; the audio spectrum
+  bubble still shows it); its display shows the red struck-through speaker as when a decoder mutes it. Remembered in the
+  browser per VFO. SETTINGS › STATION shows it: a MUTE chip in the VFO row and in OUTPUT, the muted VFOs in AUDIO.
+- **AUDIO: the CUE key removed** – it duplicated CUE under the VFO windows (and CUE in the VFO window).
+- **REC IQ** (under REC SQ, dark blue LED): the whole IQ of the dongle – the full band at its sample rate – to WAV as SDR#
+  records it: I left, Q right, 8 bit unsigned from an RTL-SDR (its bytes as they come), 16 bit from LimeSDR / Airspy; in
+  the subfolder `iq` of the recordings folder, named `RADIMCOM_<VFO>_<YYYYMMDD_HHMMSS>Z_<centre>Hz_IQ.wav` (UTC), with an
+  `auxi` chunk (start, stop, centre) for HDSDR; a new file on a change of the centre or sample rate and before 2 GB, the
+  header updated every 5 s. The tooltip shows the size and blocks lost; the STATION scheme shows a REC IQ chip.
+  API: `rec_iq` in `/api/set`, `iq_rec` in the state.
+
+#### SETTINGS › STATION and the diagrams
+
 - **STATION: MAIN and CUE buses instead of OUTPUT:** out of AUDIO of each VFO go two wires into two vertical buses
   over all the rows – OUT into the green MAIN bus (green and connected while the VFO is MAIN, grey and open otherwise)
   and CUE into the orange CUE bus (while CUE is on and another VFO is MAIN); MUTED (red, dashed, open) by the MUTE key
@@ -47,33 +132,15 @@ Test beta (GitHub branch `1.0beta2`; continues 1.0beta1).
   the carrier and both sidebands or one, DSB without the carrier, USB / LSB one sideband beside the dashed tuned
   frequency, CW one tone with dots and dashes), the FM / WFM waveform (wider swing for WFM), the OFDM block of DAB and
   the 4-level symbols of DSD.
-- **ATU on = autotune now:** switching the ATU key on (AM / USB / LSB) autotunes the frequency tuned at that moment
-  at once; until now it waited for the next move of the tuning or a click in the spectrum.
-- **MUTE of each VFO:** the keys under the VFO windows are VFO (narrower), **MUTE** (red LED) and CUE. MUTE silences that
-  VFO in this browser, as MAIN and as CUE (the receiver, its decoders, recording and the scanner go on; the audio spectrum
-  bubble still shows it); its display shows the red struck-through speaker as when a decoder mutes it. Remembered in the
-  browser per VFO. SETTINGS › STATION shows it: a MUTE chip in the VFO row and in OUTPUT, the muted VFOs in AUDIO.
-- **Rotor settings in the RCTRL tab:** ROTOR CONTROL has two pages, MAP and **SETTINGS**. SETTINGS holds the sources
-  that move the rotor (was the CONNECTION page) and under them the rotor controller (ON / OFF, serial port, polar plot
-  and elevation column, STOP / RESET / MONITOR, azimuth calibration; was SETTINGS › GENERAL › ROTOR): all the rotor in
-  one place. The sources are drawn as a smaller block scheme like SETTINGS › STATION (SAT TRACKER, MEMORY RECALL,
-  RCTRL MAP with LINKED / OPEN, lines into the ROTOR block), without the animations of the old picture;
-  the rotor link (ON / OFF, port) in one row on top, the sources and the position / calibration side by side under it,
-  all without scrolling.
 - **SETTINGS › VFO › SDR DONGLE and AGC+ diagrams in the look of the STATION scheme:** each block in the colour of its
   kind (antenna, dongle / tuner, upconverter, bias-T, A/D, crystal, DC, SP, AGC+, filter, demodulator, audio, squelch,
   output) with a soft gradient, the title in that colour, the card number in the same colour, and in the dongle diagram
   a small framed icon in each block; the dongle frame dashed in the dongle colour. Static, no animation; the blocks still
   find their cards by a click, grey when not for this dongle or VFO. The whole AGC+ diagram (signal path, decision
   scales, gain in time) in the same smaller text size as the dongle diagram.
-- **SONDE MAP: the sonde for the charts chosen by hand only:** in the list above the charts or by a click on the sonde
-  on the map (also a row of the table or a flight from the log); no Auto any more, so the profile and the altitude chart
-  no longer jump to another sonde by themselves. A click on the empty map keeps the choice; it is remembered over a
-  reload and a restart (CLEAR drops it).
-- **SONDE > TYPES:** check boxes for the sonde types the decoder listens for (RS41, DFM, M10 / M20, LMS6, iMet-54,
-  MRZ, Meisei, MTS01, CF-06 / HT03). Until now every one of the 9 decoder programs ran on each channel until a sonde
-  was decoded (with MULTI on every channel); tick only the types launched in your area to save CPU on the server.
-  Kept per VFO (`sonde_types`).
+
+#### Performance
+
 - **Less CPU in the browser** (measured in Edge, 1920 x 1080, the main page: about 56 % of a core before, 36 % now):
   - the S-meter is redrawn only while the needle moves (it was 60 times a second all the time);
   - the level meter (VU) touches only the LEDs that change (as fast as before, every frame while the sound runs);
@@ -83,19 +150,35 @@ Test beta (GitHub branch `1.0beta2`; continues 1.0beta1).
     waterfall is painted from the whole-band history when shown again;
   - the logo LED glows steadily (its pulse redrew a blurred glow every frame); the launch sites with a sonde in the
     air on the SONDE map glow without pulsing; a station just heard on the FT8 map pulses twice (was three times).
-- **SONDE MAP: a rising sonde is a light blue balloon** (was green, mixed up with the green launch sites with a sonde
-  in the air); parachute yellow, selected orange, old grey as before.
 
 ### Fixes
 
-- **RECORDINGS:** play and pause drawn as icons of the same size (in the list and on the PLAY / PAUSE key, which keeps
-  its width); the ▶ and ▮▮ characters differed in size, so the columns and the key moved when a file started or stopped.
+#### SETTINGS › STATION
+
+- **STATION: SPECTRUM · WATERFALL** – the block was missing: under IQ, fed from between DC and NB (as in sdr.py: after
+  the DC removal, before the noise blanker), with the band width and ON SCREEN / background; IQ DECODERS moved a row lower.
+- **STATION: DAB audio into CUE** – a VFO that is not on MAIN but is heard on CUE draws the DAB AUDIO line into the CUE wire
+  (label DAB AUDIO → CUE), not into the MAIN bus; the line leaves IQ DECODERS on its right side and goes straight right, then up (no longer along the bottom of the row).
+- **STATION:** a click on the scheme no longer jumps to SETTINGS › VFO (the scheme is read-only).
+
+#### Decoders
+
+- **One decoder on the IQ of a VFO:** a VFO could play DAB from the raw IQ with the SONDE decoder on at once (SONDE
+  muted the VFO, the STATION scheme showed both). DAB, ACARS, VDL2, ISM, AIS, ADS-B, HFDL and SONDE take the IQ for
+  themselves and mute the audio, so now one of them at a time: switching one on switches the others off (their sample
+  rate, centre and gain come back). Most pairs did so already, SONDE and some (ACARS – AIS) did not. A config with
+  several on (from an older version) keeps the first of DAB, ADS-B, VDL2, ACARS, ISM, HFDL, AIS, SONDE at the start.
 - **DSD under DAB:** a VFO in the DSD mode with DAB switched on kept dsd-fme running beside welle-cli (decoding only
   noise, the sound comes from DAB); dsd-fme now runs only in the DSD mode without DAB.
 - **SONDE MULTI channel under the VFO** showed "? · 0 fr" although the VFO decoded the sonde there (MULTI leaves that
   channel to the VFO): it now shows the type, serial and frames of the sonde the VFO decodes. A channel with no frame at
   all says "signal, no frame yet", the tip says why (a sonde on the ground before its GPS fix, too weak, an unsupported
   type or not a sonde).
+
+#### Recordings
+
+- **RECORDINGS:** play and pause drawn as icons of the same size (in the list and on the PLAY / PAUSE key, which keeps
+  its width); the ▶ and ▮▮ characters differed in size, so the columns and the key moved when a file started or stopped.
 
 ## Ver. 1.0beta1
 
