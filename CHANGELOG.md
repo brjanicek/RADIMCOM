@@ -4,6 +4,15 @@
 
 Test beta (GitHub branch `1.1beta1`; continues the release 1.0).
 
+### Fixes
+
+- **AGC+ no longer hunts on HF:** with a strong station on 40 m / 80 m it went up and down every ~2.5 s (gain 0 ↔ 3.7 dB),
+  a line across the whole waterfall each time. The low gain steps of an R820T move the A/D far more than the table says
+  (0 → 3.7 dB by ~15 dB), so every step up overshot the headroom target and the next block took it back. AGC+ now measures
+  how far each step really moved the headroom (per band, also a chain of steps) and steps up only when that keeps it in the
+  dead band; a step down within 10 s of a step up holds the gain for 30 s while it learns. Test with such a front end in
+  `tests/test_sagc.py`.
+
 ## Ver. 1.0
 
 Released after the test betas (GitHub branches `1.0beta1`, `1.0beta2`) and the release candidate (`1.0rc1`); continues 0.115.

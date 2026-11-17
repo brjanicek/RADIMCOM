@@ -82,6 +82,10 @@ Change log
 
 Ver. 1.1beta1
 (test beta, GitHub branch 1.1beta1; continues the release 1.0)
+Fixes
+- AGC+ no longer hunts on HF: with a strong station on 40 m / 80 m it went up and down every ~2.5 s (a line across the
+  waterfall each time), because the low gain steps of the R820T are much bigger than they say. It now measures the real
+  effect of each step and does not step up into a level it would have to leave again.
 
 Ver. 1.0
 (after the test betas 1.0beta1, 1.0beta2 and the release candidate 1.0rc1)

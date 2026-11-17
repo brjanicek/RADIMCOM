@@ -306,6 +306,10 @@ browser – and the **CUE** key of that VFO (orange LED): that VFO stays audible
           while the noise floor is more than *gain wasted* over its goal (narrow 10 dB, FM 5, DAB 8, ADS-B 12; HF −2), 3 dB more
           takes a step down; inside the dead band a floor under its goal raises the gain 3 dB. After a step down a step up needs
           1.5× the dead band for 8 s; the first 8 s after a start or a retune climb faster. *Settle*: blocks ignored after a change.
+          **Real steps:** AGC+ measures how far each gain step really moved the headroom (the low steps of an R820T are much bigger
+          than the table says: on HF 0 → 3.7 dB moved the A/D by ~15 dB) and steps up only when the measured step (or a chain of
+          measured ones) does not take it under the dead band. A step down within 10 s of a step up holds the gain there for 30 s
+          (*right after a step up: held here 30 s*), so it does not hunt up and down while it learns.
         - **PRESETS** (the matching one lit): **CONSERV.** (+6 dB headroom, every clipped sample cuts, small slow steps up),
           **CAREFUL** (+3 dB, clipping up to 0.002 %), **MODERATE** (default), **BOLD** (−4 dB, clipping up to 0.03 %, faster).
           A legend under the sliders explains headroom, floor, % and the times. With WFM the blocks around a gain step are played in
