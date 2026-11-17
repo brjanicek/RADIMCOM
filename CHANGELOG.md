@@ -1,5 +1,324 @@
 # Changelog
 
+## Ver. 1.0
+
+Released after the test betas (GitHub branches `1.0beta1`, `1.0beta2`) and the release candidate (`1.0rc1`); continues 0.115.
+
+### Main Features
+
+- **SETTINGS › STATION – a live scheme of the whole receiver:** one row per VFO from the antenna through the dongle
+  (TUNER, A/D, the AGC+ loop), IQ, mixer, SP, filter, demodulator and audio to the MAIN / CUE buses and the decoders,
+  drawn from the real state – what is on, where each decoder takes its signal, what a raw-IQ decoder bypasses.
+- **AGC+ reworked, inspired by the auto gain of OnAir:** keeps an A/D headroom target by the signal kind and band instead of
+  driving the A/D to the top, cuts at once on an overload and climbs back, stops when more gain buys nothing; a meter
+  strip with a clip lamp, warnings and *why this gain*. New **ADC bar** in every VFO window.
+- **New audio tools:** **NB** noise blanker, **DNR** spectral noise reduction (also under speech), **HUM** mains hum
+  filter, **SAM** synchronous AM (DSB / one sideband), a steep **LPF**; automatic LSB / USB / AM by band.
+  **Note:** the former DNR key (quiet between words) is renamed **NTH**, as on factory receivers; DNR is now the new
+  noise reduction.
+- **Improved function of ATU in SSB:** it tunes the suppressed carrier onto the red line, snapped to a whole kHz
+  (e.g. 14.265 MHz).
+- **Radiosondes:** the decoders of rs1729 (RS41, DFM, M10 / M20 and six more types), **MULTI** (all sondes in the
+  spectrum at once), **TYPES**, a bad GPS position dropped, flight **prediction with the GFS wind** and a corrected
+  fall, profile with **wind**, altitude / time chart, HISTORY 1D / 7D – and the rotor follows a sonde (**SONDE TRACKER**).
+- **DSD (digital voice):** AFC onto the signal, a narrower filter, DEBUG output of DSD-FME, a redesigned tab with talk
+  group names, caller countries and callsigns.
+- **Recording:** **REC IQ** (the whole band of the dongle to WAV, SDR# style), DAB recorded by REC / REC SQ, the scanner
+  records MP3, RECS / SCAN RECS in RECORDINGS.
+- **Station:** the **antennas of the station** with their ranges (ANT warns outside them), **MUTE** of each VFO, the rotor
+  settings in the RCTRL tab, any RTL-SDR dongle renamed in the SDR setup.
+- **FT8 map** with a locator grid and our reports; **DAB** song history and buffering shown; **about a third less CPU**
+  in the browser.
+
+### Changes
+
+#### SETTINGS › STATION: the scheme of the whole receiver
+
+- **SETTINGS › STATION:** a simplified live scheme of the whole receiver. On top the station (QTH, rotor with azimuth /
+  elevation and tracking, satellite Doppler); below one row per VFO with its frequency, from the antenna to the
+  speaker:
+  - **ANTENNA** (out of range, rotor), the dongle as one block (RTL-SDR + serial, upconverter, bias-tee, ppm) with
+    **TUNER** (gain, AGC+ / manual / auto) and **A/D** (sample rate, peak, clipping in red) inside, **AGC+** under the
+    dongle in a blue loop (the A/D peak in, the gain up into the TUNER; the headroom and its target; by the owner VFO
+    on a shared dongle; → ASQ when it switched the auto squelch on); a dashed line from the VFO frequency forks into
+    the TUNER (centre of the dongle) and the MIXER (offset from the centre).
+  - **IQ** (DC → NB in their order; *pass* with both off), **SPECTRUM · WATERFALL** under it (fed from between DC and
+    NB, as in sdr.py), **MIXER** (digital mixer, ÷ 64), **SP** (spur removal on the baseband), **FILTER**, **DEMOD**
+    with a small picture of the demodulation (AM / SAM carrier and sidebands, DSB, USB / LSB, CW, the FM / WFM
+    waveform, the OFDM block of DAB, the 4-level symbols of DSD; SAM lock, stereo, RDS), **S-METER** under FILTER /
+    DEMOD (the channel power after the filter in S units and dBFS).
+  - **AUDIO** with its stages joined by arrows in the order the sound goes through them (HUM → NF → DNR → ALC → NTH →
+    AFI → LPF → HPF → SQL), squelch open / closed; a SQL line and an ASQ line fed by the S-METER, each with the channel
+    power and the level it opens at (no ASQ line without a squelch, e.g. in USB or DSD). With DSD the voice decoder is
+    its own block **DSD** (protocol, errors) between DEMOD and AUDIO (then only LPF → HPF).
+  - **MAIN and CUE buses:** out of AUDIO of each VFO two wires into two vertical buses over all the rows – OUT into the
+    green MAIN bus (green and connected while the VFO is MAIN, grey and open otherwise) and CUE into the orange CUE
+    bus; **MUTED** (red, dashed, open) by the MUTE key of the VFO or while a raw-IQ decoder mutes the audio. Speaker
+    heads on top with the levels of the MAIN and CUE faders. REC and SCAN beside the VFO name.
+  - **DECODERS** before the buses, fed where they really take the signal: the baseband decoders (FT8, CW, RTTY,
+    PACKET, POCSAG, WEFAX, ACARS, SONDE without MULTI) by a violet line from between SP and FILTER, SSTV
+    (demodulated audio) by a wire from AUDIO. Decoders on the raw IQ (VDL2, DAB, ISM, HFDL, AIS, ADS-B, SONDE MULTI)
+    branch off the A/D output into their own block **IQ DECODERS**; while one of them or DAB runs, the blocks it
+    bypasses are faded and hatched with the reason in their tip, the chain up to the filter stays active (it still
+    feeds the S-meter, e.g. to turn the antenna for the strongest DAB signal). The DAB audio line leaves IQ DECODERS
+    on its right into OUT, or into CUE when the VFO is heard on CUE only. With the RX Doppler on, an orange line
+    DOPPLER → VFO leads back into the VFO.
+  - Each kind of block has its own colour and a small framed icon; the columns stretch over the whole width of the
+    tab. Read-only and static (no animation, a click does not jump anywhere). The VFO state also carries `sonde_multi`.
+- **SETTINGS › VFO › SDR DONGLE and AGC+ diagrams in the look of the STATION scheme:** each block in the colour of its
+  kind with a soft gradient and (in the dongle diagram) a small icon; static; the blocks still find their cards by a
+  click, grey when not for this dongle or VFO.
+
+#### Gain and tuning: AGC+, ATU, ADC
+
+- **AGC+ reworked, inspired by the auto gain of OnAir** (adswill/OnAir, the ideas, no code; new `gainctl.py`):
+  - **Measurement** of every block: the clipped share and the peak of the A/D, a **robust peak** (the 99.9 % point of the
+    samples, one spike does not decide), a 2 s peak-hold; from the spectrum of the whole band the **noise floor over the A/D's
+    own quantisation noise** (8 bits RTL, 12 bits Airspy / Lime), the **SNR of the channel** against its flanks and the strongest
+    signal outside the channel.
+  - **AUTO** (the AGC+ key) keeps an **A/D headroom target** instead of driving the A/D to −2 dBFS (which gave intermodulation on
+    HF and near FM stations): narrow channel 14 dB, FM broadcast 9, DAB 7.5, ADS-B 3 from the peak-hold; HF +3 dB, the FM band
+    (not WFM) +3, VHF +1, above 1 GHz −2, a band much wider than the channel +2. An overload cuts at once by how bad it is (at
+    least 3 dB, 6 / 9 / 14 / 30 dB at 0.1 / 1 / 5 / 20 % clipped) and leaves a **soft ceiling** 3 dB under that gain for 20 s
+    (90 s after three overloads in a minute); then the gain **climbs back** to where it was (4 dB per 1.2 s). Too hot: down by the
+    error every 0.8 s. **Gain wasted**: no step up while the floor is 15 dB over its goal (narrow 10, FM 5, DAB 8, ADS-B 12; HF −2),
+    3 dB more takes a step down; a floor under its goal raises the gain 3 dB inside the dead band. **Hysteresis**: after a step
+    down, a step up needs 1.5× the dead band for 8 s; the first 8 s after a start or a retune climb faster.
+  - SETTINGS › VFO › ADVANCED › AGC+: a **meter strip** (A/D level bar with the target tick, green / amber / red / blue, a
+    **CLIP lamp** held 2 s, headroom, floor over the A/D, channel SNR, signal kind and band), the first **warning** in plain words
+    (clipping, a strong signal nearby with its frequency, gain too low, antenna noise far over the A/D's) and **why** the gain is
+    where it is (*limited by the headroom – strong signal at 144.500 MHz*, *more gain buys nothing*, the last decision); sliders
+    (headroom ±, dead band, clipping limit, cut, up, between steps, gain wasted, settle) with a legend of the units, presets
+    (CONSERV. +6 dB headroom, CAREFUL +3, MODERATE, BOLD −4) and DEFAULT (= MODERATE). Old AGC+ settings are not taken over.
+  - **Diagram *Where AGC+ and ALC work*** beside the AGC+ card: the path of the signal (tuner → A/D → DC · SP → NB → channel
+    filter → demodulator → NOTCH → DNR → ALC → AFI → HPF · LPF → SQL) with the AGC+ loop, what AUTO decides by the headroom
+    and by the floor (live marks on both scales), an overload and the way back in time; a click on a block or a setting
+    highlights its slider or card. The STATION scheme shows the headroom and its target in the AGC+ block.
+  - `tests/test_sagc.py`: a simulated front end (R820T table, antenna and radio noise, a strong neighbour and its third-order
+    product, a clipping 8-bit A/D): convergence from three start gains without hunting, gain wasted on a noisy HF band, the
+    way back after an overload burst, the presets.
+- **ADC bar in the VFO window** under RF GAIN: the A/D converter level in dBFS (the 99.9 % peak AGC+ measures, else the
+  block peak), scale −40 … 0 dBFS in the colours of the AGC+ meter – green around the AGC+ headroom target of the signal
+  kind and band, blue too quiet, amber too hot, red the last dB and clipping (the zones on whole segments); the value
+  coloured the same, the tooltip with both peaks, clipping and the target. **RF** renamed **RF GAIN**; labels, bars and
+  values of RF GAIN, ADC and SQL in one grid (same start and width), the window taller by the new row.
+- **Improved function of ATU in SSB – onto the carrier, snapped to a whole kHz or rounded to 100 Hz:** the edge of the voice band on the
+  carrier side is found in a held spectrum of the channel (max-hold over 0.5 s windows falling 0.6 dB a window, so the
+  pauses of speech do not break it; smoothed over 250 Hz; walking down from the band's peak to where it falls to 40 % of
+  the peak's height in dB, so splatter and noise under the voice do not pull it down), the carrier 120 Hz beyond it,
+  then snapped onto a whole kHz when within 300 Hz of it (SSB stations sit on whole kHz, e.g. 14.265 MHz), otherwise
+  rounded to 100 Hz. Checked on 39 real 40 m LSB, 20 m and 17 m SSB stations tuned by ear: about 60 Hz from the tuning
+  by ear (median) where the first version was always too low (up to 630 Hz); `tests/test_atu.py` on a synthetic voice.
+  ATU keeps its last 8 analysed blocks in `data/logs/atu` (a few MB) to check it on real signals.
+- **ATU on = autotune now:** switching the ATU key on (AM / USB / LSB) autotunes the frequency tuned at that moment at once.
+
+#### Audio and demodulation
+
+- **NB – noise blanker.** The **NB** key (AUDIO, right of NTH; all modes except WFM and DAB) blanks pulses (ignition,
+  electric fences, switching supplies, radar) in the wideband samples of the dongle, before the channel filter, where
+  they are a few µs long. Detection on the jump of the magnitude out of the envelope of the band (13 µs average), only
+  short runs (≤ 100 µs), so a strong station is never blanked; the pulse ± *Width* µs set to zero. Level 1–10 and width
+  1–50 µs in SETTINGS › VFO › AUDIO, *Now* = pulses a second and % blanked. The waterfall stays unblanked. Synthetic
+  test at 2.4 MS/s: pulses 10× the noise 6 dB lower in the channel, 30× 15 dB lower; 6–10 % of a CPU core while on.
+  Config / API `nb`, `nb_level`, `nb_width_us`; state `nb_rate`, `nb_frac`.
+- **DNR – digital noise reduction; the old DNR is now NTH.** The **DNR** key (AUDIO, under NTH) takes the noise out of the
+  audio in AM / LSB / USB / CW all the time, also under speech: short-time spectrum (27 ms frames), the noise of each band
+  from the minimum of its smoothed power over 1.5 s (minimum statistics), a Wiener gain from the decision-directed SNR
+  (Ephraim–Malah, no "musical" noise) with a floor; after NF, before the ALC. Level 1–10 (noise lowered by at most 6–24 dB,
+  default 5 = 14 dB), *Now* shows the reduction. On synthetic speech in SSB noise, level 5: SNR under speech +3.4 to
+  +4.6 dB, noise in pauses −12 to −14 dB; ~2 % of a CPU core. The former DNR key (expander between words + soft limiter)
+  is renamed **NTH** (noise threshold), so the names follow factory receivers (DNR = noise reduction, NTH = noise
+  threshold, as on the G7250); it works as before (config / API `dyn…` unchanged). New `dnr`, `dnr_level`, state
+  `dnr_reduction_db`.
+- **HUM – mains hum filter.** The **HUM** key (AUDIO, under NB; AM / LSB / USB) runs a comb notch (`sdr.HumFilter`):
+  narrow notches at the mains and every multiple, no delay; the mains of the transmitter is followed (±1 Hz) from the
+  phase of the harmonics while hum is there (49.96 Hz found on a station on 6050 kHz). Synthetic −40 … −48 dB, real
+  recordings −11 … −14 dB around the harmonics, speech −0.5 dB at the default width 4 Hz. Mains 50 / 60 Hz and width
+  1–8 Hz in SETTINGS › VFO › AUDIO; config / API `hum`, `hum_base`, `hum_width`, state `hum_hz`, `hum_removed_db`.
+  tests/test_hum.py.
+- **SAM – synchronous AM** against the distortion of selective fading on shortwave: **SAM** (an option of the mode AM,
+  `sam`) and under it **DSB / SB-L / SB-U** (`sam_sb`) in the 5th column of MODE (the keys are now FM WFM LSB **AM SAM** /
+  DAB DSD USB CW DSB). An NCO kept on the carrier by a frequency loop (±400 Hz), the carrier from a narrow 30 Hz filter
+  (the flywheel through a fade), coherent demodulation; SB-L / SB-U through a complex band-pass of one side. Synthetic
+  test (carrier fading to 15 % under the sidebands): envelope 4 dB, SAM 43 dB of clean audio; an interferer 2.5 kHz under
+  the carrier −34 dB in SB-U. The VFO window shows SAM / SAM-L / SAM-U; state `sam_offset_hz`, `sam_locked`. SAM follows
+  an AGC+ gain step again in 150–180 ms. tests/test_sam.py.
+- **LPF steep:** a linear-phase FIR like the channel filter (−6 dB at the cutoff, −82 dB 100 Hz above, flat below; ~17 ms
+  delay) instead of a 6th-order Butterworth (only −18 dB 600 Hz above). HPF stays the IIR. tests/test_lpf.py.
+- **Automatic LSB / USB / AM by band** (SETTINGS › GENERAL › TUNING, the page was called TOUCHPAD; on by default):
+  tuning into another ham band (IARU Region 1) in LSB or USB switches to its usual sideband (LSB on 160, 80 and 40 m, USB
+  on 60 m, 30 m and above); tuning into a shortwave broadcast band (ITU 120 … 11 m) in LSB, USB, CW or FM switches to AM,
+  from it into a ham band to the sideband of that band. Only on entering a band, so a mode chosen by hand inside a band
+  stays; band keys and memories keep their own mode; LW and MW are left alone.
+- **Audio settings inactive while they have no effect:** while a raw-IQ decoder (VDL2, ISM, HFDL, AIS, ADS-B, ACARS,
+  SONDE) or DAB runs on a VFO, its keys S/M, NF, HPF, LPF, ALC, NTH, AFI, ASQ, TSQ-C, TSQ-D, DNR, HUM (with DAB also
+  FILTER, NB and SP) are disabled with the reason first in their tip, and SETTINGS › VFO › AUDIO is faded under a note.
+  With a raw-IQ decoder FILTER, NB and SP stay active (*this changes only the S-meter*). The settings are kept.
+- **S-meter:** the reading under it (S9+… dB · dBFS) is red above S9.
+
+#### VFO window
+
+- **CUE and REC above the unit:** CUE moved out of the annunciator row to just above the kHz / MHz unit (orange when on;
+  a click toggles CUE for that VFO); **REC** in the same style above it replaces the red dot of the top row. NB, NTH and
+  DNR in the annunciator row.
+- **ADC bar** under RF GAIN (see *Gain and tuning*); **ANT** amber outside the range of the antenna (see *Antennas*).
+
+#### Antennas of the station
+
+- **SETTINGS › GENERAL › ANTENNAS:** a list of the antennas (name, type, bands – several for a multiband dipole or a
+  dual-band vertical, e.g. `144-146, 430-440` MHz –, polarization, gain, height, outdoor / indoor, on the rotor, the
+  chain to the dongle, note), shared by all VFOs in `data\antennas.json`. The VFO keys in each row choose which VFOs
+  receive on that antenna; one VFO can also choose it in **SETTINGS › VFO › SDR DONGLE › ANTENNA**. **ANT** in the VFO
+  window is green while the VFO is tuned within the range of its antenna and **amber** outside it.
+
+#### Audio output and recording
+
+- **MUTE of each VFO:** the keys under the VFO windows are VFO (narrower), **MUTE** (red LED) and CUE. MUTE silences that
+  VFO in this browser, as MAIN and as CUE (the receiver, its decoders, recording and the scanner go on); its display shows
+  the red struck-through speaker. Remembered in the browser per VFO; the STATION scheme shows it. The CUE key of the AUDIO
+  group is gone (it duplicated CUE under the VFO windows).
+- **MONITOR:** the CUE / MAIN faders, the dB scale and the L · R meter as tall as the speaker and RECORD keys beside them.
+- **REC IQ** (under REC SQ, dark blue LED): the whole IQ of the dongle – the full band at its sample rate – to WAV as SDR#
+  records it: I left, Q right, 8 bit unsigned from an RTL-SDR, 16 bit from LimeSDR / Airspy; in the subfolder `iq` of the
+  recordings folder, named `RADIMCOM_<VFO>_<YYYYMMDD_HHMMSS>Z_<centre>Hz_IQ.wav` (UTC), with an `auxi` chunk for HDSDR; a
+  new file on a change of the centre or sample rate and before 2 GB. The tooltip shows the size and blocks lost; the
+  STATION scheme shows a REC IQ chip. API: `rec_iq` in `/api/set`, `iq_rec` in the state.
+- **DAB recording:** REC and REC SQ record DAB – the MP3 of the station playing (welle-cli, 160 kbit/s) written as it comes,
+  no re-encoding; named by the station, a new file when the station or channel changes and every 15 min; REC SQ records DAB
+  like REC. tests/test_recorder.py.
+- **RECORDINGS: RECS / SCAN RECS** choose the folder: the MP3 of REC / REC SQ or the recordings of the scanner (subfolder
+  `scan`; the file the scan writes now marked and not deletable). **The scanner records MP3** (64 kbit/s mono, about 8×
+  smaller than the WAV); older WAV files are still listed and played. API `?kind=rec|scan` on `/api/recordings`.
+- **Recording shown the same everywhere:** the REC / REC SQ keys and REC in the VFO window blink only while audio goes
+  into the file (REC from the press on, REC SQ while the squelch is open) and stay steady while REC SQ waits; all REC
+  blinking 1 s on, 1 s off. RECORDINGS: play and pause icons of the same size (nothing moves when a file starts).
+
+#### DSD (digital voice)
+
+- **DSD AFC:** during a call the mean of the FM discriminator gives the offset of the signal from the tuned frequency;
+  the DSD head shows it, and with **AFC** on (default) an offset over 120 Hz retunes the VFO onto the signal (at most
+  3 kHz at a time; on a hotspot / simplex only the slots with a carrier are measured; not while the satellite Doppler
+  correction tunes). A DMR repeater tuned 400 Hz off decoded the ID in 23 % of the calls, tuned onto it in 95 %.
+  Kept per VFO (`dsd_afc`).
+- **DSD FILTER:** the width of the channel filter before the FM discriminator (12.5 / 11 / 10 / 9 / 8 kHz, per VFO as
+  `dsd_filter`); on a weak DMR signal 10 kHz lets about 1 dB less noise into the decoder.
+- **DSD DEBUG:** the raw output of DSD-FME (the last 400 lines, polled only while on): sync lines dim, link control (TG,
+  ID, alias) green, bursts that failed a CRC / FEC / RS check red, the number of sync lines and errors of the last minute.
+  `GET /api/dsd?debug=<seq>`.
+- **DSD tab:** the calls on air as cards (slot, protocol, the talk group with its name, the caller with the country of its
+  ID, the alias with the callsign in green, the running time); in the head the signal state, protocol and DMR colour
+  code; the list with protocols and slots in colour, TG in amber with its name (World-wide, Europe, SK national …),
+  private calls in cyan, encrypted calls reddish, short calls dimmed, a duration bar; **TALK GROUPS** heard with the
+  number of calls (a click filters); the number of stations heard; a filter and **hide short**; a click on the frequency
+  of a call tunes the VFO there.
+
+#### DAB
+
+- **Buffering shown:** until the sound plays after choosing a station or switching to a VFO with DAB, **DAB** on the VFO
+  display and the **DAB** key blink (on an inactive VFO with CUE on its grey DAB). Switching to a VFO whose DAB station plays
+  on CUE (and away from one with CUE on) keeps the running stream: no new buffering.
+- **History of the songs:** **PLAYED** under the station card lists the DLS texts of the station with the time, newest first.
+  The server records the DLS of every station of the ensemble (also with the page closed) into `data\dab_history\` (one
+  file per station); the same text again within 30 minutes is not recorded again.
+- **VIEW with DAB:** with the lower part hidden, the station card (logo or slide, name, NOW ON AIR) moves under the key row
+  into a small recessed window behind glass.
+
+#### Radiosondes (SONDE)
+
+- **Decoded by rs1729's decoders:** the baseband of the VFO channel and of each MULTI channel goes as float32 I/Q through a
+  pipe into the decoders of rs1729 ([github.com/rs1729/RS](https://github.com/rs1729/RS), GPL v3, separate programs in
+  `lib\sonde`, static UCRT64 builds by `installer/build_sonde.sh`; `sonde_ext.py`). Types: RS41, DFM (also DFM-06 / PS-15),
+  Meteomodem M10 / M20 and **new LMS6-403, iMet-54, MRZ-N1 / MP3-H1, iMS-100 / RS-11G, MTS01, CF-06 / HT03**; M20 serial as on
+  the label, M10 / M20 temperature, humidity and pressure, DFM serial, type, temperature and battery. ~1.4 % of a CPU core
+  per decoder; channels under 44 kHz go to them at twice the rate. IQ recording of the sonde channel:
+  `POST /api/sonde {"action": "rec_iq", "secs": 120}` → `data\sonde_iq\*.cf32`, replayed by `tests/sonde_replay.py`.
+- **SONDE > TYPES:** check boxes for the types the decoder listens for; tick only those launched in your area to save CPU
+  (until one decodes, every decoder program runs on each channel). Kept per VFO (`sonde_types`).
+- **MULTI: several sondes at once** (on by default): every sonde signal in the visible part of the waterfall (inside
+  400–406 MHz, up to 6) gets its own decoder; found once a second in a max-hold spectrum (the short M20 bursts count
+  too) and cut out of the dongle samples by one FFT channelizer. Their frequencies are listed above the SONDES table with
+  the type, serial, frames and level; the channel the VFO is on is decoded by the VFO only (it shows the VFO's sonde; no
+  frame yet: *signal, no frame yet* with the possible reasons). The audio of the VFO is muted while SONDE is on.
+- **A bad GPS position is dropped:** fewer than 4 satellites, altitude under −100 m or over 45 km, an impossible fall, a
+  jump from the last good position (after 30 jumps in a row the new place is believed); the rest of the frame stays,
+  FRAMES shows *position dropped* and why. Applied to the logs read back too.
+- **Flight prediction:** above the sonde (before the burst) and below the lowest layer heard it uses the **GFS wind** on 44
+  pressure levels from Open-Meteo.com (CC-BY 4.0), joined to the sonde's own measured winds; only the 0.25° cells along the
+  predicted path are downloaded (from the position of the sonde, nothing of the station), once per GFS run, kept in
+  `data\wind` (2 days); `wind.py`, `GET /api/wind`. Without internet as before (own winds only). **The fall after the burst**
+  follows v = v0 · ρ^−a fitted to the fall heard (it came out 3–5× too long): on 12 logged flights median 0.99× of the real
+  fall time (was 1.38×), worst 2.1× (was 5×).
+- **Profile with wind and an altitude / time chart** (MAP): the left panel temperature, humidity and **wind speed** (the drift
+  of the sonde from its GPS positions over 30 s) on one axis, the right panel the **wind direction** (where it blows from);
+  also for sondes without temperature. Under it the altitude against UTC time (ascent bright, descent fainter, top marked,
+  average ascent and descent rates). Both share the height of the panel, no scrolling.
+- **The sonde for the charts chosen by hand only** (the list above the charts, a click on the sonde on the map, a row of
+  the table or a flight from the log); remembered over a reload and a restart (CLEAR drops it).
+- **HISTORY OFF / 1D / 7D** in the header beside SONDES / MAP / FRAMES: the flights of the last day / week from the
+  radiosonde log in grey in the table and as blue paths on the map; a click opens one (`/api/sonde/history`).
+- **Map:** a rising sonde is a **light blue balloon** (was green like the launch sites); the label under the balloon /
+  parachute shows the **frequency** too. FRAMES: the FRAME column fits the 10-digit counter of an M20. SONDES table with
+  wider UTC, Serial and MHz columns.
+
+#### Rotor
+
+- **SONDE TRACKER** – a fourth source in RCTRL › SETTINGS, **disconnected by default**; connected, the rotor follows the sonde
+  chosen in DECODERS › SONDE: azimuth and elevation from its GPS position and altitude and the QTH on the WGS84 ellipsoid
+  (the curvature of the Earth included), at most every 5 s and only for a change of 2° or more.
+- **Rotor settings in the RCTRL tab:** ROTOR CONTROL has two pages, MAP and **SETTINGS** – the sources that move the rotor
+  (was the CONNECTION page) as a small block scheme like SETTINGS › STATION, and the rotor controller (ON / OFF, serial port,
+  polar plot and elevation column, STOP / RESET / MONITOR, azimuth calibration; was SETTINGS › GENERAL › ROTOR): all the
+  rotor in one place, without scrolling.
+
+#### FT8 map
+
+- **WW locator grid:** a faint Maidenhead grid under the stations (fields always, squares from zoom 5, subsquares from zoom 10).
+- **Our report:** the SNR we hear a station with as a chip coloured by strength next to the call, in the list and in the popup.
+- **GRID / RX keys** (bar STATIONS) switch the grid and our report on / off.
+
+#### Other decoders
+
+- **One decoder on the IQ of a VFO:** DAB, ACARS, VDL2, ISM, AIS, ADS-B, HFDL and SONDE take the IQ for themselves and mute
+  the audio, so one of them at a time: switching one on switches the others off (their sample rate, centre and gain come
+  back). A config with several on keeps the first of DAB, ADS-B, VDL2, ACARS, ISM, HFDL, AIS, SONDE.
+- **ACARS / VDL2:** the description hidden under an **INFO** key (like HFDL, AIS, ISM).
+
+#### Settings and setup
+
+- **DEFAULT keys** by each group of adjustable values: AGC+ (= MODERATE), Remove DC peak, SP (the learned lines stay), S9,
+  HPF / LPF, AFI, DNR, ASQ margin, wheel speed, waterfall colours, the scan options and FM scan LISTEN. Values of the station
+  (location, ppm, LO, rotor calibration, scan range) have none.
+- **SDR setup: rename any RTL-SDR dongle:** SERIAL NUMBERS lists every connected RTL-SDR; a new serial (up to the length of
+  the old one; letters, digits and - _ .) is written with WRITE TO EEPROM (only the changed ones, each EEPROM backed up to
+  `data\eeprom_backup`, no serial twice). A dongle on a VFO stays on it under the new number; dongles with the same or an
+  empty number are marked SAME with a unique number offered.
+- **What's new: MORE INFO** of a test version (beta / rc) opens the CHANGELOG of its own GitHub branch, a release that of `main`.
+
+#### Performance
+
+- **Less CPU in the browser** (Edge, 1920 x 1080, the main page: about 56 % of a core before, 36 % now): the S-meter is
+  redrawn only while the needle moves, the level meter touches only the LEDs that change, the S-meter, VU, waterfall and
+  spectrum each in their own layer on one shared frame clock (at most 30 frames a second); nothing is drawn while the page or
+  the lower part is hidden (the waterfall is painted from the whole-band history when shown again); the logo LED and the
+  sonde launch sites glow without pulsing.
+
+### Fixes
+
+- **A frozen dongle recovers by itself:** a dongle that stays on USB but stops sending data was only closed and opened again
+  every few seconds, which does not wake it. After 3 failed attempts in a row its USB device is now reset (with administrator
+  rights `pnputil /restart-device`, like replugging it; otherwise `libusb_reset_device`), then again every 30 attempts; the
+  server log has a line for a dongle error, each USB reset and the moment the dongle sends data again.
+- **Server log with time and VFO on every line:** `15.11.2026 07:24:11.123 [A] …` (no letter = the launcher); each VFO process
+  writes through its own pipe, so the lines of different VFOs and of the C libraries no longer get mixed.
+- **Restart server from the tray icon** ended with "`console.log` … is being used by another process": the log file of the
+  previous start is now closed first (or a `console_<pid>.log` used).
+- **WEFAX no longer stops the receiver:** on noise the decoder failed with `max() iterable argument is empty` and the dongle
+  of the VFO was reopened every few seconds.
+- **CUE of a VFO with DAB** was silent (CUE took only the normal audio, DAB sound is welle-cli's MP3): it now plays the DAB
+  station of that VFO at CUE level.
+- **DSD under DAB:** a VFO in the DSD mode with DAB on kept dsd-fme running beside welle-cli; dsd-fme now runs only without DAB.
+- **SONDE: a DFM sonde drawn twice** after a server restart (the entry named by the frequency stayed beside the real one).
+
 ## Ver. 0.115
 
 Released after the test beta (GitHub branch `0.115beta1`) and the release candidate (`0.115rc1`). Many parts are contributed by **Brano, [brjanicek](https://github.com/brjanicek)** (marked *by Brano*).

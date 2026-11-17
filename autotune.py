@@ -4,9 +4,14 @@ samples (baseband, 0 Hz = tuned frequency) for a moment and moves the tuning ont
 AM: the carrier is the strongest narrow line near the click; its frequency is measured from a fine FFT (~2 Hz)
 with interpolation, so the result is within a few Hz.
 
-SSB (USB / LSB): the ATU key puts the edge of the voice band on the tuned frequency (estimate_ssb_edge: the lower
-edge for USB, the upper one for LSB), so the signal visibly starts at the red line. estimate_ssb below finds the
-suppressed carrier itself instead (not used by the key now):
+SSB (USB / LSB): the ATU key puts the suppressed carrier on the tuned frequency (estimate_ssb_carrier):
+a held spectrum of the channel (0.5 s windows, a max-hold falling
+0.6 dB a window, so the pauses of speech do not break the shape of the station) smoothed over 250 Hz; the edge of the
+voice band on the carrier side where it falls to 40 % of the band's peak height in dB (walking out from its peak, so
+splatter and noise under the voice do not pull it), found between bins; the carrier lies CARRIER_TO_EDGE beyond that
+edge (fitted on real stations tuned by ear). The carrier then snaps onto a whole kHz within SNAP_KHZ_HZ (SSB stations
+sit on whole kHz, e.g. 14.265 MHz), otherwise it is rounded to 100 Hz; the estimate alone is good to about +-70 Hz.
+estimate_ssb below finds the carrier from the harmonics of the voice instead (not used by the key now):
   1. Coarse: the averaged spectrum shows the occupied voice band near the click; its lower edge (USB) lies
      ~250 Hz above the carrier (the usual 300–2700 Hz transmitter filter).
   2. Fine: voiced speech has harmonics at exactly c + k·F0 (c = carrier, F0 = pitch). Every short frame gives
@@ -35,7 +40,29 @@ EDGE_TO_CARRIER = 200.0    # voice band lower edge → carrier (coarse estimate)
 CAND_BELOW, CAND_ABOVE = 450.0, 20.0   # comb candidates: this far below the voice band edge
 F0_MIN, F0_MAX = 75.0, 350.0
 FRAME_S = 0.08
-DUMP_DIR = os.environ.get("RADIMCOM_ATU_DUMP")   # debugging: every analysed block and its result is saved here
+# estimate_ssb_carrier
+# The numbers are fitted on real SSB stations tuned by ear (data/logs/atu dumps, 40 m LSB, 20 m and 17 m, 2026-11-17): the
+# edge at 40 % of the band's peak height in dB, not a few dB over the noise (splatter, skirts and noise under the voice lie
+# 4-10 dB over the floor and pulled the edge, and so the carrier, 100-600 Hz too low)
+CARRIER_TO_EDGE = 120.0    # the carrier lies this far beyond the edge found in the 250 Hz smoothed held spectrum
+EDGE_SMOOTH_HZ = 250.0
+EDGE_RUN_DB = 4.0          # a band: over the noise floor by this (gaps up to 400 Hz bridged)
+EDGE_FLOOR_DB = 6.0        # the edge at least this far over the floor ...
+EDGE_FRAC = 0.4            # ... and at this share of the band's peak height over the floor in dB
+EDGE_BRIDGE_HZ = 200.0     # dips under that level bridged while walking down from the band's peak
+HOLD_WIN_S = 0.5           # held spectrum: windows of this length, max-hold falling HOLD_DECAY_DB per window
+HOLD_DECAY_DB = 0.6
+SSB_BW = (800.0, 6000.0)   # width of a band with a voice (and its skirts; narrower: a carrier, a data tone)
+ROUND_HZ = 100.0           # the carrier is rounded to this (0 = not)
+SNAP_KHZ_HZ = 300.0        # ... or onto a whole kHz when that is this near (SSB stations sit on whole kHz, e.g. 14.265)
+# the last DUMP_KEEP analysed blocks with their results are kept here (data/logs/atu, a few MB), to check the ATU on
+# real signals (RADIMCOM_ATU_DUMP sets another folder)
+try:
+    from paths import data as _data
+    DUMP_DIR = os.environ.get("RADIMCOM_ATU_DUMP") or _data("logs", "atu")
+except Exception:
+    DUMP_DIR = os.environ.get("RADIMCOM_ATU_DUMP")
+DUMP_KEEP = 8
 
 
 def _psd(x, fs, nfft):
@@ -257,6 +284,76 @@ def estimate_ssb_edge(x, fs, lsb=False):
     return (-1.0 if lsb else 1.0) * lo, "edge", True
 
 
+def _held_psd(x, fs, nfft):
+    """Max-hold (falling HOLD_DECAY_DB per window) of the HOLD_WIN_S window spectra, smoothed over EDGE_SMOOTH_HZ."""
+    win = max(nfft, int(HOLD_WIN_S * fs))
+    decay = 10 ** (-HOLD_DECAY_DB / 10)
+    held, f = None, None
+    for i in range(0, max(len(x) - win, 0) + 1, win):
+        f, p = _psd(x[i:i + win], fs, nfft)
+        s = _smooth(p, EDGE_SMOOTH_HZ / (f[1] - f[0]))
+        held = s if held is None else np.maximum(s, held * decay)
+    return f, held
+
+
+def estimate_ssb_carrier(x, fs, lsb=False):
+    """(carrier offset Hz from the click, "carrier", True) of an SSB voice signal near the click, or None.
+
+    The offset is in the real spectrum (also for LSB: there the band is mirrored and its upper edge is used)."""
+    if lsb:
+        x = np.conj(x)
+    nfft = 1 << int(np.ceil(np.log2(fs / 8.0)))             # ~8 Hz bins
+    if len(x) < nfft:
+        return None
+    f, s = _held_psd(x, fs, nfft)
+    df = f[1] - f[0]
+    db = 10 * np.log10(s + 1e-30)
+    floor = float(np.median(db[np.abs(f) > 150]))           # the DC of the channel is not the noise
+    gap = int(400 / df)
+    br = max(1, int(EDGE_BRIDGE_HZ / df))
+    # the bands: stretches a little over the floor, gaps up to 400 Hz bridged (a voice with a strong low formant and
+    # weaker highs stays one band; its skirts may join it, the edge below does not follow them)
+    idx = np.flatnonzero((np.abs(f) <= SSB_SPAN_HZ) & (db > floor + EDGE_RUN_DB))
+    if not len(idx):
+        return None
+    runs, a, prev = [], idx[0], idx[0]
+    for i in idx[1:]:
+        if i - prev > gap:
+            runs.append((a, prev))
+            a = i
+        prev = i
+    runs.append((a, prev))
+    lo_c, hi_c = SSB_SEARCH_HZ
+    best, score = None, 0.0
+    for a, b in runs:
+        if not SSB_BW[0] <= f[b] - f[a] <= SSB_BW[1]:
+            continue
+        # the edge: walking down from the band's peak while the level stays over EDGE_FRAC of the band's height
+        pk = a + int(np.argmax(db[a:b + 1]))
+        thr = floor + max(EDGE_FLOOR_DB, EDGE_FRAC * (db[pk] - floor))
+        lo, k, ms = pk, pk, 0
+        while k > a and ms <= br:
+            if db[k - 1] >= thr:
+                lo, ms = k - 1, 0
+            else:
+                ms += 1
+            k -= 1
+        edge = f[lo]                                          # between bins: where the level passes thr
+        if lo > 0 and db[lo] > db[lo - 1]:
+            edge = f[lo - 1] + df * (thr - db[lo - 1]) / (db[lo] - db[lo - 1])
+        car = edge - CARRIER_TO_EDGE
+        if not lo_c <= car <= hi_c:
+            continue
+        en = float(np.sum(10 ** ((db[a:b + 1] - floor) / 10)))
+        dist = 0.0 if f[a] <= 0 <= f[b] else min(abs(f[a]), abs(f[b]))
+        sc = en / (1 + dist / 500)
+        if sc > score:
+            best, score = car, sc
+    if best is None:
+        return None
+    return (-1.0 if lsb else 1.0) * float(best), "carrier", True
+
+
 class AutoTune:
     """One autotune job at a time: started by a click, fed with baseband by the receiver thread,
     analysed in its own thread; done(new_tune_hz) is called with the result."""
@@ -335,7 +432,7 @@ class AutoTune:
                     c = estimate_am(x, fs, dc_hz=job["center"] - job["tune"])
                     res = None if c is None else (c, "carrier", True)
                 else:
-                    res = estimate_ssb_edge(x, fs, lsb=job["mode"] == "LSB")
+                    res = estimate_ssb_carrier(x, fs, lsb=job["mode"] == "LSB")
             except Exception:                   # never take the receiver down
                 res = None
             if DUMP_DIR:
@@ -351,7 +448,15 @@ class AutoTune:
             if res is None:
                 self.result = {**self.result, "state": "none"}
                 return
-            shift = round(res[0]) if job["mode"] == "AM" else round(res[0] / 5) * 5
+            if job["mode"] == "AM":
+                shift = round(res[0])
+            elif ROUND_HZ:                      # SSB: the carrier on a round frequency (to ROUND_HZ)
+                car = job["tune"] + res[0]
+                k = round(car / 1000.0) * 1000.0
+                car = k if abs(car - k) <= SNAP_KHZ_HZ else round(car / ROUND_HZ) * ROUND_HZ
+                shift = int(car - job["tune"])
+            else:
+                shift = round(res[0] / 5) * 5
             self.result = {**self.result, "state": "done", "shift_hz": shift, "how": res[1]}
         if shift:
             self.done(job["tune"], job["tune"] + shift)
@@ -359,8 +464,17 @@ class AutoTune:
     @staticmethod
     def _dump(job, x, fs, res, last):
         try:
+            os.makedirs(DUMP_DIR, exist_ok=True)
             name = os.path.join(DUMP_DIR, f"atu_{job['id']}_{job['try']}")
             np.save(name + ".npy", x)
+            old = sorted((f for f in os.listdir(DUMP_DIR) if f.startswith("atu_") and f.endswith(".npy")),
+                         key=lambda f: os.path.getmtime(os.path.join(DUMP_DIR, f)))
+            for f in old[:-DUMP_KEEP]:
+                for ext in (".npy", ".json"):
+                    try:
+                        os.remove(os.path.join(DUMP_DIR, f[:-4] + ext))
+                    except OSError:
+                        pass
             with open(name + ".json", "w") as fh:
                 json.dump({"fs": fs, "tune": job["tune"], "mode": job["mode"], "center": job["center"],
                            "res": list(res) if res else None, "last": last}, fh, default=str)

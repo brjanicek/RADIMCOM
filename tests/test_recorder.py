@@ -70,6 +70,94 @@ class FilesTest(unittest.TestCase):
         t.enc = None
 
 
+class ActiveStateTest(unittest.TestCase):
+    """`active` of a recording (the REC blinks): REC while the file is open, REC SQ only while the squelch is open."""
+
+    def test_active(self):
+        import numpy as np
+        if recorder.lameenc is None:
+            self.skipTest("lameenc not installed")
+        with tempfile.TemporaryDirectory() as d:
+            loud = (np.sin(np.arange(3200) * 0.3) * 8000).astype("<i2").repeat(2).tobytes()
+            quiet = bytes(len(loud))
+            sq = recorder.Track(True, lambda: d)
+            self.assertFalse(sq.state()["active"])                    # waiting for the squelch
+            sq.write(loud, 32000, 145500000, "FM")
+            self.assertTrue(sq.state()["active"])                     # squelch open: writing
+            sq.write(quiet, 32000, 145500000, "FM")
+            st = sq.state()
+            self.assertTrue(st["open"])                               # the session is still open (pause held) ...
+            self.assertFalse(st["active"])                            # ... but nothing goes in: steady, not blinking
+            sq.close()
+            cont = recorder.Track(False, lambda: d)
+            self.assertFalse(cont.state()["active"])                  # REC off
+            cont.on = True
+            self.assertTrue(cont.state()["active"])                   # REC: blinks from the press on, before the first block
+            cont.write(quiet, 32000, 145500000, "FM")
+            self.assertTrue(cont.state()["active"])                   # everything, silence too
+            cont.close()
+
+
+class DabTest(unittest.TestCase):
+    """DAB: the MP3 bytes of welle-cli written as they come, named by the station, a new file on a new station."""
+
+    def test_mp3_passthrough(self):
+        with tempfile.TemporaryDirectory() as d:
+            rec = recorder.Recorder(d)
+            chunk = bytes.fromhex("fffba464") + bytes(500)
+            for kind in ("cont", "squelch"):
+                rec.set(kind, True) if recorder.lameenc else setattr(rec.tracks[kind], "on", True)
+            for _ in range(20):
+                rec.feed_mp3(chunk, 187072000, "Radio_FM")
+            rec.feed_mp3(chunk, 187072000, "Rádio Devín")                # another station: a new file
+            for _ in range(100):
+                if rec.q.empty():
+                    break
+                import time
+                time.sleep(0.02)
+            st = rec.state()
+            self.assertTrue(st["cont"]["active"] and st["squelch"]["active"])   # DAB blinks also with REC SQ
+            rec.stop_all()
+            files = rec.files()
+            names = sorted(f["name"] for f in files)
+            self.assertEqual(len(files), 4)                               # 2 buttons x 2 stations
+            self.assertTrue(any(n.startswith("Radio_FM_187.072000MHz_DAB_") for n in names), names)
+            self.assertTrue(any(n.startswith("Rádio_Devín_187.072000MHz_DAB_") for n in names), names)
+            big = [f for f in files if f["memory"] == "Radio FM"][0]
+            self.assertEqual(big["size"], 20 * len(chunk))               # the bytes unchanged
+            self.assertEqual(big["mode"], "DAB")
+
+
+class ScanKindTest(unittest.TestCase):
+    """RECORDINGS › SCAN RECS: the WAV files of the scan in the subfolder scan, length from the header."""
+
+    def test_scan_wavs(self):
+        import wave
+        with tempfile.TemporaryDirectory() as d:
+            rec = recorder.Recorder(d)
+            os.makedirs(os.path.join(d, "scan"))
+            name = "Piestany_TWR_118.575000MHz_AM_20261115_191200.wav"
+            with wave.open(os.path.join(d, "scan", name), "wb") as w:
+                w.setnchannels(1)
+                w.setsampwidth(2)
+                w.setframerate(32000)
+                w.writeframes(bytes(32000 * 2 * 3))                   # 3 s
+            open(os.path.join(d, "x.mp3"), "wb").close()
+            files = rec.files("scan")
+            self.assertEqual([f["name"] for f in files], [name])     # only the WAVs of the scan, not the MP3 of REC
+            self.assertEqual(files[0]["secs"], 3)
+            self.assertEqual(files[0]["memory"], "Piestany TWR")
+            self.assertEqual(files[0]["mode"], "AM")
+            self.assertEqual([f["name"] for f in rec.files()], ["x.mp3"])
+            self.assertTrue(rec.files("scan", {name})[0]["writing"])
+            with self.assertRaises(ValueError):
+                rec.delete(name, "scan", {name})                       # being written by the scan
+            rec.delete(name, "scan")
+            self.assertEqual(rec.files("scan"), [])
+            with self.assertRaises(ValueError):
+                rec.files("other")
+
+
 class FolderSettingTest(unittest.TestCase):
     """SETTINGS › GENERAL › RECORDINGS: the folder in data\\recordings.json, used by a Recorder without its own folder."""
 

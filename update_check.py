@@ -94,7 +94,12 @@ def info():
 
 # ---------- "What's new": a window on the first start of a new version ----------
 
-CHANGELOG_URL = "https://github.com/om2amr/RADIMCOM/blob/main/CHANGELOG.md"
+CHANGELOG_URL = "https://github.com/om2amr/RADIMCOM/blob/{}/CHANGELOG.md"
+
+
+def changelog_url(ver):
+    """CHANGELOG on GitHub: a test version (beta / rc) lives on its own branch named like it, a release on main."""
+    return CHANGELOG_URL.format(ver if ver and re.search(r"(alpha|beta|rc)\d*$", ver) else "main")
 SEEN_FILE = "whatsnew.json"     # in data\: the version whose window was closed
 
 
@@ -129,7 +134,7 @@ def whats_new():
     except (OSError, ValueError, AttributeError):
         seen = None
     text = whats_new_text(ver) if ver else ""
-    return {"version": ver, "seen": seen, "show": bool(ver and text and seen != ver), "text": text, "url": CHANGELOG_URL}
+    return {"version": ver, "seen": seen, "show": bool(ver and text and seen != ver), "text": text, "url": changelog_url(ver)}
 
 
 def whats_new_seen():

@@ -187,7 +187,7 @@ class ScannerTest(unittest.TestCase):
         self.assertEqual(int(rows[0]["freq_hz"]), 127700000)
         self.assertGreater(float(rows[0]["duration_s"]), 2.0)
         wav = os.path.join(self.tmp, "scan", rows[0]["file"])
-        self.assertTrue(rows[0]["file"].endswith(".wav") and os.path.getsize(wav) > 44)
+        self.assertTrue(rows[0]["file"].endswith(".mp3") and os.path.getsize(wav) > 400)   # MP3 since 1.0beta1
         hm = scanner.heatmap(1)
         self.assertEqual(hm["rows"][0]["freq_hz"], 127700000)
 

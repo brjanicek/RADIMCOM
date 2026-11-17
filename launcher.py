@@ -72,8 +72,8 @@ def main():
     procs = []
     # VFOs with their own dongle first, chained VFOs (sharing a dongle, "chain": "A") after them.
     for v in sorted(vfos, key=lambda v: bool(v.get("chain"))):
-        procs.append(subprocess.Popen([sys.executable, os.path.join(BASE, "app.py"), "--vfo", v["name"]],
-                                      stdin=subprocess.PIPE, cwd=BASE, **serverlog.child_kwargs()))
+        procs.append(serverlog.spawn([sys.executable, os.path.join(BASE, "app.py"), "--vfo", v["name"]], v["name"],
+                                     stdin=subprocess.PIPE, cwd=BASE))
         # Dongles are opened one after another; opening them at the same time through libusb is unreliable.
         time.sleep(0.5 if v.get("chain") else 1.5)
 
@@ -107,6 +107,7 @@ def main():
                 p.wait(10)
             except subprocess.TimeoutExpired:
                 p.terminate()
+        serverlog.close()
         os._exit(code)
 
     if os.environ.get("RADIMCOM_SHELL"):

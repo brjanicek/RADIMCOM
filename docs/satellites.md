@@ -78,7 +78,7 @@ K3NG ends any move after its operation timeout (60 s here), so an unchanged targ
 ## Rotor control map
 
 The **RCTRL** key (key group **TRACKING**, beside SAT) shows the **ROTOR CONTROL** tab. It turns the station rotor
-(**SETTINGS › GENERAL › ROTOR**, one for all VFOs: the map works from any VFO) to fixed places on the ground, for example a
+(**RCTRL › SETTINGS**, one for all VFOs: the map works from any VFO) to fixed places on the ground, for example a
 broadcast transmitter or a repeater, taken from the channels of **MEMORIES** that have a location.
 
 
@@ -100,14 +100,16 @@ broadcast transmitter or a repeater, taken from the channels of **MEMORIES** tha
   aimed at last is selected and scrolled into view in **MEMORIES › CHANNELS** when that tab opens next. A change in MEMORIES shows on the map at once.
 - **Recalling a channel with a location** (a row of **MEMORIES › CHANNELS**, a memory tag in the spectrum, RECALL in the editor, the memory
   step) opens the **ROTOR CONTROL** tab by itself (the RCTRL key goes on), centres the map on the channel and turns the rotor to it
-  – unless **MEMORY RECALL** is disconnected on the CONNECTION page.
-- **CONNECTION:** a block diagram of the three sources of the wanted AZ / EL – **SAT TRACKER** (SATELLITES › TRACK), **MEMORY RECALL**
-  (a recalled channel with a location) and **RCTRL MAP** (a click on the map, a point or the list). Each goes through a switch to one bus
+  – unless **MEMORY RECALL** is disconnected on the SETTINGS page.
+- **SETTINGS** (top; the CONNECTION page until 1.0beta2): a block scheme like SETTINGS › STATION of the four sources of the wanted AZ / EL – **SAT TRACKER** (SATELLITES › TRACK), **MEMORY RECALL**
+  (a recalled channel with a location), **RCTRL MAP** (a click on the map, a point or the list) and **SONDE TRACKER**
+  (since 1.0beta2, **disconnected by default**: the rotor follows the sonde chosen in DECODERS › SONDE. Only its GPS position and altitude are used: the azimuth and elevation are calculated from the QTH and its altitude (SETTINGS › GENERAL › LOCATION) on the WGS84 ellipsoid, so the curvature of the Earth is included; the elevation is held at 0–90°. The rotor moves at most every 5 s and only for a change of 2° or more. It works while the RADIMCOM page shows the VFO with the SONDE decoder (the frames come to the page) and the rotor takes commands (not while the satellite tracking holds it).). Each goes through a switch to one bus
   and on to the **ROTOR** block (antenna, AZ / EL now, state). A click on a source or on its switch connects or disconnects it: connected =
-  green, disconnected = grey with the switch open. The rotor block **glows green** while at least one source is connected, **grey** when
-  none is. A disconnected source does not move the rotor: the SAT TRACKER only calculates the pass (**CALC ONLY** on the TRACK page; the
+  green, disconnected = grey with the switch open. The line into the rotor is **green** and the rotor block lit while at least one source is connected, **grey** when
+  none is (no animation). A disconnected source does not move the rotor: the SAT TRACKER only calculates the pass (**CALC ONLY** on the TRACK page; the
   rotor takes hand commands meanwhile), a recalled memory only tunes (useful when going through a band: the antenna does not swing to
   every stored channel), a click on the map only draws the target. The switches belong to the station (`data\rotor.json`, key `links`),
-  the same for all VFOs and browsers; the top line of the tab lists the disconnected sources on both pages.
+  the same for all VFOs and browsers; the top line of the tab lists the disconnected sources on both pages. Under the scheme the
+  rotor controller itself (link, port, position, calibration; SETTINGS › GENERAL › ROTOR until 1.0beta2).
 
-  ![ROTOR CONTROL › CONNECTION: the sources SAT TRACKER and MEMORY RECALL disconnected (switch open), RCTRL MAP linked through the bus to the ROTOR block with azimuth 95° and elevation 0°](images/rotor_connection.png)
+  ![ROTOR CONTROL › SETTINGS: the sources SAT TRACKER and MEMORY RECALL disconnected (OPEN), RCTRL MAP linked through the bus to the ROTOR block with azimuth 95° and elevation 0°](images/rotor_connection.png)

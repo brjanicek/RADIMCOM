@@ -11,6 +11,27 @@ with a transceiver-style screen (S-meter, 7-segment displays, spectrum, waterfal
 
 What each part of the screen does: [annotated main screen](docs/images/main_annotated.png).
 
+> [!NOTE]
+> **A word from us.** Thank you for visiting our project – we really appreciate it. We are Radim and Brano,
+> two radio amateurs, and RADIMCOM grew out of our years on the bands.
+>
+> It is not meant to be a receiver that can do absolutely everything. We built in what is close to us and what we
+> enjoy: listening to the amateur bands, to air traffic, because we are aviation fans, and to other interesting
+> bands as well. AI could surely help us
+> build a huge number of tools to decode any unencrypted traffic out there, but that is not really our aim. Instead,
+> RADIMCOM brings together the tools we used to run as separate applications over the years: the SDR itself,
+> listening to amateur satellites with Doppler correction, the antenna rotor, weather radiosonde decoding and the like.
+>
+> It may not look like it at first glance, but we try hard to keep it friendly and understandable for less experienced
+> listeners too – see for example the block diagram in SETTINGS › STATION, which shows where the signal goes.
+>
+> We test every kind of traffic on real signals on the air. Synthetic traffic is enough to write the code, but what
+> matters is tuning it and proving it in the real world – that takes time and dedication, which we do not lack.
+>
+> Take RADIMCOM as our spare-time project that we build for the fun of it. We firmly believe it will bring you joy too,
+> and that you will spend many pleasant moments with it. And we will be glad if, while playing with the receiver,
+> you learn something new along the way. 73!
+
 ## Installation
 
 RADIMCOM comes as one Windows setup, **`RADIMCOM_Setup_v<version>.exe`** (about 65 MB), from
@@ -80,32 +101,33 @@ Up to four SDRs at once, each assigned to a VFO by its serial number; one dongle
 ### Receiver
 
 - **Up to four SDRs as four VFOs (A–D)**, or one dongle shared by several VFOs (chaining). → [Configuration](docs/configuration.md)
-- **Modes** AM, FM, WFM (stereo + RDS), LSB, USB, CW, DAB and DSD, with notch, ALC, DNR (weak HF voices out of the noise), audio LPF / HPF and AFI (voice inversion). → [Function keys](docs/controls.md#function-keys)
+- **Modes** AM (and SAM, synchronous AM), FM, WFM (stereo + RDS), LSB, USB, CW, DAB and DSD, with notch, ALC, NB (noise blanker), HUM (mains hum filter), DNR (spectral noise reduction, also under speech), NTH (quiet between words), audio LPF / HPF and AFI (voice inversion); automatic LSB / USB on ham bands, AM on shortwave broadcast bands. → [Function keys](docs/controls.md#function-keys)
 - **Squelch with ASQ (auto squelch)**: the level follows the measured noise floor plus a margin; **CTCSS / DCS tone squelch** (TSQ-C / TSQ-D) in FM. → [AUDIO keys](docs/controls.md#function-keys)
-- **AGC+**: tuner gain set from the A/D level, as high as possible without clipping. → [GAIN keys](docs/controls.md#function-keys)
-- **ATU (autotune, experimental)**: a click on an AM signal moves the tuning onto its carrier, on an SSB signal it puts the signal edge on the red line. → [TUNE keys](docs/controls.md#function-keys)
+- **AGC+**: tuner gain from the A/D and the band's noise floor (inspired by the auto gain of OnAir): keeps an A/D headroom target, cuts at once on clipping, stops when more gain buys nothing, shows *why this gain*. → [GAIN keys](docs/controls.md#function-keys)
+- **ATU (autotune, experimental)**: a click on an AM signal moves the tuning onto its carrier, on an SSB signal the suppressed carrier goes onto the red line, snapped to a whole kHz (e.g. 14.265 MHz) or rounded to 100 Hz. → [TUNE keys](docs/controls.md#function-keys)
 - **Shortwave (HF)** through an upconverter, always showing the real frequency. → [HF upconverter](docs/hf-upconverter.md)
 - **Digital-mode decoders:** FT8 (with a map of the stations heard), WEFAX, CW, RTTY (terminal with tuning indicators: crossed ellipses, mini waterfall, eye), SSTV, PACKET (AX.25 1200 / 9600 Bd, APRS with map) and POCSAG (pagers, 512 / 1200 / 2400 Bd, error correction). → [DECODE](docs/controls.md#function-keys) · [POCSAG](docs/decoders/pocsag.md)
 - **CW skimmer:** up to 16 Morse stations decoded at once with soft decisions (Viterbi, beam search), the operator's timing learnt (bug, straight key, Farnsworth), calls in the spectrum. → [CW](docs/decoders/cw.md)
 - **Aircraft data link:** ACARS and VDL2 with CPDLC and ADS-C decoded to plain text and a map of the aircraft, and **HFDL** on HF (2.9–22 MHz, all channels of a band at once). → [Aircraft](docs/decoders/aircraft.md) · [HFDL](docs/decoders/hfdl.md)
 - **AIS** ships on 161.975 / 162.025 MHz (own decoder, both channels at once) with a map of ships, base stations and aids to navigation. → [AIS](docs/decoders/ais.md)
-- **Radiosondes** (weather balloons, 400–406 MHz): Vaisala RS41 with Reed–Solomon correction, Graw DFM (experimental); position, altitude, climb, temperature and humidity (RS41), burst and the flight path on a map with a prediction (+1/2/3 h, landing), temperature / humidity profile against altitude. → [SONDE](docs/decoders/sonde.md)
+- **Radiosondes** (weather balloons, 400–406 MHz): Vaisala RS41, Graw DFM, Meteomodem M10 / M20, LMS6-403, iMet-54, MRZ-N1 / MP3-H1, iMS-100 / RS-11G, MTS01 and CF-06 / HT03, decoded by the decoders of [rs1729](https://github.com/rs1729/RS), several sondes in the visible spectrum at once (MULTI); position, altitude, climb, temperature and humidity, burst and the flight path on a map with a prediction (+1/2/3 h, landing; GFS wind from Open-Meteo where the sonde has not flown), temperature / humidity / wind profile against altitude, the rotor can follow a sonde. → [SONDE](docs/decoders/sonde.md)
 - **ADS-B** aircraft on 1090 MHz (own Mode S / ADS-B decoder) with a list, a map with tracks and the raw messages. → [ADS-B](docs/decoders/adsb.md)
-- **DAB / DAB+ radio**, **digital voice** (DMR, P25, D-Star, YSF, …; test version) and **ISM** 433 / 868 MHz devices (incl. Wireless M-Bus meters) with device cards, 24 h curves and a timeline. → [DAB](docs/decoders/dab.md) · [DSD](docs/decoders/dsd.md) · [ISM](docs/decoders/ism.md)
+- **DAB / DAB+ radio**, **digital voice** (DMR, P25, D-Star, YSF, …; test version; AFC, talk group names, caller countries) and **ISM** 433 / 868 MHz devices (incl. Wireless M-Bus meters) with device cards, 24 h curves and a timeline. → [DAB](docs/decoders/dab.md) · [DSD](docs/decoders/dsd.md) · [ISM](docs/decoders/ism.md)
 - **Satellite tracking:** passes, world map, Doppler correction and a K3NG rotor, no other program needed. → [Satellites](docs/satellites.md)
-- **Rotor control map:** click a place or a memory channel with a location (LAT / LON) and the rotor turns there; channels shown by their MEMORIES groups; beam sector on the map turns with the antenna; page CONNECTION disconnects the SAT tracker, memory recall or the map from the rotor. → [Rotor control](docs/satellites.md#rotor-control-map)
-- **Scanner** (SCAN tab): memories, a frequency range or the FM broadcast band (FM BCAST, centred on each station) (all 2280 airband 8.33 kHz channels in ~4 s per pass at 1.536 MS/s), all channels in the band of the dongle checked at once from the spectrum; own squelch / ASQ / priority per channel, SKIP, LOCKOUT, carrier lockout, activity log with WAV recordings, search & store, occupancy heatmap. → [SCAN](docs/controls.md#scan)
-- **MP3 recording** (REC / REC SQ) with a RECORDINGS tab to play the files in the browser, daily decoder logs, **HTTP API**, optional **TX with LimeSDR**. → [Configuration](docs/configuration.md)
+- **Rotor control map:** click a place or a memory channel with a location (LAT / LON) and the rotor turns there; channels shown by their MEMORIES groups; beam sector on the map turns with the antenna; page SETTINGS connects the SAT tracker, memory recall, the map or the SONDE tracker to the rotor and holds the rotor controller. → [Rotor control](docs/satellites.md#rotor-control-map)
+- **Scanner** (SCAN tab): memories, a frequency range or the FM broadcast band (FM BCAST, centred on each station) (all 2280 airband 8.33 kHz channels in ~4 s per pass at 1.536 MS/s), all channels in the band of the dongle checked at once from the spectrum; own squelch / ASQ / priority per channel, SKIP, LOCKOUT, carrier lockout, activity log with MP3 recordings, search & store, occupancy heatmap. → [SCAN](docs/controls.md#scan)
+- **MP3 recording** (REC / REC SQ, also DAB) with a RECORDINGS tab to play the files in the browser, **REC IQ** of the whole band of the dongle to WAV (SDR# style), daily decoder logs, **HTTP API**, optional **TX with LimeSDR**. → [Configuration](docs/configuration.md)
 
 ### User interface
 
-- **Transceiver-style screen** in brushed black anodized aluminium (other skins: black or light aluminium, mahogany, RAL paint): S-meter, recessed displays, 3D keys; every VFO is one dark display window with all its state, side by side, each waterfall keeps running. → [Controls](docs/controls.md)
+- **Transceiver-style screen** in brushed black anodized aluminium (other skins: black or light aluminium, mahogany, RAL paint): S-meter, recessed displays, 3D keys; every VFO is one dark display window with all its state (RF GAIN, ADC level and SQL bars), side by side, each waterfall keeps running. → [Controls](docs/controls.md)
+- **SETTINGS › STATION:** a live block scheme of the whole receiver – each VFO from the antenna through the dongle, AGC+, filter, demodulator and audio to the speakers and the decoders, drawn from the real state. → [Controls](docs/controls.md)
 - **Spectrum and waterfall** with 1×–64× zoom and a waterfall speed bar; tune by click, drag, mouse wheel or the wheel over a digit. → [Tuning](docs/controls.md#tuning)
 - **Band plan on the frequency axis**, audio spectrum bubble, seven S-meter layouts. → [Tuning](docs/controls.md#tuning)
 - **"What's new" window** on the first start of a new version, with the changes of that version.
 - **Memories** with favourites, spectrum tags and a memory editor (groups with notes, decoder and recording at recall, import from SDR# / JSON / CSV, export). → [MEM](docs/controls.md#function-keys), [Memory editor](docs/controls.md#memory-editor)
-- **CUE**: hear other VFOs while one is selected, with MAIN / CUE faders and a level meter. → [Function keys](docs/controls.md#function-keys)
-- **DECODERS**, **SATELLITES**, **MEMORIES** (memory list and memory editor) and **SETTINGS** tabs; SETTINGS has a **GENERAL** page (skins, S-meter, touchpad, location, the one rotor of the station) and a **VFO** page (VFO-A … D keys joined to the settings of that VFO). → [Controls](docs/controls.md)
+- **CUE**: hear other VFOs while one is selected, with MAIN / CUE faders and a level meter; **MUTE** of each VFO silences just that one. → [Function keys](docs/controls.md#function-keys)
+- **DECODERS**, **SATELLITES**, **MEMORIES** (memory list and memory editor) and **SETTINGS** tabs; SETTINGS has a **GENERAL** page (skins, S-meter, touchpad, location, antennas of the station with their range – ANT in the VFO window warns when the VFO is tuned outside the range of its antenna, the one rotor of the station) and a **VFO** page (VFO-A … D keys joined to the settings of that VFO). → [Controls](docs/controls.md)
 
 The complete feature list: [docs/features.md](docs/features.md).
 

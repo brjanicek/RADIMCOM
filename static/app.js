@@ -64,7 +64,8 @@ function fitStage() {
   // the head height depends on the stage width (compact keys): fit, measure again, fit once more
   let stageH = 0;
   for (let i = 0; i < 4; i++) {
-    const hh = head.offsetHeight + BODY_STRIP_H;
+    const mini = root.classList.contains("dab-mini-on") ? $("radioBody").offsetHeight - 26 : 0;   // DAB card under the head
+    const hh = head.offsetHeight + BODY_STRIP_H + mini;
     if (hh === stageH && !widen()) break;
     stageH = hh;
     apply(Math.min(w / baseW, h / stageH));
@@ -95,7 +96,7 @@ const BANDWIDTHS = {
 // STEP keys: the same four steps in every mode; WFM remembers its own chosen step, the other modes share one
 const STEPS = [10, 100, 1000, 10000];
 // MODE keys: the demodulator modes and DAB (not a demodulator: DAB on with the DAB tab; lit while DAB runs)
-const MODE_KEYS = ["AM", "FM", "WFM", "LSB", "USB", "CW", "DAB", "DSD"];
+const MODE_KEYS = ["FM", "WFM", "LSB", "AM", "DAB", "DSD", "USB", "CW"];   // 2 rows; AM beside SAM (5th column), LSB above USB
 const stepSet = (mode) => (mode === "WFM" ? "wfm" : "narrow");
 const STEP_SETS = { narrow: STEPS, wfm: STEPS };
 const STEP_KEYS = { narrow: "step", wfm: "stepWfm" };   // browser storage
@@ -167,7 +168,44 @@ function parseFreq(text) {
   return unit.startsWith("m") ? v * 1e6 : unit.startsWith("k") ? v * 1e3 : v;
 }
 
+// Automatic LSB / USB: tuning into another ham band (IARU Region 1) in LSB or USB switches to the usual sideband
+// of that band (below 10 MHz LSB, 60 m and above USB). Only on entering a band, so a sideband chosen by hand inside
+// a band stays. [from Hz, to Hz, mode]
+const HAM_SB_BANDS = [
+  [135700, 137800, "USB"], [472000, 479000, "USB"], [1810000, 2000000, "LSB"], [3500000, 3800000, "LSB"],
+  [5351500, 5366500, "USB"], [7000000, 7200000, "LSB"], [10100000, 10150000, "USB"], [14000000, 14350000, "USB"],
+  [18068000, 18168000, "USB"], [21000000, 21450000, "USB"], [24890000, 24990000, "USB"], [28000000, 29700000, "USB"],
+  [50000000, 52000000, "USB"], [70000000, 70500000, "USB"], [144000000, 146000000, "USB"], [430000000, 440000000, "USB"],
+  [1240000000, 1300000000, "USB"]];
+// Automatic AM on the shortwave broadcast bands 120 … 11 m (ITU, Region 1). Entering one in LSB, USB,
+// CW or FM switches to AM; leaving it into a ham band in AM switches to the sideband of that band. [from Hz, to Hz, mode]
+const BCAST_AM_BANDS = [
+  [2300000, 2495000, "AM"], [3200000, 3400000, "AM"],
+  [3900000, 4000000, "AM"], [4750000, 5060000, "AM"], [5900000, 6200000, "AM"], [7200001, 7450000, "AM"],
+  [9400000, 9900000, "AM"], [11600000, 12100000, "AM"], [13570000, 13870000, "AM"], [15100000, 15800000, "AM"],
+  [17480000, 17900000, "AM"], [18900000, 19020000, "AM"], [21450001, 21850000, "AM"], [25670000, 26100000, "AM"]];
+const hamSbBand = (hz) => HAM_SB_BANDS.find(([a, b]) => hz >= a && hz <= b) || null;
+const bcastBand = (hz) => BCAST_AM_BANDS.find(([a, b]) => hz >= a && hz <= b) || null;
+let autoSb = recall("autoSb") !== "0";
+const sbBandOf = new Map();   // VFO address → ham or broadcast band of its last frequency (undefined = not known yet: no switch)
+/** Adds the mode of a newly entered band to a tuning change (and sets it locally): the sideband of a ham band
+ *  (from LSB / USB, or from AM coming from a broadcast band), AM on a broadcast band (from LSB / USB / CW / FM). */
+function autoSideband(changes) {
+  const band = hamSbBand(changes.tune_hz) || bcastBand(changes.tune_hz);
+  const prev = sbBandOf.get(vbase);
+  if (band || prev === undefined) sbBandOf.set(vbase, band);   // outside the bands the last band is kept
+  if (!autoSb || !st || st.dab || "mode" in changes) return;
+  if (!band || prev === undefined || band === prev || st.mode === band[2]) return;
+  const bc = BCAST_AM_BANDS.includes(band), fromBc = !!prev && BCAST_AM_BANDS.includes(prev);
+  const ok = bc ? ["LSB", "USB", "CW", "FM"].includes(st.mode) : ["LSB", "USB"].includes(st.mode) || (st.mode === "AM" && fromBc);
+  if (!ok) return;
+  st.mode = changes.mode = band[2];
+  renderControls();
+  drawOverlays();
+}
+
 function send(changes) {
+  if ("tune_hz" in changes) autoSideband(changes);
   localChangeAt = Date.now();
   Object.assign(pendingSet, changes);
   clearTimeout(setTimer);
@@ -271,13 +309,41 @@ function atuNote() {
   return i.state === "done" ? `ATU ${i.shift_hz >= 0 ? "+" : ""}${i.shift_hz} Hz` : "ATU: no signal";
 }
 
+// SAM (synchronous AM, an option of the mode AM): two keys in the 5th column of MODE, SAM above, the sideband under it
+const SAM_SB = ["dsb", "lsb", "usb"];
+const SAM_SB_TEXT = { dsb: "DSB", lsb: "SB-L", usb: "SB-U" };
+/** "SAM", "SAM-L", "SAM-U" for the mode annunciator, "" when not in SAM. */
+const samLabel = (s) => (s && !s.dab && s.mode === "AM" && s.sam ? "SAM" + (s.sam_sb === "lsb" ? "-L" : s.sam_sb === "usb" ? "-U" : "") : "");
+function renderSamKeys() {
+  const box = $("modes");
+  let sam = $("samKey"), sb = $("samSbKey");
+  if (!sam || sam.parentElement !== box) {   // segButtons rewrites the group: the two keys are put back
+    box.insertAdjacentHTML("beforeend",
+      `<button id="samKey" title="SAM: synchronous AM. A PLL holds the carrier, so a selective fade (the carrier weaker than the sidebands) does not distort; switches to AM">SAM</button>` +
+      `<button id="samSbKey" title="Sideband of SAM: DSB = both, SB-L / SB-U = only the lower / upper one (an interfering station on the other side stays out). Click: next">DSB</button>`);
+    sam = $("samKey");
+    sb = $("samSbKey");
+  }
+  const on = !!samLabel(st);
+  sam.classList.toggle("active", on);
+  sam.disabled = !!st.dab;
+  sb.textContent = SAM_SB_TEXT[st.sam_sb] || "DSB";
+  sb.classList.toggle("active", on);
+  sb.disabled = !on;
+  const off = st.sam_offset_hz;
+  sam.title = on ? `SAM on${st.sam_locked ? ", locked" : ", searching"}${off ? ` · carrier ${off > 0 ? "+" : ""}${off} Hz` : ""} (click: plain AM)`
+    : "SAM: synchronous AM. A PLL holds the carrier, so a selective fade (the carrier weaker than the sidebands) does not distort; switches to AM";
+}
+
 function renderControls() {
   if (!st) return;
   segButtons($("modes"), MODE_KEYS, st.dab ? "DAB" : st.mode, (m) => m);
+  renderSamKeys();
+  renderDabBuf();
   // The buttons stay fixed; a width set by dragging the edge in the spectrum has no button (none is lit).
   const bw = st.bandwidth[st.mode];
   // DAB: the ensemble has a fixed width – the keys stay in place, unlit and disabled
-  segButtons($("bandwidths"), BANDWIDTHS[st.mode] || BANDWIDTHS.WFM, st.dab ? null : bw, fmtBw, !!st.dab);
+  segButtons($("bandwidths"), BANDWIDTHS[st.mode] || BANDWIDTHS.WFM, st.dab ? null : bw, fmtBw, !!st.dab);   // with a raw-IQ decoder the filter still sets the S-meter width
   const set = stepSet(st.mode);
   stepHz = stepMem[set];
   segButtons($("steps"), STEP_SETS[set], stepHz, fmtBw);
@@ -340,8 +406,26 @@ function renderTuner() {
 }
 
 $("modes").addEventListener("click", (e) => {
+  if (!st) return;
+  if (e.target.closest("#samKey")) {           // SAM on (in AM) / off (back to the envelope detector)
+    const on = !(st.mode === "AM" && st.sam && !st.dab);
+    if (st.dab) return;
+    const ch = { sam: on };
+    if (on && st.mode !== "AM") ch.mode = st.mode = "AM";
+    st.sam = on;
+    renderControls();
+    drawOverlays();
+    send(ch);
+    return;
+  }
+  if (e.target.closest("#samSbKey")) {         // DSB → SB-L → SB-U
+    st.sam_sb = SAM_SB[(SAM_SB.indexOf(st.sam_sb || "dsb") + 1) % SAM_SB.length];
+    renderControls();
+    send({ sam_sb: st.sam_sb });
+    return;
+  }
   const b = e.target.closest("[data-v]");
-  if (!b || !st) return;
+  if (!b) return;
   if (b.dataset.v === "DAB") {   // DAB: on with its tab (again on DAB: only the tab is shown)
     if (st.dab) setBodyTab("dab"); else dabOn();
     return;
@@ -388,6 +472,11 @@ function setWheelSpeed(speed) {
   const saved = Number(recall("wheelSpeed"));
   setWheelSpeed(saved >= 1 && saved <= 10 ? saved : WHEEL_SPEED_DEFAULT);
 }
+$("autoSb").checked = autoSb;
+$("autoSb").addEventListener("change", (e) => {
+  autoSb = e.target.checked;
+  store("autoSb", autoSb ? "1" : "0");
+});
 $("wheelSpeed").addEventListener("input", (e) => {
   setWheelSpeed(Number(e.target.value));
   store("wheelSpeed", e.target.value);
@@ -663,6 +752,20 @@ function showBody(on, animate = true) {
   store("bodyShown", on ? "1" : "0");
   // the page scale depends on it (fitStage); when shown, the rest is resized after the slide (timer above)
   if (on || !animate) fitStage(); else window.dispatchEvent(new Event("resize"));
+  renderDabMini();
+  if (on && typeof wfShowAgain === "function") setTimeout(wfShowAgain, animate ? 400 : 0);   // the rows that came while hidden
+}
+/** Hidden lower part and the active VFO on DAB: the station card (#dabHero) moves under the head as a small
+ *  display (#dabMini); back to the DAB tab when the lower part opens or DAB goes off. */
+function renderDabMini(s = st) {
+  const hero = $("dabHero"), mini = $("dabMini"), root = document.documentElement;
+  if (!hero || !mini) return;
+  const on = bodyHidden() && !!(s && s.dab);
+  if (on === root.classList.contains("dab-mini-on")) return;
+  root.classList.toggle("dab-mini-on", on);
+  if (on) mini.append(hero);
+  else document.querySelector(".dab-now").prepend(hero);
+  fitStage();
 }
 const bodyHidden = () => document.documentElement.classList.contains("body-off");
 if (!MAP_ONLY) showBody(recall("bodyShown") !== "0", false);
@@ -981,6 +1084,8 @@ let meterUpdate = () => {};
 function buildMeter() {
   meterUpdate = METER_STYLES[meterStyle].draw($("smeter"), "m");
   placeSqlMark();
+  meterDrawn = null;
+  meterKick();
 }
 
 /** SET: one small sample of each layout, shown at S9+20 dB; a click selects it. */
@@ -1012,12 +1117,47 @@ function buildMeterPicker() {
   mark();
 }
 
-function animateMeter() {
-  // Ballistics like an analogue meter: fast attack, slower return.
-  const k = meterTarget > meterNow ? 0.6 : 0.07;
-  meterNow += (meterTarget - meterNow) * k;
-  meterUpdate(meterPos(meterNow), meterNow - s9Dbfs);
-  requestAnimationFrame(animateMeter);
+// ---------- one frame clock for everything that moves (1.0beta2, less CPU in the browser) ----------
+// Every new frame costs the browser (and the graphics driver) the same, however little changed in it. The S-meter, the
+// level meter, the waterfall and the spectrum each used to ask for their own frames at their own times, together
+// almost 60 frames a second. Now they ask uiLater() and are drawn together in one frame, at most UI_FPS a second;
+// nothing asks while nothing moves.
+const UI_FPS = 30;
+const uiTasks = new Set();
+let uiWait = false, uiAt = 0;
+function uiLater(fn) {
+  uiTasks.add(fn);
+  if (uiWait) return;
+  uiWait = true;
+  const wait = Math.max(0, 1000 / UI_FPS - 2 - (performance.now() - uiAt));
+  const go = () => requestAnimationFrame(uiRun);
+  if (wait > 0) setTimeout(go, wait); else go();
+}
+function uiRun(now) {
+  uiWait = false;
+  uiAt = now;
+  const fns = [...uiTasks];
+  uiTasks.clear();
+  for (const fn of fns) {
+    try { fn(now); } catch (e) { console.error(e); }
+  }
+}
+
+// The needle moves only while it has somewhere to go: it stops when it rests on the value (nothing is redrawn then)
+// and a new value starts it again (meterKick). The ballistics are per 1/60 s, so the needle moves as fast as before.
+var meterOn = false, meterAt = 0, meterDrawn = null;
+function meterKick() { if (!meterOn) { meterOn = true; meterAt = performance.now(); uiLater(animateMeter); } }
+function setMeterTarget(v) { meterTarget = v; meterKick(); }
+function animateMeter(now) {
+  // Ballistics like an analogue meter: fast attack, slower return (per 1/60 s step, as many steps as the time passed).
+  const steps = Math.min(6, Math.max(1, Math.round((now - meterAt) / (1000 / 60))));
+  meterAt = now;
+  for (let i = 0; i < steps; i++) meterNow += (meterTarget - meterNow) * (meterTarget > meterNow ? 0.6 : 0.07);
+  if (Math.abs(meterTarget - meterNow) < 0.05) meterNow = meterTarget;
+  const key = `${meterNow.toFixed(2)}|${s9Dbfs}`;
+  if (key !== meterDrawn) { meterDrawn = key; meterUpdate(meterPos(meterNow), meterNow - s9Dbfs); }
+  meterOn = meterNow !== meterTarget;
+  if (meterOn) uiLater(animateMeter);
 }
 
 function sReading(dbfs) {
@@ -1029,7 +1169,7 @@ function sReading(dbfs) {
 function renderS9() { $("s9Text").textContent = `${s9Dbfs} dBFS`; placeSqlMark(); }
 const savedS9 = Number(recall("s9"));
 if (savedS9) { s9Dbfs = savedS9; $("s9").value = savedS9; }
-$("s9").addEventListener("input", () => { s9Dbfs = Number($("s9").value); store("s9", s9Dbfs); renderS9(); });
+$("s9").addEventListener("input", () => { s9Dbfs = Number($("s9").value); store("s9", s9Dbfs); renderS9(); meterKick(); });
 renderS9();
 buildMeter();
 buildMeterPicker();
@@ -1117,7 +1257,7 @@ function buildSkinPicker() {
   applySkin();
 }
 buildSkinPicker();
-requestAnimationFrame(animateMeter);
+meterKick();
 
 // ---------- spectrum and waterfall ----------
 
@@ -1428,6 +1568,21 @@ function paintFromFull(x0, x1) {
   wfCtx.drawImage(F.cv, s0, 0, s1 - s0, rows, d0, 0, d1 - d0, rows);
 }
 
+// Nothing is drawn while the page is hidden (another tab, minimised) or the lower part is hidden (VIEW): the rows only
+// go into the whole-band history and the waterfall is painted from it when it is shown again (1.0beta2).
+let wfStale = false;
+const wfInvisible = () => document.hidden || bodyHidden();
+
+/** Shown again after hidden: the waterfall from the whole-band history (the rows that came meanwhile), the spectrum. */
+function wfShowAgain() {
+  if (!wfStale || wfInvisible() || !view) return;
+  wfStale = false;
+  paintFromFull(0, wfCanvas.width);
+  drawOverlays();
+  drawSpectrum();
+}
+document.addEventListener("visibilitychange", wfShowAgain);
+
 function onRow(center, span, b64, replay = false, full = null) {
   if (!st) return;
   const vals = b64Bytes(b64);
@@ -1480,8 +1635,12 @@ function onRow(center, span, b64, replay = false, full = null) {
       d[j * 4] = LUT[c]; d[j * 4 + 1] = LUT[c + 1]; d[j * 4 + 2] = LUT[c + 2]; d[j * 4 + 3] = 255;
     }
     wfAcc = null;
-    wfCtx.drawImage(wfCanvas, 0, 0, n, WF_ROWS - h, 0, h, n, WF_ROWS - h);
-    for (let y = 0; y < h; y++) wfCtx.putImageData(wfRow, 0, y);
+    const hidden = !replay && wfInvisible();
+    if (hidden) wfStale = true;   // only the history below gets the row; the waterfall is painted from it when shown
+    else {
+      wfCtx.drawImage(wfCanvas, 0, 0, n, WF_ROWS - h, 0, h, n, WF_ROWS - h);
+      for (let y = 0; y < h; y++) wfCtx.putImageData(wfRow, 0, y);
+    }
   }
   // whole band: from the server when zoomed in, at 1× the row itself
   if (full) wfFullAdd(b64Bytes(full.row), full.c, full.span, flush, h, lo, rng);
@@ -1492,7 +1651,7 @@ function onRow(center, span, b64, replay = false, full = null) {
     const i = j - off;
     if (i >= 0 && i < n) spec[j] = spec[j] * 0.6 + vals[i] * 0.4;
   }
-  if (!replay) drawSpectrum();
+  if (!replay && !wfInvisible()) drawSpectrum();
 }
 
 /** Moves the shown section to centre c: the waterfall and spectrum images move by whole points. */
@@ -2146,8 +2305,11 @@ function renderGain() {
   $("agcPlusKey").classList.toggle("clip", smart && !!st.adc_clip);
   // The browser hides a tooltip whose text changes (several times a second here): under the mouse it keeps
   // the values from the moment the mouse came, and they are refreshed when it comes again.
-  const plusTip = "AGC+: tuner gain as high as possible without clipping the A/D converter (the R820T tuner AGC does not watch the A/D)" +
-    (smart ? `\nnow ${gainLabel(st)}, A/D peak ${st.adc_peak} dBFS${st.adc_clip ? `, clipping ${st.adc_clip_ppm} ppm` : ""}` : "");
+  const a = st.agc || {};
+  const plusTip = "AGC+ (AUTO): the tuner gain keeps the A/D headroom of the signal kind and band, cuts at once on clipping, " +
+    "stops climbing when more gain buys nothing (SETTINGS › VFO › ADVANCED)" +
+    (smart ? `\nnow ${gainLabel(st)}, A/D peak ${st.adc_peak} dBFS${st.adc_clip ? `, clipping ${ppmPct(st.adc_clip_ppm)} of the samples` : ""}` +
+      (a.why ? `\n${a.why}` : "") : "");
   if (!$("agcPlusKey").matches(":hover")) $("agcPlusKey").title = plusTip;
   $("rtlAgc").checked = !!st.rtl_agc;
   $("rtlAgc").disabled = smart;
@@ -2219,6 +2381,7 @@ function renderSettings() {
   $("rtlAgcBox").hidden = st.has_rtl_agc === false;
   $("biasTeeSetting").hidden = st.has_bias_tee === false;
   $("biasTee").checked = st.bias_tee;
+  renderAntVfo();
   // The block diagram and its numbers describe an RTL dongle (R820T tuner + RTL2832); LimeSDR and Airspy hide them.
   const rtl = !noRtlDongle(st);
   $("blkDiagram").hidden = !rtl;
@@ -2276,6 +2439,23 @@ function renderRds() {
   $("alcKey").classList.toggle("on", alcMode && st.audio_agc !== false);
   $("dynKey").disabled = !alcMode;
   $("dynKey").classList.toggle("on", alcMode && !!st.dyn);
+  const nbMode = !["WFM", "DAB"].includes(st.mode);
+  $("nbKey").disabled = !nbMode;
+  $("nbKey").classList.toggle("on", nbMode && !!st.nb);
+  if (st.nb_level != null && document.activeElement !== $("nbLevel")) $("nbLevel").value = st.nb_level;
+  if (st.nb_width_us != null && document.activeElement !== $("nbWidth")) $("nbWidth").value = st.nb_width_us;
+  $("nbInfo").textContent = !st.nb ? "NB off" : !nbMode ? "not in " + st.mode : `${(st.nb_rate || 0).toFixed(0)} pulses/s · ${(st.nb_frac || 0).toFixed(2)} % blanked`;
+  const humMode = ["AM", "LSB", "USB"].includes(st.mode);
+  $("humKey").disabled = !humMode;
+  $("humKey").classList.toggle("on", humMode && !!st.hum);
+  if (st.hum_base != null && document.activeElement !== $("humBase")) $("humBase").value = String(st.hum_base);
+  if (st.hum_width != null && document.activeElement !== $("humWidth")) $("humWidth").value = st.hum_width;
+  $("humInfo").textContent = !st.hum ? "HUM off" : !humMode ? "not in " + st.mode
+    : `mains ${(st.hum_hz || st.hum_base || 50).toFixed(2)} Hz · −${(st.hum_removed_db || 0).toFixed(1)} dB`;
+  $("dnrKey").disabled = !alcMode;       // DNR: the same modes (AM/LSB/USB/CW)
+  $("dnrKey").classList.toggle("on", alcMode && !!st.dnr);
+  if (st.dnr_level != null && document.activeElement !== $("dnrLevel")) $("dnrLevel").value = st.dnr_level;
+  $("dnrInfo").textContent = !st.dnr ? "DNR off" : !alcMode ? "not in " + st.mode : `level ${st.dnr_level} · noise −${(st.dnr_reduction_db || 0).toFixed(0)} dB`;
   $("dynLim").checked = st.dyn_lim !== false;
   $("dynExp").checked = st.dyn_exp !== false;
   const expOn = st.dyn_exp !== false;
@@ -2306,6 +2486,7 @@ function renderRds() {
     + "ASQ: auto squelch in AM/FM/WFM – the level follows the noise floor (margin in SETTINGS › VFO › AUDIO). Also on by itself with AGC+ and the squelch set";
   renderTsqKeys();
   renderPassKeys();
+  renderAudioBypass();
   // The RDS frame is always in place (the waterfall does not move); without RDS it is empty and dark.
   const has = !!r && (r.ps || r.rt || r.pi);
   $("rds").classList.toggle("off", !has);
@@ -2316,8 +2497,56 @@ function renderRds() {
   $("rds").title = has ? [r.rt, r.ct && `Clock: ${r.ct}`].filter(Boolean).join("\n") : "RDS";
 }
 
+// ---------- audio chain not used: a raw-IQ decoder (its audio muted) or DAB (welle-cli plays) ----------
+// The keys and settings that act only on the audio of the channel then have no effect: they are shown inactive
+// (disabled, with the reason in their tip), and SETTINGS › VFO › AUDIO says why. NB and SP act on the samples before
+// the channel and its baseband decoders, so they stay usable while such a decoder (FT8, CW, …) runs beside.
+const RAW_DEC_NAMES = { vdl2: "VDL2", ism: "ISM", hfdl: "HFDL", ais: "AIS", adsb: "ADS-B", acars: "ACARS", sonde: "SONDE" };
+const BASEBAND_DECS = ["ft8", "wefax", "cw", "rtty", "packet", "pocsag", "sstv"];
+const BYPASS_KEYS = ["stereoKey", "notchKey", "hpfKey", "lpfKey", "alcKey", "dynKey", "afiKey", "asqKey", "tsqcKey", "tsqdKey", "dnrKey", "humKey"];
+function audioBypassWhy(s) {
+  if (s.dab) return "DAB is on: welle-cli decodes the ensemble from the raw IQ and plays the station";
+  if (!s.audio_muted) return "";
+  const on = Object.entries(RAW_DEC_NAMES).filter(([k]) => s[k]).map(([, n]) => n);
+  return `${on.join(", ") || "A decoder"} ${on.length > 1 ? "work" : "works"} on the raw IQ samples: this VFO has no audio`;
+}
+function renderAudioBypass() {
+  const why = audioBypassWhy(st);
+  const keepIq = BASEBAND_DECS.some((k) => st[k]);   // a baseband decoder runs beside: NB and SP still act on it
+  const ids = [...BYPASS_KEYS, "nbKey", "spurKey"];
+  // a raw-IQ decoder (not DAB): the chain up to the filter still feeds the S-meter, so NB, SP and the filter keys
+  // stay active – they change only the S-meter then
+  const meter = !!why && !!st.audio_muted && !st.dab;
+  const PRE = "Inactive now – ", MPRE = "IQ decoder is active – this changes only the S-meter now. ";
+  const own = (b) => { if (!b.title.startsWith(PRE) && !b.title.startsWith(MPRE)) b.dataset.tip0 = b.title; };
+  for (const id of ids) {
+    const b = $(id), base = !BYPASS_KEYS.includes(id);
+    const by = !!why && (!base || (!keepIq && !meter)), mo = meter && base && !keepIq;
+    // the own tip of the key (some renderers write it anew each time, others never): kept apart from the prefix
+    own(b);
+    b.classList.toggle("bypassed", by);
+    if (by) {
+      b.disabled = true;
+      b.title = `${PRE}${why}.
+
+${b.dataset.tip0 || ""}`;
+    } else {
+      b.title = mo ? `${MPRE}
+
+${b.dataset.tip0 || ""}` : b.dataset.tip0 || "";
+      if (id === "spurKey") b.disabled = false;       // the other keys get their own state from their renderers
+    }
+  }
+  $("bandwidths").title = meter ? `${MPRE}(${why})` : "";
+  $("audioBypassNote").hidden = !why;
+  $("audioBypassNote").textContent = why ? `${why}. The audio settings below (${meter ? "" : "filter, "}NF, ALC, NTH, DNR, HUM, AFI, HPF / LPF, ` +
+    `squelch tones) have no effect now; they are kept and work again once it is off.` +
+    (meter ? " The filter, NB and SP still act: they change only the S-meter." : "") : "";
+  $("settingsCard").querySelector('[data-set-subpanel="vfo:audio"]').classList.toggle("bypass", !!why);
+}
+
 // ---------- AD = additional display under the S-meter: one thing at a time, by priority ----------
-// 1. error messages (red, the frame blinks, OK accepts them), 2. rotor AZ / EL (MONITOR in SETTINGS › GENERAL › ROTOR),
+// 1. error messages (red, the frame blinks, OK accepts them), 2. rotor AZ / EL (MONITOR in RCTRL › SETTINGS),
 // 3. DAB now on air (station, SNR, DLS text), 4. RDS.
 const adErrors = [];       // messages not accepted yet, oldest first
 let adRotInfo = null;      // the last rotor state of the active VFO while its MONITOR is on
@@ -2399,40 +2628,121 @@ $("gainAuto").addEventListener("change", () => setAgc($("gainAuto").checked));
 $("agcKey").addEventListener("click", () => { if (st) setAgc(st.gain !== "auto" || st.smart_agc); });
 // AGC+ settings in SET: one slider per parameter, sent shortly after moving (as one "sagc" object)
 const SAGC_UI = [
-  ["clip_ppm", "Clipping above", 0, 1000, 5, "ppm"],
-  ["down_db", "Down by", 0.5, 10, 0.5, "dB"],
-  ["heavy_ppm", "Heavy clipping above", 50, 10000, 50, "ppm"],
-  ["heavy_db", "Heavy: down by", 1, 20, 0.5, "dB"],
-  ["low_dbfs", "Up below", -30, -2, 1, "dBFS"],
-  ["target_dbfs", "Target", -25, -1, 1, "dBFS"],
-  ["hold_s", "Hold before up", 0.2, 10, 0.1, "s"],
-  ["up_db", "Up at most", 0.5, 15, 0.5, "dB"],
+  ["headroom_adj", "Headroom: target ±", -10, 10, 1, "dB"],
+  ["window_db", "Dead band ±", 1, 10, 0.5, "dB"],
+  ["clip_ppm", "Overload: clipping above", 0, 2000, 5, "ppm"],
+  ["down_db", "Overload: cut at least", 1, 10, 0.5, "dB"],
+  ["up_db", "Up at most", 1, 12, 0.5, "dB"],
+  ["hold_s", "Between steps up", 0.2, 10, 0.1, "s"],
+  ["wasted_db", "Gain wasted: floor over goal +", 6, 30, 1, "dB"],
   ["settle", "Settle", 0, 10, 1, "blocks"],
-  ["allow_ppm", "Bold: up while clipping ≤", 0, 200, 1, "ppm"],
 ];
-// AGC+ presets, careful to bold. MODERATE = the defaults of the server (SAGC_PARAMS in sdr.py)
+// shown in the units of the legend: clipping as % of the samples (kept in ppm: 100 ppm = 0.01 %),
+// a peak in dBFS also as % of the full scale of the A/D (−6 dBFS ≈ 50 %)
+const ppmPct = (ppm) => `${+(Number(ppm) / 1e4).toFixed(4)} %`;
+const dbfsPct = (db) => `${Math.round(100 * 10 ** (Number(db) / 20))} %`;
+const minusSign = (v) => String(v).replace("-", "−");
+function sagcText(k, v, unit) {
+  if (unit === "ppm") return ppmPct(v);
+  if (k === "headroom_adj") return Number(v) ? `${Number(v) > 0 ? "+" : "−"}${Math.abs(Number(v))} dB` : "0 dB";
+  if (k === "settle") return `${v} ${Number(v) === 1 ? "block" : "blocks"}`;
+  return `${v} ${unit}`;
+}
+// AGC+ presets, conservative to bold. MODERATE = the defaults of the server (SAGC_PARAMS in gainctl.py)
 const SAGC_PRESETS = {
-  careful: { clip_ppm: 20, heavy_ppm: 1000, down_db: 3, heavy_db: 6, low_dbfs: -8, target_dbfs: -5,
-    hold_s: 0.2, up_db: 6, settle: 2, allow_ppm: 0 },
-  moderate: { clip_ppm: 100, heavy_ppm: 2000, down_db: 2.5, heavy_db: 6, low_dbfs: -5, target_dbfs: -2,
-    hold_s: 0.5, up_db: 6, settle: 2, allow_ppm: 0 },
-  bold: { clip_ppm: 300, heavy_ppm: 5000, down_db: 2, heavy_db: 4, low_dbfs: -6, target_dbfs: -2,
-    hold_s: 1, up_db: 6, settle: 2, allow_ppm: 20 },
+  // 6 dB more headroom, every clipped sample cuts, small slow steps up
+  conservative: { headroom_adj: 6, window_db: 3, clip_ppm: 0, down_db: 4, up_db: 3, hold_s: 4, wasted_db: 12, settle: 3 },
+  careful: { headroom_adj: 3, window_db: 3, clip_ppm: 20, down_db: 3, up_db: 4, hold_s: 3, wasted_db: 15, settle: 2 },
+  moderate: { headroom_adj: 0, window_db: 3, clip_ppm: 100, down_db: 3, up_db: 6, hold_s: 2.5, wasted_db: 15, settle: 2 },
+  bold: { headroom_adj: -4, window_db: 3, clip_ppm: 300, down_db: 2, up_db: 6, hold_s: 1.5, wasted_db: 18, settle: 2 },
 };
 $("sagcRows").innerHTML = SAGC_UI.map(([k, label, min, max, step]) =>
-  `<div><div class="row"><span>${label}</span><span id="sagc_${k}_t" class="value"></span></div>` +
+  `<div class="sagc-row"><div class="row"><span>${label}</span><span id="sagc_${k}_t" class="value"></span></div>` +
   `<input id="sagc_${k}" type="range" min="${min}" max="${max}" step="${step}"></div>`).join("");
 let sagcTimer = null, sagcLocalAt = 0;
-function renderSagc() {
+const dbTxt = (v) => (v == null ? "–" : `${minusSign(Number(v).toFixed(1))} dB`);
+function agcdInterp(v, xs, ys) {
+  if (v <= xs[0]) return ys[0];
+  for (let i = 1; i < xs.length; i++) {
+    if (v <= xs[i]) return xs[i] > xs[i - 1] ? ys[i - 1] + (ys[i] - ys[i - 1]) * (v - xs[i - 1]) / (xs[i] - xs[i - 1]) : ys[i];
+  }
+  return ys[ys.length - 1];
+}
+// diagram beside AGC+ (SETTINGS › VFO › ADVANCED): the values of the sliders and the live state in its labels
+function renderAgcLive() {
+  const p = st.sagc || {}, a = st.agc || {}, auto = st.gain === "auto", smart = !!st.smart_agc && !auto;
+  const live = !auto && a.head != null, clip = live && !!st.adc_clip;
+  $("agcdState").textContent = smart ? "AUTO" : "OFF";
+  $("agcdState").classList.toggle("off", !smart);
+  $("agcdState").classList.toggle("clip", smart && clip);
+  $("agcdGain").textContent = auto ? "auto" : gainLabel(st);
+  $("agcdAdc").textContent = live ? `${minusSign(st.adc_peak)} dBFS` : "converter";
+  $("agcdAdc").classList.toggle("clip", clip);
+  $("agcdKind").textContent = a.kind_text ? `${a.kind_text}${a.band ? `, ${a.band.split(":")[0]}` : ""}` : "";
+  $("agcdTarget").textContent = a.target != null ? `${a.target} dB` : "";
+  $("agcdGoal").textContent = a.goal != null ? `${a.goal} dB` : "";
+  $("agcdWasted").textContent = a.wasted != null ? `${a.wasted} dB` : "";
+  const head = a.target != null && a.kind === "pulsed" ? a.head_hold : a.head;
+  $("agcdHeadNow").textContent = live ? ` · now ${dbTxt(head)}` : "";
+  $("agcdHeadNow").classList.toggle("clip", clip);
+  $("agcdFloorNow").textContent = a.margin != null ? ` · now ${dbTxt(a.margin)}` : "";
+  $("agcdHeadMark").toggleAttribute("hidden", !live);       // SVG: no .hidden property
+  $("agcdFloorMark").toggleAttribute("hidden", a.margin == null);
+  const w = Number(p.window_db) || 3;
+  if (live) {
+    const y = clip ? 254 : agcdInterp(head, [0, a.target - w, a.target + w, a.target + w + 15], [262, 292, 330, 372]);
+    $("agcdHeadMark").setAttribute("transform", `translate(0 ${y.toFixed(1)})`);
+  }
+  if (a.margin != null) {
+    const y = agcdInterp(-a.margin, [-(a.wasted + 8), -(a.wasted + 3), -a.wasted, -a.goal, -a.goal + 12], [246, 262, 292, 330, 372]);
+    $("agcdFloorMark").setAttribute("transform", `translate(0 ${y.toFixed(1)})`);
+  }
+}
+function renderAgcDiagram() {
   const p = st.sagc || {};
+  for (const [k, , , , , unit] of SAGC_UI) {
+    const el = $(`agcd_${k}`);
+    if (!el || p[k] == null) continue;
+    el.textContent = sagcText(k, Number(p[k]), unit);
+  }
+  renderAgcLive();
+}
+// the meter strip of the AGC+ card (after OnAir): A/D level bar with the target tick, clip lamp, numbers, warning, why
+function renderAgcMeter() {
+  const a = st.agc || {}, p = st.sagc || {}, auto = st.gain === "auto", smart = !!st.smart_agc && !auto;
+  const head = a.kind === "pulsed" ? a.head_hold : a.head, w = Number(p.window_db) || 3;
+  const live = !auto && head != null;
+  const lvl = live ? Math.max(0, Math.min(1, (40 - head) / 40)) : 0;
+  const col = !live ? "" : st.adc_clip || a.lamp ? "clip" : head < a.target - w ? "hot" : head > a.target + w + 6 ? "quiet" : "ok";
+  $("agcBarFill").style.width = `${(lvl * 100).toFixed(1)}%`;
+  $("agcBarFill").className = `fill ${col}`;
+  $("agcBarTick").style.left = a.target != null ? `${Math.max(0, Math.min(100, (40 - a.target) / 40 * 100))}%` : "-10px";
+  $("agcLamp").classList.toggle("on", !!a.lamp);
+  const parts = [];
+  if (live) parts.push(`headroom <b>${dbTxt(head)}</b> (target ${a.target} ± ${w})`);
+  else if (auto) parts.push("tuner AGC (auto gain): the A/D is not measured");
+  if (a.margin != null) parts.push(`floor <b>${dbTxt(a.margin)}</b> over the A/D's noise (goal ${a.goal}, wasted over ${a.wasted})`);
+  if (a.snr != null) parts.push(`channel SNR ${dbTxt(a.snr)}`);
+  if (a.kind_text) parts.push(`${a.kind_text}${a.band ? ` · ${a.band}` : ""}`);
+  $("agcNums").innerHTML = parts.join(" · ");
+  $("agcWarn").textContent = a.warn || "";
+  $("agcWarn").hidden = !a.warn;
+  const why = smart && a.why ? `Why: ${a.why}${a.last ? `. Last: ${a.last}` : ""}` : "";
+  $("agcWhy").textContent = why;
+  $("agcWhy").hidden = !why;
+}
+function renderSagc() {
+  const p = st.sagc || {}, a = st.agc || {};
   for (const [k, , , , , unit] of SAGC_UI) {
     const el = $(`sagc_${k}`);
     if (p[k] == null) continue;
     if (document.activeElement !== el && Date.now() - sagcLocalAt > 1500) el.value = p[k];
-    $(`sagc_${k}_t`).textContent = `${el.value} ${unit}`;
+    $(`sagc_${k}_t`).textContent = sagcText(k, el.value, unit);
   }
+  renderAgcDiagram();
+  renderAgcMeter();
   const smart = st.smart_agc && st.gain !== "auto";
-  $("sagcNow").textContent = smart ? `${gainLabel(st)} · A/D ${st.adc_peak} dBFS${st.adc_clip ? ` · clip ${st.adc_clip_ppm} ppm` : ""}` : "off";
+  $("sagcNow").textContent = smart ? `AUTO · ${gainLabel(st)} · A/D ${st.adc_peak} dBFS${st.adc_clip ? ` · clip ${ppmPct(st.adc_clip_ppm)}` : ""}` : "off";
   for (const b of document.querySelectorAll("#sagcPresets [data-preset]")) {
     const pre = SAGC_PRESETS[b.dataset.preset];
     b.classList.toggle("on", Object.keys(pre).every((k) => Number(p[k]) === pre[k]));
@@ -2441,8 +2751,9 @@ function renderSagc() {
 for (const [k, , , , , unit] of SAGC_UI) {
   $(`sagc_${k}`).addEventListener("input", (e) => {
     sagcLocalAt = Date.now();
-    $(`sagc_${k}_t`).textContent = `${e.target.value} ${unit}`;
+    $(`sagc_${k}_t`).textContent = sagcText(k, e.target.value, unit);
     st.sagc = { ...(st.sagc || {}), [k]: Number(e.target.value) };
+    renderAgcDiagram();
     clearTimeout(sagcTimer);
     sagcTimer = setTimeout(() => send({ sagc: { [k]: Number(e.target.value) } }), 150);
   });
@@ -2453,6 +2764,26 @@ document.querySelectorAll("#sagcPresets [data-preset]").forEach((b) => b.addEven
   renderSagc();
   send({ sagc: SAGC_PRESETS[b.dataset.preset] });
 }));
+
+$("sagcDefault").addEventListener("click", () => document.querySelector('#sagcPresets [data-preset="moderate"]').click());
+
+// DEFAULT keys: data-def-for names the inputs, each input has its default in data-def. All are set first, then each
+// one is set again just before its own events, so a handler that redraws the others (HPF / LPF) cannot undo it.
+function applyDefault(el) {
+  if (el.type === "checkbox") el.checked = el.dataset.def === "1";
+  else el.value = el.dataset.def;
+}
+for (const b of document.querySelectorAll(".def-btn[data-def-for]")) {
+  b.addEventListener("click", () => {
+    const els = b.dataset.defFor.split(" ").map((id) => $(id)).filter(Boolean);
+    els.forEach(applyDefault);
+    for (const el of els) {
+      applyDefault(el);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  });
+}
 
 // AGC+: the server sets the tuner gain from the A/D level; off = the last gain stays as a manual one
 $("agcPlusKey").addEventListener("click", () => {
@@ -2486,6 +2817,42 @@ $("dynKey").addEventListener("click", () => {
   renderRds();
   send({ dyn: st.dyn });
 });
+$("nbKey").addEventListener("click", () => {
+  if (!st) return;
+  st.nb = !st.nb;
+  renderRds();
+  send({ nb: st.nb });
+});
+for (const [id, key, lo, hi, def] of [["nbLevel", "nb_level", 1, 10, 5], ["nbWidth", "nb_width_us", 1, 50, 5]]) {
+  $(id).addEventListener("change", () => {
+    const v = Math.min(hi, Math.max(lo, Math.round(Number($(id).value)) || def));
+    $(id).value = v;
+    send({ [key]: v });
+  });
+}
+$("dnrKey").addEventListener("click", () => {
+  if (!st) return;
+  st.dnr = !st.dnr;
+  renderRds();
+  send({ dnr: st.dnr });
+});
+$("humKey").addEventListener("click", () => {
+  if (!st) return;
+  st.hum = !st.hum;
+  renderRds();
+  send({ hum: st.hum });
+});
+$("humBase").addEventListener("change", () => send({ hum_base: Number($("humBase").value) }));
+$("humWidth").addEventListener("change", () => {
+  const v = Math.min(8, Math.max(1, Math.round(Number($("humWidth").value) * 2) / 2 || 4));
+  $("humWidth").value = v;
+  send({ hum_width: v });
+});
+$("dnrLevel").addEventListener("change", () => {
+  const v = Math.min(10, Math.max(1, Math.round(Number($("dnrLevel").value)) || 5));
+  $("dnrLevel").value = v;
+  send({ dnr_level: v });
+});
 for (const [id, key, lo, hi, def] of [["dynExpDb", "dyn_exp_db", 3, 30, 12], ["dynExpSens", "dyn_exp_sens", 1, 10, 5], ["dynExpHold", "dyn_exp_hold_ms", 20, 1000, 100]]) {
   $(id).addEventListener("change", () => {
     const v = Math.min(hi, Math.max(lo, Math.round(Number($(id).value)) || def));
@@ -2508,8 +2875,14 @@ $("agcSmooth").addEventListener("change", () => {
 $("atuKey").addEventListener("click", () => {
   if (!st) return;
   st.autotune = !st.autotune;
+  // switched on in AM / USB / LSB: autotune the frequency tuned now at once (not only after the next move)
+  if (st.autotune && ATU_MODES.includes(st.mode)) {
+    clearTimeout(atuTimer);
+    atuTimer = null;
+    send({ autotune: true, autotune_go: true });
+    if (st.autotune_info) st.autotune_info = { ...st.autotune_info, state: "listen", id: -1 };
+  } else send({ autotune: st.autotune });
   renderRds();
-  send({ autotune: st.autotune });
 });
 $("afiKey").addEventListener("click", () => {
   if (!st) return;
@@ -3004,6 +3377,14 @@ function ft8StUpsert(d) {
   ft8MapLater();
 }
 
+/** Our report of a station (the SNR we hear it with) as a filled chip coloured by strength: told apart from the
+ *  reports inside the messages (plain yellow text, given by the stations to each other). */
+function ft8RxChip(snr, long = false) {
+  const cls = snr >= 0 ? "s-hi" : snr >= -12 ? "s-mid" : "s-lo";
+  return `<span class="ft8-rx ${cls}" title="our report: we hear this station at ${snr > 0 ? "+" : ""}${snr} dB SNR">` +
+    `${long ? "RX " : ""}${snr < 0 ? "-" : "+"}${String(Math.abs(snr)).padStart(2, "0")}${long ? " dB" : ""}</span>`;   // FT8 style: -07, +03
+}
+
 function ft8MapLater() {
   if (ft8MapTimer || !ft8Shown()) return;
   ft8MapTimer = setTimeout(() => { ft8MapTimer = null; renderFt8Map(); }, 700);
@@ -3037,6 +3418,7 @@ async function ft8MapOpen() {
     mapPopout(ft8Map, "ft8");
     // a click on the map (not on a mark) drops the selection: the red mark and trail get their own colors back
     ft8Map.on("click", () => { if (ft8Sel != null) { ft8Sel = null; renderFt8Map(); } });
+    ft8Grid = ft8LocGrid(ft8Map);
     ft8MapLay = { path: L.layerGroup().addTo(ft8Map), st: L.layerGroup().addTo(ft8Map), marks: new Map() };
     // call labels only when zoomed in enough (a whole continent of labels is unreadable)
     const lbl = () => $("ft8Map").classList.toggle("ft8-nolbl", ft8Map.getZoom() < 5);
@@ -3052,6 +3434,60 @@ async function ft8MapOpen() {
     } catch { /* server unreachable */ }
   }
   return true;
+}
+
+/** A faint Maidenhead (WW locator) grid under the marks: fields (JN, 20° x 10°) always, squares (JN88, 2° x 1°)
+ * from zoom 5, subsquares (JN88wq, 5' x 2.5') from zoom 10; only the visible part is drawn, redrawn on a move. */
+function ft8LocGrid(map) {
+  map.createPane("locGrid");
+  const pane = map.getPane("locGrid");
+  pane.style.zIndex = 350;                 // above the tiles, below the paths and marks
+  pane.style.pointerEvents = "none";
+  const lay = L.layerGroup();
+  if (recall("ft8Grid") !== "0") lay.addTo(map);
+  const A = (n) => String.fromCharCode(65 + n), a = (n) => String.fromCharCode(97 + n);
+  const wrap = (lon) => ((lon + 180) % 360 + 360) % 360;            // 0..360 from -180
+  const loc = (lon, lat, lvl) => {
+    const x = wrap(lon + 1e-9), y = Math.min(179.999, Math.max(0, lat + 90 + 1e-9));
+    let s = A(Math.floor(x / 20)) + A(Math.floor(y / 10));
+    if (lvl >= 1) s += Math.floor((x % 20) / 2) + "" + Math.floor(y % 10);
+    if (lvl >= 2) s += a(Math.floor((x % 2) * 12)) + a(Math.floor((y % 1) * 24));
+    return s;
+  };
+  const draw = () => {
+    lay.clearLayers();
+    if (!map.hasLayer(lay)) return;
+    const z = map.getZoom();
+    const lvl = z >= 10 ? 2 : z >= 5 ? 1 : 0;
+    const steps = [[20, 10], [2, 1], [2 / 24, 1 / 24]];
+    const b = map.getBounds().pad(0.1);
+    const w = Math.max(b.getWest(), map.getCenter().lng - 540), e = Math.min(b.getEast(), map.getCenter().lng + 540);
+    const s = Math.max(-90, b.getSouth()), n = Math.min(90, b.getNorth());
+    for (let l = 0; l <= lvl; l++) {
+      const [dx, dy] = steps[l];
+      const major = l < lvl;               // the coarser levels as a bit stronger lines
+      const style = { pane: "locGrid", interactive: false, color: "#8fb4d8", weight: major ? 1.2 : 0.7,
+        opacity: major ? 0.32 : 0.2 };
+      const x0 = Math.floor((w + 180) / dx) * dx - 180, y0 = Math.floor((s + 90) / dy) * dy - 90;
+      for (let x = x0; x <= e; x += dx) lay.addLayer(L.polyline([[s, x], [n, x]], style));
+      for (let y = y0; y <= n; y += dy) lay.addLayer(L.polyline([[y, w], [y, e]], style));
+    }
+    // labels of the finest level shown, in the lower left corner of each cell (where a locator starts)
+    const [dx, dy] = steps[lvl];
+    const x0 = Math.floor((w + 180) / dx) * dx - 180, y0 = Math.floor((s + 90) / dy) * dy - 90;
+    if ((e - x0) / dx * (n - y0) / dy > 900) return;
+    for (let x = x0; x < e; x += dx) {
+      for (let y = Math.max(-90, y0); y < n && y < 90; y += dy) {
+        lay.addLayer(L.marker([y, x], {
+          pane: "locGrid", interactive: false, keyboard: false,
+          icon: L.divIcon({ className: "loc-grid-lbl", html: loc(x, y, lvl), iconSize: null, iconAnchor: [-3, 15] }),
+        }));
+      }
+    }
+  };
+  map.on("moveend zoomend", draw);
+  draw();
+  return { show(on) { if (on) { lay.addTo(map); draw(); } else lay.remove(); } };
 }
 
 function ft8Icon(s, sel) {
@@ -3072,13 +3508,15 @@ async function renderFt8Map() {
   } finally { ft8Drawing = false; }
 }
 
+const ft8LabelHtml = (s) => `${escHtml(s.call)} ${ft8RxChip(s.snr)}`;
+
 function ft8Popup(s) {
   const da = s.lat != null ? ft8DistAz(s.lat, s.lon) : null;
   const band = ft8BandOf(s.freq_hz);
   return `<b class="ft8-pop-call">${escHtml(s.call)}</b>${s.grid ? ` <span class="ft8-pop-grid">${escHtml(s.grid)}</span>` : ""}<br>` +
     (da ? `${da.km.toLocaleString("en")} km · az ${da.az}°<br>` : "") +
     `<span class="ft8-pop-msg">${ft8MsgHtml(s.msg)}</span><br>` +
-    `${s.snr > 0 ? "+" : ""}${s.snr} dB · ${fmtKHz(s.freq_hz, 1)} kHz${band ? ` (${band} m)` : ""}<br>` +
+    `${ft8RxChip(s.snr, true)} · ${fmtKHz(s.freq_hz, 1)} kHz${band ? ` (${band} m)` : ""}<br>` +
     `${ft8Ago(s.ts)} ago · ${s.n} decode${s.n === 1 ? "" : "s"} · <a href="https://www.qrz.com/db/${encodeURIComponent(s.call)}" target="_blank" rel="noopener">QRZ</a>` +
     ` · <a href="https://pskreporter.info/pskmap.html?callsign=${encodeURIComponent(s.call)}" target="_blank" rel="noopener">PSK Reporter</a>`;
 }
@@ -3100,12 +3538,13 @@ async function drawFt8Map() {
       // the popup text is made only when it opens (from the newest data of the station)
       mk = L.marker(ft8Spread(s), { icon: ft8IconOf(cls) })
         .bindPopup(() => ft8Popup(ft8St.get(call) || s), { className: "ft8-popup" })
-        .bindTooltip(escHtml(call), { permanent: true, direction: "bottom", offset: [0, -1], className: "ft8-label" }).addTo(lay.st);
+        .bindTooltip(ft8LabelHtml(s), { permanent: true, direction: "bottom", offset: [0, -1], className: "ft8-label" }).addTo(lay.st);
       mk.on("click", () => ft8Select(call, false));
-      mk._ft8 = { cls, grid: s.grid };
+      mk._ft8 = { cls, grid: s.grid, snr: s.snr };
       lay.marks.set(call, mk);
     }
     // only what changed is touched (a new icon re-creates its element)
+    if (mk._ft8.snr !== s.snr) { mk.setTooltipContent(ft8LabelHtml(s)); mk._ft8.snr = s.snr; }
     if (mk._ft8.grid !== s.grid) { mk.setLatLng(ft8Spread(s)); mk._ft8.grid = s.grid; }
     if (mk._ft8.cls !== cls) { mk.setIcon(ft8IconOf(cls)); mk._ft8.cls = cls; mk.setZIndexOffset(sel ? 1000 : s.cq ? 500 : 0); mk._ft8.lbl = null; }
     // the frame of the call label in the colour of the triangle
@@ -3127,13 +3566,12 @@ async function drawFt8Map() {
   $("ft8MapList").innerHTML = `<div class="ais-ml-head">${all.length} heard · ${all.length - list.length} without a locator yet${all.length > FT8_LIST_MAX ? ` · newest ${FT8_LIST_MAX} listed` : ""}</div>` +
     all.slice(0, FT8_LIST_MAX).map((s) => {
       const da = s.lat != null ? ft8DistAz(s.lat, s.lon) : null;
-      const snrCls = s.snr >= 0 ? "s-hi" : s.snr >= -12 ? "s-mid" : "s-lo";
       return `<div class="ft8-ml${s.call === ft8Sel ? " sel" : ""}${s.lat == null ? " nopos" : ""}${s.cq ? " cq" : ""}" data-call="${escHtml(s.call)}" title="${escHtml(s.msg)}">` +
         `<i class="tri"></i><b>${escHtml(s.call)}</b><span class="grid">${escHtml(s.grid || "")}</span>` +
-        `<span class="km">${da ? da.km.toLocaleString("en") : ""}</span><span class="${snrCls}">${s.snr > 0 ? "+" : ""}${s.snr}</span>` +
+        `<span class="km">${da ? da.km.toLocaleString("en") : ""}</span><span class="rx">${ft8RxChip(s.snr)}</span>` +
         `<span class="age">${ft8Ago(s.ts)}</span></div>`;
     }).join("");
-  $("ft8MapNote").textContent = `▲ green = calling CQ · cyan = in a QSO · red = selected · pale = not heard lately · position = centre area of the locator ` +
+  $("ft8MapNote").textContent = `▲ green = calling CQ · cyan = in a QSO · red = selected · filled chip = our report (SNR we hear the station with) · pale = not heard lately · position = centre area of the locator ` +
     `(4 characters: 2° × 1°, stations of one square spread inside it) · map © OpenStreetMap`;
 }
 
@@ -3160,6 +3598,26 @@ $("ft8MapClr").addEventListener("click", async () => {
   try { await fetch(vbase + "/api/ft8/stations", { method: "DELETE" }); } catch { /* server unreachable */ }
   ft8StClear();
 });
+// GRID and RX keys of the map: the locator grid and our report next to the calls, remembered in the browser
+var ft8GridOn = recall("ft8Grid") !== "0", ft8RxOn = recall("ft8Rx") !== "0", ft8Grid = null;   // var: the map can open before this line
+function renderFt8MapOpts() {
+  $("ft8GridKey").classList.toggle("on", ft8GridOn);
+  $("ft8RxKey").classList.toggle("on", ft8RxOn);
+  $("ft8Map").classList.toggle("ft8-norx", !ft8RxOn);
+}
+$("ft8GridKey").addEventListener("click", () => {
+  ft8GridOn = !ft8GridOn;
+  store("ft8Grid", ft8GridOn ? "1" : "0");
+  if (ft8Grid) ft8Grid.show(ft8GridOn);
+  renderFt8MapOpts();
+});
+$("ft8RxKey").addEventListener("click", () => {
+  ft8RxOn = !ft8RxOn;
+  store("ft8Rx", ft8RxOn ? "1" : "0");
+  renderFt8MapOpts();
+});
+renderFt8MapOpts();
+
 function ft8StClear() {
   ft8St.clear();
   ft8Sel = null;
@@ -4134,12 +4592,12 @@ function renderSatRot() {
   if (!box) return;
   const other = !!(d && d.on && d.norad !== satTrackNorad);     // the rotor follows another satellite than the one shown
   const mine = !!(d && d.on) && !other;
-  const linked = !(d && d.linked === false);     // RCTRL › CONNECTION: SAT TRACKER connected to the rotor
+  const linked = !(d && d.linked === false);     // RCTRL › SETTINGS: SAT TRACKER connected to the rotor
   const moving = mine && linked && !!(satInfo && satInfo.on && satInfo.control);     // the rotor link is on and takes the commands
   $("satRotStart").classList.toggle("on", mine);
   const flag = $("satRotFlag");
   const [text, cls, tip] = moving ? ["TRACKING", "", "The rotor follows this satellite"]
-    : mine && !linked ? ["CALC ONLY", "warn", "TRACK only calculates: SAT TRACKER is disconnected from the rotor in RCTRL › CONNECTION"]
+    : mine && !linked ? ["CALC ONLY", "warn", "TRACK only calculates: SAT TRACKER is disconnected from the rotor in RCTRL › SETTINGS"]
     : mine ? ["CALC ONLY", "warn", "TRACK only calculates: the rotor link is off or the rotor was stopped (STOP, a fault). TRACK off and on again moves it"]
     : ["NOT TRACKING", "dim", other ? "The rotor follows another satellite" : "TRACK is off"];
   if (flag.textContent !== text) flag.textContent = text;
@@ -4153,7 +4611,7 @@ function renderSatRot() {
     return;
   }
   if (!d.on) {
-    box.innerHTML = `<p><b>Tracking with the rotor is off.</b> <span class="muted">TRACK plans the next pass and moves the rotor${d.rotor_on ? "" : " (it turns the rotor link on, with the port chosen in SETTINGS › GENERAL › ROTOR)"}.</span>
+    box.innerHTML = `<p><b>Tracking with the rotor is off.</b> <span class="muted">TRACK plans the next pass and moves the rotor${d.rotor_on ? "" : " (it turns the rotor link on, with the port chosen in RCTRL › SETTINGS)"}.</span>
       ${d.stopped ? `<span class="${d.stopped === "stopped by hand" ? "muted" : "error"}">Stopped: ${escHtml(d.stopped)}</span>` : ""}</p>`;
     return;
   }
@@ -5494,6 +5952,14 @@ let dabTimer = null;    // polling of /api/dab while the card is shown
 let dabMotTime = 0;     // slide time of the playing station (a new one -> reload the picture)
 let dabEl = null;       // <audio> playing the MP3 stream, routed into MAIN (masterGain)
 let dabLastInfo = {};
+let dabPlaying = false;  // the <audio> really plays (its "playing" event), false while it loads or waits for data
+let dabDecoding = false; // welle-cli decodes the chosen station (mux.json gives its audio mode)
+/** Buffering of the chosen station: DAB on the VFO display and the DAB key blink until the sound plays. */
+function renderDabBuf() {
+  // also right after switching to a DAB VFO: its remembered station starts with the next poll
+  const want = st && st.dab && (dabSid || dabRemembered(st.dab_channel));
+  document.body.classList.toggle("dab-buf", !!(want && !(dabPlaying && dabDecoding)));
+}
 // stations whose slides are 16:9 pictures squeezed into 320x240 (a click on the slide toggles it, remembered per station)
 const dabWide = new Set(JSON.parse(recall("dabWide") || "[]"));
 
@@ -5518,6 +5984,7 @@ function dabOn() {
 
 function renderDab(s) {
   const on = !!s.dab;
+  renderDabMini(s);
   renderControls();   // the DAB key of MODE
   renderModeTabs();
   if (on && s.dab_channel && $("dabChannel").value !== s.dab_channel) { $("dabChannel").value = s.dab_channel; renderDabChannelMems(); }
@@ -5615,6 +6082,7 @@ function stopDab() {
   clearInterval(dabTimer);
   dabTimer = null;
   dabPlay(null);
+  dabClearHistory();
   dabLastInfo = {};
   $("dabServices")._key = null;
   $("dabServices").innerHTML = `<div class="ft8-empty">Searching the ensemble…</div>`;
@@ -5656,17 +6124,51 @@ async function pollDab() {
   adDabInfo = cur ? { label: cur.label || cur.sid, type: cur.type, dls: cur.dls || "", snr: m.snr } : null;
   renderAd();
   renderDabSide(m, cur);
+  dabDecoding = !!(cur && cur.mode);
+  renderDabBuf();
   if (!cur) return;
   renderDabNow(cur);
+  dabLoadHistory(base, cur);
   if (cur.mot_time && cur.mot_time !== dabMotTime) {
     dabMotTime = cur.mot_time;
     $("dabSlide").src = `${base}/api/dab/slide/${cur.sid}?t=${cur.mot_time}`;
   }
 }
 
+/** History of the songs of the station (server: data/dab_history/), read again when the station or its DLS changes. */
+let dabHistKey = null;
+async function dabLoadHistory(base, cur) {
+  const key = `${base}|${cur.sid}|${cur.dls || ""}`;
+  if (key === dabHistKey) return;
+  dabHistKey = key;
+  let list;
+  try {
+    list = await (await fetch(`${base}/api/dab/history/${cur.sid}`)).json();
+  } catch (e) { dabHistKey = null; return; }
+  if (dabHistKey !== key) return;
+  const today = new Date().toLocaleDateString("sv");     // YYYY-MM-DD, as in the file
+  let day = today, html = "";
+  for (const x of list) {
+    const d = x.time.slice(0, 10);
+    if (d !== day) { day = d; html += `<div class="dab-hist-day">${dabEsc(d)}</div>`; }
+    html += `<div class="dab-hist-row"><time>${dabEsc(x.time.slice(11, 16))}</time><span>${dabEsc(x.text)}</span></div>`;
+  }
+  $("dabHist").innerHTML = html;
+  $("dabHistBox").hidden = !list.length;
+}
+
+function dabClearHistory() {
+  dabHistKey = null;
+  $("dabHist").innerHTML = "";
+  $("dabHistBox").hidden = true;
+}
+
 /** Plays station sid (null = stop). The MP3 stream goes through MAIN volume like the normal audio. */
 function dabPlay(sid) {
   dabSid = sid;
+  dabClearHistory();
+  dabPlaying = dabDecoding = false;       // a new station buffers again (blinking DAB until it plays)
+  renderDabBuf();
   adDabInfo = null;                       // the AD window: filled again by the next pollDab
   renderAd();
   dabMotTime = 0;
@@ -5685,9 +6187,10 @@ function dabPlay(sid) {
   }
   const ctx = audioContext();
   if (!dabEl) {
-    dabEl = new Audio();
-    dabEl.crossOrigin = "anonymous";      // the receiver of the VFO is on another port (CORS * on the server)
-    ctx.createMediaElementSource(dabEl).connect(audioTap);
+    const el = new Audio();
+    el.crossOrigin = "anonymous";         // the receiver of the VFO is on another port (CORS * on the server)
+    el._src = ctx.createMediaElementSource(el);
+    dabWire(el);
   }
   dabEl.src = `${vbase}/api/dab/audio/${sid}`;
   dabEl.play().catch(() => {
@@ -5704,6 +6207,49 @@ function dabPlay(sid) {
   $("dabNowMeta").textContent = "buffering…";
   $("dabDls").textContent = "";
   $("dabDlsBox").hidden = true;
+}
+
+/** Makes el (an <audio> of a DAB stream, el._src its source node) the DAB player of MAIN: through audioTap, with the
+ *  buffering events. The same element may come from CUE (dabFromCue) and go back to it (dabToCue). */
+function dabWire(el) {
+  dabEl = el;
+  el._src.disconnect();
+  el._src.connect(audioTap);
+  if (el._dabWired) return;
+  el._dabWired = true;
+  // buffering: until "playing"; again when the stream waits for data, stalls, fails or ends
+  el.addEventListener("playing", () => { if (el === dabEl) { dabPlaying = true; renderDabBuf(); } });
+  for (const ev of ["waiting", "stalled", "emptied", "error", "ended", "pause"]) {
+    el.addEventListener(ev, () => { if (el === dabEl) { dabPlaying = false; renderDabBuf(); } });
+  }
+}
+
+/** Switching to VFO v whose DAB station plays on CUE: the running stream goes on through MAIN (no new buffering). */
+function dabFromCue(v) {
+  const h = v.cueAudio, el = h && h.el;
+  if (!el || !h.sid) return;
+  h.live = false;
+  h.ctrl.abort();
+  h.el = null;
+  h.gain.disconnect();
+  v.cueAudio = null;
+  if (dabEl && dabEl !== el) { dabEl.pause(); dabEl.removeAttribute("src"); dabEl.load(); }
+  dabWire(el);
+  dabSid = h.sid;
+  dabPlaying = !el.paused && !h.buf;
+  dabDecoding = true;
+}
+
+/** Leaving VFO v with CUE on while its DAB station plays: the running stream goes on in CUE (no new buffering). */
+function dabToCue(v) {
+  if (!v || !v.cue || !dabEl || !dabSid || v.cueAudio) return;
+  const el = dabEl;
+  dabEl = null;                           // stopDab must not stop it
+  dabPlaying = false;
+  const h = v.cueAudio = cueHandle();
+  h.sid = dabSid;
+  cueDab(v, h, el, () => { if (v.cueAudio === h) { v.cueAudio = null; syncCue(); } });
+  h.buf = el.paused;
 }
 
 /** Sets the ratio of the picture box: the slide's own, 16:9 for a station marked wide, 4:3 with no slide. */
@@ -5779,6 +6325,15 @@ $("acarsRows").addEventListener("click", (e) => {
   if (!td || e.target.closest(".atn-detail") || String(getSelection())) return;   // selecting text in the detail
   td.classList.toggle("open");
 });
+/** INFO key: the description of ACARS / VDL2, hidden by default so the table or map has the room; remembered in the browser. */
+function setAcarsInfo(on) {
+  store("acarsInfo", on ? "1" : "0");
+  $("acarsInfoKey").classList.toggle("on", on);
+  $("acarsNote").hidden = !on;
+  if (acarsMap) setTimeout(() => acarsMap.invalidateSize());
+}
+$("acarsInfoKey").addEventListener("click", () => setAcarsInfo($("acarsNote").hidden));
+setAcarsInfo(recall("acarsInfo") === "1");
 $("acarsClear").addEventListener("click", () => {
   acarsDropHeld();
   acarsResume();
@@ -6395,7 +6950,7 @@ const SONDE_MAX_FRAMES = 500;
 const SONDE_OLD_S = 600;         // no frame for 10 min: lost (grey)
 const sondes = new Map();        // serial -> {…sonde from the server, pts: [[lat, lon, alt, t]]}
 let sondeView = recall("sondeView") === "profile" ? "map" : ["sondes", "map", "frames"].includes(recall("sondeView")) ? recall("sondeView") : "sondes";
-let sondeMap = null, sondeLayers = null, sondeFitted = false, sondeSel = null, sondeTimer = null;
+let sondeMap = null, sondeLayers = null, sondeFitted = false, sondeSel = recall("sondeSel") || null, sondeTimer = null;
 
 const sondeKmh = (v) => (v == null ? "" : (v * 3.6).toFixed(0));
 const sondeClimb = (v) => (v == null ? "" : `${v > 0 ? "+" : ""}${v.toFixed(1)}`);
@@ -6411,21 +6966,87 @@ function sondeState(s) {
 
 function sondeUpdate(f) {
   if (!f.serial) return;
+  // DFM: until its serial comes the sonde is "DFM-<MHz>" (e.g. DFM-403.630). Like the server (sonde.py), with the
+  // serial that entry becomes the sonde – or is dropped when the sonde is known already (read back from the log after a
+  // restart), else the same flight would be drawn twice
+  if (f.type === "DFM" && !/^DFM-\d+\.\d{3}$/.test(f.serial)) {
+    for (const [k, ph] of sondes) {
+      if (!/^DFM-\d+\.\d{3}$/.test(k) || ph.lat == null || f.lat == null) continue;
+      if (Math.hypot(ph.lat - f.lat, (ph.lon - f.lon) * Math.cos((f.lat * Math.PI) / 180)) > 0.05) continue;   // ~5 km
+      sondes.delete(k);
+      if (sondeSel === k) { sondeSel = f.serial; store("sondeSel", f.serial); }
+      if (!sondes.has(f.serial)) { ph.serial = f.serial; sondes.set(f.serial, ph); }
+    }
+  }
   let s = sondes.get(f.serial);
   if (!s) { s = { serial: f.serial, type: f.type, first: f.time, n: 0, pts: [], max_alt: null, burst: false }; sondes.set(f.serial, s); }
   s.n += 1;
   s.last = f.time;
   delete s.from_log;
-  for (const k of ["frame", "batt", "sats", "freq_hz", "encrypted", "gps_time", "dist", "az", "el", "temp", "rh", "temp_h", "cal_n", "subtype"]) if (f[k] != null) s[k] = f[k];
+  for (const k of ["frame", "batt", "sats", "freq_hz", "encrypted", "gps_time", "dist", "az", "el", "temp", "rh", "temp_h", "pres", "cal_n", "subtype"]) if (f[k] != null) s[k] = f[k];
   if (f.lat != null) {
-    for (const k of ["lat", "lon", "alt", "vh", "dir", "vv"]) s[k] = f[k];
+    for (const k of ["lat", "lon", "alt", "vh", "dir"]) s[k] = f[k];
+    if (f.vv != null) s.vv = f.vv;   // M20: no climb in its first frame
     s.pos_time = f.time;
     if (s.max_alt == null || f.alt > s.max_alt) s.max_alt = f.alt;
     if (!s.burst && f.vv < -8 && s.max_alt - f.alt > 200 && s.max_alt > 5000) { s.burst = true; s.burst_alt = s.max_alt; }
     const last = s.pts[s.pts.length - 1];
     if (!last || f.time - last[3] >= 2) { s.pts.push([f.lat, f.lon, f.alt, f.time, f.temp ?? null, f.rh ?? null]); if (s.pts.length > 6000) s.pts.splice(1, 1); }
+    if (s.serial === sondeSel) sondeRotFollow(s);
   }
   sondeLater();
+}
+
+// SONDE TRACKER (rotor source, RCTRL › SETTINGS, disconnected by default): the rotor follows the chosen sonde. Only
+// its GPS position and altitude are used; the azimuth and elevation are calculated here from the QTH (with its
+// altitude, SETTINGS › GENERAL › LOCATION) on the WGS84 ellipsoid. At most every SONDE_ROT_S, and only a change of
+// SONDE_ROT_STEP° moves the rotor (it would otherwise step after every frame).
+const SONDE_ROT_S = 5, SONDE_ROT_STEP = 2;
+const sondeRot = { busy: false, t: 0, last: null };
+
+/** Geodetic (deg, deg, m) -> ECEF (m), WGS84. */
+function sondeEcef(lat, lon, h) {
+  const a = 6378137, e2 = 6.69437999014e-3, f = (lat * Math.PI) / 180, l = (lon * Math.PI) / 180;
+  const n = a / Math.sqrt(1 - e2 * Math.sin(f) ** 2);
+  return [(n + h) * Math.cos(f) * Math.cos(l), (n + h) * Math.cos(f) * Math.sin(l), (n * (1 - e2) + h) * Math.sin(f)];
+}
+
+/** Azimuth and elevation (deg) of the point p {lat, lon, alt} seen from q {lat, lon, alt}, distance in km. */
+function sondeAzEl(q, p) {
+  const a = sondeEcef(q.lat, q.lon, q.alt || 0), b = sondeEcef(p.lat, p.lon, p.alt || 0);
+  const d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+  const f = (q.lat * Math.PI) / 180, l = (q.lon * Math.PI) / 180;
+  const e = -Math.sin(l) * d[0] + Math.cos(l) * d[1];
+  const n = -Math.sin(f) * Math.cos(l) * d[0] - Math.sin(f) * Math.sin(l) * d[1] + Math.cos(f) * d[2];
+  const u = Math.cos(f) * Math.cos(l) * d[0] + Math.cos(f) * Math.sin(l) * d[1] + Math.sin(f) * d[2];
+  return { az: ((Math.atan2(e, n) * 180) / Math.PI + 360) % 360, el: (Math.atan2(u, Math.hypot(e, n)) * 180) / Math.PI,
+           km: Math.hypot(e, n, u) / 1000 };
+}
+
+async function sondeRotFollow(s) {
+  if (sondeRot.busy || Date.now() - sondeRot.t < SONDE_ROT_S * 1000 || s.lat == null || s.alt == null) return;
+  sondeRot.busy = true;
+  sondeRot.t = Date.now();
+  try {
+    // a fresh rotor state: the rotor is polled only while the RCTRL tab is open
+    const info = await fetch(rotorBase() + "/api/rotor").then((r) => r.json()).catch(() => null);
+    if (!info || !info.links || !info.links.sonde || satDialRefusal(info)) return;
+    rotorInfo = info;
+    if (!rcQth) await rcLoadQth();
+    if (!rcQth) return;
+    const p = sondeAzEl(rcQth, s), el = Math.max(0, Math.min(90, p.el));
+    const last = sondeRot.last;
+    const daz = last ? Math.abs(((p.az - last.az + 540) % 360) - 180) : 999;
+    if (last && last.serial === s.serial && daz < SONDE_ROT_STEP && Math.abs(el - last.el) < SONDE_ROT_STEP) return;
+    const res = await fetch(rotorBase() + "/api/rotor", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ goto: [Math.round(p.az) % 360, Math.round(el)], source: "sonde" }) });
+    if (res.ok) {
+      sondeRot.last = { serial: s.serial, az: p.az, el, km: p.km, t: Date.now() };
+      if (bodyTab === "rot") rcRenderAll();
+    }
+  } finally {
+    sondeRot.busy = false;
+  }
 }
 
 function sondeLater() {
@@ -6438,13 +7059,16 @@ function renderSondeView() {
   else if (sondeView === "map") renderSondeMap();
 }
 
-const sondeList = () => [...sondes.values()].sort((a, b) => b.last - a.last);
+// the sondes read back from the log at the start (from_log === true) only wait for a frame: until then HISTORY shows
+// them (1D / 7D); a flight opened from the log (from_log = its file) is shown
+const sondeList = () => [...sondes.values()].filter((s) => s.from_log !== true).sort((a, b) => b.last - a.last);
 const sondePos = (s) => (s.lat == null ? "" : `${s.lat.toFixed(5)}, ${s.lon.toFixed(5)}`);
 const sondeDir = (v) => (v == null ? "" : `${Math.round(v)}°`);
 const sondeUpDown = (v) => (v > 0 ? "up" : v < 0 ? "down" : "");
 const sondeT = (v) => (v == null ? "" : v.toFixed(1));
 const sondeRh = (v) => (v == null ? "" : Math.round(v));
-const sondeCal = (s) => (s.cal_n == null ? "" : `calibration ${s.cal_n}/51${s.temp_h != null ? ` · humidity sensor ${s.temp_h.toFixed(1)} °C` : ""}`);
+const sondeCal = (s) => [s.cal_n != null ? `calibration ${s.cal_n}/51` : "", s.temp_h != null ? `humidity sensor ${s.temp_h.toFixed(1)} °C` : "",
+  s.pres != null ? `pressure ${s.pres.toFixed(1)} hPa` : ""].filter(Boolean).join(" · ");
 
 function renderSondeTable() {
   const list = sondeList();
@@ -6458,14 +7082,25 @@ function renderSondeTable() {
     `<td class="num" title="${sondeCal(s)}">${s.temp != null ? sondeT(s.temp) : s.cal_n != null && s.type === "RS41" ? `<span class="muted">${s.cal_n}/51</span>` : ""}</td><td class="num">${sondeRh(s.rh)}</td>` +
     `<td class="num">${s.sats ?? ""}</td><td class="num">${s.batt == null ? "" : `${s.batt.toFixed(1)} V`}</td><td class="num">${s.n}</td>` +
     `<td>${escHtml(sondeState(s))}${s.from_log ? ' <span class="muted" title="Read back from data\\logs\\radiosonde">from log</span>' : ""}${s.subtype ? ` <span class="muted">${escHtml(s.subtype)}</span>` : ""}${s.encrypted ? ' <span class="muted">encrypted</span>' : ""}</td></tr>`).join("");
-  $("sondeEmpty").hidden = list.length > 0;
+  if (sondeHistDays && Date.now() - sondeHistAt > 300000) sondeHistSet(sondeHistDays);   // read again every 5 min
+  const live = new Set(list.map((s) => s.serial));
+  const hist = sondeHist.filter((h) => !live.has(h.serial)).sort((a, b) => b.last - a.last);
+  const day = (t) => new Date(t * 1000).toISOString().slice(5, 16).replace("T", " ");
+  $("sondeRows").insertAdjacentHTML("beforeend", hist.map((h) =>
+    `<tr class="hist" data-file="${escHtml(h.file)}" title="From the radiosonde log: ${day(h.first)} – ${day(h.last).slice(6)} UTC"><td>${day(h.last)}</td><td>${escHtml(h.type)}</td>` +
+    `<td class="ser"><a href="#" class="sonde-log" title="Open the flight on the MAP">${escHtml(h.serial)}</a></td><td>${h.freq_hz ? fmtMHz(h.freq_hz, 3) : ""}</td>` +
+    `<td><a href="#" class="sonde-log">${sondePos(h)}</a></td><td class="num">${sondeAlt(h.alt)}</td>` +
+    `<td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>` +
+    `<td>logged · max ${sondeAlt(h.max_alt)} m${h.burst ? " · burst" : ""}</td></tr>`).join(""));
+  $("sondeEmpty").hidden = list.length + hist.length > 0;
 }
 
 function addSondeFrame(f) {
   const tb = $("sondeFrameRows");
   const tr = document.createElement("tr");
   const det = [f.gps_time ? `GPS ${aisUtc(f.gps_time)}` : "", f.ecc ? `${f.ecc} bytes corrected` : "", f.blocks_bad ? `${f.blocks_bad} blocks bad` : "",
-    f.encrypted ? "encrypted" : "", f.inverted ? "inverted" : "", f.batt != null ? `batt ${f.batt.toFixed(1)} V` : "",
+    f.pres != null ? `${f.pres.toFixed(1)} hPa` : "", f.temp_h != null ? `RH sensor ${f.temp_h.toFixed(1)} °C` : "",
+    f.pos_bad ? `position dropped: ${f.pos_bad}` : "", f.encrypted ? "encrypted" : "", f.inverted ? "inverted" : "", f.batt != null ? `batt ${f.batt.toFixed(1)} V` : "",
     f.cal_n != null && f.cal_n < 51 ? `calibration ${f.cal_n}/51` : ""].filter(Boolean).join(" · ");
   tr.innerHTML = `<td title="${escHtml(fmtMHz(f.freq_hz, 4))} MHz">${aisUtc(f.time)}</td><td>${escHtml(f.type)}</td><td class="ser">${escHtml(f.serial || "?")}</td>` +
     `<td class="num">${f.frame ?? ""}</td><td>${sondePos(f)}</td><td class="num">${sondeAlt(f.alt)}</td>` +
@@ -6514,11 +7149,14 @@ async function sondeMapOpen() {
       maxZoom: 16, className: "hfdl-dark",
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors',
     }).addTo(sondeMap);
+    // the source of the model wind of the prediction (CC-BY 4.0: credited on the map itself)
+    sondeMap.attributionControl.addAttribution('prediction wind: <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo.com</a>' +
+      ' (GFS, <a href="https://www.ncei.noaa.gov/products/weather-climate-models/global-forecast" target="_blank" rel="noopener noreferrer">NOAA</a>), CC-BY 4.0');
     mapPopout(sondeMap, "sonde");
-    // a click on the map (not on a mark) drops the selection: the red mark and trail get their own colors back
-    sondeMap.on("click", () => { if (sondeSel != null) { sondeSel = null; renderSondeMap(); } });
+    // a click on the empty map keeps the choice (the charts stay on the chosen sonde; only the list drops it)
     sondeLayers = { tracks: L.layerGroup().addTo(sondeMap), marks: L.layerGroup().addTo(sondeMap), m: new Map() };
     sondeSitesInit();
+    sondeHistInit();
     try {
       const s = await satFetch("/api/location");
       if (s && Number.isFinite(s.lat) && Number.isFinite(s.lon)) {
@@ -6670,7 +7308,7 @@ async function renderSondeMap() {
     }
     mk.setLatLng([s.lat, s.lon]);
     mk.setIcon(sondeIcon(s, sel));
-    mk.setTooltipContent(`${escHtml(s.serial)}<br>${sondeAlt(s.alt)} m ${sondeClimb(s.vv)}`);
+    mk.setTooltipContent(`${escHtml(s.serial)}<br>${s.freq_hz ? `${fmtMHz(s.freq_hz, 3)} MHz<br>` : ""}${sondeAlt(s.alt)} m ${sondeClimb(s.vv)}`);
     mk.setPopupContent(sondePopup(s));
   }
   for (const [k, mk] of lay.m) if (!keep.has(k)) { mk.remove(); lay.m.delete(k); }
@@ -6679,19 +7317,79 @@ async function renderSondeMap() {
     sondeMap.fitBounds(L.latLngBounds(list.flatMap((s) => [[s.lat, s.lon], ...s.pts.map((q) => [q[0], q[1]])])).pad(0.3), { maxZoom: 10 });
   }
   renderSondeProfile();
-  $("sondeMapNote").textContent = `${list.length} with a position · balloon = rising · parachute = falling after the burst (yellow ring) · orange = selected (its profile on the right) · grey = no frame for 10 min · green line = flight path · red dashed = prediction from the last decoded point to the landing (✕, circle = 90 % landing area), from the sonde's own winds, +1 h / +2 h / +3 h after the launch · map © OpenStreetMap`;
+  sondeHistDraw();
+  $("sondeMapNote").textContent = `${list.length} with a position · light blue balloon = rising · parachute = falling after the burst (yellow ring) · orange = selected (its profile on the right) · grey = no frame for 10 min · green line = flight path · blue = flights of the last day / week (HISTORY 1D / 7D, a click opens one) · red dashed = prediction from the last decoded point to the landing (✕, circle = 90 % landing area), from the sonde's own winds and, where it has not flown, the GFS model wind${sondeWindVer ? "" : sondeWindErr ? ` (not available: ${sondeWindErr})` : ""}, +1 h / +2 h / +3 h after the launch · map © OpenStreetMap · wind: Open-Meteo.com (GFS, NOAA), CC-BY 4.0`;
 }
 
 // ----- SONDE PREDICTION: where the sonde will be 1, 2 and 3 h after its launch and where it lands. No weather model:
 // the wind comes from the sonde's own flight path (its drift between frames, averaged in 500 m layers; above the highest
 // layer heard the top one is kept, below the lowest one its speed falls off towards the ground), the ascent rate from
 // the last minutes of the climb, the burst at 33 km (or just above the current altitude), the fall from the measured
-// descent rate (mean of the last five steps) slowing down in thicker air (rate ∝ 1/√density, ISA).
+// descent rate v = v0 · ρ^−a (ρ = ISA density ratio) fitted to the fall heard so far below the first 1500 m after the burst
+// (the sonde still speeds up there), with a prior a = 0.4, v0 = 10 m/s; scaled to the rate of the last 30 s. Fitted on
+// 12 logged flights (2026-11-17): a 0.05–0.6, so the fall high up is slower than 1/√ρ; the old rule (rate of the last
+// five steps × √ρ) predicted a fall 3–5× too long just after the burst, this one 0.99× in the median.
 // Landing area: the same flight again SONDE_MC times with the inputs scattered by their likely errors (each wind layer,
 // the descent / ascent rate, the burst altitude, the ground); the circle holds 90 % of those landings.
-const SONDE_BURST = 33000, SONDE_GROUND = 400, SONDE_FALL0 = 5, SONDE_LAYER = 500, SONDE_MC = 60;
+const SONDE_BURST = 33000, SONDE_GROUND = 400, SONDE_FALL_A = 0.4, SONDE_FALL_V0 = 10, SONDE_LAYER = 500, SONDE_MC = 60;
 const sondeRhoRatio = (h) => { const hh = Math.max(0, h); return (isaHpa(hh) / 1013.25) * (288.15 / (hh < 11000 ? 288.15 - 0.0065 * hh : 216.65)); };
 const sondePredCache = new Map();   // serial -> {key, res}: computed again only when a new point comes
+
+// ----- model wind (GFS on pressure levels from Open-Meteo, via /api/wind and wind.py): only the 0.25° cells the
+// predicted path goes through, asked for after a prediction from the sonde's own winds, then the prediction again
+const sondeWind = new Map();        // cell "48.75_17.25" -> {t, lv, z, u, v}
+const sondeWindAsk = new Map();     // cell -> time asked (again after 10 min if it did not come)
+let sondeWindVer = 0, sondeWindErr = null;
+const sondeCell = (lat, lon) => `${(Math.round(lat / 0.25) * 0.25).toFixed(2)}_${((((Math.round(lon / 0.25) * 0.25) + 180) % 360 + 360) % 360 - 180).toFixed(2)}`;
+
+/** GFS wind [u east, v north] m/s at a place, altitude (m) and time (s), or null without the cell: linear in time
+ *  between the hours and in height between the levels; below the lowest / above the highest level its value. */
+function sondeWindAt(lat, lon, h, t) {
+  const p = sondeWind.get(sondeCell(lat, lon));
+  if (!p || !p.t.length) return null;
+  let i = 0;
+  while (i < p.t.length - 2 && p.t[i + 1] <= t) i++;
+  const f = p.t.length > 1 ? Math.min(1, Math.max(0, (t - p.t[i]) / (p.t[i + 1] - p.t[i]))) : 0;
+  const at = (r) => {
+    const z = p.z[r], u = p.u[r], v = p.v[r];
+    let lo = -1, hi = -1;
+    for (let j = 0; j < z.length; j++) {
+      if (z[j] == null || u[j] == null) continue;
+      if (z[j] <= h) lo = j;
+      else { hi = j; break; }
+    }
+    if (lo < 0 && hi < 0) return null;
+    if (lo < 0) return [u[hi], v[hi]];
+    if (hi < 0) return [u[lo], v[lo]];
+    const g = (h - z[lo]) / (z[hi] - z[lo]);
+    return [u[lo] + g * (u[hi] - u[lo]), v[lo] + g * (v[hi] - v[lo])];
+  };
+  const a = at(i), b = p.t.length > 1 ? at(i + 1) : a;
+  if (!a || !b) return a || b;
+  return [a[0] + f * (b[0] - a[0]), a[1] + f * (b[1] - a[1])];
+}
+
+/** Asks the server for the missing cells along a predicted path; when some come, the predictions are made again. */
+function sondeWindNeed(path) {
+  const now = Date.now(), want = [];
+  for (const [lat, lon] of path) {
+    const k = sondeCell(lat, lon);
+    if (sondeWind.has(k) || want.includes(k) || now - (sondeWindAsk.get(k) || 0) < 600000) continue;
+    want.push(k);
+  }
+  if (!want.length) return;
+  const ask = want.slice(0, 40);
+  for (const k of ask) sondeWindAsk.set(k, now);
+  fetch(vbase + "/api/wind?cells=" + ask.join(",")).then((r) => r.json()).then((j) => {
+    sondeWindErr = j.error || null;
+    let n = 0;
+    for (const [k, prof] of Object.entries(j.cells || {})) { sondeWind.set(k, prof); n++; }
+    if (!n) return;
+    sondeWindVer++;
+    sondePredCache.clear();
+    if (sondeView === "map") renderSondeMap();
+  }).catch(() => { sondeWindErr = "no connection to the server"; });
+}
 
 function sondeRandom(seed) {   // mulberry32 + Box-Muller: the same scatter for the same data, so the circle does not jump
   let a = seed >>> 0;
@@ -6703,7 +7401,7 @@ function sondePredict(s) {
   const P = s.pts;
   const last = P[P.length - 1];   // the prediction starts at the last decoded point
   if (P.length < 10 || last[2] < SONDE_GROUND + 200) return null;
-  const key = `${P.length}:${last[3]}`, c = sondePredCache.get(s.serial);
+  const key = `${P.length}:${last[3]}:${sondeWindVer}`, c = sondePredCache.get(s.serial);
   if (c && c.key === key) return c.res;
   const R = 111320, windUp = new Map(), windDown = new Map();
   let iTop = 0;
@@ -6714,8 +7412,10 @@ function sondePredict(s) {
     const ve = ((b[1] - a[1]) * R * Math.cos((a[0] * Math.PI) / 180)) / dt, vn = ((b[0] - a[0]) * R) / dt;
     if (Math.hypot(ve, vn) > 150) continue;
     const m = i > iTop ? windDown : windUp;
-    const k = Math.floor((a[2] + b[2]) / 2 / SONDE_LAYER), w = m.get(k) || [0, 0, 0, 0];
+    const k = Math.floor((a[2] + b[2]) / 2 / SONDE_LAYER), w = m.get(k) || [0, 0, 0, 0, 0, 0, 0];
     w[0] += ve; w[1] += vn; w[2]++; w[3] += ve * ve + vn * vn;
+    const mw = sondeWindAt(a[0], a[1], (a[2] + b[2]) / 2, a[3]);
+    if (mw) { w[4] += mw[0]; w[5] += mw[1]; w[6]++; }
     m.set(k, w);
   }
   // in a layer the sonde passed on the way down too, the wind of the fall wins: later and over the landing area
@@ -6737,8 +7437,27 @@ function sondePredict(s) {
     return [me, mn, sig];
   };
   const layers = new Map();
-  const windAt = (h, jit) => {
+  // model minus measured at the lowest / highest layer heard: the model is moved by it next to them (fading over
+  // MODEL_FADE m), so it joins the measured winds
+  const MODEL_FADE = 3000, edge = (kk) => {
+    const w = wind.get(kk);
+    return w && w[6] ? [w[0] / w[2] - w[4] / w[6], w[1] / w[2] - w[5] / w[6]] : [0, 0];
+  };
+  const biasLo = edge(kLo), biasHi = edge(kHi), hHigh = (kHi + 0.5) * SONDE_LAYER;
+  let modelUsed = false;
+  const windAt = (h, jit, lat, lon, t) => {
     const k = Math.floor(h / SONDE_LAYER);
+    // outside the layers the sonde flew through: the GFS wind (moved by the difference at the nearest layer heard)
+    if ((k < kLo || k > kHi) && lat != null) {
+      const mw = sondeWindAt(lat, lon, h, t);
+      if (mw) {
+        const below = k < kLo, bias = below ? biasLo : biasHi, d = Math.abs(h - (below ? hLow : hHigh));
+        const fade = Math.exp(-d / MODEL_FADE), ue = mw[0] + bias[0] * fade, un = mw[1] + bias[1] * fade;
+        const j = jit ? jit(k, 1.5 + 0.08 * Math.hypot(ue, un)) : [0, 0];
+        modelUsed = true;
+        return [ue + j[0], un + j[1]];
+      }
+    }
     let L = layers.get(k);
     if (!L) layers.set(k, (L = layer(k)));
     // below the lowest layer heard the speed falls off linearly to a half at the ground, the direction is kept (checked
@@ -6756,17 +7475,41 @@ function sondePredict(s) {
     if (dt >= 1 && dt <= 120) vs.push((P[i][2] - P[i - 1][2]) / dt);
   }
   const vNow = vs.length ? vs.reduce((x, y) => x + y, 0) / vs.length : s.vv || 0;
-  const vSd = vs.length > 1 ? Math.sqrt(vs.reduce((x, y) => x + (y - vNow) ** 2, 0) / (vs.length - 1)) : 0;
   const rising = vNow > -1 && !s.burst;
   let up = 5;
   if (rising && recent.length > 1) up = (recent[recent.length - 1][2] - recent[0][2]) / Math.max(1, recent[recent.length - 1][3] - recent[0][3]);
   else if (top[3] > P[0][3]) up = (top[2] - P[0][2]) / (top[3] - P[0][3]);
   if (!(up > 1.5 && up < 12)) up = 5;
-  // falling: the measured descent rate taken back to sea level by the air density, so the parachute slows down as the
-  // air gets thicker; 5 m/s at sea level only while the sonde is still rising
-  let fall0 = SONDE_FALL0, fallErr = 0.25;
-  if (!rising && vNow < -0.5) { fall0 = -vNow * Math.sqrt(sondeRhoRatio(last[2])); fallErr = Math.max(0.15, vSd / -vNow); }
-  if (!(fall0 > 1 && fall0 < 60)) { fall0 = SONDE_FALL0; fallErr = 0.25; }
+  // falling: v = v0 · ρ^−a. Least squares of ln v on ln ρ over the fall heard (below the first 1500 m after the top),
+  // pulled towards the prior (worth 8 samples, the exponent 3× more); then v0 so that it gives the rate of the last
+  // 30 s. Without such samples (rising, or just after the burst) the prior.
+  let fallA = SONDE_FALL_A, fallV0 = SONDE_FALL_V0, fallErr = 0.3;
+  if (!rising) {
+    const sm = [];
+    for (let i = iTop + 1; i < P.length; i++) {
+      const dt = P[i][3] - P[i - 1][3], h = (P[i][2] + P[i - 1][2]) / 2, v = (P[i - 1][2] - P[i][2]) / dt;
+      if (dt >= 1 && dt <= 120 && h < top[2] - 1500 && v > 0.5 && v < 200) sm.push([Math.log(sondeRhoRatio(h)), Math.log(v), P[i][3], h, v]);
+    }
+    if (sm.length >= 3) {
+      const W = 8, wa = W * 9, la = Math.log(SONDE_FALL_V0);
+      // unknowns c (= ln v0) and a: rows [1, −x] · [c, a] = y, plus the prior rows
+      let s11 = W, s12 = 0, s22 = wa, b1 = W * la, b2 = wa * SONDE_FALL_A;
+      for (const [x, y] of sm) { s11 += 1; s12 -= x; s22 += x * x; b1 += y; b2 -= x * y; }
+      const det = s11 * s22 - s12 * s12;
+      if (det > 0) {
+        fallA = Math.min(0.6, Math.max(0.05, (s11 * b2 - s12 * b1) / det));
+        const c = (b1 - s12 * fallA) / s11, res = sm.map(([x, y]) => y - c + fallA * x);
+        fallV0 = Math.exp(c);
+        const rec = sm.filter((q) => q[2] > t1 - 30);
+        if (rec.length) {
+          const vm = rec.reduce((a, q) => a + q[4], 0) / rec.length, hm = rec.reduce((a, q) => a + q[3], 0) / rec.length;
+          fallV0 = vm * Math.pow(sondeRhoRatio(hm), fallA);
+        }
+        fallErr = Math.max(0.12, Math.sqrt(res.reduce((a, r) => a + r * r, 0) / res.length) / Math.sqrt(Math.min(sm.length, 30) / 5));
+      }
+    }
+  }
+  if (!(fallV0 > 1 && fallV0 < 80)) { fallV0 = SONDE_FALL_V0; fallA = SONDE_FALL_A; fallErr = 0.3; }
   const burst = s.burst || !rising ? top[2] : Math.max(SONDE_BURST, last[2] + 500);
   // launch: back from the first point heard at the ascent rate (from the ground)
   const launch = P[0][3] - Math.max(0, P[0][2] - SONDE_GROUND) / up;
@@ -6776,13 +7519,13 @@ function sondePredict(s) {
     const path = [[lat, lon]], marks = [];
     let next = Math.max(1, Math.ceil((t - launch) / 3600 + 1e-6));
     for (let n = 0; n < (6 * 3600) / DT; n++) {
-      const [ve, vn] = windAt(h, prm.jit);
+      const [ve, vn] = windAt(h, prm.jit, lat, lon, t);
       lat += (vn * DT) / R;
       lon += (ve * DT) / (R * Math.cos((lat * Math.PI) / 180));
       if (goingUp) {
         h += prm.up * DT;
         if (h >= prm.burst) { h = prm.burst; goingUp = false; if (keep) marks.push({ lat, lon, t: t + DT, h, burst: true }); }
-      } else h -= (prm.fall0 / Math.sqrt(sondeRhoRatio(h))) * DT;
+      } else h -= prm.v0 * Math.pow(sondeRhoRatio(h), -prm.a) * DT;
       t += DT;
       if (keep && n % 3 === 0) path.push([lat, lon]);
       if (h <= prm.ground) { path.push([lat, lon]); return { path, marks, land: { lat, lon, t } }; }
@@ -6790,9 +7533,11 @@ function sondePredict(s) {
     }
     return null;
   };
-  const res = fly({ up, burst, fall0, ground: SONDE_GROUND }, 10, true);
+  const res = fly({ up, burst, v0: fallV0, a: fallA, ground: SONDE_GROUND }, 10, true);
   if (res) {
     res.launch = launch;
+    res.model = modelUsed;
+    if (!s.from_log) sondeWindNeed([[last[0], last[1]], ...res.path]);   // the cells it goes through: GFS wind
     const g = sondeRandom(Math.floor(t1) ^ P.length), ds = [], ts = [];
     const cosL = Math.cos((res.land.lat * Math.PI) / 180);
     for (let i = 0; i < SONDE_MC; i++) {
@@ -6801,7 +7546,8 @@ function sondePredict(s) {
       const r = fly({
         up: up * (1 + 0.1 * g()),
         burst: rising && !s.burst ? Math.max(last[2] + 200, burst + 3000 * g()) : burst,
-        fall0: fall0 * Math.max(0.3, 1 + fallErr * g()),
+        v0: fallV0 * Math.max(0.3, 1 + fallErr * g()),
+        a: Math.min(0.6, Math.max(0.05, fallA + 0.06 * g())),
         ground: Math.max(0, SONDE_GROUND + 250 * g()),
         jit,
       }, 20, false);
@@ -6834,17 +7580,18 @@ function sondeDrawPrediction(s, layer) {
     L.circle([p.land.lat, p.land.lon], { radius: p.radius, color: c, weight: 1.5, opacity: 0.7, dashArray: "3 5", fillColor: c, fillOpacity: 0.08, interactive: false }).addTo(layer);
   const span = p.tSpan ? ` (${aisUtc(p.tSpan[0]).slice(0, 5)}–${aisUtc(p.tSpan[1]).slice(0, 5)})` : "";
   L.marker([p.land.lat, p.land.lon], { icon: L.divIcon({ className: "sonde-land", html: "✕", iconSize: [16, 16], iconAnchor: [8, 8] }) })
-    .bindTooltip(`landing ≈ ${aisUtc(p.land.t)} UTC${span}${p.radius ? ` ± ${km(p.radius)}` : ""}`, lbl())
+    .bindTooltip(`landing ≈ ${aisUtc(p.land.t)} UTC${span}${p.radius ? ` ± ${km(p.radius)}` : ""}${p.model ? " · GFS wind" : " · own winds only"}`, lbl())
     .addTo(layer);
 }
 
 // ----- SONDE PROFILE: temperature and humidity against altitude, one sonde; altitude is the vertical axis (tall plot),
 // two panels side by side share it (no second x scale in one panel). Pressure is not measured by the RS41-SG: the right
 // edge labels the altitude axis with the pressure of the standard atmosphere (ISA), only as an orientation.
-const SONDE_PROF_C = { temp: "#ff8c1a", rh: "#4fb6ff" };
+// profile: temperature, humidity and wind speed on one axis, the wind direction in the second panel
+const SONDE_PROF_C = { temp: "#ff8c1a", rh: "#4fb6ff", ws: "#ff6fae", wd: "#c9a4ff" };
+const SONDE_ALT_C = "#7fd88a";   // altitude / time chart under the profile
 const isaHpa = (h) => (h < 11000 ? 1013.25 * Math.pow(1 - 2.25577e-5 * h, 5.25588) : 226.32 * Math.exp(-(h - 11000) / 6341.6));
-const isaAlt = (p) => (p > 226.32 ? (1 - Math.pow(p / 1013.25, 1 / 5.25588)) / 2.25577e-5 : 11000 - 6341.6 * Math.log(p / 226.32));
-let sondeProfGeom = null, sondeLogList = [];
+let sondeProfGeom = null, sondeAltGeom = null, sondeLogList = [];
 const SONDE_PROF_TOP = 41000;   // m: fixed top of the altitude axis (highest sondes burst at 35-40 km)
 
 function sondeNiceStep(span, n) {
@@ -6852,23 +7599,20 @@ function sondeNiceStep(span, n) {
   return [1, 2, 5, 10].map((k) => k * m).find((s) => s >= raw);
 }
 
-/** Sonde whose profile is shown (orange on the map): the chosen one, else the one decoded on the tuned frequency
- *  (newest heard there), else the newest with a temperature. */
+/** Sonde whose charts are shown (orange on the map): only the one chosen by hand (a click on the map, the list above
+ *  the charts, the table); no automatic choice, so the charts do not jump to another sonde by themselves. */
 function sondeShown() {
-  if (sondeSel && sondes.has(sondeSel)) return sondes.get(sondeSel);
-  const all = sondeList(), live = all.filter((s) => !s.from_log), hz = st && st.tune_hz;
-  return (hz && live.find((s) => s.freq_hz && Math.abs(s.freq_hz - hz) <= 15000)) || live.find((s) => s.pts.some((q) => q[4] != null)) ||
-    all.find((s) => s.pts.some((q) => q[4] != null)) || all[0] || null;
+  return sondeSel && sondes.has(sondeSel) ? sondes.get(sondeSel) : null;
 }
 
-/** The list above the profile: Auto, the heard sondes, the flights in the log (not rebuilt while it is open). */
+/** The list above the profile: none, the heard sondes, the flights in the log (not rebuilt while it is open). */
 function renderSondeProfSel(list, shown) {
   const sel = $("sondeProfSel");
   if (document.activeElement === sel) return;
   const opt = (s) => `<option value="${escHtml(s.serial)}"${s.serial === sondeSel ? " selected" : ""}>${escHtml(s.serial)} · ${escHtml(s.type || "")}` +
     `${s.alt != null ? ` · ${sondeAlt(s.alt)} m` : ""}${s.freq_hz ? ` · ${fmtMHz(s.freq_hz, 3)}` : ""}${s.from_log ? " · log" : ` · ${aisAge(s.last)}`}</option>`;
   const logged = sondeLogList.filter((l) => !sondes.has(l.serial));
-  const html = `<option value=""${sondeSel ? "" : " selected"}>Auto${shown && !sondeSel ? `: ${escHtml(shown.serial)}` : ""} (tuned frequency)</option>` +
+  const html = `<option value=""${shown ? "" : " selected"}>— choose a sonde (or click it on the map) —</option>` +
     (list.length ? `<optgroup label="Heard">${list.map(opt).join("")}</optgroup>` : "") +
     (logged.length ? `<optgroup label="Log (data\logs\radiosonde)">${logged.map((l) =>
       `<option value="log:${escHtml(l.file)}">${escHtml(l.serial)} · ${escHtml(l.type || "")}${l.alt != null ? ` · ${sondeAlt(l.alt)} m` : ""} · ${new Date(l.first * 1000).toISOString().slice(0, 16).replace("T", " ")} UTC</option>`).join("")}</optgroup>` : "");
@@ -6880,64 +7624,204 @@ function renderSondeProfile() {
   const box = $("sondeProf");
   const s = sondeShown();
   renderSondeProfSel(list, s);
-  const pts = s ? s.pts.filter((q) => q[4] != null) : [];
+  // every point with a position: temperature and humidity where the sonde measures them, the wind from the positions
+  const pts = s ? s.pts.filter((q) => q[2] != null && q[3] != null) : [];
+  // both charts in the height of the panel (no scrolling): the altitude / time chart about a third, the profile the rest
+  const hBox = box.clientHeight || 640, altH = Math.round(Math.min(220, Math.max(90, hBox * 0.3)));
+  const alt = s ? sondeAltChart(s, Math.max(320, Math.min(560, box.clientWidth || 520)), altH) : "";
   if (pts.length < 2) {
-    box.innerHTML = `<div class="ft8-empty">${!s ? "Temperature and humidity profile of the sonde chosen in the list above or on the map (also a flight from the log)." :
-      s.type !== "RS41" ? `No temperature from a ${escHtml(s.type)} sonde.` :
-      `No temperature yet${s.cal_n != null ? ` (calibration ${s.cal_n}/51)` : ""}. The profile grows every 2 s of the flight while the sonde is heard.`}</div>`;
+    box.innerHTML = `<div class="ft8-empty">${!s ? "Choose a sonde in the list above or click it on the map (also a flight from the log): its temperature, humidity and wind against the altitude, and its altitude in time." :
+      "No positions yet: the profile grows every 2 s of the flight while the sonde is heard."}</div>` +
+      alt + `<div class="sonde-prof-tip" hidden></div>`;
     $("sondeProfNote").textContent = s ? s.serial : "";
     sondeProfGeom = null;
     return;
   }
   // ascent up to the highest point, descent after it (fainter)
   const top = pts.reduce((a, q, i) => (q[2] > pts[a][2] ? i : a), 0);
-  const W = Math.max(320, Math.min(560, box.clientWidth || 520)), H = Math.max(260, (box.clientHeight || 640) - 2);
-  const L = 54, R = 52, T = 26, B = 34, gap = 30, pw = (W - L - R - gap) / 2;
+  const W = Math.max(320, Math.min(560, box.clientWidth || 520)), H = Math.max(120, hBox - (alt ? altH + 8 : 0) - 2);
+  const L = 54, R = 12, T = 26, B = 34, gap = 22, avail = W - L - R - gap, pw1 = Math.round(avail * 0.62), pw2 = avail - pw1;
   const alts = pts.map((q) => q[2]);
   const aMin = 0, aMax = Math.max(SONDE_PROF_TOP, Math.ceil(Math.max(...alts) / 1000) * 1000);
   const ty = (a) => T + (H - T - B) * (1 - (a - aMin) / (aMax - aMin));
-  const ts = pts.map((q) => q[4]), tLo = Math.floor((Math.min(...ts) - 3) / 10) * 10, tHi = Math.ceil((Math.max(...ts) + 3) / 10) * 10;
-  const panels = [
-    { key: "temp", i: 4, lo: tLo, hi: tHi, x0: L, title: "Temperature °C" },
-    { key: "rh", i: 5, lo: 0, hi: 100, x0: L + pw + gap, title: "Humidity %" },
+  // the wind = the horizontal motion of the sonde (it drifts with the air), from the point about 30 s before
+  const wind = sondeWinds(pts);
+  const ser = [
+    { key: "temp", name: "temp °C", v: pts.map((q) => q[4] ?? null), p: 0 },
+    { key: "rh", name: "RH %", v: pts.map((q) => q[5] ?? null), p: 0 },
+    { key: "ws", name: "wind m/s", v: wind.map((w) => (w ? w.spd : null)), p: 0 },
+    { key: "wd", name: "wind from °", v: wind.map((w) => (w ? w.from : null)), p: 1, wrap: true },
   ];
-  for (const p of panels) p.tx = (v) => p.x0 + pw * (v - p.lo) / (p.hi - p.lo);
+  const num = (k) => ser.find((x) => x.key === k).v.filter((v) => v != null);
+  const ts = num("temp"), ws = num("ws");
+  const lo = ts.length ? Math.min(0, Math.floor((Math.min(...ts) - 3) / 10) * 10) : 0;
+  const hi = Math.max(100, Math.ceil((Math.max(...ts, ...ws, 0) + 3) / 10) * 10);
+  const panels = [{ x0: L, w: pw1, lo, hi }, { x0: L + pw1 + gap, w: pw2, lo: 0, hi: 360 }];
+  for (const p of panels) p.tx = (v) => p.x0 + p.w * (v - p.lo) / (p.hi - p.lo);
+  for (const x of ser) x.tx = panels[x.p].tx;
   let svg = "";
   const aStep = sondeNiceStep(aMax - aMin, H > 420 ? 9 : 5);
   for (let a = Math.ceil(aMin / aStep) * aStep; a <= aMax; a += aStep) {
     const y = ty(a).toFixed(1);
     svg += `<line class="g" x1="${L}" x2="${W - R}" y1="${y}" y2="${y}"/><text class="ax" x="${L - 6}" y="${y}" dy="4" text-anchor="end">${a >= 1000 ? `${a / 1000} km` : `${a} m`}</text>`;
   }
-  for (const hpa of [1000, 850, 700, 500, 300, 200, 100, 50, 30, 20, 10, 5, 3]) {
-    const a = isaAlt(hpa);
-    if (a < aMin || a > aMax) continue;
-    const y = ty(a).toFixed(1);
-    svg += `<line class="tk" x1="${W - R}" x2="${W - R + 4}" y1="${y}" y2="${y}"/><text class="ax" x="${W - R + 7}" y="${y}" dy="4">${hpa}</text>`;
+  // panel 1: one axis for °C, % and m/s (like a sounding chart); panel 2: the direction the wind blows from
+  const p1 = panels[0], p2 = panels[1], step = sondeNiceStep(hi - lo, pw1 > 260 ? 7 : 5);
+  for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) {
+    const x = p1.tx(v).toFixed(1);
+    svg += `<line class="g" x1="${x}" x2="${x}" y1="${T}" y2="${H - B}"/><text class="ax" x="${x}" y="${H - B + 16}" text-anchor="middle">${Math.round(v)}</text>`;
   }
-  svg += `<text class="ax" x="${W - R + 7}" y="${T - 10}">hPa*</text>`;
-  for (const p of panels) {
-    const step = p.key === "rh" ? 20 : sondeNiceStep(p.hi - p.lo, 5);
-    for (let v = Math.ceil(p.lo / step) * step; v <= p.hi + 1e-9; v += step) {
-      const x = p.tx(v).toFixed(1);
-      svg += `<line class="g" x1="${x}" x2="${x}" y1="${T}" y2="${H - B}"/><text class="ax" x="${x}" y="${H - B + 16}" text-anchor="middle">${Math.round(v)}</text>`;
+  if (lo < 0) svg += `<line class="zero" x1="${p1.tx(0)}" x2="${p1.tx(0)}" y1="${T}" y2="${H - B}"/>`;
+  for (const [v, n] of [[0, "N"], [90, "E"], [180, "S"], [270, "W"], [360, "N"]]) {
+    const x = p2.tx(v).toFixed(1);
+    svg += `<line class="g" x1="${x}" x2="${x}" y1="${T}" y2="${H - B}"/><text class="ax" x="${x}" y="${H - B + 16}" text-anchor="middle">${n}</text>`;
+  }
+  for (const p of panels) svg += `<rect class="frame" x="${p.x0}" y="${T}" width="${p.w}" height="${H - T - B}"/>`;
+  const leg = (k, t) => `<tspan fill="${SONDE_PROF_C[k]}">${t}</tspan>`;
+  svg += `<text class="ttl" x="${p1.x0 + p1.w / 2}" y="${T - 10}" text-anchor="middle">${leg("temp", "°C")} · ${leg("rh", "RH %")} · ${leg("ws", "wind m/s")}</text>` +
+    `<text class="ttl" x="${p2.x0 + p2.w / 2}" y="${T - 10}" text-anchor="middle">${leg("wd", "wind from")}</text>` +
+    `<text class="ax" x="${p1.x0 + p1.w / 2}" y="${H - 3}" text-anchor="middle">°C · % · m/s</text>` +
+    `<text class="ax" x="${p2.x0 + p2.w / 2}" y="${H - 3}" text-anchor="middle">°</text>`;
+  // the lines: broken where a value is missing, the direction also where it wraps over north
+  const path = (x, a, b) => {
+    let d = "", prev = null;
+    for (let k = a; k < b; k++) {
+      const v = x.v[k];
+      if (v == null) { prev = null; continue; }
+      d += `${prev == null || (x.wrap && Math.abs(v - prev) > 180) ? "M" : "L"}${x.tx(v).toFixed(1)},${ty(pts[k][2]).toFixed(1)}`;
+      prev = v;
     }
-    if (p.key === "temp" && p.lo < 0 && p.hi > 0) svg += `<line class="zero" x1="${p.tx(0)}" x2="${p.tx(0)}" y1="${T}" y2="${H - B}"/>`;
-    svg += `<rect class="frame" x="${p.x0}" y="${T}" width="${pw}" height="${H - T - B}"/>`;
-    svg += `<text class="ttl" x="${p.x0 + pw / 2}" y="${T - 10}" text-anchor="middle">${p.title}</text>`;
-    const path = (a, b) => pts.slice(a, b).filter((q) => q[p.i] != null)
-      .map((q, k) => `${k ? "L" : "M"}${p.tx(q[p.i]).toFixed(1)},${ty(q[2]).toFixed(1)}`).join("");
-    svg += `<path class="ln" d="${path(0, top + 1)}" stroke="${SONDE_PROF_C[p.key]}"/>`;
-    if (top < pts.length - 1) svg += `<path class="ln down" d="${path(top, pts.length)}" stroke="${SONDE_PROF_C[p.key]}"/>`;
-    const q = pts[pts.length - 1];
-    if (q[p.i] != null) svg += `<circle class="dot" cx="${p.tx(q[p.i]).toFixed(1)}" cy="${ty(q[2]).toFixed(1)}" r="4" fill="${SONDE_PROF_C[p.key]}"/>`;
+    return d;
+  };
+  for (const x of ser) {
+    const w = x.key === "ws" || x.key === "wd" ? " wind" : "";
+    svg += `<path class="ln${w}" d="${path(x, 0, top + 1)}" stroke="${SONDE_PROF_C[x.key]}"/>`;
+    if (top < pts.length - 1) svg += `<path class="ln down${w}" d="${path(x, top, pts.length)}" stroke="${SONDE_PROF_C[x.key]}"/>`;
+    const k = x.v.findLastIndex((v) => v != null);
+    if (k >= 0) svg += `<circle class="dot" cx="${x.tx(x.v[k]).toFixed(1)}" cy="${ty(pts[k][2]).toFixed(1)}" r="3.5" fill="${SONDE_PROF_C[x.key]}"/>`;
   }
-  svg += `<g id="sondeProfHover" visibility="hidden"><line class="hv" x1="${L}" x2="${W - R}"/><circle r="4" class="hd" data-k="temp"/><circle r="4" class="hd" data-k="rh"/></g>`;
-  box.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Temperature and humidity against altitude of ${escHtml(s.serial)}">${svg}</svg><div class="sonde-prof-tip" hidden></div>`;
-  sondeProfGeom = { pts, panels, ty, L, R, T, B, W, H };
-  const tmin = pts.reduce((a, q) => (q[4] < a[4] ? q : a));
-  $("sondeProfNote").textContent = `${s.serial} · ${pts.length} points · ${sondeAlt(Math.min(...alts))}–${sondeAlt(Math.max(...alts))} m · coldest ${tmin[4].toFixed(1)} °C at ${sondeAlt(tmin[2])} m` +
-    (top < pts.length - 1 ? " · fainter line = descent after the burst" : "") + " · *hPa: standard atmosphere for the altitude, not measured";
-  $("sondeProfNote").title = $("sondeProfNote").textContent;
+  svg += `<g id="sondeProfHover" visibility="hidden"><line class="hv" x1="${L}" x2="${W - R}"/>` +
+    ser.map((x) => `<circle r="4" class="hd" data-k="${x.key}" fill="${SONDE_PROF_C[x.key]}"/>`).join("") + "</g>";
+  box.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Temperature, humidity and wind against altitude of ${escHtml(s.serial)}">${svg}</svg>${alt}<div class="sonde-prof-tip" hidden></div>`;
+  sondeProfGeom = { pts, ser, ty, L, R, T, B, W, H };
+  const tq = pts.filter((q) => q[4] != null), tmin = tq.length ? tq.reduce((a, q) => (q[4] < a[4] ? q : a)) : null;
+  const wk = ws.length ? wind.reduce((a, w, i) => (w && (a < 0 || w.spd > wind[a].spd) ? i : a), -1) : -1;
+  $("sondeProfNote").textContent = `${s.serial} · ${pts.length} points · ${sondeAlt(Math.min(...alts))}–${sondeAlt(Math.max(...alts))} m` +
+    (tmin ? ` · coldest ${tmin[4].toFixed(1)} °C at ${sondeAlt(tmin[2])} m` : s.type !== "RS41" ? ` · no temperature from a ${s.type} sonde` : " · no temperature yet") +
+    (wk >= 0 ? ` · strongest wind ${wind[wk].spd.toFixed(0)} m/s at ${sondeAlt(pts[wk][2])} m` : "") +
+    (top < pts.length - 1 ? " · fainter = descent" : "");
+  $("sondeProfNote").title = $("sondeProfNote").textContent + (top < pts.length - 1 ? " after the burst" : "") +
+    "\nWind = the drift of the sonde from its GPS positions (over 30 s); wind from = where it blows from, as in meteorology.";
+}
+
+/** Wind at each point from the drift of the sonde: speed (m/s) and the direction it blows FROM (degrees, as in
+ *  meteorology; the sonde moves the other way), from the point about 30 s before; null before that. The direction is
+ *  null while the sonde moved less than 30 m (on the ground, a calm). */
+function sondeWinds(pts) {
+  const out = new Array(pts.length).fill(null), rad = Math.PI / 180;
+  let j = 0;
+  for (let i = 0; i < pts.length; i++) {
+    while (j < i && pts[i][3] - pts[j + 1][3] >= 30) j++;
+    const a = pts[j], b = pts[i], dt = b[3] - a[3];
+    if (i === j || dt < 10) continue;
+    const dy = (b[0] - a[0]) * 111320, dx = (b[1] - a[1]) * 111320 * Math.cos(b[0] * rad), d = Math.hypot(dx, dy);
+    out[i] = { spd: d / dt, from: d < 30 ? null : (Math.atan2(dx, dy) / rad + 180) % 360 };
+  }
+  return out;
+}
+
+/** Altitude against time (UTC) of a sonde, under the profile: ascent, burst, descent (fainter); from all its points,
+ *  so also for sondes without temperature. "" with fewer than 2 points. */
+function sondeAltChart(s, W, H = 240) {
+  const pts = s.pts.filter((q) => q[2] != null && q[3] != null);
+  sondeAltGeom = null;
+  if (pts.length < 2) return "";
+  const L = 54, R = 12, T = 26, B = 34;
+  const t0 = pts[0][3], t1 = Math.max(pts[pts.length - 1][3], t0 + 60);
+  const aMax = Math.max(1000, Math.ceil(Math.max(...pts.map((q) => q[2])) / 1000) * 1000);
+  const tx = (t) => L + (W - L - R) * (t - t0) / (t1 - t0), ty = (a) => T + (H - T - B) * (1 - a / aMax);
+  const top = pts.reduce((a, q, i) => (q[2] > pts[a][2] ? i : a), 0), qt = pts[top];
+  const hm = (t) => new Date(t * 1000).toISOString().slice(11, 16);
+  let svg = "";
+  const aStep = sondeNiceStep(aMax, H - T - B < 90 ? 3 : 5);
+  for (let a = 0; a <= aMax; a += aStep) {
+    const y = ty(a).toFixed(1);
+    svg += `<line class="g" x1="${L}" x2="${W - R}" y1="${y}" y2="${y}"/><text class="ax" x="${L - 6}" y="${y}" dy="4" text-anchor="end">${a >= 1000 ? `${a / 1000} km` : `${a} m`}</text>`;
+  }
+  const tStep = [60, 120, 300, 600, 900, 1800, 3600, 7200, 14400].find((d) => (t1 - t0) / d <= 6) || 28800;
+  for (let t = Math.ceil(t0 / tStep) * tStep; t <= t1; t += tStep) {
+    const x = tx(t).toFixed(1);
+    svg += `<line class="g" x1="${x}" x2="${x}" y1="${T}" y2="${H - B}"/><text class="ax" x="${x}" y="${H - B + 16}" text-anchor="middle">${hm(t)}</text>`;
+  }
+  svg += `<rect class="frame" x="${L}" y="${T}" width="${W - L - R}" height="${H - T - B}"/>`;
+  // average climb up to the top (or now), the newest climb / fall (last 30 s)
+  const up = qt[3] > t0 ? (qt[2] - pts[0][2]) / (qt[3] - t0) : null, last = pts[pts.length - 1];
+  const k = pts.findIndex((q) => q[3] >= last[3] - 30), vNow = last[3] > pts[k][3] ? (last[2] - pts[k][2]) / (last[3] - pts[k][3]) : null;
+  const tf = top < pts.length - 1 && last[3] > qt[3] ? (last[2] - qt[2]) / (last[3] - qt[3]) : null;
+  svg += `<text class="ttl" x="${L}" y="${T - 10}">Ascent / descent · UTC</text>` +
+    `<text class="ax" x="${W - R}" y="${T - 10}" text-anchor="end">${up != null && up > 0 ? `up ⌀ ${up.toFixed(1)} m/s` : ""}` +
+    `${tf != null ? ` · down ⌀ ${Math.abs(tf).toFixed(1)} m/s` : ""}${vNow != null ? ` · now ${vNow >= 0 ? "+" : "−"}${Math.abs(vNow).toFixed(1)} m/s` : ""}</text>`;
+  const path = (a, b) => pts.slice(a, b).map((q, i) => `${i ? "L" : "M"}${tx(q[3]).toFixed(1)},${ty(q[2]).toFixed(1)}`).join("");
+  svg += `<path class="ln" d="${path(0, top + 1)}" stroke="${SONDE_ALT_C}"/>`;
+  if (top < pts.length - 1) {
+    svg += `<path class="ln down" d="${path(top, pts.length)}" stroke="${SONDE_ALT_C}"/>` +
+      `<circle class="dot" cx="${tx(qt[3]).toFixed(1)}" cy="${ty(qt[2]).toFixed(1)}" r="4" fill="#ff5a4f"/>` +
+      `<text class="ax burst" x="${Math.min(Math.max(tx(qt[3]), L + 70), W - R - 70).toFixed(1)}" y="${Math.max(ty(qt[2]) - 9, T + 12).toFixed(1)}" text-anchor="middle">top ${sondeAlt(qt[2])} m · ${hm(qt[3])}</text>`;
+  }
+  svg += `<circle class="dot" cx="${tx(last[3]).toFixed(1)}" cy="${ty(last[2]).toFixed(1)}" r="4" fill="${SONDE_ALT_C}"/>`;
+  svg += `<g class="alt-hover" visibility="hidden"><line class="hv"/><circle r="4" class="hd" fill="${SONDE_ALT_C}"/></g>`;
+  sondeAltGeom = { pts, tx, ty, L, R, T, B, W, H };
+  return `<svg class="sonde-alt" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Altitude against time of ${escHtml(s.serial)}">${svg}</svg>`;
+}
+
+// ----- SONDE map HISTORY: OFF / 1D / 7D = the flights of all VFOs from the radiosonde log of the last day / week
+// (/api/sonde/history), thin blue paths with the last point; a click on it opens the flight like a logged one.
+// A sonde heard now is drawn only as itself. The choice is remembered in this browser; the list is read again every 5 min.
+let sondeHist = [], sondeHistDays = [1, 7].includes(Number(recall("sondeHist"))) ? Number(recall("sondeHist")) : 0,
+  sondeHistLayer = null, sondeHistAt = 0, sondeHistKey = "";
+const SONDE_HIST_C = "#8fb4ff";
+function sondeHistInit() {
+  sondeHistLayer = L.layerGroup().addTo(sondeMap);
+  sondeHistKey = "";
+  sondeHistDraw();
+}
+async function sondeHistSet(days) {
+  sondeHistDays = days;
+  store("sondeHist", String(days));
+  document.querySelectorAll(".sonde-hist [data-days]").forEach((b) => b.classList.toggle("on", Number(b.dataset.days) === days));
+  sondeHist = [];
+  if (days) {
+    try { sondeHist = await fetch(vbase + `/api/sonde/history?days=${days}`).then((r) => r.json()); } catch { sondeHist = []; }
+  }
+  sondeHistAt = Date.now();
+  sondeHistKey = "";
+  sondeHistDraw();
+  if (sondeView === "sondes") renderSondeTable();
+}
+$("sondeHistRow").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-days]");
+  if (b) sondeHistSet(Number(b.dataset.days));
+});
+function sondeHistDraw() {
+  if (!sondeHistLayer) return;
+  if (sondeHistDays && Date.now() - sondeHistAt > 300000) { sondeHistSet(sondeHistDays); return; }
+  const live = new Set(sondeList().map((s) => s.serial));
+  const key = [...live].sort().join(",") + "|" + sondeHist.length + "|" + sondeHistAt;
+  if (key === sondeHistKey) return;   // redrawn only when the list or the sondes heard now change
+  sondeHistKey = key;
+  sondeHistLayer.clearLayers();
+  const day = (t) => new Date(t * 1000).toISOString().slice(0, 16).replace("T", " ");
+  for (const h of sondeHist) {
+    if (live.has(h.serial) || !h.pts.length) continue;
+    const tip = `${escHtml(h.serial)} · ${escHtml(h.type)}${h.freq_hz ? ` · ${(h.freq_hz / 1e6).toFixed(3)} MHz` : ""}<br>` +
+      `${day(h.first)} – ${day(h.last).slice(11)} UTC · max ${sondeAlt(h.max_alt)} m${h.burst ? " · burst" : ""}<br>last ${sondeAlt(h.alt)} m · click = open`;
+    if (h.pts.length > 1) {
+      L.polyline(h.pts.map((q) => [q[0], q[1]]), { color: SONDE_HIST_C, weight: 1.5, opacity: 0.55 })
+        .bindTooltip(tip, { sticky: true }).on("click", () => sondeLogOpen(h.file)).addTo(sondeHistLayer);
+    }
+    L.circleMarker([h.lat, h.lon], { radius: 4, color: SONDE_HIST_C, weight: 1.5, fillColor: SONDE_HIST_C, fillOpacity: 0.5 })
+      .bindTooltip(tip).on("click", () => sondeLogOpen(h.file)).addTo(sondeHistLayer);
+  }
 }
 
 async function sondeLogsLoad() {
@@ -6957,38 +7841,67 @@ async function sondeLogOpen(file) {
 new ResizeObserver(() => { if (sondeView === "map" && !$("sondeMapBox").hidden) renderSondeProfile(); }).observe($("sondeProf"));
 
 $("sondeProf").addEventListener("mousemove", (e) => {
-  const g = sondeProfGeom, svg = $("sondeProf").querySelector("svg");
+  const asvg = e.target.closest && e.target.closest(".sonde-alt");
+  if (asvg) { sondeAltHover(e, asvg); return; }
+  const ah = $("sondeProf").querySelector(".alt-hover");
+  if (ah) ah.setAttribute("visibility", "hidden");
+  const g = sondeProfGeom, svg = $("sondeProf").querySelector("svg:not(.sonde-alt)");
   if (!g || !svg) return;
   const r = svg.getBoundingClientRect(), y = (e.clientY - r.top) * g.H / r.height;
   const hov = svg.querySelector("#sondeProfHover"), tip = $("sondeProf").querySelector(".sonde-prof-tip");
   if (y < g.T || y > g.H - g.B) { hov.setAttribute("visibility", "hidden"); tip.hidden = true; return; }
-  const q = g.pts.reduce((a, p) => (Math.abs(g.ty(p[2]) - y) < Math.abs(g.ty(a[2]) - y) ? p : a));
+  const i = g.pts.reduce((a, p, k) => (Math.abs(g.ty(p[2]) - y) < Math.abs(g.ty(g.pts[a][2]) - y) ? k : a), 0), q = g.pts[i];
   const yy = g.ty(q[2]), ln = hov.querySelector("line");
   hov.setAttribute("visibility", "visible");
   ln.setAttribute("y1", yy);
   ln.setAttribute("y2", yy);
-  for (const p of g.panels) {
-    const c = hov.querySelector(`[data-k="${p.key}"]`);
-    if (q[p.i] == null) { c.setAttribute("visibility", "hidden"); continue; }
-    c.setAttribute("visibility", "visible");
-    c.setAttribute("cx", p.tx(q[p.i]));
-    c.setAttribute("cy", yy);
-    c.setAttribute("fill", SONDE_PROF_C[p.key]);
+  const val = {};
+  for (const x of g.ser) {
+    const c = hov.querySelector(`[data-k="${x.key}"]`), v = x.v[i];
+    val[x.key] = v;
+    c.setAttribute("visibility", v == null ? "hidden" : "inherit");
+    if (v != null) { c.setAttribute("cx", x.tx(v)); c.setAttribute("cy", yy); }
   }
+  const col = (k, t) => `<span style="color:${SONDE_PROF_C[k]}">${t}</span>`;
+  const parts = [val.temp != null ? col("temp", `${val.temp.toFixed(1)} °C`) : "", val.rh != null ? col("rh", `RH ${Math.round(val.rh)} %`) : ""].filter(Boolean);
   tip.hidden = false;
-  tip.innerHTML = `<b>${sondeAlt(q[2])} m</b> · ${aisUtc(q[3])} UTC<br>${q[4].toFixed(1)} °C${q[5] != null ? ` · RH ${Math.round(q[5])} %` : ""}` +
-    `<br><span class="muted">≈ ${Math.round(isaHpa(q[2]))} hPa (standard atmosphere)</span>`;
-  tip.style.top = `${Math.min(yy * r.height / g.H + 8, r.height - 60)}px`;
+  tip.innerHTML = `<b>${sondeAlt(q[2])} m</b> · ${aisUtc(q[3])} UTC` + (parts.length ? `<br>${parts.join(" · ")}` : "") +
+    (val.ws != null ? `<br>${col("ws", `wind ${val.ws.toFixed(1)} m/s (${(val.ws * 3.6).toFixed(0)} km/h)`)}` +
+      (val.wd != null ? ` ${col("wd", `from ${Math.round(val.wd)}° ${["N", "NE", "E", "SE", "S", "SW", "W", "NW"][Math.round(val.wd / 45) % 8]}`)}` : "") : "");
+  tip.style.top = `${Math.min(yy * r.height / g.H + 8, r.height - 80)}px`;
   tip.style.left = `${(g.L + 8) * r.width / g.W}px`;
 });
+/** Hover on the altitude / time chart: the nearest point in time, its altitude and climb. */
+function sondeAltHover(e, svg) {
+  const g = sondeAltGeom, box = $("sondeProf"), tip = box.querySelector(".sonde-prof-tip"), hov = svg.querySelector(".alt-hover");
+  const ph = box.querySelector("#sondeProfHover");
+  if (ph) ph.setAttribute("visibility", "hidden");
+  if (!g || !tip || !hov) return;
+  const r = svg.getBoundingClientRect(), x = (e.clientX - r.left) * g.W / r.width;
+  if (x < g.L || x > g.W - g.R) { hov.setAttribute("visibility", "hidden"); tip.hidden = true; return; }
+  const i = g.pts.reduce((a, q, j) => (Math.abs(g.tx(q[3]) - x) < Math.abs(g.tx(g.pts[a][3]) - x) ? j : a), 0), q = g.pts[i];
+  const p = g.pts[Math.max(0, g.pts.findIndex((u) => u[3] >= q[3] - 20))], v = q[3] > p[3] ? (q[2] - p[2]) / (q[3] - p[3]) : null;
+  const xx = g.tx(q[3]), yy = g.ty(q[2]), ln = hov.querySelector("line"), c = hov.querySelector("circle");
+  hov.setAttribute("visibility", "visible");
+  ln.setAttribute("x1", xx); ln.setAttribute("x2", xx); ln.setAttribute("y1", g.T); ln.setAttribute("y2", g.H - g.B);
+  c.setAttribute("cx", xx); c.setAttribute("cy", yy);
+  tip.hidden = false;
+  tip.innerHTML = `<b>${sondeAlt(q[2])} m</b> · ${aisUtc(q[3])} UTC${v != null ? `<br>${v >= 0 ? "climb +" : "fall −"}${Math.abs(v).toFixed(1)} m/s` : ""}`;
+  const br = box.getBoundingClientRect();
+  tip.style.top = `${Math.min(r.top - br.top + yy * r.height / g.H + 10, br.height - 60)}px`;
+  tip.style.left = `${Math.min(xx * r.width / g.W + 10, r.width - 150)}px`;
+}
 $("sondeProf").addEventListener("mouseleave", () => {
   const hov = $("sondeProf").querySelector("#sondeProfHover"), tip = $("sondeProf").querySelector(".sonde-prof-tip");
+  const ah = $("sondeProf").querySelector(".alt-hover");
+  if (ah) ah.setAttribute("visibility", "hidden");
   if (hov) hov.setAttribute("visibility", "hidden");
   if (tip) tip.hidden = true;
 });
 
 function sondeSelect(serial, pan = true) {
   sondeSel = serial;
+  store("sondeSel", serial || "");   // kept over a reload / restart (the sonde comes back from the server or its log)
   renderSondeMap().then(() => {
     const mk = sondeLayers && sondeLayers.m.get(serial);
     if (!mk) return;
@@ -7004,18 +7917,93 @@ function setSondeView(v, save = true) {
   $("sondeListBox").hidden = v !== "sondes";
   $("sondeMapBox").hidden = v !== "map";
   $("sondeFrameBox").hidden = v !== "frames";
+  $("sondeHistRow").hidden = v === "frames";
+  // MAP: the MULTI channels and the TYPES go over the map only, so the profile column starts right under the keys
+  const main = $("sondeMapBox").querySelector(".ais-map-main");
+  if (v === "map") main.prepend($("sondeTypes"), $("sondeChans"));
+  else $("sondeListBox").before($("sondeTypes"), $("sondeChans"));
   if (v === "map") sondeLogsLoad();
   renderSondeView();
 }
 
 function renderSondeInfo(i) {
   const el = $("sondeInfo");
+  renderSondeTypes(i);
   if (!i.enabled) { el.textContent = ""; el.title = ""; return; }
   const off = i.offset_hz == null ? "" : `  offset ${i.offset_hz > 0 ? "+" : ""}${(i.offset_hz / 1000).toFixed(1)} kHz`;
   el.textContent = `${i.ok} frames  ${i.bad} bad${i.last_rx ? off : ""}`;
   el.title = `${i.headers} frame starts found · ${i.ok} frames decoded · ${i.bad} could not be read · ${i.fixed} bytes corrected by Reed–Solomon` +
     (i.last_rx ? ` · last frame ${aisUtc(i.last_rx)} UTC` : "") + " · offset = how far the signal is from the dial";
+  renderSondeChans(i);
 }
+
+/** MULTI: the sonde signals found in the visible spectrum, each with its own decoder (only shown: the VFO stays where it is). */
+function renderSondeChans(i) {
+  $("sondeMulti").checked = !!i.multi;
+  const box = $("sondeChans");
+  box.hidden = !(i.enabled && i.multi);
+  if (box.hidden) return;
+  let ch = i.channels || [];
+  const own = (hz) => st && Math.abs(hz - st.tune_hz) <= 10000;
+  // the channel under the VFO is decoded by the VFO itself (not by MULTI, which counts nothing there): its type, serial
+  // and frames from the newest sonde the VFO heard on it in the last minute
+  const now = Date.now() / 1000;
+  const vfoSonde = (hz) => sondeList().find((x) => x.freq_hz && Math.abs(x.freq_hz - hz) <= 15000 && now - x.last < 60);
+  ch = ch.map((c) => {
+    const v = own(c.hz) && !c.type ? vfoSonde(c.hz) : null;
+    return v ? { ...c, type: v.type, serial: v.serial, frames: v.n, age_s: Math.round(now - v.last) } : c;
+  });
+  const head = i.view
+    ? `<span class="muted" title="Part of 400–406 MHz searched for sonde signals: the visible part of the waterfall">MULTI ${fmtMHz(i.view[0], 3)}–${fmtMHz(i.view[1], 3)} MHz:</span>`
+    : '<span class="muted">MULTI: the visible spectrum is outside 400–406 MHz</span>';
+  box.innerHTML = head + (i.view && !ch.length ? '<span class="muted">no sonde signal</span>' : "") + ch.map((c) =>
+    `<span class="sonde-chan${c.frames ? " ok" : ""}${own(c.hz) ? " own" : ""}" data-hz="${c.hz}" ` +
+    `title="Signal ${c.level_db} dB above the noise${c.offset_hz != null ? ` · offset ${(c.offset_hz / 1000).toFixed(1)} kHz` : ""}` +
+    `${c.age_s != null ? ` · last frame ${c.age_s} s ago` : ""}${own(c.hz) ? " · the VFO is on it (decoded by the VFO)" : ""}` +
+    `${!c.type && !c.frames ? "&#10;A signal, but no frame with a position decoded yet: e.g. a sonde on the ground before its GPS fix, too weak, an unsupported type or not a sonde" : ""}">` +
+    `<b>${fmtMHz(c.hz, 3)}</b><small>${c.type ? `${escHtml(c.type)} ${escHtml(c.serial || "")} · ${c.frames} fr` : c.frames ? `${c.frames} fr` : "signal, no frame yet"} · +${Math.round(c.level_db)} dB</small></span>`).join("");
+}
+$("sondeMulti").addEventListener("change", () => send({ sonde_multi: $("sondeMulti").checked }));
+
+// SONDE > TYPES: the decoder programs (sonde_ext.DECODERS) that listen for a new sonde, by the sondes they decode
+const SONDE_TYPES = [
+  ["rs41mod", "RS41", "Vaisala RS41-SG / SGP / SGM"],
+  ["dfm09mod", "DFM", "Graw DFM-06 / 09 / 17, PS-15"],
+  ["m10m20mod", "M10 / M20", "Meteomodem M10, M20"],
+  ["lms6Xmod", "LMS6", "Lockheed Martin LMS6-403"],
+  ["imet54mod", "iMet-54", "InterMet iMet-54"],
+  ["mp3h1mod", "MRZ", "Meteo-Radiy MRZ-N1 / MP3-H1"],
+  ["meisei100mod", "Meisei", "Meisei iMS-100, RS-11G"],
+  ["mts01mod", "MTS01", "Meteosis MTS01"],
+  ["cf06ht03mod", "CF-06 / HT03", "Chinese CF-06-AH, HT03G-1U"],
+];
+let sondeTypesInfo = null;
+function renderSondeTypes(i) {
+  if (i) sondeTypesInfo = i;
+  i = sondeTypesInfo;
+  const box = $("sondeTypes");
+  $("sondeTypesKey").classList.toggle("on", !box.hidden);
+  if (box.hidden || !i) return;
+  const have = new Set(i.decoders || []), on = new Set(i.types || SONDE_TYPES.map((t) => t[0]));
+  const html = '<span class="muted">Listen for:</span>' + SONDE_TYPES.map(([k, name, tip]) =>
+    `<label class="${have.has(k) ? "" : "na"}" title="${tip}${have.has(k) ? "" : " – program lib\\sonde\\" + k + ".exe not found"}">` +
+    `<input type="checkbox" data-k="${k}"${on.has(k) ? " checked" : ""}${have.has(k) ? "" : " disabled"}>${name}</label>`).join("") +
+    `<span class="muted" title="Only the ticked types are tried on a signal whose type is not known yet; a sonde of an unticked type is not decoded">${on.size} of ${SONDE_TYPES.length}</span>`;
+  if (box.dataset.html !== html) { box.innerHTML = html; box.dataset.html = html; }
+}
+$("sondeTypesKey").addEventListener("click", () => {
+  $("sondeTypes").hidden = !$("sondeTypes").hidden;
+  store("sondeTypesOpen", $("sondeTypes").hidden ? "" : "1");
+  renderSondeTypes();
+});
+$("sondeTypes").hidden = recall("sondeTypesOpen") !== "1";
+$("sondeTypes").addEventListener("change", (e) => {
+  const sel = [...$("sondeTypes").querySelectorAll("input[data-k]:checked")].map((x) => x.dataset.k);
+  if (!sel.length) { e.target.checked = true; return; }   // at least one type
+  if (sondeTypesInfo) sondeTypesInfo.types = sel;
+  renderSondeTypes();
+  send({ sonde_types: sel });
+});
 
 function sondePost(body) {
   return fetch(vbase + "/api/sonde", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
@@ -7025,8 +8013,7 @@ function sondePost(body) {
 function sondeReset() {
   $("sondeFrameRows").innerHTML = "";
   $("sondeFrameEmpty").hidden = false;
-  sondes.clear();
-  sondeSel = null;
+  sondes.clear();   // the choice (sondeSel) stays: shown again when the sonde comes back
   sondeFitted = false;
   if (sondeLayers) { sondeLayers.marks.clearLayers(); sondeLayers.tracks.clearLayers(); sondeLayers.m.clear(); }
   renderSondeView();
@@ -7041,6 +8028,7 @@ async function sondeLoad() {
     for (const f of d.frames) addSondeFrame(f);
     for (const s of d.sondes) sondes.set(s.serial, s);
     renderSondeInfo(d);
+    if (sondeHistDays && !sondeHistAt) sondeHistSet(sondeHistDays);   // the HISTORY of the table, once the VFO is known
     setSondeView(sondeView, false);
   } catch { /* an older receiver without the sonde decoder */ }
 }
@@ -7069,16 +8057,22 @@ $("sondeGo").addEventListener("click", () => {
   if (fm) send({ mode: "FM" });
   if (!st.sonde) { $("sondeOn").checked = true; $("sondeOn").dispatchEvent(new Event("change")); }
 });
-$("sondeClear").addEventListener("click", () => { sondePost({ action: "clear" }).then(renderSondeInfo); sondeReset(); });
+$("sondeClear").addEventListener("click", () => { sondePost({ action: "clear" }).then(renderSondeInfo); sondeSel = null; store("sondeSel", ""); sondeReset(); });
 $("sondeViews").addEventListener("click", (e) => { const b = e.target.closest("button[data-view]"); if (b) setSondeView(b.dataset.view); });
 $("sondeProfSel").addEventListener("change", (e) => {
   const v = e.target.value;
   e.target.blur();
   if (v.startsWith("log:")) sondeLogOpen(v.slice(4));
   else if (v) sondeSelect(v);
-  else { sondeSel = null; renderSondeMap(); }
+  else { sondeSel = null; store("sondeSel", ""); renderSondeMap(); }
 });
 $("sondeRows").addEventListener("click", (e) => {
+  if (e.target.closest(".sonde-log")) {
+    e.preventDefault();
+    setSondeView("map");
+    sondeLogOpen(e.target.closest("tr").dataset.file);
+    return;
+  }
   if (!e.target.closest(".sonde-goto")) return;
   e.preventDefault();
   setSondeView("map");
@@ -9855,24 +10849,112 @@ function dsdPost(body) {
 const dsdTarget = (c) => (!c.tgt ? "-" : c.type === "private" ? `ID ${c.tgt}` : c.type === "group" ? `TG ${c.tgt}` : c.tgt);
 const dsdDuration = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 const dsdEnc = (c) => (c.enc ? ` <span class="type-tag t-enc" title="Encrypted: not decoded, no audio">ENC</span>` : "");
+// DMR IDs and the national talk groups begin with the country code (MCC, the ITU mobile country code): the first 3
+// digits of a 7-digit ID (BrandMeister / RadioID numbering). Only for the look of the list – an ID may be reused.
+const DSD_MCC = { 202: "GR", 204: "NL", 206: "BE", 208: "FR", 212: "MC", 213: "AD", 214: "ES", 216: "HU", 218: "BA", 219: "HR",
+  220: "RS", 222: "IT", 226: "RO", 228: "CH", 230: "CZ", 231: "SK", 232: "AT", 234: "GB", 235: "GB", 238: "DK", 240: "SE",
+  242: "NO", 244: "FI", 246: "LT", 247: "LV", 248: "EE", 250: "RU", 255: "UA", 257: "BY", 259: "MD", 260: "PL", 262: "DE",
+  263: "DE", 264: "DE", 265: "DE", 268: "PT", 270: "LU", 272: "IE", 274: "IS", 276: "AL", 278: "MT", 280: "CY", 284: "BG",
+  286: "TR", 293: "SI", 294: "MK", 297: "ME", 302: "CA", 310: "US", 311: "US", 312: "US", 313: "US", 314: "US", 315: "US",
+  316: "US", 317: "US", 318: "US", 319: "US", 334: "MX", 425: "IL", 440: "JP", 450: "KR", 460: "CN", 505: "AU", 530: "NZ", 655: "ZA", 714: "PA", 722: "AR",
+  724: "BR", 730: "CL", 732: "CO", 734: "VE" };
+// BrandMeister talk groups with a name of their own
+const DSD_TG = { 1: "Local", 2: "Cluster", 6: "Local", 8: "Region", 9: "Local", 91: "World-wide", 92: "Europe", 93: "North America",
+  94: "Asia", 95: "Australia", 98: "Test", 99: "Test", 112: "Emergency", 113: "UA English", 123: "UA Spanish", 9990: "Parrot",
+  4000: "Disconnect", 9998: "Parrot" };
+const dsdMcc = (id) => { const t = String(id || ""); return /^\d{7}$/.test(t) ? DSD_MCC[t.slice(0, 3)] || "" : ""; };
+const dsdTgName = (tg) => { const t = String(tg || ""); return DSD_TG[t] || (/^\d{3,7}$/.test(t) && DSD_MCC[t.slice(0, 3)] ? `${DSD_MCC[t.slice(0, 3)]}${t.length > 3 ? " regional" : " national"}` : ""); };
+const DSD_PROTO_CLS = { DMR: "dmr", P25p1: "p25", P25p2: "p25", "P25 phase 1": "p25", YSF: "ysf", DSTAR: "dstar", "D-Star": "dstar",
+  NXDN48: "nxdn", NXDN96: "nxdn", NXDN: "nxdn", dPMR: "dpmr", DPMR: "dpmr", M17: "m17", "X2-TDMA": "x2", ProVoice: "pv" };
+const dsdProto = (p) => `<span class="dsd-p p-${DSD_PROTO_CLS[p] || (/^P25/i.test(p) ? "p25" : /^NXDN/i.test(p) ? "nxdn" : "x")}">${escHtml(p || "?")}</span>`;
+const dsdSlot = (s) => (s ? `<span class="dsd-s s${s}">${s}</span>` : `<span class="dsd-dim">-</span>`);
+const DSD_CALL_RE = /\b([A-Z]{1,2}\d{1,2}[A-Z]{1,4}|\d[A-Z]\d[A-Z]{1,3})\b/;
+/** The alias with the callsign in it picked out (bold), the rest after it. */
+function dsdAlias(a) {
+  const t = String(a || ""), m = DSD_CALL_RE.exec(t.toUpperCase());
+  if (!m) return escHtml(t);
+  return `${escHtml(t.slice(0, m.index))}<b class="dsd-call">${escHtml(t.slice(m.index, m.index + m[0].length))}</b>${escHtml(t.slice(m.index + m[0].length))}`;
+}
+const dsdTo = (c) => (!c.tgt ? `<span class="dsd-dim">-</span>` : c.type === "private"
+  ? `<span class="dsd-priv" title="Private call to the ID ${escHtml(c.tgt)}">ID ${escHtml(c.tgt)}</span>`
+  : `<span class="dsd-tg" title="${escHtml(dsdTgName(c.tgt) || "talk group")}">${c.type === "group" ? "TG " : ""}${escHtml(c.tgt)}</span>` +
+    (dsdTgName(c.tgt) ? `<span class="dsd-tgn">${escHtml(dsdTgName(c.tgt))}</span>` : ""));
+const dsdFrom = (c) => (!c.src ? `<span class="dsd-dim">-</span>` : `${escHtml(c.src)}${dsdMcc(c.src) ? ` <span class="dsd-cc" title="Country of the ID (its first 3 digits)">${dsdMcc(c.src)}</span>` : ""}`);
+const dsdShort = (c) => !c.tgt && !c.src && c.duration < 1;
+let dsdCalls = [], dsdTgPick = "";
 
-function addDsdCall(c) {
+function addDsdCall(c, quiet) {
+  dsdCalls.unshift(c);
+  if (dsdCalls.length > DSD_MAX_ROWS) dsdCalls.length = DSD_MAX_ROWS;
   const tr = document.createElement("tr");
-  tr.innerHTML = `<td>${new Date(c.time * 1000).toISOString().slice(11, 19)}</td><td>${fmtMHz(c.freq_hz, 4)}</td>` +
-    `<td>${escHtml(c.proto)}</td><td>${c.slot ?? "-"}</td><td>${escHtml(dsdTarget(c))}</td>` +
-    `<td>${escHtml(c.src || "-")}</td><td>${dsdDuration(c.duration)}</td>` +
-    `<td class="alias" title="${escHtml(c.alias)}">${escHtml(c.alias)}${dsdEnc(c)}</td>`;
+  tr.className = dsdShort(c) ? "short" : c.enc ? "enc" : "";
+  tr.dataset.k = `${c.proto} ${dsdTarget(c)} ${c.tgt || ""} ${c.src || ""} ${c.alias || ""} ${dsdMcc(c.src)} ${dsdTgName(c.tgt)}`.toUpperCase();
+  tr.dataset.tg = c.tgt ? String(c.tgt) : "";
+  const dur = Math.min(1, (c.duration || 0) / 120);
+  tr.innerHTML = `<td>${new Date(c.time * 1000).toISOString().slice(11, 19)}</td>` +
+    `<td class="dsd-f" title="Tune here">${fmtMHz(c.freq_hz, 4)}</td>` +
+    `<td>${dsdProto(c.proto)}</td><td>${dsdSlot(c.slot)}</td><td>${dsdTo(c)}</td><td>${dsdFrom(c)}</td>` +
+    `<td class="dsd-t"><span>${dsdDuration(c.duration)}</span><i style="width:${(dur * 100).toFixed(0)}%"></i></td>` +
+    `<td class="alias" title="${escHtml(c.alias)}">${dsdAlias(c.alias)}${dsdEnc(c)}</td>`;
+  tr.dataset.f = c.freq_hz;
   const tb = $("dsdRows");
   tb.prepend(tr);
   while (tb.rows.length > DSD_MAX_ROWS) tb.lastChild.remove();
   $("dsdEmpty").hidden = true;
+  tr.hidden = !dsdRowShown(tr);
+  if (!quiet) renderDsdStats();
 }
+
+function dsdRowShown(tr) {
+  const q = $("dsdFilter").value.trim().toUpperCase();
+  if (q && !tr.dataset.k.includes(q)) return false;
+  if (dsdTgPick && tr.dataset.tg !== dsdTgPick) return false;
+  return !($("dsdHideShort").checked && tr.classList.contains("short"));
+}
+function dsdFilterRows() {
+  for (const tr of $("dsdRows").rows) tr.hidden = !dsdRowShown(tr);
+}
+
+/** Talk groups of the list (most calls first, a click filters by one) and the number of stations heard. */
+function renderDsdStats() {
+  const tgs = new Map(), srcs = new Set();
+  for (const c of dsdCalls) {
+    if (c.tgt && c.type !== "private") { const k = String(c.tgt); tgs.set(k, (tgs.get(k) || 0) + 1); }
+    if (c.src) srcs.add(c.src);
+  }
+  const top = [...tgs].sort((a, b) => b[1] - a[1]).slice(0, 12);
+  if (dsdTgPick && !tgs.has(dsdTgPick)) dsdTgPick = "";
+  $("dsdTgs").innerHTML = top.map(([tg, n]) => `<button class="dsd-tgb${tg === dsdTgPick ? " on" : ""}" data-tg="${escHtml(tg)}"` +
+    ` title="${escHtml(dsdTgName(tg) || "talk group")}: ${n} calls – click to show only these">TG ${escHtml(tg)}<em>${n}</em></button>`).join("") ||
+    `<span class="dsd-dim">none yet</span>`;
+  $("dsdSum").textContent = dsdCalls.length ? `${srcs.size} stations · ${dsdCalls.length} calls in the list` : "";
+}
+$("dsdTgs").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-tg]");
+  if (!b) return;
+  dsdTgPick = dsdTgPick === b.dataset.tg ? "" : b.dataset.tg;
+  renderDsdStats();
+  dsdFilterRows();
+});
+$("dsdFilter").addEventListener("input", dsdFilterRows);
+$("dsdHideShort").checked = recall("dsdHideShort") === "1";
+$("dsdHideShort").addEventListener("change", () => { store("dsdHideShort", $("dsdHideShort").checked ? "1" : ""); dsdFilterRows(); });
+// a click on the frequency of a call tunes the VFO there (the mode stays DSD)
+$("dsdRows").addEventListener("click", (e) => {
+  const td = e.target.closest("td.dsd-f"), tr = td && td.parentElement;
+  if (!tr || !st || !tr.dataset.f) return;
+  const hz = Number(tr.dataset.f);
+  if (hz && hz !== st.tune_hz) { const prev = st.tune_hz; tune(hz); atuSoon(prev); }
+});
 
 function dsdReset() {
   dsdModeWas = null;
+  dsdCalls = [];
+  dsdTgPick = "";
   $("dsdRows").innerHTML = "";
   $("dsdEmpty").hidden = false;
   $("dsdNow").textContent = "";
+  renderDsdStats();
 }
 
 async function dsdLoad() {
@@ -9881,7 +10963,9 @@ async function dsdLoad() {
     const d = await fetch(vbase + "/api/dsd").then((r) => r.json());
     if (v !== active) return;
     $("dsdRows").innerHTML = "";
-    for (const c of d.calls) addDsdCall(c);
+    dsdCalls = [];
+    for (const c of d.calls) addDsdCall(c, true);
+    renderDsdStats();
     $("dsdEmpty").hidden = d.calls.length > 0;
   } catch { /* an older receiver without the DSD mode */ }
 }
@@ -9895,19 +10979,74 @@ function renderDsd(s) {
   if (!on || !i) return;
   if (document.activeElement !== $("dsdProtocol")) $("dsdProtocol").value = i.protocol;
   if (document.activeElement !== $("dsdSlot")) $("dsdSlot").value = i.slot;
-  $("dsdInfo").textContent = `${i.proto ? `● ${i.proto}` : "○ no digital signal"}${i.cc != null ? ` · CC ${i.cc}` : ""} · ${i.count} calls`;
+  $("dsdInfo").innerHTML = (i.proto ? `<span class="dsd-sig on">● SIGNAL</span>${dsdProto(i.proto)}` : `<span class="dsd-sig">○ no digital signal</span>`) +
+    (i.cc != null ? `<span class="dsd-ccode" title="DMR colour code of the repeater">CC ${i.cc}</span>` : "") +
+    // AFC: the offset of the signal measured in the last call; a correction made is shown for a while
+    (i.afc_fix != null ? `<span class="dsd-afc fix" title="AFC retuned the VFO by ${i.afc_fix} Hz onto the signal">AFC ${i.afc_fix > 0 ? "+" : "−"}${Math.abs(i.afc_fix)} Hz ✓</span>`
+      : i.afc_hz != null ? `<span class="dsd-afc${Math.abs(i.afc_hz) >= 120 ? " off" : ""}" title="Offset of the signal from the tuned frequency, measured in the last call${i.afc ? "" : " (AFC off: not corrected)"}">offset ${i.afc_hz > 0 ? "+" : i.afc_hz < 0 ? "−" : ""}${Math.abs(i.afc_hz)} Hz</span>` : "") +
+    `<span class="dsd-dim">${i.count} calls</span>`;
+  if (document.activeElement !== $("dsdAfc")) $("dsdAfc").checked = i.afc !== false;
+  if (document.activeElement !== $("dsdFilter2")) $("dsdFilter2").value = String(Math.round(i.filter || 12500));
   $("dsdError").textContent = i.error || "";
   $("dsdError").hidden = !i.error;
+  // the calls on air: a card per slot – slot, protocol, the talk group (with its name), the caller (country of its ID),
+  // the alias with the callsign, the running time
   $("dsdNow").innerHTML = i.active.map((c) =>
-    `<div>${c.slot ? `S${c.slot} ` : ""}${escHtml(c.proto)} · <b>${escHtml(dsdTarget(c))}</b> · ${escHtml(c.src || "?")}` +
-    `${c.alias ? ` · <b>${escHtml(c.alias)}</b>` : ""}${dsdEnc(c)} · ${dsdDuration(c.duration)}</div>`).join("");
+    `<div class="dsd-card${c.enc ? " enc" : ""}">${dsdSlot(c.slot)}${dsdProto(c.proto)}` +
+    `<span class="dsd-ct">${dsdTo(c)}</span><span class="dsd-cf"><em>from</em> ${dsdFrom(c)}</span>` +
+    (c.alias ? `<span class="dsd-ca">${dsdAlias(c.alias)}</span>` : "") + dsdEnc(c) +
+    `<span class="dsd-cd">${dsdDuration(c.duration)}</span></div>`).join("");
 }
 
 $("dsdProtocol").addEventListener("change", () => dsdPost({ protocol: $("dsdProtocol").value }));
 $("dsdSlot").addEventListener("change", () => dsdPost({ slot: $("dsdSlot").value }));
+$("dsdAfc").addEventListener("change", () => dsdPost({ afc: $("dsdAfc").checked }));
+$("dsdFilter2").addEventListener("change", () => dsdPost({ filter: Number($("dsdFilter2").value) }));
+
+// DEBUG: the raw lines of dsd-fme polled once a second while the box is on and the DSD tab shown
+let dsdDbgSeq = 0, dsdDbgTimer = null, dsdDbgVfo = null;
+const DSD_DBG_MAX = 400;
+function dsdDbgClass(t) {
+  if (/\bERR\b|\berror\b/i.test(t)) return "err";
+  if (/Sync: ?[+-]/.test(t)) return "sync";
+  if (/TGT=|SRC=|Talker Alias|TGT: |SRC: /.test(t)) return "lc";
+  return "";
+}
+async function dsdDebugPoll() {
+  if (!$("dsdDebug").checked || $("dsdDebugBox").offsetParent === null) return;
+  if (dsdDbgVfo !== active) { dsdDbgVfo = active; dsdDbgSeq = 0; $("dsdDebugLog").textContent = ""; }
+  try {
+    const d = await fetch(vbase + "/api/dsd?debug=" + dsdDbgSeq).then((r) => r.json());
+    if (d.seq == null) return;
+    if (d.seq < dsdDbgSeq) { dsdDbgSeq = 0; $("dsdDebugLog").textContent = ""; return; }   // the receiver restarted
+    dsdDbgSeq = d.seq;
+    const box = $("dsdDebugLog"), atEnd = box.scrollTop + box.clientHeight >= box.scrollHeight - 8;
+    for (const l of d.lines) {
+      const e = document.createElement("div");
+      e.className = dsdDbgClass(l.text);
+      e.textContent = new Date(l.t * 1000).toISOString().slice(11, 19) + "  " + l.text;
+      box.appendChild(e);
+    }
+    while (box.childElementCount > DSD_DBG_MAX) box.firstElementChild.remove();
+    if (atEnd) box.scrollTop = box.scrollHeight;
+    const pct = d.syncs ? Math.round(100 * d.errors / d.syncs) : 0;
+    $("dsdDebugHead").innerHTML = `<span class="dsd-dim">last ${Math.round(d.window)} s:</span> <b>${d.syncs}</b> sync lines · ` +
+      `<b class="${d.errors ? "e" : ""}">${d.errors}</b> errors` + (d.syncs ? ` <span class="dsd-dim">(${pct} % of the syncs)</span>` : "");
+  } catch { /* an older receiver without the debug output */ }
+}
+$("dsdDebug").addEventListener("change", () => {
+  const on = $("dsdDebug").checked;
+  $("dsdDebugBox").hidden = !on;
+  clearInterval(dsdDbgTimer);
+  dsdDbgTimer = on ? setInterval(dsdDebugPoll, 1000) : null;
+  if (on) dsdDebugPoll();
+});
 $("dsdClear").addEventListener("click", () => {
   dsdPost({ action: "clear" });
   $("dsdRows").innerHTML = "";
+  dsdCalls = [];
+  dsdTgPick = "";
+  renderDsdStats();
   $("dsdEmpty").hidden = false;
 });
 
@@ -10363,18 +11502,25 @@ function openSetSub(page) {
 /** A sub-page was opened: the ones that load something fill at once. */
 function setSubOpened(name) {
   if (bodyTab !== "set") return;      // setBodyTab("set") calls it again
-  if (name === "gen:rotor") setTimeout(pollRotor);
   if (name === "gen:location") setTimeout(() => locLoad());
+  if (name === "gen:ant") setTimeout(() => antLoad(true));
   if (name === "gen:recs") setTimeout(() => recDirLoad());
   if (name === "vfo:dongle" || name === "vfo:adv") setTimeout(loadDongleList);   // ADVANCED: dongles and VFOs
+  if (name === "" && !document.querySelector('[data-set-panel="sta"]').hidden) setTimeout(sdgStart);   // STATION: no sub-pages
 }
-/** The ROTOR page of GENERAL is on the screen. */
+/** The rotor settings (RCTRL › SETTINGS; SETTINGS › GENERAL › ROTOR until 1.0beta2) are on the screen. */
 function rotorPageOpen() {
-  return bodyTab === "set" && !document.hidden && !$("settingsCard").hidden
-    && !document.querySelector('[data-set-panel="gen"]').hidden && !document.querySelector('[data-set-subpanel="gen:rotor"]').hidden;
+  return bodyTab === "rot" && rcPage === "set" && !document.hidden;
 }
 /** Opens a settings page by its old short name (location, rotor, ui, dongle, adv, audio, tx) and remembers it. */
 function openSetPage(name) {
+  if (name === "rotor") {   // the rotor settings are in the RCTRL tab since 1.0beta2
+    rcPage = "set";
+    store("rcPage", rcPage);
+    setRotOn(true);
+    rctrlOpened();
+    return;
+  }
   const sub = SET_PAGE_OF[name];
   if (!sub) return;
   const page = sub.split(":")[0];
@@ -10383,7 +11529,7 @@ function openSetPage(name) {
   showSetTab(page);
   store("setTab", page);
 }
-const SET_PAGE_OF = { ui: "gen:skins", display: "gen:skins", skins: "gen:skins", meter: "gen:meter", wheel: "gen:wheel", location: "gen:location", rotor: "gen:rotor", recs: "gen:recs",
+const SET_PAGE_OF = { ui: "gen:skins", display: "gen:skins", skins: "gen:skins", meter: "gen:meter", wheel: "gen:wheel", location: "gen:location", ant: "gen:ant", antennas: "gen:ant", recs: "gen:recs",
   dongle: "vfo:dongle", adv: "vfo:adv", audio: "vfo:audio", tx: "vfo:tx" };
 
 // SETTINGS › VFO: one key per VFO window, like the VFO keys beside the S-meter; the lit one (= the active VFO)
@@ -10420,7 +11566,10 @@ $("setVfoKeys").addEventListener("click", async (e) => {
 // SDR DONGLE › BASIC block diagram: a block names its cards in data-blk-for; a click flashes the first shown one.
 // A block whose cards are all hidden (LimeSDR without bias-tee or RTL AGC, VFO with fixed dongle) is grey.
 function blkCards(g) {
-  return g.dataset.blkFor.split(" ").map((id) => $(id)).filter((el) => el && !el.hidden);
+  // an input (diagram beside AGC+) stands for its slider row, its switch or its card
+  return g.dataset.blkFor.split(" ").map((id) => $(id))
+    .map((el) => el && el.matches("input, select") ? el.closest(".sagc-row, .switch, .setting") : el)
+    .filter((el) => el && !el.hidden && !el.closest(".setting[hidden]"));
 }
 function syncBlkDiagram() {
   for (const g of document.querySelectorAll(".blk-diagram .blk")) g.classList.toggle("off", !blkCards(g).length);
@@ -10429,7 +11578,7 @@ for (const g of document.querySelectorAll(".blk-diagram .blk")) {
   const go = () => {
     const cards = blkCards(g);
     if (!cards.length) return;
-    // SP and AGC+ (10, 11) are on the ADVANCED page: switch to it first
+    // SP and AGC+ (10, 11) are on the ADVANCED page, the audio blocks of the AGC+ diagram on AUDIO: switch to it first
     const sub = cards[0].closest("[data-set-subpanel]");
     if (sub && sub.hidden) { showSetSub(sub.dataset.setSubpanel); store("setSub_vfo", sub.dataset.setSubpanel); }
     cards[0].scrollIntoView({ block: "nearest", behavior: "smooth" });
@@ -10468,10 +11617,10 @@ for (const b of document.querySelectorAll("[data-set-sub]")) {
   if (vfoSub && vfoSub !== "vfo:tx" && document.querySelector(`[data-set-sub="${vfoSub}"]`)) showSetSub(vfoSub);
   if (genSub && document.querySelector(`[data-set-sub="${genSub}"]`)) showSetSub(genSub);
   const t = recall("setTab");
-  showSetTab(t === "vfo" || (oldTab && oldTab.startsWith("vfo:")) ? "vfo" : "gen");
+  showSetTab(t === "vfo" || (oldTab && oldTab.startsWith("vfo:")) ? "vfo" : t === "sta" ? "sta" : "gen");
 }
 
-// ---------- SETTINGS › GENERAL › ROTOR: K3NG rotor (rotor.py) ----------
+// ---------- RCTRL › SETTINGS (SETTINGS › GENERAL › ROTOR until 1.0beta2): K3NG rotor (rotor.py) ----------
 // One rotor for the whole station, not tied to the active VFO: its serial port is held by the receiver of the first
 // VFO (/api/vfos: "rotor": true), so all rotor commands and the rotor tracking of the satellites go there.
 
@@ -10610,7 +11759,7 @@ let satInfo = null;     // the last rotor state, for the clicks
 // -> why the plots do not take a click now, "" if they do
 function satDialRefusal(info) {
   if (!info || !info.connected) return "Rotor is not connected";
-  if (info.fault) return "Reset the fault in SETTINGS › GENERAL › ROTOR";
+  if (info.fault) return "Reset the fault in RCTRL › SETTINGS";
   if (info.tracker) return "Satellite tracking moves the rotor (SATELLITES tab, TRACK): stop it to set the position by hand";
   if (info.az == null) return "Rotor position is not known yet";
   return "";
@@ -10791,17 +11940,18 @@ const RC_COLORS = ["#ff9f1c", "#2ec4b6", "#9b5de5", "#00bbf9", "#f15bb5", "#8ac9
 const rcRad = (d) => (d * Math.PI) / 180, rcDeg = (r) => (r * 180) / Math.PI;
 const rcKm = (km) => (km < 10 ? `${km.toFixed(1)} km` : `${Math.round(km)} km`);
 const RC_NOTE = "dashed = wanted azimuth (target) · green sector = antenna now · red = QTH · map © OpenStreetMap";
-// Page CONNECTION: the sources of the wanted AZ / EL, each can be disconnected from the rotor (rotor.json "links",
+// Page SETTINGS (top; the CONNECTION page until 1.0beta2): the sources of the wanted AZ / EL, each can be disconnected from the rotor (rotor.json "links",
 // the whole station; the server refuses a goto of a disconnected source and the tracker then only calculates)
 const RC_LINKS = [
   { k: "sat", name: "SAT TRACKER", where: "SATELLITES › TRACK" },
   { k: "mem", name: "MEMORY RECALL", where: "MEMORIES channels with LAT / LON" },
   { k: "map", name: "RCTRL MAP", where: "RCTRL › MAP: map, points, list" },
+  { k: "sonde", name: "SONDE TRACKER", where: "DECODERS › SONDE: the chosen sonde" },
 ];
 const RC_LINK_NAME = Object.fromEntries(RC_LINKS.map((s) => [s.k, s.name]));
 /** Connected? Unknown links (no answer from the rotor yet) count as connected: the server decides then. */
 const rcLinkOn = (k) => !(rotorInfo && rotorInfo.links && rotorInfo.links[k] === false);
-let rcPage = recall("rcPage") === "conn" ? "conn" : "map";
+let rcPage = ["conn", "set"].includes(recall("rcPage")) ? "set" : "map";   // CONNECTION is a part of SETTINGS since 1.0beta2
 
 /** Great circle from a to b: [initial azimuth 0–360, distance km]. */
 function rcBearing(a, b) {
@@ -10836,17 +11986,18 @@ async function rcLoadQth() {
   try {
     const s = await satFetch("/api/location");
     rcQth = s && Number.isFinite(s.lat) && Number.isFinite(s.lon) && !(s.lat === 0 && s.lon === 0)
-      ? { lat: s.lat, lon: s.lon, locator: s.locator || "" } : null;
+      ? { lat: s.lat, lon: s.lon, locator: s.locator || "", alt: Number.isFinite(s.alt_m) ? s.alt_m : 0 } : null;
   } catch { /* server unreachable: keep the last one */ }
 }
 
 /** The tab opened (RCTRL key, tab, page switch): the QTH may have changed in SETTINGS › GENERAL › LOCATION, read it again. */
 async function rctrlOpened() {
   rcShowPage();
-  if (rcPage === "conn") {       // the switches need the links now, not at the next poll
+  if (rcPage === "set") {        // the switches need the links now, not at the next poll
     fetch(rotorBase() + "/api/rotor").then((r) => r.json()).then(renderRotor).catch(() => rcRenderConn());
   }
   await rcLoadQth();
+  if (rcPage === "set") { setTimeout(pollRotor); return; }   // the rotor settings: the port list and position at once
   if (rcPage === "map") await rcMapOpen();
   rcRenderAll();
 }
@@ -10884,7 +12035,7 @@ async function rcMapOpen() {
 }
 
 /** Aim at a place: draws the target and sends the rotor there (when it can take a hand command and the source
- *  – "map" or "mem" – is connected in CONNECTION). */
+ *  – "map" or "mem" – is connected in RCTRL › SETTINGS). */
 function rcAim(t, source = "map") {
   if (!rcQth) { rcSay("Set the station location first (SETTINGS › GENERAL › LOCATION)", true); return; }
   const [az, km] = rcBearing(rcQth, t);
@@ -10895,7 +12046,7 @@ function rcAim(t, source = "map") {
   rcDrawAntenna(rotorInfo);
   rcRenderList();
   rcShowSel();
-  if (!rcLinkOn(source)) { rcSay(`Target AZ ${Math.round(az)}° drawn, rotor not moved: ${RC_LINK_NAME[source]} is disconnected (CONNECTION)`, true); return; }
+  if (!rcLinkOn(source)) { rcSay(`Target AZ ${Math.round(az)}° drawn, rotor not moved: ${RC_LINK_NAME[source]} is disconnected (RCTRL › SETTINGS)`, true); return; }
   const refusal = satDialRefusal(rotorInfo);
   if (refusal) { rcSay(`Target AZ ${Math.round(az)}° drawn, rotor not moved: ${refusal}`, true); return; }
   rcPost({ goto: [Math.round(az) % 360, 0], source }, `Rotor → AZ ${Math.round(az)}° EL 0°${t.name ? ` (${t.name})` : ""}`);
@@ -10903,7 +12054,7 @@ function rcAim(t, source = "map") {
 
 /** A channel of MEMORIES with a location recalled (list, spectrum tag, editor, step): the ROTOR CONTROL tab opens
  *  (the RCTRL key on), the map centres on the channel and the rotor turns to it, as a click on its point would.
- *  With MEMORY RECALL disconnected (RCTRL › CONNECTION) nothing happens here: the recall only tunes. */
+ *  With MEMORY RECALL disconnected (RCTRL › SETTINGS) nothing happens here: the recall only tunes. */
 async function rctrlAimMem(m) {
   // a fresh rotor state is needed first: the rotor is not polled while another tab is open, so the last state may be
   // missing or old (the links, or "not connected" that would refuse the command)
@@ -10984,7 +12135,7 @@ function rcRenderInfo() {
   const i = rotorInfo, parts = [];
   if (!rcQth) parts.push("QTH not set (SETTINGS › GENERAL › LOCATION)");
   if (rcTarget && rcTarget.az != null) parts.push(`target ${rcTarget.name ? `${rcTarget.name} ` : ""}AZ ${Math.round(rcTarget.az)}° · ${rcKm(rcTarget.km)}`);
-  parts.push(!i ? "rotor: no answer yet" : i.error && !i.on ? `rotor: ${i.error}` : !i.on ? "rotor off (SETTINGS › GENERAL › ROTOR)" : !i.connected ? "rotor connecting…"
+  parts.push(!i ? "rotor: no answer yet" : i.error && !i.on ? `rotor: ${i.error}` : !i.on ? "rotor off (RCTRL › SETTINGS)" : !i.connected ? "rotor connecting…"
     : i.fault ? `rotor fault: ${i.fault}`
     : `antenna AZ ${i.azShow != null ? Math.round(i.azShow) : "–"}° EL ${i.elShow != null ? Math.round(i.elShow) : "–"}°${rotorMoving(i) ? " (turning)" : ""}`);
   const off = RC_LINKS.filter((s) => !rcLinkOn(s.k)).map((s) => s.name);
@@ -11120,7 +12271,7 @@ $("rcClear").addEventListener("click", () => {
 });
 $("rcStop").addEventListener("click", () => rcPost({ stop: true }, "Rotor stopped"));
 
-/** MAP / CONNECTION: the page keys, the bodies and the keys of the map in the head. */
+/** MAP / SETTINGS: the page keys, the bodies and the keys of the map in the head. */
 function rcShowPage() {
   for (const b of $("rcPages").querySelectorAll("button[data-rc-page]")) {
     const on = b.dataset.rcPage === rcPage;
@@ -11128,7 +12279,7 @@ function rcShowPage() {
     b.setAttribute("aria-selected", String(on));
   }
   $("rcMapBox").hidden = rcPage !== "map";
-  $("rcConnBox").hidden = rcPage !== "conn";
+  $("rcSetBox").hidden = rcPage !== "set";
   for (const el of $("rotPane").querySelectorAll(".rc-map-only")) el.hidden = rcPage !== "map";
 }
 $("rcPages").addEventListener("click", (e) => {
@@ -11147,123 +12298,66 @@ function rcSrcState(k, on, i) {
     return `${name || "tracking"} · ${on ? "drives the rotor" : "calc only"}`;
   }
   if (k === "mem") return on ? "recall turns the rotor" : "recall only tunes";
+  if (k === "sonde") {
+    const a = sondeRot.last && Date.now() - sondeRot.last.t < 120000 ? sondeRot.last : null;
+    return !on ? "sonde only on its map" : a ? `${a.serial} AZ ${Math.round(a.az)}° EL ${Math.round(a.el)}°` : "follows the chosen sonde";
+  }
   return on ? (rcTarget && rcTarget.az != null ? `target AZ ${Math.round(rcTarget.az)}°` : "click turns the rotor") : "click only draws target";
 }
 
-// geometry of the CONNECTION mimic (viewBox 960 × 384)
-const RCC = { Y: [92, 200, 308], CX: 24, CW: 260, CH: 92, S0: 340, S1: 410, BUS: 500, RX: 636, RY: 92, RW: 300, RH: 252, DX: 712, DY: 226, DR: 58 };
-const RC_ICONS = {
-  sat: '<path d="M9.5 9.5l5 5-2.5 2.5-5-5z"/><path d="M3.5 7.5l3-3 3.5 3.5-3 3z"/><path d="M14 17.5l3-3 3.5 3.5-3 3z"/><path d="M15 3.5a5.5 5.5 0 0 1 5.5 5.5"/><path d="M15 6.5a2.5 2.5 0 0 1 2.5 2.5"/>',
-  mem: '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/>',
-  map: '<path d="M12 21s-6.5-5.8-6.5-11.5a6.5 6.5 0 0 1 13 0C18.5 15.2 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.4"/>',
+/** SETTINGS, top: the three sources as blocks of the STATION scheme, each with its switch (LINKED / OPEN), lines into
+ *  one bus and the rotor. Built once; rcRenderConn() then changes only classes and texts. */
+const RC_SRC_ICO = {
+  sat: '<path d="M6.3 6.3l3.4 3.4-1.7 1.7-3.4-3.4z"/><path d="M2.3 5l2-2 2.3 2.3-2 2zM9.4 12.1l2-2 2.3 2.3-2 2z"/><path d="M10 2.4a3.6 3.6 0 0 1 3.6 3.6"/>',
+  mem: '<rect x="3.5" y="2.5" width="9" height="11" rx="1.2"/><path d="M5.8 5.5h4.4M5.8 8h4.4M5.8 10.5h2.8"/>',
+  map: '<path d="M8 14.2s-4.6-4.3-4.6-7.7a4.6 4.6 0 0 1 9.2 0c0 3.4-4.6 7.7-4.6 7.7z"/><circle cx="8" cy="6.5" r="1.6"/>',
+  sonde: '<circle cx="8" cy="4.8" r="3.2"/><path d="M8 8v3.2M6.2 11.2h3.6v2.8H6.2z"/>',
 };
-
-/** Builds the mimic once; rcRenderConn() then only changes classes, texts and angles, so the levers swing,
- *  the flow keeps running and a hover is not lost at every rotor reading. */
 function rcConnBuild() {
-  const { Y, CX, CW, CH, S0, S1, BUS, RX, RY, RW, RH, DX, DY, DR } = RCC, mid = Y[1];
-  let s = `<defs>
-    <pattern id="rcGrid" width="16" height="16" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="#1b222b"/></pattern>
-    <linearGradient id="rcCardG" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#161d26"/><stop offset="1" stop-color="#0a0e13"/></linearGradient>
-    <linearGradient id="rcCardOn" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#4cff7a" stop-opacity=".16"/><stop offset=".6" stop-color="#4cff7a" stop-opacity=".03"/><stop offset="1" stop-color="#4cff7a" stop-opacity="0"/></linearGradient>
-    <radialGradient id="rcDialG" cx=".5" cy=".42" r=".6"><stop offset="0" stop-color="#18202a"/><stop offset="1" stop-color="#07090c"/></radialGradient>
-  </defs>
-  <rect class="rc-bg" x="0" y="0" width="960" height="384" rx="10"/><rect x="0" y="0" width="960" height="384" rx="10" fill="url(#rcGrid)"/>
-  <text class="rc-col" x="${CX}" y="30">SOURCE OF AZ / EL</text><text class="rc-col rc-mid" x="${(S0 + S1) / 2}" y="30">LINK</text>
-  <text class="rc-col rc-mid" x="${BUS}" y="30">BUS</text><text class="rc-col" x="${RX}" y="30">ROTOR</text>
-  <text class="rc-count" id="rcCount" x="936" y="30"></text>`;
-  // the wires after the switches, the bus segments to the feeder and the feeder (under the switches)
-  RC_LINKS.forEach((src, n) => {
-    const y = Y[n], seg = (x1, y1, x2, y2) => `<line class="rc-w" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/><line class="rc-flow" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>`;
-    s += `<g class="rc-path" data-rc-path="${src.k}">${seg(S1, y, BUS, y)}${y !== mid ? seg(BUS, y, BUS, mid) : ""}<circle class="rc-node" cx="${BUS}" cy="${y}" r="5"/></g>`;
-  });
-  s += `<g class="rc-path rc-feed" id="rcFeed"><line class="rc-w rc-busbar" x1="${BUS}" y1="${Y[0]}" x2="${BUS}" y2="${Y[2]}"/>` +
-    `<line class="rc-w" x1="${BUS}" y1="${mid}" x2="${RX}" y2="${mid}"/><line class="rc-flow" x1="${BUS}" y1="${mid}" x2="${RX}" y2="${mid}"/>` +
-    `<circle class="rc-node" cx="${BUS}" cy="${mid}" r="6"/><text class="rc-tag rc-mid" x="${(BUS + RX) / 2}" y="${mid - 10}">AZ / EL</text></g>`;
-  // the sources with their switches: one clickable group each
-  RC_LINKS.forEach((src, n) => {
-    const y = Y[n], top = y - CH / 2;
-    s += `<g class="rc-link" data-rc-link="${src.k}" role="button" tabindex="0"><title></title>
-      <rect class="rc-hit" x="${CX - 6}" y="${top - 6}" width="${S1 + 18 - CX}" height="${CH + 12}"/>
-      <rect class="rc-card" x="${CX}" y="${top}" width="${CW}" height="${CH}" rx="10"/>
-      <rect class="rc-card-on" x="${CX}" y="${top}" width="${CW}" height="${CH}" rx="10"/>
-      <rect class="rc-accent" x="${CX}" y="${top + 12}" width="4" height="${CH - 24}" rx="2"/>
-      <circle class="rc-ico-bg" cx="${CX + 40}" cy="${y}" r="22"/>
-      <g class="rc-ico" transform="translate(${CX + 28} ${y - 12})">${RC_ICONS[src.k]}</g>
-      <text class="rc-name" x="${CX + 74}" y="${y - 14}">${src.name}</text>
-      <text class="rc-state" x="${CX + 74}" y="${y + 6}"></text>
-      <text class="rc-where" x="${CX + 74}" y="${y + 25}">${escHtml(src.where)}</text>
-      <circle class="rc-led" cx="${CX + CW - 16}" cy="${y - CH / 2 + 16}" r="4.5"/>
-      <line class="rc-w rc-in" x1="${CX + CW}" y1="${y}" x2="${S0}" y2="${y}"/>
-      <line class="rc-lever" x1="${S0}" y1="${y}" x2="${S1 - 4}" y2="${y}" style="transform-origin:${S0}px ${y}px"/>
-      <circle class="rc-pin" cx="${S0}" cy="${y}" r="5.5"/><circle class="rc-pin rc-pin2" cx="${S1}" cy="${y}" r="5.5"/>
-      <rect class="rc-pill" x="${(S0 + S1) / 2 - 32}" y="${y + 16}" width="64" height="18" rx="9"/>
-      <text class="rc-pill-t rc-mid" x="${(S0 + S1) / 2}" y="${y + 29}"></text></g>`;
-  });
-  // the rotor: frame, status badge, compass dial (antenna AZ needle, target mark), AZ / EL readout and an EL bar
-  let ticks = "";
-  for (let a = 0; a < 360; a += 10) {
-    const r1 = DR - (a % 90 === 0 ? 11 : a % 30 === 0 ? 8 : 4), t = rcRad(a);
-    ticks += `<line class="rc-tick${a % 30 ? "" : " big"}" x1="${(DX + Math.sin(t) * r1).toFixed(1)}" y1="${(DY - Math.cos(t) * r1).toFixed(1)}" x2="${(DX + Math.sin(t) * (DR - 1)).toFixed(1)}" y2="${(DY - Math.cos(t) * (DR - 1)).toFixed(1)}"/>`;
-  }
-  const card = (a, l) => `<text class="rc-card-l rc-mid" x="${(DX + Math.sin(rcRad(a)) * (DR - 21)).toFixed(1)}" y="${(DY - Math.cos(rcRad(a)) * (DR - 21) + 4).toFixed(1)}">${l}</text>`;
-  const ex = RX + 168, bw = RW - 168 - 22;
-  s += `<g class="rc-rot" id="rcRot"><title>The rotor: green while at least one source is connected, grey when none is</title>
-    <rect class="rc-frame" x="${RX}" y="${RY}" width="${RW}" height="${RH}" rx="12"/>
-    <rect class="rc-frame-head" x="${RX}" y="${RY}" width="${RW}" height="34" rx="12"/><rect class="rc-frame-head" x="${RX}" y="${RY + 22}" width="${RW}" height="12"/>
-    <text class="rc-name" x="${RX + 16}" y="${RY + 22}">ROTOR</text><text class="rc-where" id="rcRotDev" x="${RX + 76}" y="${RY + 22}"></text>
-    <rect class="rc-badge" x="${RX + RW - 92}" y="${RY + 8}" width="80" height="18" rx="9"/><text class="rc-badge-t rc-mid" id="rcRotBadge" x="${RX + RW - 52}" y="${RY + 21}"></text>
-    <circle class="rc-dial" cx="${DX}" cy="${DY}" r="${DR}"/>${ticks}${card(0, "N")}${card(90, "E")}${card(180, "S")}${card(270, "W")}
-    <g id="rcTgt" class="rc-tgt" style="transform-origin:${DX}px ${DY}px"><path d="M${DX} ${DY - DR + 1}l-5.5 -10h11z"/></g>
-    <g id="rcNeedle" class="rc-needle" style="transform-origin:${DX}px ${DY}px"><path d="M${DX} ${DY - DR + 13}L${DX + 5} ${DY}L${DX} ${DY + 12}L${DX - 5} ${DY}z"/></g>
-    <circle class="rc-cap" cx="${DX}" cy="${DY}" r="4"/>
-    <text class="rc-lbl" x="${ex}" y="${RY + 66}">AZIMUTH</text><text class="rc-big" id="rcRotAz" x="${ex}" y="${RY + 96}"></text>
-    <text class="rc-lbl" x="${ex}" y="${RY + 126}">ELEVATION</text><text class="rc-big" id="rcRotEl" x="${ex}" y="${RY + 156}"></text>
-    <rect class="rc-bar" x="${ex}" y="${RY + 166}" width="${bw}" height="6" rx="3"/><rect class="rc-bar-v" id="rcRotElBar" x="${ex}" y="${RY + 166}" width="0" height="6" rx="3"/>
-    <line class="rc-tick" x1="${ex + bw / 2}" y1="${RY + 163}" x2="${ex + bw / 2}" y2="${RY + 175}"/>
-    <text class="rc-state" id="rcRotSt" x="${RX + 16}" y="${RY + RH - 30}"></text>
-    <text class="rc-where" id="rcRotSrc" x="${RX + 16}" y="${RY + RH - 12}"></text></g>
-  <text class="rc-warn" id="rcConnWarn" x="${CX}" y="376"></text>`;
-  $("rcConn").innerHTML = `<svg id="rcConnSvg" viewBox="0 0 960 384" role="group" aria-label="Sources of the wanted AZ / EL and the rotor">${s}</svg>`;
+  const ico = (d) => `<i class="sdg-ico"><svg viewBox="0 0 16 16">${d}</svg></i>`;
+  $("rcConn").innerHTML = RC_LINKS.map((src, n) =>
+    `<div class="sdg-b rcx-src k-r${src.k}" data-rc-link="${src.k}" role="button" tabindex="0" style="grid-row:${n + 1}"><b>${src.name}</b>${ico(RC_SRC_ICO[src.k])}` +
+    `<div class="rcx-row"><span class="v rc-state"></span><span class="sdg-c rcx-sw rc-pill-t"></span></div><small>${src.where}</small></div>` +
+    `<i class="rcx-w k-r${src.k}" data-rc-path="${src.k}" style="grid-row:${n + 1}"></i>`).join("") +
+    `<i class="rcx-bus" id="rcFeed"><em></em></i>` +
+    `<div class="sdg-b k-rot rcx-rot" id="rcRot"><b>ROTOR <span id="rcRotDev"></span></b>${ico(SDG_ICO.rot)}` +
+    `<div class="rcx-pos"><span><small>AZ</small><span id="rcRotAz"></span></span><span><small>EL</small><span id="rcRotEl"></span></span></div>` +
+    `<span class="v" id="rcRotSt"></span><small id="rcRotSrc"></small><div class="chips"><span class="sdg-c" id="rcCount"></span></div></div>`;
 }
 
-/** CONNECTION: the mimic of the three sources, each through its switch to one bus, the bus to the rotor.
- *  The rotor glows green while at least one source is connected, grey when none is. */
+/** The sources, their switches and the rotor: lit while connected (no animation). */
 function rcRenderConn() {
-  if (rcPage !== "conn" || bodyTab !== "rot") return;
-  if (!$("rcConnSvg")) rcConnBuild();
-  const i = rotorInfo, links = i && i.links ? i.links : null, svg = $("rcConnSvg");
+  if (rcPage !== "set" || bodyTab !== "rot") return;
+  if (!$("rcRot")) rcConnBuild();
+  const i = rotorInfo, links = i && i.links ? i.links : null;
   const n = links ? RC_LINKS.filter((s) => links[s.k]).length : 0, any = n > 0;
   const txt = (el, t) => { if (el && el.textContent !== t) el.textContent = t; };
   for (const src of RC_LINKS) {
-    const on = !!links && links[src.k], g = svg.querySelector(`[data-rc-link="${src.k}"]`);
-    g.classList.toggle("on", on);
+    const on = !!links && links[src.k], g = $("rcConn").querySelector(`[data-rc-link="${src.k}"]`);
+    g.classList.toggle("lit", on);
     g.setAttribute("aria-pressed", String(on));
     g.setAttribute("aria-label", `${src.name} ${on ? "connected" : "disconnected"}`);
-    txt(g.querySelector("title"), `${src.name}: ${on ? "connected – click to disconnect it from the rotor" : "disconnected – click to connect it to the rotor"}`);
+    g.title = `${src.name}: ${on ? "connected – click to disconnect it from the rotor" : "disconnected – click to connect it to the rotor"}`;
     txt(g.querySelector(".rc-state"), links ? rcSrcState(src.k, on, i) : "unknown");
-    txt(g.querySelector(".rc-pill-t"), on ? "LINKED" : "OPEN");
-    svg.querySelector(`[data-rc-path="${src.k}"]`).classList.toggle("on", on);
+    const sw = g.querySelector(".rcx-sw");
+    txt(sw, on ? "LINKED" : "OPEN");
+    sw.classList.toggle("on", on);
+    sw.classList.toggle("open", !on);
+    $("rcConn").querySelector(`[data-rc-path="${src.k}"]`).classList.toggle("on", on);
   }
   $("rcFeed").classList.toggle("on", any);
-  $("rcRot").classList.toggle("on", any);
-  txt($("rcCount"), links ? `${n} / ${RC_LINKS.length} CONNECTED` : "");
+  $("rcRot").classList.toggle("lit", any);
+  txt($("rcCount"), links ? `${n} / ${RC_LINKS.length} CONNECTED` : "links unknown");
   $("rcCount").classList.toggle("on", any);
-  txt($("rcRotBadge"), any ? "ACTIVE" : "ISOLATED");
-  txt($("rcRotDev"), i && i.device ? i.device : "");
+  txt($("rcRotDev"), i && i.device ? `· ${i.device}` : "");
   const ok = !!(i && i.connected && i.azShow != null);
   txt($("rcRotAz"), ok ? `${String(Math.round(i.azShow) % 360).padStart(3, "0")}°` : "---°");
   txt($("rcRotEl"), ok && i.elShow != null ? `${String(Math.round(i.elShow)).padStart(2, "0")}°` : "--°");
-  $("rcRotElBar").setAttribute("width", ok && i.elShow != null ? (Math.min(Math.max(i.elShow, 0), 180) / 180 * (RCC.RW - 190)).toFixed(1) : "0");
-  $("rcNeedle").style.transform = `rotate(${ok ? i.azShow : 0}deg)`;
-  $("rcNeedle").classList.toggle("off", !ok);
-  const tgt = i && i.target ? i.target[0] : null;
-  $("rcTgt").style.transform = `rotate(${tgt ?? 0}deg)`;
-  $("rcTgt").classList.toggle("off", tgt == null);
-  txt($("rcRotSt"), !i ? "no answer" : i.error && !i.on ? i.error : !i.on ? "link off · SETTINGS › GENERAL › ROTOR" : !i.connected ? "connecting…"
+  txt($("rcRotSt"), !i ? "no answer" : i.error && !i.on ? i.error : !i.on ? "link off (below)" : !i.connected ? "connecting…"
     : i.fault ? `FAULT: ${i.fault}` : rotorMoving(i) && i.target ? `turning → AZ ${Math.round(i.target[0])}° EL ${Math.round(i.target[1])}°` : "standing");
+  $("rcRot").classList.toggle("bad", !!(i && i.fault));
   txt($("rcRotSrc"), !any ? "no source connected · hand commands only"
-    : `driven by ${RC_LINKS.filter((s) => links[s.k]).map((s) => ({ sat: "SAT", mem: "MEMORY", map: "MAP" })[s.k]).join(" · ")}`);
+    : `driven by ${RC_LINKS.filter((s) => links[s.k]).map((s) => ({ sat: "SAT", mem: "MEMORY", map: "MAP", sonde: "SONDE" })[s.k]).join(" · ")}`);
   txt($("rcConnWarn"), links ? "" : "The receiver with the rotor did not answer yet: the state of the links is not known.");
 }
 
@@ -12637,13 +13731,17 @@ function onStatus(s) {
     for (const k of ["tune_hz", "mode", "bandwidth", "zoom", "gain", "rtl_agc", "smart_agc", "dc_remove", "dc_hz", "dc_db", "spur_on", "spur_hz", "spur_edge", "spur_shift", "spur_db", "spur_learning", "stereo_on", "notch", "autotune", "ft8", "wefax", "cw", "rtty", "sstv", "packet", "pocsag", "sonde", "hfdl", "ais", "adsb", "acars", "cpdlc", "dab", "dab_channel", "dab_sids", "logs", "upconv", "device", "squelch_levels", "auto_sql", "auto_sql_on", "auto_sql_level", "ctcss", "ctcss_hz", "dcs", "dcs_code"]) s[k] = st[k];
   }
   s.sample_rates = sampleRates;
+  if (Date.now() - localChangeAt >= 700 && (hamSbBand(s.tune_hz) || !sbBandOf.has(vbase))) {
+    sbBandOf.set(vbase, hamSbBand(s.tune_hz));   // tuned elsewhere (memory, scanner, other page): no switch
+  }
   st = s;
   renderRec();
   renderScanNow();
   renderStatusPill();
   renderSpurInfo();
-  meterTarget = s.smeter;
+  setMeterTarget(s.smeter);
   $("smeterText").innerHTML = `<b>${sReading(s.smeter)}</b> · <span>${s.smeter.toFixed(1)} dBFS</span>`;
+  $("smeterText").classList.toggle("over-s9", s.smeter > s9Dbfs);   // above S9: red
   renderTuner();
   drawOverlays();
   renderSqlBadge();
@@ -12784,7 +13882,7 @@ function connectEvents(v) {
     if (v.rows.length > VFO_ROWS_MAX) v.rows.splice(0, v.rows.length - VFO_ROWS_MAX);
     if (v === active && !MAP_ONLY) onRow(ev.c, ev.span, ev.row, false, wfFullOf(ev));
   });
-  on("meter", (d) => { meterTarget = d.db; });
+  on("meter", (d) => { setMeterTarget(d.db); });
   on("memories", () => memChanged());
   on("ft8", (d) => {
     addFt8(d, true);
@@ -12865,14 +13963,20 @@ const VFO_ANNS = [
   ["nf", "NF", "NF: automatic notch filter (AM/LSB/USB)"],
   ["sp", "SP", "SP: spur removal"],
   ["alc", "ALC", "ALC: automatic audio level (AM/LSB/USB/CW)"],
-  ["dnr", "DNR", "DNR: Dynamic Noise Reduction (AM/LSB/USB/CW)"],
+  ["nb", "NB", "NB: Noise Blanker – pulses blanked (all modes except WFM / DAB)"],
+  ["nth", "NTH", "NTH: Noise Threshold – quiet between words (AM/LSB/USB/CW)"],
+  ["dnr", "DNR", "DNR: Digital Noise Reduction (AM/LSB/USB/CW)"],
   ["asq", "ASQ", "ASQ: auto squelch (AM/FM/WFM)"],
   ["afi", "AFI", "AFI: audio frequency inversion"],
   ["sat", SAT_ANN_ICON, "SAT: frequency corrected for Doppler by satellite tracking"],
 ];
 const vfoAnnsHtml = (mode = "") => `<div class="vfo-anns"><span class="ann vfo-mode">${mode}</span>` +
   VFO_ANNS.map(([c, t, tip]) => `<span class="ann ${c}" title="${tip}">${t}</span>`).join("") +
-  `<span class="gap"></span><span class="ann vfo-cue" role="button">CUE</span></div>`;
+  `</div>`;
+// the unit of the frequency with REC on top and CUE just above the unit (CUE moved there from the annunciator row,
+// which got too long; REC replaced the red dot of the top row). cue = false: a standalone receiver without CUE.
+const freqUnitHtml = (unit, cue = true) => `<span class="unit-col"><span class="ann vfo-rec">REC</span>` +
+  (cue ? `<span class="ann vfo-cue" role="button">CUE</span>` : "") + `<span class="unit">${unit}</span></span>`;
 /** Lights the annunciators of one VFO window from its state s. */
 function renderVfoAnns(row, s) {
   const a = (c) => row.querySelector(`.vfo-anns .${c}`);
@@ -12886,7 +13990,9 @@ function renderVfoAnns(row, s) {
   a("alc").classList.toggle("on", ["AM", "LSB", "USB", "CW"].includes(s.mode) && s.audio_agc !== false);
   a("afi").classList.toggle("on", s.mode !== "WFM" && s.mode !== "DSD" && !!s.afi);
   a("asq").classList.toggle("on", ["AM", "FM", "WFM"].includes(s.mode) && !!s.auto_sql_on);
-  a("dnr").classList.toggle("on", ["AM", "LSB", "USB", "CW"].includes(s.mode) && !!s.dyn);
+  a("nb").classList.toggle("on", !["WFM", "DAB"].includes(s.mode) && !!s.nb);
+  a("nth").classList.toggle("on", ["AM", "LSB", "USB", "CW"].includes(s.mode) && !!s.dyn);
+  a("dnr").classList.toggle("on", ["AM", "LSB", "USB", "CW"].includes(s.mode) && !!s.dnr);
   a("sat").classList.toggle("on", !!s.trsp_name);
 }
 // Info row under the frequency (was the flags beside the S-meter): RX/TX, filter width, audio HPF and LPF with their
@@ -12898,10 +14004,12 @@ const PASS_ICON = {
 // Tone squelch row under the frequency: the set CTCSS tone and DCS code, dark (as an unlit annunciator) = off, orange = on (FM), glowing = received.
 const vfoToneHtml = () => `<div class="vfo-tone"><span class="ann tsq ctcss">CTCSS<b></b></span>` +
   `<span class="ann tsq dcs">DCS<b></b></span>` +
+  `<span class="ann ant" title="Antenna of the VFO (SETTINGS › VFO › SDR DONGLE › ANTENNA)">ANT</span>` +
   `<span class="ann atu" title="ATU: autotune (USB/LSB/AM)">ATU</span></div>`;
 function renderVfoTone(row, s) {
   const fm = s.mode === "FM";
   row.querySelector(".vfo-tone .atu")?.classList.toggle("on", ATU_MODES.includes(s.mode) && !!s.autotune);
+  renderVfoAnt(row.querySelector(".vfo-tone .ant"), s);
   for (const [c, on, val, name] of [["ctcss", s.ctcss, ctcssText(ctcssHz(s)), "TSQ-C: CTCSS tone squelch"],
     ["dcs", s.dcs, dcsCode(s), "TSQ-D: DCS code squelch"]]) {
     const el = row.querySelector(`.vfo-tone .${c}`);
@@ -12955,21 +14063,27 @@ function renderVfoInfo(row, s) {
   conv.classList.toggle("warn", has && !need);
 }
 
-/** Keys under the VFO windows, a pair for each window (also the free ones, disabled): the VFO key (the active one lit)
- *  and beside it CUE of that VFO (lit = it stays audible at CUE level while another VFO is selected). */
+/** Keys under the VFO windows, a group for each window (also the free ones, disabled): the VFO key (the active one lit),
+ *  MUTE of that VFO (red LED = its sound is silenced in this browser, MAIN and CUE) and CUE of that VFO (lit = it stays
+ *  audible at CUE level while another VFO is selected). */
 function renderVfoKeys() {
+  applyVfoMute();   // also after the active VFO changed
   const box = $("vfoKeys");
   if (!box) return;
   const rows = [...$("vfoList").querySelectorAll(".vfo-row")].filter((r) => r.querySelector(".vfo-key"));
   if (box.children.length !== rows.length) box.innerHTML = rows.map(() =>
-    `<div class="vfo-pair"><button class="key vfo-sel"></button><button class="key vfo-cuekey">CUE</button></div>`).join("");
+    `<div class="vfo-pair"><button class="key vfo-sel"></button><button class="key vfo-mutekey">MUTE</button>` +
+    `<button class="key vfo-cuekey">CUE</button></div>`).join("");
   rows.forEach((r, i) => {
-    const pair = box.children[i], b = pair.querySelector(".vfo-sel"), c = pair.querySelector(".vfo-cuekey");
+    const pair = box.children[i], b = pair.querySelector(".vfo-sel"), c = pair.querySelector(".vfo-cuekey"), m = pair.querySelector(".vfo-mutekey");
     const name = r.querySelector(".vfo-key").textContent, spare = r.classList.contains("spare");
     const v = vfos.find((x) => String(x.name) === r.dataset.vfo);
     if (b.textContent !== name) b.textContent = name;
-    b.dataset.vfo = c.dataset.vfo = r.dataset.vfo;
-    b.disabled = c.disabled = spare;
+    b.dataset.vfo = c.dataset.vfo = m.dataset.vfo = r.dataset.vfo;
+    b.disabled = c.disabled = m.disabled = spare;
+    m.classList.toggle("on", !!(v && v.mute));
+    m.title = spare ? r.title : v && v.mute ? `MUTE on: ${name.replace("-", " ")} is silent in this browser, as MAIN and as CUE (click to hear it again)`
+      : `MUTE: silence ${name.replace("-", " ")} in this browser (MAIN and CUE); the receiver, decoders and recording go on`;
     b.classList.toggle("on", r.classList.contains("active"));
     b.classList.toggle("busy", r.classList.contains("busy"));
     b.classList.toggle("tx", r.classList.contains("tx"));
@@ -12981,11 +14095,12 @@ function renderVfoKeys() {
   renderSetVfoKeys();
 }
 $("vfoKeys").addEventListener("click", (e) => {
-  const b = e.target.closest(".vfo-sel, .vfo-cuekey");
+  const b = e.target.closest(".vfo-sel, .vfo-cuekey, .vfo-mutekey");
   if (!b || b.disabled) return;
   const v = vfos.find((x) => String(x.name) === b.dataset.vfo);
   if (!v) return;
   if (b.classList.contains("vfo-cuekey")) setCue(v, !v.cue);   // CUE does not switch the VFO
+  else if (b.classList.contains("vfo-mutekey")) setVfoMute(v, !v.mute);   // nor does MUTE
   else selectVfo(v);
 });
 
@@ -13009,14 +14124,46 @@ function renderSpareVfos() {
     row.title = `VFO ${name}: no SDR assigned (connect one and run the SDR setup)`;
     row.innerHTML = `<div class="vfo-top"><button class="vfo-key" disabled>VFO-${name}</button><div class="vfo-memname"></div>` +
       `<div class="vfo-ind"><span class="vfo-stat off">NO SDR</span></div></div>` +
-      `<div class="vfo-disp"><div class="freq">${seg7("          ")}<span class="unit">MHz</span></div></div>` +
+      `<div class="vfo-disp"><div class="freq">${seg7("          ")}${freqUnitHtml("MHz")}</div></div>` +
       vfoInfoHtml() + vfoAnnsHtml("---") +
-      `<div class="vfo-foot"><label class="vfo-rf"><span>RF</span>` +
+      `<div class="vfo-foot"><label class="vfo-rf"><span>RF GAIN</span>` +
       `<input type="range" min="0" max="1" value="0" disabled></label><span class="vfo-gain">---</span></div>` +
+      `<div class="vfo-foot vfo-adcrow" title="A/D converter level"><span class="vfo-lbl">ADC</span>` +
+      `<div class="vfo-adc"></div><span class="vfo-adcv">---</span></div>` +
       `<div class="vfo-foot vfo-sqrow"><label class="vfo-rf vfo-sq"><span>SQL</span>` +
       `<input type="range" min="0" max="1" value="0" disabled></label><span class="vfo-sql">---</span></div>`;
     $("vfoList").append(row);
   }
+}
+
+/** ADC bar of a VFO window: the A/D level (the 99.9 % peak of the samples AGC+ measures, else the block peak) from
+ *  −40 dBFS to full scale, on a scale in the colours of the AGC+ meter: blue too quiet, green around the headroom target
+ *  of AGC+ (its signal kind and band), amber too hot, red the last dB and clipping. */
+function renderVfoAdc(row, s) {
+  const a = s.agc || {}, bar = row.querySelector(".vfo-adc"), val = row.querySelector(".vfo-adcv");
+  const lvl = a.head != null ? -a.head : s.adc_peak != null ? Number(s.adc_peak) : null;
+  const t = a.target ?? 17, w = a.window ?? 3;
+  // positions snapped into the gap between segments (period 7 px: 5 px segment, 2 px gap, as in style.css), so a
+  // zone colour or the lit end never splits a segment
+  const wpx = bar.clientWidth || 100, last = (Math.floor((wpx + 2) / 7) - 1) * 7 - 1;   // gap before the last segment
+  const pos = (db, cap = Infinity) => {
+    const x = Math.max(0, Math.min(1, (db + 40) / 40)) * wpx;
+    return `${Math.max(0, Math.min(cap, Math.round(x / 7) * 7 - 1))}px`;
+  };
+  bar.style.setProperty("--p", lvl == null ? "0%" : pos(lvl));
+  bar.style.setProperty("--z1", pos(-(t + w + 6)));
+  bar.style.setProperty("--z2", pos(-(t - w)));
+  bar.style.setProperty("--z3", pos(-1, last));
+  const clip = !!s.adc_clip || !!a.lamp;
+  const zone = lvl == null ? "" : clip || lvl > -1 ? "clip" : lvl > -(t - w) ? "hot" : lvl < -(t + w + 6) ? "quiet" : "ok";
+  val.className = `vfo-adcv ${zone}`;
+  val.textContent = lvl == null ? "---" : `${minusSign(lvl.toFixed(1))} dBFS`;
+  const tip = lvl == null ? "A/D converter: not measured" :
+    `A/D converter: 99.9 % peak ${minusSign(lvl.toFixed(1))} dBFS, block peak ${minusSign(s.adc_peak)} dBFS` +
+    `${clip ? `, CLIPPING ${ppmPct(s.adc_clip_ppm || 0)}` : ""}\nScale: green = the AGC+ headroom target ${t} ± ${w} dB under full scale` +
+    `${a.kind_text ? ` (${a.kind_text}${a.band ? `, ${a.band.split(":")[0]}` : ""})` : ""}, amber too hot, red clipping, blue too quiet`;
+  const foot = bar.closest(".vfo-foot");
+  if (!foot.matches(":hover")) foot.title = tip;
 }
 
 /** Frequency displays of all VFOs side by side (fixed order A, B, C) with a button to switch.
@@ -13032,13 +14179,15 @@ function renderVfoDisplays() {
       // on top the name of the memory on this frequency or the band plan, above the display the receiver state, VFO button, mode and CUE; under the display the RF GAIN slider and the gain value
       // one dark window: VFO-x, name and state on top, the frequency, the annunciators, RF and SQL bars
       row.innerHTML = `<div class="vfo-top">` + (v.name ? `<button class="vfo-key">VFO-${v.name}</button>` : "<span></span>") +
-        `<div class="vfo-memname"></div><div class="vfo-ind"><span class="rec-tag"></span>` +
+        `<div class="vfo-memname"></div><div class="vfo-ind">` +
         `<span class="mute-tag" title="Audio muted while the ACARS, VDL2, HFDL or ISM decoder runs" hidden></span>` +
         (v.name ? `<span class="vfo-stat"></span>` : "") + `</div></div>` +
         `<div class="vfo-disp"><div class="freq"></div></div>` +
-        (v.name ? vfoToneHtml() + vfoInfoHtml() + vfoAnnsHtml() + `<div class="vfo-foot"><label class="vfo-rf"><span>RF</span>` +
+        (v.name ? vfoToneHtml() + vfoInfoHtml() + vfoAnnsHtml() + `<div class="vfo-foot"><label class="vfo-rf"><span>RF GAIN</span>` +
         `<input type="range" min="0" max="0" step="1" value="0"></label>` +
         `<span class="vfo-gain" title="RF gain"></span></div>` +
+        `<div class="vfo-foot vfo-adcrow"><span class="vfo-lbl">ADC</span><div class="vfo-adc"></div>` +
+        `<span class="vfo-adcv"></span></div>` +
         `<div class="vfo-foot vfo-sqrow"><label class="vfo-rf vfo-sq"><span>SQL</span>` +
         `<input type="range" min="${SQUELCH_OFF}" max="-20" step="1" value="${SQUELCH_OFF}"></label>` +
         `<span class="vfo-sql"></span></div>` : "");
@@ -13051,23 +14200,31 @@ function renderVfoDisplays() {
     const isActive = v === active;
     row.classList.toggle("active", isActive);
     row.classList.toggle("offline", !!v.name && !v.online);
+    cueDabBuf(v);
     const fr = row.querySelector(".freq");
     fr.title = isActive ? "Click to enter a frequency" : `Switch to VFO ${v.name}`;
     if (s) {
       const { txt, unit } = freqDigits(s.tune_hz);
       if (txt !== v.shown) {
         v.shown = txt;
-        fr.innerHTML = seg7(txt) + `<span class="unit">${unit}</span>`;
+        fr.innerHTML = seg7(txt) + freqUnitHtml(unit, !!v.name);
         fr.setAttribute("aria-label", `${fmtMHz(s.tune_hz, 6)} MHz`);
       }
-      // red struck-through speaker in the top row: the audio of this VFO is muted by a decoder
-      row.querySelector(".mute-tag").hidden = !s.audio_muted;
+      // red struck-through speaker in the top row: the audio of this VFO is muted by a decoder or by its MUTE key
+      const mt = row.querySelector(".mute-tag");
+      mt.hidden = !s.audio_muted && !v.mute;
+      mt.title = v.mute ? "MUTE: this VFO is silenced in this browser (MUTE key under the VFO window)"
+        : "Audio muted while the ACARS, VDL2, HFDL or ISM decoder runs";
       if (v.name) { renderVfoAnns(row, s); renderVfoTone(row, s); renderVfoInfo(row, s); }
-      // red dot in the corner of the display: blinks while a file is being written, steady while waiting for the squelch
+      // REC above CUE beside the frequency: red, blinks while a file is being written, steady while waiting for the squelch
       const recs = [s.recording?.cont, s.recording?.squelch];
-      const recTag = row.querySelector(".rec-tag");
-      recTag.classList.toggle("on", recs.some((r) => r?.on) && (!v.name || v.online));
-      recTag.classList.toggle("writing", recs.some((r) => r?.on && r.open));
+      const recTag = row.querySelector(".vfo-rec");
+      if (recTag) {
+        const on = recs.some((r) => r?.on) && (!v.name || v.online), writing = on && (!!recs[0]?.on || !!(recs[1]?.on && (recs[1].active ?? recs[1].open)));
+        recTag.classList.toggle("on", on);
+        recTag.classList.toggle("writing", writing);
+        recTag.title = !on ? "REC: not recording" : writing ? "REC: recording, writing a file" : "REC: recording on, waiting for the squelch to open";
+      }
     }
     // Frame on top of the VFO: satellite and transponder of the Doppler correction, otherwise the memory on this frequency, otherwise the band plan (narrowest band).
     const trsp = s && s.trsp_name ? [s.trsp_sat, s.trsp_name].filter(Boolean).join(" · ") : "";
@@ -13107,9 +14264,10 @@ function renderVfoDisplays() {
     stat.title = `${stTxt}: ${stTitle}`;
     const mode = row.querySelector(".vfo-mode"), gain = row.querySelector(".vfo-gain"), sql = row.querySelector(".vfo-sql");
     // without a state only make it invisible, so the layout does not shift
-    mode.style.visibility = gain.style.visibility = sql.style.visibility = s ? "" : "hidden";
+    const adcv = row.querySelector(".vfo-adcv");
+    mode.style.visibility = gain.style.visibility = sql.style.visibility = adcv.style.visibility = s ? "" : "hidden";
     if (s) {
-      mode.textContent = s.dab ? "DAB" : s.mode;
+      mode.textContent = s.dab ? "DAB" : samLabel(s) || s.mode;
       const smart = s.smart_agc && s.gain !== "auto";
       gain.textContent = s.gain === "auto" ? "AGC" : smart ? `+${gainLabel(s)}` : gainLabel(s);
       if (!gain.matches(":hover")) gain.title = smart ? `AGC+ ${gainLabel(s)}, A/D peak ${s.adc_peak} dBFS${s.adc_clip ? ", clipping" : ""}` : "RF gain";
@@ -13130,6 +14288,7 @@ function renderVfoDisplays() {
       const rfClip = manual && now - (row._rfClipAt ?? -1e9) < 1000;
       gain.closest(".vfo-foot").classList.toggle("clip", rfClip);
       if (manual && !gain.matches(":hover")) gain.title = `RF gain, A/D peak ${s.adc_peak} dBFS${rfClip ? ", CLIPPING – lower the RF gain" : ""}`;
+      renderVfoAdc(row, s);
       // squelch only in AM/FM/WFM; in other modes it stays in place but dimmed and inactive
       const levels = s.squelch_levels || {};
       const sqOk = s.mode in levels, set = sqOk ? levels[s.mode] : SQUELCH_OFF;
@@ -13144,8 +14303,8 @@ function renderVfoDisplays() {
         : lvl <= SQUELCH_OFF ? "squelch off" : `squelch ${lvl} dBFS (${sReading(lvl)})`;
     }
     const cue = row.querySelector(".vfo-cue");
-    cue.classList.toggle("on", !!v.cue);
-    cue.title = v.cue ? `CUE on: VFO ${v.name} stays audible at CUE level (click to turn off)`
+    if (cue) cue.classList.toggle("on", !!v.cue);
+    if (cue) cue.title = v.cue ? `CUE on: VFO ${v.name} stays audible at CUE level (click to turn off)`
       : `CUE off (click to keep hearing VFO ${v.name} when another VFO is selected)`;
     row.classList.toggle("tx", !!(s && s.tx));
     // Squelch open on an inactive VFO: the button lights up to show activity.
@@ -13219,9 +14378,11 @@ async function selectVfo(v, keepTab) {
   pttUp();
   flushSend();
   stopAudio();
+  dabToCue(active);   // a DAB station of the VFO left goes on in its CUE, of the new one from its CUE (no buffering)
   stopDab();
   active = v;
   vbase = v.base;
+  dabFromCue(v);
   store("vfo", v.name);
   restoreBodyTab(keepTab);
   // Everything shown belongs to the previous VFO: state, waterfall, decoders.
@@ -13254,7 +14415,6 @@ async function selectVfo(v, keepTab) {
     renderStatusPill();
   }
   renderVfoDisplays();
-  renderCueKey();
   startAudio();
   await loadDecoders();
 }
@@ -13331,7 +14491,7 @@ let audio = null;
 let actx = null;
 let masterGain = null;
 let cueGain = null;
-let audioTap = null, audioAnalyser = null;   // audio of the active VFO before the volume, for the audio spectrum bubble
+let audioTap = null, audioAnalyser = null, vfoMuteGain = null;   // audio of the active VFO before the volume, for the audio spectrum bubble
 
 function audioContext() {
   if (!actx) {
@@ -13340,7 +14500,10 @@ function audioContext() {
     masterGain.gain.value = volumeNow();
     masterGain.connect(actx.destination);
     audioTap = actx.createGain();
-    audioTap.connect(masterGain);
+    vfoMuteGain = actx.createGain();   // MUTE of the active VFO: after the tap, so the audio spectrum bubble still shows it
+    vfoMuteGain.gain.value = active && active.mute ? 0 : 1;
+    audioTap.connect(vfoMuteGain);
+    vfoMuteGain.connect(masterGain);
     audioAnalyser = actx.createAnalyser();
     audioAnalyser.fftSize = 2048;
     audioAnalyser.smoothingTimeConstant = 0.6;
@@ -13388,6 +14551,58 @@ function stopStream(h) {
   h.live = false;
   h.ctrl.abort();
   h.gain.disconnect();
+  if (h.el) { h.el.pause(); h.el.removeAttribute("src"); h.el.load(); h.el = null; }
+}
+
+/** CUE of VFO v: with DAB on there it plays its station (welle-cli MP3, like dabPlay), otherwise its /api/audio
+ *  (a DAB VFO sends no PCM). The DAB state comes from the VFO's own /api/state; on an error or the end of the
+ *  stream onEnd reconnects after a while (which reads the state again). */
+/** A CUE stream handle: its own gain into cueGain. buf: a DAB station of the VFO is not playing yet (cueDabBuf). */
+function cueHandle() {
+  const gain = audioContext().createGain();
+  gain.connect(cueGain);
+  return { gain, ctrl: new AbortController(), playTime: 0, live: true, el: null, buf: true, sid: null };
+}
+
+/** Plays the DAB <audio> el (el._src its source node) in the CUE handle me of VFO v; on its end or an error onEnd
+ *  reconnects. Listeners of an element handed over to MAIN and back stay, so each one checks it is still me's. */
+function cueDab(v, me, el, onEnd) {
+  me.el = el;
+  el._src.disconnect();
+  el._src.connect(me.gain);
+  const ended = () => setTimeout(() => { if (me.live && me.el === el) { stopStream(me); onEnd(); } }, 1500);
+  const buf = (on) => { if (me.live && me.el === el) { me.buf = on; cueDabBuf(v); } };
+  el.addEventListener("ended", ended);
+  el.addEventListener("error", ended);
+  el.addEventListener("playing", () => buf(false));
+  for (const ev of ["waiting", "stalled", "error", "ended"]) el.addEventListener(ev, () => buf(true));
+}
+
+function playCue(v, onEnd) {
+  const ctx = audioContext();
+  const me = cueHandle();
+  const ended = () => setTimeout(() => { if (me.live) { stopStream(me); onEnd(); } }, 1500);
+  fetch(v.base + "/api/state", { signal: me.ctrl.signal }).then((r) => r.json()).then((s) => {
+    if (!me.live) return;
+    if (!s.dab) {
+      pumpStream(ctx, v.base, me, false).then((aborted) => { if (!aborted) ended(); });
+      return;
+    }
+    const sid = (s.dab_sids || {})[s.dab_channel];
+    if (!sid) { me.buf = false; cueDabBuf(v); return; }   // DAB with no station selected: nothing to hear (nor to wait for)
+    const el = new Audio();
+    el.crossOrigin = "anonymous";           // the receiver of the VFO is on another port (CORS * on the server)
+    el._src = ctx.createMediaElementSource(el);
+    me.sid = sid;
+    cueDab(v, me, el, onEnd);
+    el.src = `${v.base}/api/dab/audio/${sid}`;
+    el.play().catch(() => {
+      // the browser allows sound only after the first click or key on the page
+      const retry = () => { if (me.live && me.el === el) el.play().catch(() => {}); };
+      for (const ev of ["pointerdown", "keydown"]) document.addEventListener(ev, retry, { capture: true, once: true });
+    });
+  }).catch((e) => { if (e.name !== "AbortError") ended(); });
+  return me;
 }
 
 function startAudio() {
@@ -13397,17 +14612,40 @@ function startAudio() {
   syncCue();
 }
 
+/** Inactive VFO with CUE on DAB: its grey DAB on the display blinks until the CUE sound plays (the DAB key does not). */
+function cueDabBuf(v) {
+  const on = !!(v.row && v !== active && v.cueAudio && v.cueAudio.buf && v.st && v.st.dab);
+  if (v.row) v.row.classList.toggle("dab-buf", on);
+}
+
 /** Starts or stops the CUE streams: every VFO with CUE on plays except the active one (that goes through MAIN). */
 function syncCue() {
   for (const v of vfos) {
     const want = !!(v.name && v.cue && v !== active);
     if (want && !v.cueAudio) {
-      const h = v.cueAudio = playStream(v.base, false, () => { if (v.cueAudio === h) { v.cueAudio = null; syncCue(); } });
+      const h = v.cueAudio = playCue(v, () => { if (v.cueAudio === h) { v.cueAudio = null; syncCue(); } });
     } else if (!want && v.cueAudio) {
       stopStream(v.cueAudio);
       v.cueAudio = null;
     }
+    cueDabBuf(v);
   }
+  applyVfoMute();
+}
+
+/** MUTE of each VFO (keys under the VFO windows): the active one silenced after the tap (MAIN), the others in their
+ *  CUE stream. Only this browser; the receiver, its decoders, recording and the scanner go on. */
+function applyVfoMute() {
+  if (vfoMuteGain) vfoMuteGain.gain.value = active && active.mute ? 0 : 1;
+  for (const v of vfos) if (v.cueAudio) v.cueAudio.gain.gain.value = v.mute ? 0 : 1;
+}
+
+function setVfoMute(v, on) {
+  v.mute = on;
+  store("mute_" + v.name, on ? "1" : "");
+  applyVfoMute();
+  renderVfoDisplays();
+  renderVfoKeys();
 }
 
 function setCue(v, on) {
@@ -13416,16 +14654,9 @@ function setCue(v, on) {
   syncCue();
   renderVfoDisplays();
   renderVfoKeys();
-  renderCueKey();
 }
 
-function renderCueKey() {
-  const k = $("cueKey");
-  k.disabled = !active || !active.name;
-  k.classList.toggle("on", !!(active && active.cue));
-}
-
-$("cueKey").addEventListener("click", () => { if (active && active.name) setCue(active, !active.cue); });
+// (the CUE key of the AUDIO group is gone since 1.0beta2: CUE of each VFO is the key under its VFO window)
 
 /** Reads the stream and schedules playback; returns true if the stream was stopped on purpose. */
 async function pumpStream(ctx, base, me, isMain) {
@@ -13485,18 +14716,25 @@ const REC_BUTTONS = [
     title: "Record everything to MP3 until switched off, a new file every 15 min (folder: SETTINGS › GENERAL › RECORDINGS)" },
   { btn: "recSqBtn", time: "recSqTime", key: "squelch", send: "rec_sq", label: "REC SQ",
     title: "Record to MP3 only while the squelch is open, each session in its own file (folder: SETTINGS › GENERAL › RECORDINGS)" },
+  { btn: "recIqBtn", time: "recIqTime", key: "iq", send: "rec_iq", label: "REC IQ",
+    title: "Record the whole IQ of the dongle (the full band at its sample rate) to WAV as SDR# does: I / Q stereo, 8 bit (RTL) or 16 bit, the centre frequency in the name; subfolder iq of the recordings folder. Large: RTL at 2.4 MS/s about 290 MB a minute" },
 ];
 const recErrors = {};
+/** State of a REC key: REC / REC SQ in st.recording, REC IQ in st.iq_rec. */
+const recState = (b) => (b.key === "iq" ? st && st.iq_rec : st && st.recording && st.recording[b.key]) || {};
 
 function renderRec() {
-  const rec = (st && st.recording) || {};
   for (const b of REC_BUTTONS) {
-    const r = rec[b.key] || {};
+    const r = recState(b);
     const btn = $(b.btn);
-    btn.classList.toggle("on", !!r.on && !!r.open);
-    btn.classList.toggle("armed", !!r.on && !r.open);
+    // blinks while audio goes into the file, steady while REC SQ waits for the squelch (also in the pause after it)
+    const active = !!r.on && (b.key !== "squelch" || !!(r.active ?? r.open));   // REC and REC IQ blink from the press on
+    btn.classList.toggle("on", active);
+    btn.classList.toggle("armed", !!r.on && !active);
     $(b.time).textContent = r.on && r.open ? `${Math.floor(r.secs / 60)}:${String(r.secs % 60).padStart(2, "0")}` : b.label;
-    btn.title = r.error || (r.on ? `Recording, click to stop${r.file ? "\n" + r.file : ""}` : b.title);
+    const iqInfo = b.key === "iq" && r.open
+      ? `\n${r.mb} MB, ${(r.rate / 1e6).toFixed(3)} MS/s${r.dropped ? `, ${r.dropped} blocks lost (the disk is too slow)` : ""}` : "";
+    btn.title = r.error || (r.on ? `Recording, click to stop${r.file ? "\n" + r.file : ""}${iqInfo}` : b.title);
     if (r.error && r.error !== recErrors[b.key]) adError(r.error);
     recErrors[b.key] = r.error;
   }
@@ -13504,12 +14742,248 @@ function renderRec() {
 
 for (const b of REC_BUTTONS) {
   $(b.btn).addEventListener("click", () => {
-    const r = (st && st.recording && st.recording[b.key]) || {};
-    memRec[b.key] = false;   // pressed by hand: the recording no longer follows the recalled memory
+    const r = recState(b);
+    if (b.key !== "iq") memRec[b.key] = false;   // pressed by hand: the recording no longer follows the recalled memory
     send({ [b.send]: !r.on });
   });
 }
 renderRec();
+
+// ---------- SETTINGS › GENERAL › ANTENNAS (antennas.py, data\antennas.json, shared by all VFOs) and the antenna of a VFO ----------
+
+let antList = [];             // antennas of the station from the server
+let antTypes = [], antPols = [];
+let antLoading = null;        // a running load
+let antAsked = false;         // the list was asked for once (by the first status)
+let antEdit = null;           // rows on the ANTENNAS page while editing (null = not open yet)
+let antDirty = false;
+
+const antMhz = (hz) => (hz == null ? "" : String(+(hz / 1e6).toFixed(6)));
+/** Bands as text for the edit field: "144-146, 430-440" (MHz). */
+const antBandsEdit = (ranges) => (ranges || []).map(([lo, hi]) => `${antMhz(lo)}-${antMhz(hi)}`).join(", ");
+const antRangeText = (a) => (a.ranges?.length ? `${antBandsEdit(a.ranges).replaceAll("-", "–")} MHz` : "");
+/** "144-146, 430-440" (MHz; separated by commas or semicolons) → [[Hz, Hz], ...]; throws with the reason. */
+function antParseBands(text) {
+  const out = [];
+  for (const part of text.split(/[,;]+/).map((x) => x.trim()).filter(Boolean)) {
+    const m = part.match(/^(\d+(?:\.\d+)?)\s*(?:-|–|\.\.)\s*(\d+(?:\.\d+)?)$/);
+    if (!m) throw new Error(`"${part}": write a band as lowest-highest MHz, e.g. 144-146`);
+    const lo = Math.round(+m[1] * 1e6), hi = Math.round(+m[2] * 1e6);
+    if (lo >= hi) throw new Error(`"${part}": the lowest frequency must be below the highest`);
+    out.push([lo, hi]);
+  }
+  return out.sort((x, y) => x[0] - y[0]);
+}
+const antById = (id) => (id ? antList.find((a) => a.id === id) : null);
+/** true / false: the antenna covers hz; null: its range is not given. */
+function antCovers(a, hz) {
+  if (!a || !a.ranges?.length) return null;
+  return a.ranges.some(([lo, hi]) => lo <= hz && hz <= hi);
+}
+
+/** VFOs with a receiver (named), for the VFO keys of the ANTENNAS page. */
+const antVfoList = () => vfos.filter((v) => v.name);
+/** The antenna id of a VFO from its last status. */
+const vfoAntOf = (v) => ((v === active ? st || v.st : v.st) || {}).antenna || "";
+/** Rows of the ANTENNAS page from the saved list, each with the VFOs that use it now. */
+const antEditFromList = () => antList.map((a) => ({ ...a, _vfos: antVfoList().filter((v) => vfoAntOf(v) === a.id).map((v) => v.name) }));
+
+function antMsg(text, err) {
+  $("antMsg").textContent = text || "";
+  $("antMsg").classList.toggle("error", !!err);
+}
+
+/** Reads the list (or saves it: body = {antennas}); editor = refill the ANTENNAS page from it. */
+async function antLoad(editor, body) {
+  if (!body && antLoading) {
+    const ok = await antLoading;            // the first status is reading the list now: use its result
+    if (ok && editor && !antDirty) { antEdit = antEditFromList(); renderAntTable(); }
+    return ok;
+  }
+  const run = (async () => {
+    try {
+      const r = await fetch(vbase + "/api/antennas", body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {});
+      const s = await r.json();
+      if (!r.ok) throw new Error(s.error || `HTTP ${r.status}`);
+      antList = s.antennas || [];
+      antTypes = s.types || [];
+      antPols = s.polarizations || [];
+      if (editor && (!antDirty || body)) { antEdit = antEditFromList(); antDirty = false; renderAntTable(); }
+      renderAntVfo();
+      renderVfoDisplays();
+      return true;
+    } catch (e) {
+      if (editor) antMsg(e.message, true);
+      return false;
+    }
+  })();
+  if (!body) { antLoading = run; run.finally(() => { antLoading = null; }); }
+  return run;
+}
+
+/** ANT in the tone row of a VFO window: lit = tuned within the range of its antenna, amber = outside, dark = no antenna. */
+function renderVfoAnt(el, s) {
+  if (!el) return;
+  const a = antById(s.antenna);
+  const ok = a ? antCovers(a, s.tune_hz) : null;
+  el.classList.toggle("on", ok === true);
+  el.classList.toggle("set", !!a && ok === null);
+  el.classList.toggle("warn", ok === false);
+  el.title = !s.antenna ? "ANT: no antenna chosen for this VFO (SETTINGS › VFO › SDR DONGLE › ANTENNA)"
+    : !a ? "ANT: the antenna of this VFO is no longer in SETTINGS › GENERAL › ANTENNAS"
+    : `ANT: ${a.name}` + (antRangeText(a) ? ` (${antRangeText(a)})` : "") +
+      (ok === false ? ": the frequency is OUTSIDE the range of this antenna" : ok ? ": the frequency is within its range" : "");
+}
+
+/** ANTENNA card of SETTINGS › VFO › SDR DONGLE: the choice of the active VFO. */
+function renderAntVfo() {
+  if (!antAsked) { antAsked = true; antLoad(); }   // first status: get the list once
+  const sel = $("antVfo");
+  const cur = (st && st.antenna) || "";
+  const opts = [["", "— not set —"]].concat(antList.map((a) => [a.id, a.name + (antRangeText(a) ? ` · ${antRangeText(a)}` : "")]));
+  if (cur && !antById(cur)) opts.push([cur, `${cur} (deleted)`]);
+  const sig = JSON.stringify(opts);
+  if (sel.dataset.sig !== sig) {
+    sel.replaceChildren(...opts.map(([v, t]) => { const o = document.createElement("option"); o.value = v; o.textContent = t; return o; }));
+    sel.dataset.sig = sig;
+  }
+  if (document.activeElement !== sel) sel.value = cur;
+  const a = antById(cur), ok = a && st ? antCovers(a, st.tune_hz) : null;
+  $("antVfoRange").textContent = ok === false ? "⚠ outside range" : ok ? "in range" : "";
+  $("antVfoRange").classList.toggle("warn", ok === false);
+  $("antVfoNote").textContent = !antList.length
+    ? "No antennas yet: add them in SETTINGS › GENERAL › ANTENNAS, then choose the one this VFO receives on."
+    : a ? [a.type.replace("_", " "), a.pol, a.gain_dbi != null ? `${a.gain_dbi} dBi` : "", a.outdoor ? "outdoor" : "indoor",
+        a.rotor ? "on the rotor" : "", a.chain, a.note].filter(Boolean).join(" · ")
+    : "The antenna this VFO receives on. The list is in SETTINGS › GENERAL › ANTENNAS.";
+}
+$("antVfo").addEventListener("change", () => send({ antenna: $("antVfo").value }));
+
+// the ANTENNAS page: one editable row per antenna, saved all at once with SAVE
+const ANT_COLS = [
+  ["name", "text", 40], ["type", "type"], ["ranges", "bands"], ["pol", "pol"],
+  ["gain_dbi", "num"], ["height_m", "num"], ["outdoor", "bool"], ["rotor", "bool"], ["chain", "text", 80], ["note", "text", 200],
+];
+function renderAntTable() {
+  const body = $("antRows");
+  body.replaceChildren(...antEdit.map((a, i) => {
+    const tr = document.createElement("tr");
+    for (const [k, kind, max] of ANT_COLS) {
+      const td = document.createElement("td");
+      let el;
+      if (kind === "type" || kind === "pol") {
+        el = document.createElement("select");
+        for (const v of kind === "type" ? antTypes : antPols) {
+          const o = document.createElement("option");
+          o.value = v; o.textContent = v ? v.replace("_", " ") : "–";
+          el.append(o);
+        }
+        el.value = a[k] ?? "";
+      } else if (kind === "bool") {
+        el = document.createElement("input"); el.type = "checkbox"; el.checked = !!a[k];
+      } else {
+        el = document.createElement("input");
+        if (kind === "text") { el.maxLength = max; el.value = a[k] ?? ""; el.spellcheck = false; }
+        else if (kind === "bands") {
+          el.value = a._bandsText ?? antBandsEdit(a[k]); el.spellcheck = false; el.placeholder = "144-146, 430-440";
+          el.title = "Bands of the antenna in MHz: lowest-highest, several separated by commas (empty = not given)";
+          el.classList.toggle("bad", !!a._bandsErr);
+          if (a._bandsErr) el.title = a._bandsErr;
+        } else { el.type = "number"; el.step = "any"; el.value = a[k] ?? ""; }
+      }
+      el.dataset.k = k;
+      el.dataset.kind = kind;
+      td.append(el);
+      tr.append(td);
+    }
+    // VFO keys: lit = this VFO receives on this antenna (one antenna per VFO: lighting it here clears it in the other rows)
+    const tdU = document.createElement("td"); tdU.className = "ant-used";
+    for (const v of antVfoList()) {
+      const b = document.createElement("button");
+      b.className = "key small ant-vfo" + (a._vfos.includes(v.name) ? " on" : "");
+      b.textContent = v.name;
+      b.dataset.vfo = v.name;
+      b.disabled = !v.online;
+      b.title = v.online ? `VFO ${v.name} receives on this antenna (SAVE to keep the change)` : `VFO ${v.name} is not running`;
+      tdU.append(b);
+    }
+    const tdX = document.createElement("td");
+    const x = document.createElement("button");
+    x.className = "key small"; x.textContent = "✕"; x.title = "Delete this antenna (SAVE to keep the change)"; x.dataset.del = i;
+    tdX.append(x);
+    tr.append(tdU, tdX);
+    tr.dataset.i = i;
+    return tr;
+  }));
+  $("antCount").textContent = antEdit.length ? `${antEdit.length}` : "none yet";
+}
+$("antRows").addEventListener("input", (e) => {
+  const el = e.target, tr = el.closest("tr");
+  if (!tr || !el.dataset.k) return;
+  const a = antEdit[+tr.dataset.i], kind = el.dataset.kind;
+  if (kind === "bands") {
+    a._bandsText = el.value;
+    try { a.ranges = antParseBands(el.value); a._bandsErr = ""; } catch (err) { a._bandsErr = err.message; }
+    el.classList.toggle("bad", !!a._bandsErr);
+    el.title = a._bandsErr || "Bands of the antenna in MHz: lowest-highest, several separated by commas (empty = not given)";
+  } else {
+    a[el.dataset.k] = kind === "bool" ? el.checked : kind === "num" ? (el.value === "" ? null : +el.value) : el.value;
+  }
+  antDirty = true;
+  antMsg("Not saved yet");
+});
+$("antRows").addEventListener("click", (e) => {
+  const k = e.target.closest(".ant-vfo");
+  if (k) {
+    const a = antEdit[+k.closest("tr").dataset.i], name = k.dataset.vfo, on = !a._vfos.includes(name);
+    for (const x of antEdit) x._vfos = x._vfos.filter((n) => n !== name);
+    if (on) a._vfos.push(name);
+    antDirty = true;
+    renderAntTable();
+    antMsg("Not saved yet");
+    return;
+  }
+  const b = e.target.closest("[data-del]");
+  if (!b) return;
+  antEdit.splice(+b.dataset.del, 1);
+  antDirty = true;
+  renderAntTable();
+  antMsg("Not saved yet");
+});
+$("antAdd").addEventListener("click", () => {
+  antEdit = antEdit || [];
+  antEdit.push({ id: "", name: "", type: "other", pol: "", gain_dbi: null, height_m: null,
+    outdoor: true, rotor: false, chain: "", note: "", _vfos: [], ranges: [] });
+  antDirty = true;
+  renderAntTable();
+  $("antRows").lastElementChild?.querySelector("input")?.focus();
+});
+$("antSave").addEventListener("click", async () => {
+  const rows = antEdit || [];
+  const want = new Map();               // VFO name → index of its row (no entry = no antenna)
+  rows.forEach((a, i) => a._vfos.forEach((n) => want.set(n, i)));
+  const bad = rows.find((a) => a._bandsErr);
+  if (bad) { antMsg(`${bad.name || "New antenna"}: ${bad._bandsErr}`, true); return; }
+  const sent = rows.map(({ _vfos, _bandsText, _bandsErr, ...a }) => a);
+  if (!(await antLoad(true, { antennas: sent }))) return;     // the reason is in antMsg
+  // the server returns the list in the same order: new antennas got their ids there
+  const errs = [];
+  for (const v of antVfoList().filter((x) => x.online)) {
+    const id = want.has(v.name) ? antList[want.get(v.name)]?.id || "" : "";
+    if (vfoAntOf(v) === id) continue;
+    const r = await fetch(v.base + "/api/set", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ antenna: id }) })
+      .catch(() => null);
+    if (!r || !r.ok) { errs.push(v.name); continue; }
+    if (v === active && st) st.antenna = id;
+    if (v.st) v.st.antenna = id;
+  }
+  antDirty = false;
+  antEdit = antEditFromList();
+  renderAntTable();
+  renderAntVfo();
+  renderVfoDisplays();
+  antMsg(errs.length ? `Saved, but the antenna of VFO ${errs.join(", ")} was not set` : "Saved", !!errs.length);
+});
 
 // ---------- SETTINGS › GENERAL › RECORDINGS: folder of the MP3 recordings (recorder.py), shared by all VFOs ----------
 
@@ -13548,6 +15022,9 @@ $("recDir").addEventListener("keydown", (e) => { if (e.key === "Enter") $("recDi
 // with the <audio> element (its own volume, not through MAIN); NEXT continues with the row below (the older file).
 let recordings = [];          // from the server, newest first
 let recsPlaying = "";         // file name in the player
+// RECS = MP3 of REC / REC SQ, SCAN RECS = MP3 (older WAV) of the scanner (subfolder scan); remembered in the browser
+let recsKind = recall("recsKind") === "scan" ? "scan" : "rec";
+const recsUrl = (name) => `${vbase}/api/recordings${name ? "/" + encodeURIComponent(name) : ""}?kind=${recsKind}`;
 let recsWriting = "";         // files being written when the list was read (a change = read again)
 let recsLoading = false;
 
@@ -13558,7 +15035,7 @@ async function loadRecordings() {
   if (recsLoading) return;
   recsLoading = true;
   try {
-    const r = await fetch(vbase + "/api/recordings");
+    const r = await fetch(recsUrl());
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     recordings = await r.json();
     recsWriting = recordings.filter((f) => f.writing).map((f) => f.name).join("\n");
@@ -13580,6 +15057,11 @@ function recsShown() {
   return recordings.filter((f) => `${f.name} ${f.memory} ${f.hz / 1e3} ${f.mode} ${f.start}`.toLowerCase().includes(q));
 }
 
+// play / pause as drawn icons of the same box (the ▶ and ▮▮ characters differ in size and width between fonts)
+const PP_ICO = {
+  play: '<svg class="pp-ico" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 .8L9.2 5 2 9.2z"/></svg>',
+  pause: '<svg class="pp-ico" viewBox="0 0 10 10" aria-hidden="true"><path d="M1.6 1h2.4v8H1.6zM6 1h2.4v8H6z"/></svg>',
+};
 function renderRecordings() {
   const shown = recsShown();
   const playing = recsPlaying && !$("recsAudio").paused;
@@ -13589,14 +15071,15 @@ function renderRecordings() {
     tr.classList.toggle("playing", f.name === recsPlaying);
     tr.title = f.writing ? "Being written now: plays what is saved so far" : "Click to play";
     const cells = [
-      ["play", f.name === recsPlaying && playing ? "▮▮" : "▶", ""],
+      ["play", f.name === recsPlaying && playing ? "pause" : "play", ""],
       ["", f.start || "—", ""], ["", f.memory, ""], ["num", f.hz ? `${(f.hz / 1e6).toFixed(6)} MHz` : "", ""], ["", f.mode, ""],
       ["num", recsSecs(f.secs), ""], ["num", recsSize(f.size), ""], ["file", f.name, f.name], ["del", f.writing ? "" : "✕", f.writing ? "" : "Delete the file"],
     ];
     for (const [cls, text, title] of cells) {
       const td = document.createElement("td");
       if (cls) td.className = cls;
-      td.textContent = text;
+      if (cls === "play") td.innerHTML = PP_ICO[text];
+      else td.textContent = text;
       if (title) td.title = title;
       tr.append(td);
     }
@@ -13608,10 +15091,10 @@ function renderRecordings() {
   if (!$("recsInfo").classList.contains("error")) {
     const total = recordings.reduce((a, f) => a + f.size, 0), secs = recordings.reduce((a, f) => a + f.secs, 0);
     const n = shown.length === recordings.length ? `${recordings.length}` : `${shown.length} of ${recordings.length}`;
-    $("recsInfo").textContent = recordings.length ? `${n} recordings, ${recsSecs(secs)}, ${recsSize(total)}` : "";
+    $("recsInfo").textContent = recordings.length ? `${n} ${recsKind === "scan" ? "scan recordings" : "recordings"}, ${recsSecs(secs)}, ${recsSize(total)}` : "";
   }
   $("recsNow").textContent = recsPlaying;
-  $("recsPlayKey").textContent = playing ? "▮▮ PAUSE" : "▶ PLAY";
+  $("recsPlayKey").innerHTML = playing ? `${PP_ICO.pause}PAUSE` : `${PP_ICO.play}PLAY`;
 }
 
 function playRecording(name) {
@@ -13622,7 +15105,7 @@ function playRecording(name) {
     return;
   }
   recsPlaying = name;
-  a.src = `${vbase}/api/recordings/${encodeURIComponent(name)}`;
+  a.src = recsUrl(name);
   a.play().catch((e) => adError(`Play: ${e.message}`));
   renderRecordings();
   $("recsRows").querySelector("tr.playing")?.scrollIntoView({ block: "nearest" });
@@ -13630,7 +15113,7 @@ function playRecording(name) {
 
 async function deleteRecording(name) {
   if (!confirm(`Delete the recording?\n${name}`)) return;
-  const r = await fetch(`${vbase}/api/recordings/${encodeURIComponent(name)}`, { method: "DELETE" });
+  const r = await fetch(recsUrl(name), { method: "DELETE" });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) { adError(j.error || `Delete: HTTP ${r.status}`); return; }
   if (name === recsPlaying) { $("recsAudio").pause(); $("recsAudio").removeAttribute("src"); recsPlaying = ""; }
@@ -13649,6 +15132,27 @@ $("recsPlayKey").addEventListener("click", () => {
   else if (first) playRecording(first.name);
 });
 $("recsReload").addEventListener("click", loadRecordings);
+function renderRecsKind() {
+  for (const b of $("recsKind").querySelectorAll("[data-kind]")) {
+    b.classList.toggle("on", b.dataset.kind === recsKind);
+    b.setAttribute("aria-pressed", b.dataset.kind === recsKind ? "true" : "false");
+  }
+}
+$("recsKind").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-kind]");
+  if (!b || b.dataset.kind === recsKind) return;
+  recsKind = b.dataset.kind;
+  store("recsKind", recsKind);
+  // another folder: the player stops, the list is read again
+  $("recsAudio").pause();
+  $("recsAudio").removeAttribute("src");
+  recsPlaying = "";
+  recordings = [];
+  renderRecsKind();
+  renderRecordings();
+  loadRecordings();
+});
+renderRecsKind();
 $("recsFilter").addEventListener("input", renderRecordings);
 $("recsNext").checked = recall("recsNext") !== "0";
 $("recsNext").addEventListener("change", () => store("recsNext", $("recsNext").checked ? "1" : "0"));
@@ -13662,7 +15166,8 @@ $("recsAudio").addEventListener("error", () => { if (recsPlaying) adError(`Canno
 // a running recording changes the list (new files, a growing size): read it again every 10 s while the tab is open
 setInterval(() => {
   if (bodyTab !== "recs" || document.hidden) return;
-  const writing = Object.values((st && st.recording) || {}).filter((r) => r && r.open && r.file).map((r) => r.file).join("\n");
+  const writing = recsKind === "scan" ? (st?.scan?.rec_file || "")
+    : Object.values((st && st.recording) || {}).filter((r) => r && r.open && r.file).map((r) => r.file).join("\n");
   if (writing || writing !== recsWriting) loadRecordings();
 }, 10000);
 
@@ -14296,27 +15801,50 @@ for (const col of document.querySelectorAll(".vu-db")) {
 const vuLeds = [...document.querySelectorAll(".vu-ch")].map((c) => [...c.children].slice(0, VU_STEPS.length));
 const vuClip = [...document.querySelectorAll(".vu-ch")].map((c) => c.lastElementChild);
 const vuPeak = [-99, -99], vuPeakAt = [0, 0], vuClipAt = [-1e9, -1e9];
+// The LEDs are touched only when they change (a frame with no change costs almost nothing); every frame while the sound
+// context runs, 4 checks a second without it.
+const vuState = [[], []];
+let vuLast = 0;
 function animateVu() {
   const now = performance.now();
-  vuAnalysers?.forEach((a, ch) => {
+  const running = !!vuAnalysers && actx && actx.state === "running";
+  const fall = 0.8 * Math.min(6, Math.max(0, now - vuLast) / (1000 / 60));   // 48 dB/s whatever the frame rate
+  vuLast = now;
+  if (running) vuAnalysers.forEach((a, ch) => {
     a.getFloatTimeDomainData(vuBuf);
     let peak = 0;
     for (const x of vuBuf) peak = Math.max(peak, Math.abs(x));
     const db = 20 * Math.log10(peak + 1e-9) - VU_REF_DBFS;
-    vuLevel[ch] = Math.max(db, vuLevel[ch] - 0.8);   // fast attack, slow decay (~48 dB/s)
+    vuLevel[ch] = Math.max(db, vuLevel[ch] - fall);   // fast attack, slow decay (~48 dB/s)
     if (db >= vuPeak[ch]) { vuPeak[ch] = db; vuPeakAt[ch] = now; }
-    else if (now - vuPeakAt[ch] > 1000) vuPeak[ch] -= 0.8;
+    else if (now - vuPeakAt[ch] > 1000) vuPeak[ch] -= fall;
     if (peak >= 0.999) vuClipAt[ch] = now;
     let pk = -1;
     for (let i = 0; i < VU_STEPS.length; i++) if (vuPeak[ch] >= VU_STEPS[i]) pk = i;
+    const S = vuState[ch];
     vuLeds[ch].forEach((led, i) => {
-      const on = vuLevel[ch] >= VU_STEPS[i];
+      const on = vuLevel[ch] >= VU_STEPS[i], p = i === pk && !on, k = on ? 1 : p ? 2 : 0;
+      if (S[i] === k) return;
+      S[i] = k;
       led.classList.toggle("on", on);
-      led.classList.toggle("pk", i === pk && !on);
+      led.classList.toggle("pk", p);
     });
-    vuClip[ch].classList.toggle("on", now - vuClipAt[ch] < 1500);
+    const clip = now - vuClipAt[ch] < 1500;
+    if (S.clip !== clip) { S.clip = clip; vuClip[ch].classList.toggle("on", clip); }
   });
-  requestAnimationFrame(animateVu);
+  else vuOff();
+  // with the sound running every frame, as fast as before 1.0beta2 (the LEDs are still touched only when they change);
+  // without a sound context 4 checks a second
+  if (running) requestAnimationFrame(animateVu);
+  else setTimeout(() => requestAnimationFrame(animateVu), 250);
+}
+/** All LEDs off (no sound context). */
+function vuOff() {
+  vuState.forEach((S, ch) => {
+    vuLevel[ch] = vuPeak[ch] = -99;
+    vuLeds[ch].forEach((led, i) => { if (S[i]) { S[i] = 0; led.classList.remove("on", "pk"); } });
+    if (S.clip) { S.clip = false; vuClip[ch].classList.remove("on"); }
+  });
 }
 requestAnimationFrame(animateVu);
 
@@ -14520,7 +16048,7 @@ async function init() {
   } catch (e) { /* no VFOs */ }
   vfos = list && list.length
     ? list.map((x) => ({ ...x, base: `${location.protocol}//${location.hostname}:${x.port}`, st: null, rows: [], online: false,
-        cue: recall("cue_" + x.name) === "1", cueAudio: null }))
+        cue: recall("cue_" + x.name) === "1", mute: recall("mute_" + x.name) === "1", cueAudio: null }))
     : [{ name: null, base: "", st: null, rows: [], online: false }];
   const want = MAP_ONLY ? new URLSearchParams(location.search).get("vfo") : recall("vfo");
   active = vfos.find((v) => v.name === want) || vfos[0];
@@ -14529,7 +16057,6 @@ async function init() {
   if (MAP_ONLY) mapOnlySetup();
   renderVfoDisplays();
   if (list && list.length) { renderSpareVfos(); renderVfoKeys(); }
-  renderCueKey();
   // The VFO receivers open one after another after start: keep trying until the active one answers.
   let info = null;
   while (!info) {
@@ -14587,3 +16114,470 @@ init();
   }, true);
   wv.postMessage("hello");             // the app answers with the full screen state
 })();
+
+// ---------- SETTINGS › STATION: a simplified scheme of the whole receiver, live ----------
+// The station on top (QTH, rotor, satellite Doppler, audio), below one lane per VFO from the antenna to the speaker
+// and the decoders. The VFO states come from their event streams (vfos[].st); the rotor, the Doppler of each VFO and
+// the QTH are read while the page is open. Redrawn once a second, only when something changed.
+var sdg = { rotor: null, dop: {}, qth: null, at: 0, timer: null, html: "" };   // var: setSubOpened can run before this line
+const SDG_DEC = [["ft8", "FT8"], ["cw", "CW"], ["rtty", "RTTY"], ["packet", "PACKET"], ["pocsag", "POCSAG"], ["sstv", "SSTV"],
+  ["wefax", "WEFAX"], ["acars", "ACARS"], ["vdl2", "VDL2"], ["hfdl", "HFDL"], ["adsb", "ADS-B"], ["ais", "AIS"], ["ism", "ISM"],
+  ["sonde", "SONDE"], ["dab", "DAB"]];
+// where a decoder takes its samples: the raw A/D samples of the whole band (IQ, before DC, NB and the channel filter),
+// otherwise the baseband of the channel or the demodulated audio (SSTV, DSD); SONDE MULTI works on the raw samples
+const SDG_RAW = new Set(["vdl2", "dab", "ism", "hfdl", "ais", "adsb"]);
+const sdgIsRaw = (k, s) => SDG_RAW.has(k) || (k === "sonde" && s.sonde_multi !== false);
+// the rest take the baseband after MIXER and SP, before the filter (app.py on_baseband); only these the demodulated audio
+const SDG_AUDIO_DEC = new Set(["sstv"]);
+const sdgOpen = () => bodyTab === "set" && !document.hidden && !$("settingsCard").hidden
+  && !document.querySelector('[data-set-panel="sta"]').hidden;
+const sdgChip = (txt, cls, tip) => `<i class="sdg-c ${cls || ""}"${tip ? ` title="${escHtml(tip)}"` : ""}>${txt}</i>`;
+const sdgOn = (on, txt, tip, warn) => sdgChip(txt, on ? (warn ? "warn" : "on") : "", tip);
+const sdgHz = (hz) => (hz >= 1e6 ? `${(hz / 1e6).toFixed(hz >= 1e8 ? 4 : 5)} MHz` : `${+(hz / 1e3).toFixed(2)} kHz`);
+const SDG_RAW_TIP = "no audio: a decoder of this VFO works on the raw samples (VDL2, ISM, HFDL, AIS, ADS-B, ACARS, SONDE)";
+// small line icons of the blocks (16 × 16, stroke = the colour of the block), shown framed in the top right corner
+const SDG_ICO = {
+  wf: '<path d="M2 8.5h2.5l1.5-5 1.5 7 1.5-4 1 2H14"/><path d="M2 11.5h12M2 13.8h12" opacity=".6"/>',
+  qth: '<path d="M8 14.2s-4.6-4.3-4.6-7.7a4.6 4.6 0 0 1 9.2 0c0 3.4-4.6 7.7-4.6 7.7z"/><circle cx="8" cy="6.5" r="1.6"/>',
+  rot: '<circle cx="8" cy="8" r="5.6"/><path d="M8 8l3.2-3.2M8 1.6v1.8M14.4 8h-1.8M8 14.4v-1.8M1.6 8h1.8"/>',
+  dop: '<path d="M8 5.2L10.8 8 8 10.8 5.2 8z"/><path d="M6.6 3.8L4 1.2M1.2 4l2.6 2.6M9.4 12.2l2.6 2.6M14.8 12l-2.6-2.6"/><path d="M11.5 1.8a3.5 3.5 0 0 1 2.7 2.7"/>',
+  mon: '<path d="M3 11.2V8a5 5 0 0 1 10 0v3.2"/><rect x="2" y="10" width="3" height="4.2" rx="1"/><rect x="11" y="10" width="3" height="4.2" rx="1"/>',
+  ant: '<path d="M8 6.5v8M5.2 14.5h5.6"/><circle cx="8" cy="5" r="1.2"/><path d="M5.2 2.4a3.8 3.8 0 0 0 0 5.2M10.8 2.4a3.8 3.8 0 0 1 0 5.2"/>',
+  dev: '<rect x="4" y="4" width="8" height="8" rx="1.2"/><rect x="6.4" y="6.4" width="3.2" height="3.2" rx=".4"/><path d="M6 1.8V4M10 1.8V4M6 12v2.2M10 12v2.2M1.8 6H4M1.8 10H4M12 6h2.2M12 10h2.2"/>',
+  agc: '<path d="M2.5 3v10l8.5-5z"/><path d="M11 8h3"/><path d="M12.5 2v3.5M10.8 3.8h3.4"/>',
+  iq: '<path d="M1.2 10h3.3l1.2-7 1.6 11 1.4-6.5 1 2.5h5.1"/>',
+  mix: '<circle cx="8" cy="8" r="5.6"/><path d="M4 4l8 8M12 4l-8 8"/>',
+  sp: '<path d="M1.2 5h2.6l1 6.5 1-6.5h2.4l1 6.5 1-6.5h3.6"/>',
+  filt: '<path d="M1.2 13h1.9c1.5 0 1.6-9 3.2-9h3.4c1.6 0 1.7 9 3.2 9h1.9"/>',
+  dem: '<path d="M1.5 8h4.3M10.2 8h4.3M5.8 4.4v7.2L10.2 8z M10.2 4.4v7.2"/>',
+  aud: '<path d="M4 2.2v11.6M8 2.2v11.6M12 2.2v11.6"/><path d="M2.6 10.2h2.8M6.6 5.2h2.8M10.6 8h2.8" stroke-width="2.4"/>',
+  out: '<path d="M2.5 6h2.6L8.8 3v10L5.1 10H2.5z"/><path d="M11 5.6a3.4 3.4 0 0 1 0 4.8M12.8 3.8a6 6 0 0 1 0 8.4"/>',
+  sm: '<path d="M1.8 11.5a6.2 6.2 0 0 1 12.4 0"/><path d="M8 11.5l3.2-4.4"/><path d="M3.6 7.4l.9.7M8 5.3v1.1M12.4 7.4l-.9.7"/>',
+  dec: '<path d="M5.4 4.4L1.8 8l3.6 3.6M10.6 4.4L14.2 8l-3.6 3.6M9.2 2.8l-2.4 10.4"/>',
+};
+const sdgBlk = (title, body, cls = "", tip = "") => {
+  const k = (/\bk-(\w+)/.exec(cls) || [])[1], ico = k && SDG_ICO[k];
+  return `<div class="sdg-b ${cls}"${tip ? ` title="${escHtml(tip)}"` : ""}><b>${title}</b>` +
+    (ico ? `<i class="sdg-ico"><svg viewBox="0 0 16 16">${ico}</svg></i>` : "") + `${body}</div>`;
+};
+
+async function sdgPoll() {
+  const jobs = [];
+  jobs.push(fetch(rotorBase() + "/api/rotor").then((r) => r.json()).then((r) => { sdg.rotor = r; }).catch(() => { sdg.rotor = null; }));
+  for (const v of vfos.filter((x) => x.name && x.online)) {
+    jobs.push(fetch(v.base + "/api/sat/doppler").then((r) => r.json()).then((d) => { sdg.dop[v.name] = d; }).catch(() => { delete sdg.dop[v.name]; }));
+  }
+  if (!sdg.qth) jobs.push(fetch(vbase + "/api/location").then((r) => r.json()).then((q) => { sdg.qth = q; }).catch(() => {}));
+  await Promise.all(jobs);
+}
+
+function sdgShared() {
+  const q = sdg.qth, r = sdg.rotor;
+  const out = [];
+  out.push(sdgBlk("QTH", q && q.locator ? `<span class="v">${escHtml(q.locator)}</span><span>${(+q.lat).toFixed(3)}° ${(+q.lon).toFixed(3)}°</span>` : "<span>not set</span>",
+    q && q.locator ? "lit k-qth" : "off k-qth", "SETTINGS › GENERAL › LOCATION"));
+  if (!r || (!r.on && !r.connected)) out.push(sdgBlk("ROTOR", "<span>off</span>", "off k-rot", "RCTRL › SETTINGS"));
+  else {
+    const err = r.error || r.fault;
+    const az = r.az != null ? `AZ ${Math.round(r.az)}°` : "AZ –", el = r.el != null ? ` · EL ${Math.round(r.el)}°` : "";
+    const t = r.target, tAz = t && (Array.isArray(t) ? t[0] : t.az);
+    const tgt = tAz != null ? ` → ${Math.round(tAz)}°` : "";
+    out.push(sdgBlk("ROTOR", `<span class="v">${az}${el}${tgt}</span><span>${escHtml(r.device || "")}${r.connected ? "" : " · not connected"}` +
+      `${r.sat_on || r.tracker ? " · tracking" : ""}</span>${err ? `<span class="err">${escHtml(err)}</span>` : ""}`,
+      (err || !r.connected ? "lit bad" : tgt ? "lit warn" : "lit") + " k-rot", "RCTRL › SETTINGS"));
+  }
+  const dops = Object.entries(sdg.dop).filter(([, d]) => d && d.on);
+  out.push(sdgBlk("DOPPLER", dops.length ? dops.map(([n, d]) => `<span class="v">${escHtml(d.label || d.name || "satellite")}</span>` +
+      `<span>VFO-${escHtml(n)}${d.error ? ` · <span class="err">${escHtml(d.error)}</span>` : ""}</span>`).join("")
+    : "<span>no satellite</span>", dops.length ? "lit k-dop" : "off k-dop", "Satellite tracking: RX Doppler of a VFO (SATELLITES)"));
+  const cues = vfos.filter((v) => v.name && v.cue && v !== active).map((v) => "VFO-" + v.name);
+  const mutes = vfos.filter((v) => v.name && v.mute).map((v) => "VFO-" + v.name);
+  out.push(sdgBlk("AUDIO", `<span class="v">MAIN ${active && active.name ? "VFO-" + escHtml(active.name) : "–"}</span><span>CUE ${cues.length ? escHtml(cues.join(" ")) : "–"}</span>` +
+    (mutes.length ? `<span class="err">MUTE ${escHtml(mutes.join(" "))}</span>` : ""),
+    "lit k-mon", "The VFO you listen to and the VFOs on CUE"));
+  return out.join("");
+}
+
+/** A small picture of the demodulation in the DEMOD block (viewBox 80 × 24): the spectrum around the carrier for
+ *  AM / SAM / DSB / USB / LSB / CW (the dashed line = the tuned frequency), the waveform for FM / WFM, the blocks of
+ *  the OFDM for DAB, the 4-level symbols for DSD. sb: SAM sideband (dsb / lsb / usb). */
+function sdgDemodPic(mode, sb) {
+  const base = '<path class="ax" d="M2 22H78"/>', mid = '<path class="cf" d="M40 2V22"/>';
+  const usb = '<path class="sb" d="M42 22V9Q50 4 58 8Q66 5 72 12V22"/>', lsb = '<path class="sb" d="M38 22V9Q30 4 22 8Q14 5 8 12V22"/>';
+  const car = '<path class="car" d="M40 22V3"/>';
+  let p;
+  if (mode === "AM" && sb && sb !== "dsb") p = base + car + (sb === "lsb" ? lsb : usb);
+  else if (mode === "AM" || mode === "SAM") p = base + car + usb + lsb;
+  else if (mode === "DSB") p = base + mid + usb + lsb;
+  else if (mode === "USB") p = base + mid + usb;
+  else if (mode === "LSB") p = base + mid + lsb;
+  else if (mode === "CW") p = base + mid + '<path class="car" d="M50 22V4"/><path d="M58 9h3M65 9h10M58 15h10M72 15h3"/>';   // one tone, dots and dashes
+  else if (mode === "FM" || mode === "WFM") {
+    // a carrier whose period changes with the modulation (wider swing for WFM)
+    const k = mode === "WFM" ? 0.75 : 0.4;
+    let d = "M2 12", x = 2;
+    for (let i = 0; x < 78; i++) { const w = 6 * (1 + k * Math.sin(i * 0.9)); d += `Q${(x + w / 4).toFixed(1)} 3 ${(x + w / 2).toFixed(1)} 12T${(x + w).toFixed(1)} 12`; x += w; }
+    p = `<path d="${d}"/>`;
+  } else if (mode === "DAB") p = base + '<path class="sb" d="M8 22V7H72V22"/>' + '<path class="th" d="' + Array.from({ length: 15 }, (_, i) => `M${12 + i * 4} 8V21`).join("") + '"/>';
+  else if (mode === "DSD") p = '<path d="M2 18H10V6H18V14H26V22H34V10H42V6H50V18H58V14H66V22H72V10H78"/>';
+  else return "";
+  return `<svg class="sdg-dpic" viewBox="0 0 80 24" aria-hidden="true">${p}</svg>`;
+}
+
+function sdgLane(v) {
+  const s = (v === active ? st || v.st : v.st) || {};
+  const off = !v.online || !v.st;
+  // recording and scanner (they were in the OUTPUT block, now the MAIN / CUE buses take the sound)
+  const rec = s.recording || {}, recSq = rec.squelch && rec.squelch.on, recOn = (rec.cont && rec.cont.on) || recSq;
+  const recAct = (rec.cont && rec.cont.active) || (rec.squelch && rec.squelch.active);
+  const sc = s.scan || {}, scOn = sc.state && sc.state !== "off";
+  const head = `<div class="sdg-h${v === active ? " main" : ""}${off ? " off" : ""}"><b>VFO-${escHtml(v.name)}</b>` +
+    `<span class="f">${off ? "offline" : sdgHz(s.tune_hz || 0)}</span><span class="n">${escHtml(v.note || "")}</span>` +
+    `<span>${v === active ? sdgChip("MAIN", "on") : ""}${v.cue && v !== active ? sdgChip("CUE", "cue") : ""}${v.mute ? sdgChip("MUTE", "bad", "silenced in this browser (MUTE key)") : ""}${s.tx ? sdgChip("TX", "bad") : ""}` +
+    `${!off && recOn ? sdgChip(recSq ? "REC SQ" : "REC", recAct ? "bad blink" : "warn", recAct ? "recording" : "waiting for the squelch") : ""}` +
+    `${!off && s.iq_rec && s.iq_rec.on ? sdgChip("REC IQ", "iq blink", "recording the whole IQ of the dongle (WAV)") : ""}` +
+    `${!off && scOn ? sdgChip(`SCAN ${escHtml(sc.state)}`, "on", sc.cur ? sdgHz(sc.cur) : "") : ""}</span></div>`;
+  if (off) return head + `<div class="sdg-b off sdg-span"><b>RECEIVER</b><span>not running${s.error ? ": " + escHtml(s.error) : ""}</span></div>`;
+  const mode = s.dab ? "DAB" : s.dsd && s.dsd.enabled ? "DSD" : s.mode || "";
+  // antenna
+  const a = antById(s.antenna), cov = a ? antCovers(a, s.tune_hz) : null;
+  const ant = sdgBlk("ANTENNA", a ? `<span class="v">${escHtml(a.name)}</span><span>${escHtml([a.type, a.pol].filter(Boolean).join(" · "))}</span>` +
+    `<span>${a.rotor ? sdgChip("ROTOR", sdg.rotor && sdg.rotor.connected ? "on" : "") : ""}${cov === false ? sdgChip("OUT OF RANGE", "warn") : ""}</span>` : "<span>not chosen</span>",
+    (a ? (cov === false ? "lit warn" : "lit") : "off") + " k-ant", "SETTINGS › VFO › SDR DONGLE › ANTENNA");
+  // dongle
+  const chained = s.chain_owner ? `shares VFO-${s.chain_owner}` : s.chained_vfos ? `+${s.chained_vfos} VFO` : "";
+  // the dongle as one block with its TUNER (gain) and A/D (sample rate, peak) inside
+  const auto = s.gain === "auto", smart = s.smart_agc && !auto, clip = !auto && s.adc_clip;
+  const devName = { rtl: "RTL-SDR", airspy: "AIRSPY", lime: "LimeSDR" }[s.driver] || String(s.driver || "SDR").toUpperCase();
+  const tuner = `<div class="sdg-in" title="Tuner gain: SETTINGS › VFO › ADVANCED › AGC+ and the RF GAIN key"><b>TUNER</b>` +
+    `<span class="v">${auto ? "auto" : gainLabel(s)}</span><span>${smart ? "AGC+" : auto ? (s.rtl_agc ? "RTL AGC" : "tuner auto") : "manual"}</span></div>`;
+  const adc = `<div class="sdg-in${clip ? " bad" : ""}" title="A/D converter: sample rate and the peak of the raw samples"><b>A/D</b>` +
+    `<span class="v">${+((s.sample_rate || 0) / 1e6).toFixed(3)} MS/s</span>` +
+    `<span class="${clip ? "err" : ""}">${!auto && s.adc_peak != null ? `${minusSign(s.adc_peak)} dBFS${clip ? " clip" : ""}` : "peak –"}</span></div>`;
+  const chips = `${s.upconv && s.upconv !== "off" ? sdgChip("UPCONV", "on") : ""}${s.bias_tee ? sdgChip("BIAS-T", "on") : ""}` +
+    `${s.ppm ? sdgChip(`${s.ppm} ppm`, "on") : ""}${chained ? sdgChip(escHtml(chained), "on") : ""}`;
+  const sdr = sdgBlk(`${escHtml(devName)} <em>${escHtml(s.serial || "")}</em>`, `<div class="sdg-inner">${tuner}${adc}</div>` +
+    (chips ? `<span class="chips">${chips}</span>` : ""),
+    `sdg-dev k-dev ${s.error || clip ? "lit bad" : "lit"}`, "SETTINGS › VFO › SDR DONGLE");
+  // IQ: DC removal and the noise blanker on the wideband samples
+  // the samples always go through it; with DC and NB off it only passes them on (lit all the same, "pass")
+  const iq = sdgBlk("IQ", `<span class="sdg-chain">${sdgOn(s.dc_remove, "DC", "DC removal")}<span>${sdgOn(s.nb, "NB", `noise blanker, level ${s.nb_level}`)}</span></span>` +
+    (s.dc_remove || s.nb ? "" : `<span>pass</span>`), "lit k-iq", "Wideband IQ: DC removal and the noise blanker (SETTINGS › VFO › ADVANCED, NB key); " +
+    "with both off the samples only pass through");
+  // MIXER: the digital mixer (NCO) shifts the tuned frequency from its place in the band to zero, then decimation
+  // (÷ 64) to the channel rate; SP (spur removal) works on that baseband
+  const offHz = (s.tune_hz || 0) - (s.center_hz || 0);
+  const mixer = sdgBlk("MIXER", `<span class="v">${offHz < 0 ? "−" : "+"}${sdgHz(Math.abs(offHz))}</span>` +
+    `<span>÷ 64 → ${+((s.sample_rate || 0) / 64e3).toFixed(1)} kS/s</span>`,
+    "lit sdg-mix k-mix", "Digital mixer (NCO): the offset of the VFO frequency from the dongle centre is shifted to zero, then decimated to the channel rate");
+  // SP: the learned spurs removed from the baseband after the mixer, before the channel filter (the baseband decoders get it too)
+  const spB = sdgBlk("SP", `<span class="v">${s.spur_on ? "on" : "pass"}</span>`,
+    "lit k-sp", "SP: spur removal on the baseband of the channel, after the mixer and ÷ 64, before the filter; the decoders on the baseband " +
+    "(FT8, CW, RTTY …) get it too (SETTINGS › VFO › ADVANCED › SP)");
+  // channel filter + demodulator
+  const bw = (s.bandwidth || {})[s.mode];
+  const filt = sdgBlk("FILTER", `<span class="v">${s.dab ? "1.5 MHz" : bw ? sdgHz(bw) : "–"}</span><span>channel</span>`, "lit k-filt", "Filter width (BW)");
+  const samTxt = s.mode === "AM" && s.sam ? `SAM ${(s.sam_sb || "dsb").toUpperCase()}` : "";
+  const demod = sdgBlk("DEMOD", `<span class="v">${escHtml(samTxt || mode)}</span>` +
+    sdgDemodPic(s.dab ? "DAB" : mode, s.mode === "AM" && s.sam ? s.sam_sb || "dsb" : "") +
+    (samTxt ? `<span>${s.sam_locked ? sdgChip("LOCK", "on") : sdgChip("NO LOCK", "warn")}</span>` : "") +
+    (s.dab ? `<span>${escHtml(s.dab_channel || "")}</span>` : "") +
+    (s.mode === "WFM" && !s.dab ? `<span class="chips">${sdgOn(s.stereo_on !== false && s.pilot, "STEREO", "stereo pilot")}${sdgOn(!!s.rds, "RDS", "RDS")}</span>` : ""),
+    "lit k-dem", "MODE keys");
+  // audio blocks (in the order of the chain)
+  const sqlOn = s.auto_sql_on || s.tsq_on || (s.squelch != null && s.squelch > -120);
+  const sqlTxt = s.auto_sql_on ? "ASQ" : s.tsq_on ? "TSQ" : "SQL";
+  // the audio stages in the order of sdr.py: HUM → NF → DNR → ALC → NTH (demodulator), AFI, LPF → HPF, squelch
+  const aChain = [sdgOn(s.hum, "HUM", s.hum ? `mains hum filter, ${s.hum_hz ?? s.hum_base} Hz` : "mains hum filter"),
+    sdgOn(s.notch, "NF", "notch filter (whistles)"), sdgOn(s.dnr, "DNR", `noise reduction${s.dnr ? `, level ${s.dnr_level}` : ""}`),
+    sdgOn(s.audio_agc !== false, "ALC", "audio level control"), sdgOn(s.dyn, "NTH", "noise threshold: expander and limiter"),
+    sdgOn(s.afi, "AFI", s.afi ? `voice inversion, ${s.afi_hz} Hz` : "voice inversion"),
+    sdgOn(s.lpf, "LPF", s.lpf ? `low pass ${s.lpf_hz} Hz` : "low pass"), sdgOn(s.hpf, "HPF", s.hpf ? `high pass ${s.hpf_hz} Hz` : "high pass"),
+    sdgOn(sqlOn, sqlTxt, sqlOn ? (s.squelch_open ? "squelch open" : "squelch closed") : "squelch off", sqlOn && !s.squelch_open)];
+  // squelch: the level set (SQL) or the auto squelch (ASQ, by its key or by AGC+ with the squelch set), each with the
+  // channel power (S-meter, dBFS) / the level it opens at
+  const sqLv = s.squelch_levels || {}, hasSq = s.mode in sqLv && !s.dab;
+  const man = hasSq ? +sqLv[s.mode] : null, manOn = man != null && man > -120, asqOn = !!s.auto_sql_on;
+  const agcAsq = smart && manOn;                       // AGC+ switches ASQ on (the squelch is set)
+  const dbf = (x) => minusSign((+x).toFixed(1));
+  const chTxt = (thr) => `<em title="channel power${thr != null ? " / the level the squelch opens at" : ""}">` +
+    `ch ${s.smeter != null ? dbf(s.smeter) : "–"}${thr != null ? ` / ${dbf(thr)}` : ""} dBFS</em>`;
+  const sqRows = hasSq ? `<span class="sdg-sq">${sdgOn(manOn && !asqOn, "SQL", manOn ? (asqOn ? "set, the auto squelch rules now" :
+      s.squelch_open ? "squelch open" : "squelch closed") : "squelch off", manOn && !asqOn && !s.squelch_open)}${chTxt(manOn && !asqOn ? man : null)}</span>` +
+    `<span class="sdg-sq">${sdgOn(asqOn, "ASQ", asqOn ? `auto squelch: noise floor + ${s.auto_sql_db} dB` + (s.squelch_open ? ", open" : ", closed") : "auto squelch off",
+      asqOn && !s.squelch_open)}` +
+    `${chTxt(asqOn && s.auto_sql_level != null ? s.auto_sql_level : null)}</span>` : `<span class="sdg-sq"><em>no squelch in ${escHtml(mode)}</em></span>`;
+  // DSD: the FM discriminator goes straight into the DSD voice decoder (no HUM … AFI), its voice through LPF / HPF to
+  // the output – the decoder sits in the audio chain, not at its end
+  const dsdOn = mode === "DSD";                        // (DAB first: under DAB dsd-fme is off)
+  if (dsdOn) aChain.splice(0, aChain.length, aChain[6], aChain[7]);
+  // DSD as its own block between DEMOD and AUDIO (in the AUDIO column, which has the room)
+  const dsdB = dsdOn ? sdgBlk("DSD", `<span class="v">${escHtml(s.dsd.proto || "auto")}</span>` +
+    (s.dsd.error ? `<span class="err">${escHtml(s.dsd.error)}</span>` : "<span>voice</span>"), `${s.dsd.error ? "lit bad" : "lit"} k-dec sdg-dsd`,
+    "DSD voice decoder: the digital voice decoded from the FM discriminator; LPF / HPF and the output take its voice") : "";
+  const audio = sdgBlk("AUDIO", `<span class="sdg-chain">${aChain.map((c, i) => (i ? `<span>${c}</span>` : c)).join("")}</span>${sqRows}`,
+    "lit sdg-aud k-aud", "AUDIO keys and SETTINGS › VFO › AUDIO, in the order the sound goes through them");
+  // output: two wires out of AUDIO – OUT into the MAIN bus (green while this VFO is the one you listen to, grey and
+  // not connected otherwise) and CUE into the orange CUE bus (while CUE is on and another VFO is MAIN). Either is
+  // MUTED (red, dashed, not connected) by the MUTE key of the VFO or while a raw-IQ decoder mutes its audio.
+  const muteWhy = s.audio_muted ? SDG_RAW_TIP : v.mute ? "silenced in this browser (MUTE key under the VFO window)" : "";
+  const mainSt = muteWhy ? "muted" : v === active ? "on" : "idle";
+  const cueSt = v === active || !v.cue ? "idle" : muteWhy ? "muted" : "on";
+  const outTip = { on: "OUT → MAIN bus: this VFO is the one you listen to (MAIN fader)", idle: "OUT: not connected – another VFO is MAIN",
+    muted: `OUT MUTED – ${muteWhy}` }[mainSt];
+  const cueTip = { on: "CUE → CUE bus: audible at the CUE level while another VFO is MAIN", muted: `CUE MUTED – ${muteWhy}`,
+    idle: v === active ? "CUE: not used – this VFO is MAIN" : "CUE off (CUE key)" }[cueSt];
+  // decoders: on the baseband / audio at the end of the row, on the raw IQ in a branch from the A/D (under the row)
+  const decChip = ([k, n]) => sdgChip(k === "sonde" && sdgIsRaw(k, s) ? "SONDE MULTI" : n, s[`${k}_error`] ? "bad" : "on", s[`${k}_error`] || "");
+  const rawDecs = SDG_DEC.filter(([k]) => s[k] && sdgIsRaw(k, s)).map(decChip);
+  const decs = SDG_DEC.filter(([k]) => s[k] && !sdgIsRaw(k, s)).map(decChip);
+  const d = sdg.dop[v.name];
+  if (d && d.on) decs.push(sdgChip(`DOPPLER ${escHtml(d.label || d.name || "")}`, d.error ? "bad" : "dop", d.error || "RX Doppler: corrects the VFO frequency"));
+  const dec = sdgBlk("DECODERS", `<span class="chips">${decs.join("") || "<span>none</span>"}</span>`, `sdg-decb k-dec ${decs.length ? "lit" : "off"}`,
+    "Decoders on the baseband of the channel (after SP, before FILTER: the violet line over the row) or on the demodulated audio (SSTV: the wire from AUDIO); DECODE key, DECODERS tab. They work whatever goes to MAIN or CUE (also when muted)");
+  // two feeds: the baseband (after SP, before FILTER) over the row, the demodulated audio (SSTV) out of AUDIO
+  const onDecs = SDG_DEC.filter(([k]) => s[k] && !sdgIsRaw(k, s)).map(([k]) => k);
+  const fork = onDecs.some((k) => SDG_AUDIO_DEC.has(k));
+  const bbNames = SDG_DEC.filter(([k]) => onDecs.includes(k) && !SDG_AUDIO_DEC.has(k)).map(([, n]) => n);
+  const bbl = bbNames.length ? `<i class="sdg-bbl" title="Baseband of the channel (after MIXER ÷ 64 and SP, before the filter) into ${escHtml(bbNames.join(", "))}: ` +
+    `they demodulate it themselves, so FILTER, DEMOD and AUDIO do not matter to them"><i class="up"></i><em>baseband → ${escHtml(bbNames.join(" · "))}</em></i>` : "";
+  // where the sound of a source outside AUDIO (DAB) goes in: OUT while this VFO is MAIN, CUE while it is heard on CUE
+  const outTo = mainSt !== "on" && cueSt === "on" ? "cue" : "main";
+  const out = `<i class="sdg-out${fork ? " fork" : ""}" data-to="${outTo}"><i class="wo ${mainSt}" title="${escHtml(outTip)}"></i><i class="wc ${cueSt}" title="${escHtml(cueTip)}"></i>` +
+    `<i class="br" title="${fork ? "demodulated audio into SSTV (whatever goes to MAIN or CUE)" : "no decoder on the audio (the others take the baseband)"}"></i><b class="dot df"></b><b class="dot do ${mainSt}"></b><b class="dot dc ${cueSt}"></b>` +
+    `<em class="lo ${mainSt}">${mainSt === "muted" ? "MUTED" : "OUT"}</em><em class="lc ${cueSt}">${cueSt === "muted" ? "CUE MUTED" : "CUE"}</em></i>`;
+  const raw = rawDecs.length ? `<i class="sdg-tap" title="raw A/D samples of the whole band"></i>` +
+    sdgBlk("IQ DECODERS", `<span class="chips">${rawDecs.join("")}</span><span>raw A/D samples · whole band</span>`, "lit sdg-raw k-dec",
+      "These decoders take the raw IQ samples straight from the A/D, before DC, NB and the channel filter") : "";
+  // SPECTRUM / WATERFALL: the FFT of the whole band the dongle receives, taken after DC removal and before NB (sdr.py
+  // _waterfall: the band as it is); a line from between DC and NB of the IQ block down into it. On screen for the
+  // VFO shown (the others are computed and kept in the band history of the page)
+  const wfB = sdgBlk("SPECTRUM · WATERFALL", `<span class="v">${s.sample_rate ? sdgHz(s.sample_rate) : "–"}</span>` +
+    `<span>whole band · FFT</span><span class="chips">${v === active ? sdgChip("ON SCREEN", "on", "the spectrum and waterfall of the page show this VFO") : sdgChip("background", "", "computed; shown when this VFO is chosen")}</span>`,
+    "lit k-wf sdg-wf", "Spectrum and waterfall: an FFT of the whole band of the dongle, after DC removal and before the noise blanker (the band as it is)") +
+    `<i class="sdg-wfl" title="IQ after DC removal, before NB → spectrum and waterfall"></i>`;
+  // the VFO frequency goes two ways: the centre of the dongle (TUNER; moved only when the frequency leaves the band,
+  // set by the owner VFO on a shared dongle) and the offset from it to the digital MIXER
+  const tunerHz = (s.center_hz || 0) + (s.lo_hz || 0);
+  const owner = s.chain_owner ? `VFO-${escHtml(s.chain_owner)}` : "";
+  const ctl = `<i class="sdg-ctl" title="VFO-${escHtml(v.name)} ${sdgHz(s.tune_hz || 0)} = dongle centre ${sdgHz(s.center_hz || 0)}` +
+    `${s.lo_hz ? ` (tuner ${sdgHz(tunerHz)} with the upconverter)` : ""} ${offHz < 0 ? "−" : "+"} offset ${sdgHz(Math.abs(offHz))} in the mixer">` +
+    `<em class="l0">tunes</em><i class="d1${owner ? " no" : ""}"></i><em class="l1">${owner ? `centre by ${owner}` : `centre ${sdgHz(tunerHz)}`}</em>` +
+    `<i class="d2"></i><em class="l2">offset</em></i>`;
+  // a raw-IQ decoder (its audio muted) or DAB: the chain after the A/D is not used; IQ and MIXER still feed a
+  // baseband decoder running beside (FT8, CW, …), the output still plays DAB
+  const why = audioBypassWhy(s), keepIq = BASEBAND_DECS.some((k) => s[k]);
+  const idle = (html, on) => (on ? html.replace('class="sdg-b ', 'class="sdg-b idle ').replace(' title="', ` title="Not used now – ${escHtml(why)}.&#10;`) : html);
+  // the chain up to the filter still runs then (sdr.py mutes only the sound): it feeds the S-meter, so it is in use,
+  // only for the meter (e.g. turning the antenna for the strongest DAB signal)
+  const meterOnly = (html, on) => (on ? html.replace('class="sdg-b ', 'class="sdg-b meter ')
+    .replace(' title="', ` title="Only for the S-meter now – ${escHtml(why)}; the sound is not used.&#10;`) : html);
+  // RX Doppler: the correction goes back to the VFO frequency – an orange line from the DOPPLER chip along the bottom
+  // of the row up into the VFO block (placed by sdgPlaceDop once the row is laid out)
+  const dop = d && d.on ? `<i class="sdg-dop" title="RX Doppler of ${escHtml(d.label || d.name || "the satellite")}: retunes VFO-${escHtml(v.name)}` +
+    `${d.f_nominal ? ` (nominal ${sdgHz(d.f_nominal)})` : ""}"><em>DOPPLER → VFO</em></i>` : "";
+  // AGC+ (in RADIMCOM, not in the dongle): reads the A/D peak and sets the tuner gain – a loop under the dongle;
+  // on a shared dongle the owner VFO runs it; with the squelch set it also switches ASQ on
+  const ag = s.agc || {};
+  const agcTxt = owner ? `by ${owner}` : smart ? `headroom ${ag.head ?? "–"} / ${ag.target ?? "–"} dB` : auto ? "AGC (tuner)" : "manual gain";
+  const agc = sdgBlk("AGC+", `<span class="v">${smart ? "on" : "off"}</span><span>${agcTxt}</span>` +
+    (smart && s.auto_sql_on && !s.auto_sql ? `<span class="chips">${sdgChip("→ ASQ", "on", "AGC+ switched the auto squelch on")}</span>` : ""),
+    `sdg-agc k-agc ${smart ? "lit" : "off"}`, "AGC+: keeps the A/D headroom of the signal kind and band – measures the A/D peak and the noise floor of the band, " +
+    "sets the TUNER gain (SETTINGS › VFO › ADVANCED, AGC+ key). Runs in RADIMCOM on the PC" +
+    (ag.why ? `&#10;${escHtml(ag.why)}` : "")) +
+    `<i class="sdg-agcl${smart ? " on" : ""}"><i class="a"></i><i class="b"></i><em class="la">peak</em><em class="lb">gain</em><em class="lc">IQ</em></i>`;
+  // S-METER: the power of the channel after the filter (the S9 calibration of SETTINGS › VFO › ADVANCED); the squelch
+  // compares the same power, so its level goes on into the SQL / ASQ lines of AUDIO
+  const smB = sdgBlk("S-METER", `<span class="v">${s.smeter != null ? sReading(s.smeter) : "–"}</span>` +
+    `<span>${s.smeter != null ? dbf(s.smeter) : "–"} dBFS</span>`, "lit k-sm sdg-sm",
+    `S-meter: the power in the channel after the filter, S9 = ${s9Dbfs} dBFS (SETTINGS › VFO › ADVANCED); the squelch compares the same level`) +
+    `<i class="sdg-sml${hasSq ? "" : " nosq"}"><i class="a"></i><i class="b"></i><em>level</em></i>`;
+  // AGC+ -> ASQ: along the bottom of the row up into the ASQ chip in AUDIO (placed by sdgPlace)
+  const asqL = !hasSq ? "" : `<i class="sdg-asql${agcAsq ? " on" : ""}" title="AGC+ ${agcAsq ? "switches the auto squelch (ASQ) on" : "does not switch ASQ on now"}">` +
+    `<i class="up"></i><em>AGC+ → ASQ ${agcAsq ? "ON" : "OFF"}</em></i>`;
+  return head + [ant, sdr, meterOnly(iq, why && !keepIq), meterOnly(mixer, why && !keepIq), meterOnly(spB, why && !keepIq), meterOnly(filt, why), idle(demod, why), dsdOn ? `<div class="sdg-pair">${dsdB}${idle(audio, why)}</div>` : idle(audio, why),
+    dec, `<i class="sdg-busc"></i>`].join("") + out + bbl + wfB + agc + (why ? smB.replace('class="sdg-sml', 'class="sdg-sml nouse') : smB) + raw + ctl + dop + asqL +
+    // DAB: the sound comes from the DAB decoder on the raw IQ – a line from IQ DECODERS along the bottom up into OUTPUT
+    (s.dab ? `<i class="sdg-dabl" title="DAB: the audio of the station comes from the DAB decoder (welle-cli) on the raw IQ samples">` +
+      `<i class="up"></i><em>DAB AUDIO → ${outTo === "cue" ? "CUE" : "OUT"}</em></i>` : "");
+}
+
+function renderSdg() {
+  const named = vfos.filter((v) => v.name);
+  const top = sdgShared();
+  const lanes = named.map((v) => `<div class="sdg-lane" data-vfo="${escHtml(v.name)}">${sdgLane(v)}</div>`).join("");
+  // MAIN and CUE: two vertical buses over all rows, the speaker side at the top (the faders of the MONITOR)
+  const anyMain = named.some((v) => v === active && v.online && v.st && !v.mute && !(v.st || {}).audio_muted);
+  const anyCue = named.some((v) => v !== active && v.cue && v.online && v.st && !v.mute && !(v.st || {}).audio_muted);
+  const pct = (id) => `${Math.round(Number($(id).value) * 100)} %`;
+  const bus = (k, name, on, lvl, tip) => `<div class="sdg-bush ${k}${on && !muted ? " on" : ""}" title="${escHtml(tip)}">` +
+    `<i class="sdg-ico"><svg viewBox="0 0 16 16">${SDG_ICO.out}</svg></i><b>${name}</b>` +
+    `<span>${muted ? sdgChip("MUTED", "bad", "MUTE of the MONITOR: MAIN and CUE silent") : lvl}</span></div>` +
+    `<i class="sdg-bus ${k}${on && !muted ? " on" : ""}"></i>`;
+  const buses = named.length ? bus("main", "MAIN", anyMain, pct("volume"), "MAIN bus: the VFO you listen to, MAIN fader of the MONITOR") +
+    bus("cue", "CUE", anyCue, pct("cueVolume"), "CUE bus: the VFOs with CUE on, CUE fader of the MONITOR") : "";
+  const html = top + "|" + lanes + buses;
+  if (html === sdg.html) return;
+  sdg.html = html;
+  $("sdgShared").innerHTML = top;
+  $("sdgLanes").innerHTML = lanes ? lanes + buses : `<div class="muted">No VFO running.</div>`;
+  sdgPlace();
+  $("sdgInfo").textContent = `${named.filter((v) => v.online).length} of ${named.length} VFO running`;
+}
+
+/** The lines over the blocks of each row, placed from the layout (the columns stretch with the width of the tab):
+ *  the tuning line (VFO frequency -> TUNER centre and MIXER offset), the Doppler line and the AGC+ loop. */
+function sdgPlace() {
+  const lanes = $("sdgLanes");
+  if (!sdg.ro && window.ResizeObserver) {                // the columns follow the width: place again on a resize
+    sdg.ro = new ResizeObserver(() => requestAnimationFrame(sdgPlace));
+    sdg.ro.observe(lanes);
+  }
+  for (const el of lanes.querySelectorAll(".sdg-ctl")) {
+    const lane = el.parentElement, h = lane.querySelector(".sdg-h"), f = h && h.querySelector(".f");
+    const dev = lane.querySelector(".sdg-dev"), tu = dev && dev.querySelector(".sdg-in"), mix = lane.querySelector(".sdg-mix");
+    if (!f || !tu || !mix) continue;
+    const x0 = h.offsetLeft + h.offsetWidth + 8, y0 = 8, yf = h.offsetTop + f.offsetTop + f.offsetHeight / 2;
+    const xt = dev.offsetLeft + tu.offsetLeft + tu.offsetWidth / 2, xm = mix.offsetLeft + mix.offsetWidth / 2;
+    Object.assign(el.style, { left: `${x0}px`, top: `${y0}px`, width: `${xm - x0}px`, height: `${yf - y0}px` });
+    el.style.setProperty("--d1", `${xt - x0 - 1.5}px`);
+  }
+  sdgPlaceOut();
+  sdgPlaceDop();
+}
+
+/** OUT and CUE of each row out of AUDIO into the MAIN / CUE buses (a dot = connected; a wire crosses the MAIN bus
+ *  without one), the branch of OUT up into DECODERS, and the buses from their heads down to the last row. */
+function sdgPlaceOut() {
+  const box = $("sdgLanes");
+  const ys = [];
+  let xm = null, xc = null;
+  for (const el of box.querySelectorAll(".sdg-out")) {
+    const lane = el.parentElement, aud = lane.querySelector(".sdg-aud"), dec = lane.querySelector(".sdg-decb"), bc = lane.querySelector(".sdg-busc");
+    if (!aud || !dec || !bc) { el.hidden = true; continue; }
+    const [wo, wc, br, df, dO, dC, lo, lc] = el.children;
+    const xa = aud.offsetLeft + aud.offsetWidth, top = aud.offsetTop, h = aud.offsetHeight;
+    const yo = Math.min(Math.max(dec.offsetTop + dec.offsetHeight + 14, top + h * 0.45), top + h - 20), yc = yo + 16;
+    const bm = bc.offsetLeft + 50, bcx = bc.offsetLeft + bc.offsetWidth - 50;
+    const gap = (st) => (st === "on" ? 0 : 12);
+    Object.assign(wo.style, { left: `${xa}px`, top: `${yo}px`, width: `${bm - xa - gap(wo.classList[1])}px` });
+    Object.assign(wc.style, { left: `${xa}px`, top: `${yc}px`, width: `${bcx - xa - gap(wc.classList[1])}px` });
+    // DECODERS: their own wire out of AUDIO straight into the block (independent of OUT and CUE)
+    const yd = Math.min(dec.offsetTop + dec.offsetHeight / 2, yo - 16);
+    Object.assign(br.style, { left: `${xa}px`, top: `${yd}px`, width: `${dec.offsetLeft - xa - 1}px` });
+    df.hidden = true;
+    Object.assign(dO.style, { left: `${bm}px`, top: `${yo}px` });
+    Object.assign(dC.style, { left: `${bcx}px`, top: `${yc}px` });
+    Object.assign(lo.style, { left: `${xa + 6}px`, top: `${yo - 13}px` });
+    Object.assign(lc.style, { left: `${xa + 6}px`, top: `${yc + 2}px` });
+    // baseband: from the arrow between SP and FILTER up over the row and down into DECODERS
+    const bb = lane.querySelector(".sdg-bbl"), sp = lane.querySelector(".k-sp"), filt = lane.querySelector(".k-filt");
+    if (bb && sp && filt) {
+      const x0 = (sp.offsetLeft + sp.offsetWidth + filt.offsetLeft) / 2, ya = filt.offsetTop + filt.offsetHeight / 2;
+      const yt = Math.min(filt.offsetTop, dec.offsetTop) - 9, x1 = dec.offsetLeft + dec.offsetWidth / 2;
+      Object.assign(bb.style, { left: `${x0}px`, top: `${yt}px`, width: `${x1 - x0}px`, height: `${ya - yt}px` });
+      bb.style.setProperty("--dn-h", `${dec.offsetTop - yt}px`);
+    } else if (bb) bb.hidden = true;
+    lane.dataset.outX = xa + 8;
+    lane.dataset.outY = el.dataset.to === "cue" ? yc : yo;   // DAB: into the wire that is heard
+    xm = lane.offsetLeft + bm; xc = lane.offsetLeft + bcx;
+    ys.push(lane.offsetTop + yc);
+  }
+  const heads = box.querySelectorAll(".sdg-bush"), lines = box.querySelectorAll(".sdg-bus");
+  if (xm == null || heads.length !== 2) return;
+  [xm, xc].forEach((x, i) => {
+    const hd = heads[i], ln = lines[i];
+    hd.style.left = `${x}px`;
+    const y0 = hd.offsetTop + hd.offsetHeight;
+    Object.assign(ln.style, { left: `${x}px`, top: `${y0}px`, height: `${Math.max(...ys) + 10 - y0}px` });
+  });
+}
+
+/** The Doppler line of a row: from under the DOPPLER chip down, along the bottom, up into the VFO block. Layout px
+ *  (offsetLeft / offsetTop), so the scaling of the page does not matter. */
+function sdgPlaceDop() {
+  for (const el of $("sdgLanes").querySelectorAll(".sdg-dop")) {
+    const lane = el.parentElement, h = lane.querySelector(".sdg-h");
+    const chip = lane.querySelector(".sdg-c.dop, .sdg-c.bad"), dec = chip && chip.closest(".sdg-b");
+    if (!h || !dec) { el.hidden = true; continue; }
+    const x0 = h.offsetLeft + h.offsetWidth / 2, y0 = h.offsetTop + h.offsetHeight;
+    const x1 = dec.offsetLeft + chip.offsetLeft + chip.offsetWidth / 2, y1 = dec.offsetTop + dec.offsetHeight;
+    const yb = lane.clientHeight - 9;          // the lowest line (AGC+ -> ASQ runs above it)
+    Object.assign(el.style, { left: `${x0}px`, top: `${y0}px`, width: `${x1 - x0}px`, height: `${yb - y0}px` });
+    el.style.setProperty("--dec-h", `${yb - y1}px`);
+  }
+  // AGC+ -> ASQ: from the bottom of AGC+ down, along the bottom of the row (above the Doppler line), up into AUDIO
+  for (const el of $("sdgLanes").querySelectorAll(".sdg-asql")) {
+    const lane = el.parentElement, box = lane.querySelector(".sdg-agc"), aud = lane.querySelector(".sdg-aud");
+    const chip = aud && aud.querySelector(".sdg-sq:last-child .sdg-c");
+    if (!box || !chip) { el.hidden = true; continue; }
+    const x0 = box.offsetLeft + box.offsetWidth / 2, y0 = box.offsetTop + box.offsetHeight;
+    const x1 = aud.offsetLeft + chip.offsetLeft + chip.offsetWidth / 2;   // the chip is laid out in the AUDIO block
+    const y1 = aud.offsetTop + aud.offsetHeight;
+    const yb = lane.clientHeight - (lane.querySelector(".sdg-dop") ? 26 : 9);
+    Object.assign(el.style, { left: `${x0}px`, top: `${y0}px`, width: `${x1 - x0}px`, height: `${yb - y0}px` });
+    el.style.setProperty("--up-h", `${yb - y1}px`);
+  }
+  // S-METER: from the bottom of FILTER down into it, from its right side on and up into the level of the SQL line
+  for (const el of $("sdgLanes").querySelectorAll(".sdg-sml")) {
+    const lane = el.parentElement, box = lane.querySelector(".sdg-sm"), filt = lane.querySelector(".k-filt");
+    const aud = lane.querySelector(".sdg-aud"), em = aud && aud.querySelector(".sdg-sq > em");
+    if (!box || !filt || !aud) { el.hidden = true; continue; }
+    const [a, b, lab] = el.children;
+    const xf = filt.offsetLeft + filt.offsetWidth / 2, yf = filt.offsetTop + filt.offsetHeight;
+    Object.assign(a.style, { left: `${xf}px`, top: `${yf}px`, height: `${box.offsetTop - yf}px` });
+    const x0 = box.offsetLeft + box.offsetWidth, ym = box.offsetTop + box.offsetHeight / 2, ya = aud.offsetTop + aud.offsetHeight;
+    const x1 = em ? aud.offsetLeft + em.offsetLeft + Math.min(em.offsetWidth / 2, 30) : x0;
+    Object.assign(b.style, { left: `${x0}px`, top: `${ya}px`, width: `${x1 - x0}px`, height: `${ym - ya}px` });
+    Object.assign(lab.style, { left: `${x0 + 10}px`, top: `${ym - 13}px` });
+  }
+  // DAB audio: from the right side of IQ DECODERS straight right, then up into the wire that is heard (OUT / CUE)
+  for (const el of $("sdgLanes").querySelectorAll(".sdg-dabl")) {
+    const lane = el.parentElement, raw = lane.querySelector(".sdg-raw");
+    if (!raw || !lane.dataset.outX) { el.hidden = true; continue; }
+    const x0 = raw.offsetLeft + raw.offsetWidth, ym = raw.offsetTop + raw.offsetHeight / 2;
+    const x1 = +lane.dataset.outX, y1 = +lane.dataset.outY;
+    Object.assign(el.style, { left: `${x0}px`, top: `${ym}px`, width: `${x1 - x0}px`, height: "0px" });
+    el.style.setProperty("--up-h", `${ym - y1}px`);
+  }
+  // AGC+ loop: from the bottom of the A/D down and left into AGC+, from its top up into the TUNER; the raw-IQ tap
+  // leaves from the same point of the A/D
+  for (const el of $("sdgLanes").querySelectorAll(".sdg-agcl")) {
+    const lane = el.parentElement, dev = lane.querySelector(".sdg-dev"), box = lane.querySelector(".sdg-agc");
+    const [tu, ad] = dev ? dev.querySelectorAll(".sdg-in") : [];
+    if (!tu || !ad || !box) continue;
+    const xa = dev.offsetLeft + ad.offsetLeft + ad.offsetWidth / 2, ya = dev.offsetTop + ad.offsetTop + ad.offsetHeight;
+    const xt = dev.offsetLeft + tu.offsetLeft + tu.offsetWidth / 2, yt = dev.offsetTop + tu.offsetTop + tu.offsetHeight;
+    const bx = box.offsetLeft + box.offsetWidth, ym = box.offsetTop + box.offsetHeight / 2;
+    const [a, b, la, lb, lc] = el.children;
+    Object.assign(a.style, { left: `${bx + 1}px`, top: `${ya}px`, width: `${xa - bx - 1}px`, height: `${ym - ya}px` });
+    Object.assign(b.style, { left: `${xt}px`, top: `${yt}px`, height: `${box.offsetTop - yt}px` });
+    Object.assign(la.style, { left: `${bx + 14}px`, top: `${ym - 13}px` });      // on the way into AGC+
+    Object.assign(lc.style, { left: `${xa + 7}px`, top: `${dev.offsetTop + dev.offsetHeight + 1}px` });   // the raw IQ on to the right
+    lc.hidden = !lane.querySelector(".sdg-tap");
+    Object.assign(lb.style, { left: `${xt + 7}px`, top: `${dev.offsetTop + dev.offsetHeight + 1}px` });
+    lane.style.setProperty("--tap-x", `${xa - dev.offsetLeft - 1}px`);
+    const raw = lane.querySelector(".sdg-raw"), tap = lane.querySelector(".sdg-tap");
+    if (raw && tap) lane.style.setProperty("--tap-y", `${raw.offsetTop + raw.offsetHeight / 2 - tap.offsetTop}px`);
+  }
+  for (const el of $("sdgLanes").querySelectorAll(".sdg-wfl")) {
+    const lane = el.parentElement, iq = lane.querySelector(".k-iq"), wf = lane.querySelector(".sdg-wf");
+    const dc = iq && iq.querySelector(".sdg-chain .sdg-c");
+    if (!iq || !wf) { el.hidden = true; continue; }
+    const x = iq.offsetLeft + (dc ? dc.offsetLeft + dc.offsetWidth + 5 : iq.offsetWidth / 2), y = iq.offsetTop + iq.offsetHeight;
+    Object.assign(el.style, { left: `${x}px`, top: `${y}px`, height: `${wf.offsetTop - y}px` });
+  }
+}
+
+function sdgTick() {
+  if (!sdgOpen()) { sdg.timer = null; return; }
+  if (Date.now() - sdg.at > 2500) { sdg.at = Date.now(); sdgPoll().then(renderSdg); }
+  renderSdg();
+  sdg.timer = setTimeout(sdgTick, 1000);
+}
+function sdgStart() {
+  if (sdg.timer) return;
+  sdg.at = 0;
+  sdg.html = "";
+  sdgTick();
+}

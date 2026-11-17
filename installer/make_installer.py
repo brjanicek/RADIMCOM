@@ -101,8 +101,8 @@ def make_upgrade(full_zip):
     print(f"{out}: {n + 2} files, {os.path.getsize(out) / 1e6:.1f} MB")
 
 
-CODE = ["app.py", "launcher.py", "paths.py", "serverlog.py", "sdr.py", "autotune.py", "lime.py", "airspy.py", "rds.py", "cw.py", "rtty.py", "packet.py", "pocsag.py", "sonde.py", "sonde_sites.py", "aprs.py", "daylog.py", "ft8.py", "wefax.py", "sstv.py", "acars.py", "cpdlc.py", "cpdlc_schema.py", "adsc.py", "vdl2.py", "hfdl.py", "ais.py", "adsb.py", "tonesq.py", "scanner.py", "airports.py", "dab.py", "ism.py", "dsd.py", "recorder.py", "install_dsd.py", "install_dsd.bat",
-        "memories.py", "satellites.py", "update_check.py", "sattrack.py", "satplan.py", "location.py", "sysload.py", "rotor.py", "iqshare.py", "eeprom_tool.py", "setup_sdr.py", "setup_web.py", "start.bat", "setup.bat", "README.md", "CHANGELOG.md",
+CODE = ["app.py", "launcher.py", "paths.py", "serverlog.py", "sdr.py", "gainctl.py", "autotune.py", "lime.py", "airspy.py", "rds.py", "cw.py", "rtty.py", "packet.py", "pocsag.py", "sonde.py", "sonde_ext.py", "sonde_sites.py", "wind.py", "aprs.py", "daylog.py", "ft8.py", "wefax.py", "sstv.py", "acars.py", "cpdlc.py", "cpdlc_schema.py", "adsc.py", "vdl2.py", "hfdl.py", "ais.py", "adsb.py", "tonesq.py", "scanner.py", "airports.py", "dab.py", "ism.py", "dsd.py", "recorder.py", "iqrec.py", "install_dsd.py", "install_dsd.bat",
+        "memories.py", "satellites.py", "update_check.py", "sattrack.py", "satplan.py", "location.py", "antennas.py", "sysload.py", "rotor.py", "iqshare.py", "eeprom_tool.py", "setup_sdr.py", "setup_web.py", "start.bat", "setup.bat", "README.md", "CHANGELOG.md",
         "LICENSE", "NOTICE.md", "API/API.md"]
 LIBS = ["lib/librtlsdr.dll", "lib/libusb-1.0.dll"]
 # VDL2: dumpvdl2 built with MSYS2 (see installer/VDL2.txt), with its MSYS2 runtime DLLs
@@ -117,6 +117,9 @@ LIBS += ["lib/ism/rtl_433.exe"]
 # HFDL: dumphfdl built with MSYS2 (installer/build_hfdl.sh, see installer/HFDL.txt) with its DLLs and ground station table
 LIBS += sorted("lib/hfdl/" + f for f in os.listdir(os.path.join(ROOT, "lib", "hfdl"))
                if f.lower().endswith((".exe", ".dll", ".conf"))) if os.path.isdir(os.path.join(ROOT, "lib", "hfdl")) else []
+# radiosondes: the decoders of rs1729 (github.com/rs1729/RS, GPL-3.0), static UCRT64 builds (installer/build_sonde.sh)
+LIBS += sorted("lib/sonde/" + f for f in os.listdir(os.path.join(ROOT, "lib", "sonde"))
+               if f.lower().endswith(".exe")) if os.path.isdir(os.path.join(ROOT, "lib", "sonde")) else []
 FROM_INSTALLER = ["install.bat", "requirements.txt", "config.json", "DRIVERS.txt", "INSTALL.txt", "VDL2_Ground_Stations.txt"]
 # files from this PC that are bundled (target in the package: source)
 EXTERNAL = {

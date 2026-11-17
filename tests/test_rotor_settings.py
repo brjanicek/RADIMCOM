@@ -64,14 +64,14 @@ class LinksTest(unittest.TestCase):
     """RCTRL › CONNECTION: the sources of the wanted AZ / EL connected to the rotor."""
 
     def test_missing_means_connected(self):
-        self.assertEqual(rotor.links_of({}), {"sat": True, "mem": True, "map": True})
-        self.assertEqual(rotor.links_of({"links": "bad"}), {"sat": True, "mem": True, "map": True})
+        self.assertEqual(rotor.links_of({}), {"sat": True, "mem": True, "map": True, "sonde": False})
+        self.assertEqual(rotor.links_of({"links": "bad"}), {"sat": True, "mem": True, "map": True, "sonde": False})
 
     def test_saved_and_read_back(self):
         with tempfile.TemporaryDirectory() as d:
             p = os.path.join(d, "rotor.json")
             rotor.save_settings(p, {"enabled": True, "links": {"sat": True, "mem": False, "map": True}})
-            self.assertEqual(rotor.links_of(rotor.load_settings(p)), {"sat": True, "mem": False, "map": True})
+            self.assertEqual(rotor.links_of(rotor.load_settings(p)), {"sat": True, "mem": False, "map": True, "sonde": False})
 
 
 class TrackerLinkTest(unittest.TestCase):

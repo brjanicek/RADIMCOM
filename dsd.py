@@ -45,6 +45,16 @@ PROTOCOLS = {
 SLOTS = {"both": "3", "1": "1", "2": "2"}   # -V: voice of which TDMA slot
 INPUT_RATE = 48000
 OUTPUT_RATE = 8000
+# AFC (1.0beta2): the 4FSK symbols are symmetric around the carrier, so the mean of the FM discriminator during a call
+# is the frequency offset of the signal from the tuned frequency. The discriminator of sdr.py: ±1 = ±2 × the FM
+# deviation assumed for the 12.5 kHz channel (sdr.fm_deviation: 5208 Hz), i.e. 1.0 = 10417 Hz.
+DISC_HZ = 2 * 12500.0 * 5000.0 / 12000.0
+AFC_MIN_S = 1.5               # this much clean call audio gives one estimate
+AFC_STEP_HZ = 120.0           # the offset that retunes (smaller is left alone: within the tolerance of the decoder)
+AFC_MAX_HZ = 3000.0           # at most this much per correction
+AFC_SETTLE_S = 0.6            # after a retune: the channel still holds the old frequency
+AFC_NOISE_FRAC = 0.02         # a block with more than this share of samples beyond ±5.2 kHz is noise (no carrier): skipped
+AFC_SHOW_S = 15.0             # the last estimate is shown this long after the call
 INPUT_GAIN = 2.0              # FM demodulator: full scale = about 10 kHz deviation, DMR outer symbols are at 1.9 kHz
 OUTPUT_LOWPASS_HZ = 3600.0    # removes the images of the 8 kHz voice after the linear interpolation
 PREBUFFER_S = 0.15            # voice comes in bursts: buffered before playing, so that it does not stutter
@@ -56,6 +66,10 @@ SPLIT_AFTER_S = 2.0           # other IDs later than this in a call = a new call
 PENDING_S = 2.0               # link control (who is calling) arrives just before the voice
 MIN_CALL_S = 0.5              # shorter, without IDs: false sync, not a call
 PROTO_HOLD_S = 3.0            # how long the detected protocol is shown after the last sync
+DEBUG_LINES = 400             # the last lines of dsd-fme kept for the DEBUG box of the DSD tab
+DEBUG_RATE_S = 60.0           # the counters of the DEBUG box: lines in this window
+# an error reported by dsd-fme: a failed CRC / FEC / Reed-Solomon check of a burst ("CRC ERR", "FEC ERR", "RS ERR", "ERR")
+DEBUG_ERR = re.compile(r"\bERR\b|\berror\b", re.I)
 
 ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 SYNC = re.compile(r"Sync: ?[+-](\S+)(.*)")
@@ -337,6 +351,11 @@ class DsdDecoder:
         self.dropped = 0
         self.calls = collections.deque(maxlen=HISTORY)
         self.tracker = CallTracker(self._call_ended)
+        # DEBUG: the last lines of dsd-fme (seq, time, text) and the times of the sync and error lines for the counters
+        self.log = collections.deque(maxlen=DEBUG_LINES)
+        self.log_seq = 0
+        self.sync_times = collections.deque(maxlen=20000)
+        self.err_times = collections.deque(maxlen=20000)
         self.lock = threading.Lock()
         self.session = None
         self.starting = False
@@ -349,6 +368,15 @@ class DsdDecoder:
         self.zi = None
         self.out = np.zeros((0, 2), np.float32)
         self.playing = False
+        # AFC: on_retune(old_hz, new_hz) moves the VFO onto the signal (app.py); afc_on by the AFC box of the DSD tab
+        self.on_retune = None
+        self.afc_on = True
+        self.filter_hz = 12500.0      # FILTER of the DSD tab (sdr.py reads cfg["dsd_filter"]; here only for the card)
+        self.afc_hz = None            # the last estimate of the offset (Hz), afc_t its time
+        self.afc_t = 0.0
+        self.afc_fix = None           # the last correction (Hz) and its time
+        self.afc_fix_t = 0.0
+        self._afc_reset()
         threading.Thread(target=self._ticker, name="dsd-tick", daemon=True).start()
 
     # ---------- control ----------
@@ -379,9 +407,66 @@ class DsdDecoder:
         self.calls.clear()
         self.count = 0
 
+    def debug(self, since=0):
+        """DEBUG box: the lines of dsd-fme after the sequence number since, counters of the last DEBUG_RATE_S."""
+        t = time.time()
+        lines = [{"seq": q, "t": round(lt, 2), "text": x} for q, lt, x in list(self.log) if q > since]
+        syncs = sum(1 for x in list(self.sync_times) if t - x < DEBUG_RATE_S)
+        errs = sum(1 for x in list(self.err_times) if t - x < DEBUG_RATE_S)
+        return {"seq": self.log_seq, "lines": lines, "syncs": syncs, "errors": errs, "window": DEBUG_RATE_S}
+
     def info(self):
-        return dict(self.tracker.state(time.time()), enabled=self.enabled, installed=os.path.exists(EXE), error=self.error,
-                    protocol=self.protocol, slot=self.slot, count=self.count, dropped=self.dropped)
+        t = time.time()
+        return dict(self.tracker.state(t), enabled=self.enabled, installed=os.path.exists(EXE), error=self.error,
+                    protocol=self.protocol, slot=self.slot, count=self.count, dropped=self.dropped, afc=self.afc_on,
+                    filter=self.filter_hz,
+                    afc_hz=self.afc_hz if self.afc_hz is not None and t - self.afc_t < AFC_SHOW_S else None,
+                    afc_fix=self.afc_fix if self.afc_fix is not None and t - self.afc_fix_t < AFC_SHOW_S else None)
+
+    # ---------- AFC ----------
+
+    def _afc_reset(self, dial=None):
+        self.afc_sum = 0.0
+        self.afc_n = 0
+        self.afc_dial = dial
+        self.afc_skip = 0
+
+    def _afc(self, audio, fs, dial_hz):
+        """Mean of the discriminator during a call (the receiver thread): an estimate every AFC_MIN_S of clean audio;
+        with AFC on an offset over AFC_STEP_HZ retunes the VFO onto the signal."""
+        if dial_hz != self.afc_dial:                 # tuned elsewhere (by hand or by the AFC): start again after settling
+            self._afc_reset(dial_hz)
+            self.afc_skip = int(AFC_SETTLE_S * fs)
+        if self.afc_skip > 0:
+            self.afc_skip -= len(audio)
+            return
+        if not self.tracker.calls:                   # no call: no carrier to measure (or only noise)
+            return
+        a = np.asarray(audio, np.float64)
+        if a.ndim > 1:
+            a = a.mean(axis=1)
+        # 5 ms pieces: TDMA (a hotspot, simplex) sends every other 30 ms slot; a piece with noise (samples beyond
+        # ±5.2 kHz, impossible for the 4FSK) is left out, so only the carrier is measured
+        m = max(1, int(fs * 0.005))
+        k = len(a) // m
+        if not k:
+            return
+        pcs = a[:k * m].reshape(k, m)
+        ok = np.mean(np.abs(pcs) > 0.5, axis=1) <= AFC_NOISE_FRAC
+        if not ok.any():
+            return
+        self.afc_sum += float(pcs[ok].sum())
+        self.afc_n += int(ok.sum()) * m
+        if self.afc_n < AFC_MIN_S * fs:
+            return
+        off = self.afc_sum / self.afc_n * DISC_HZ
+        self.afc_sum, self.afc_n = 0.0, 0
+        self.afc_hz, self.afc_t = round(off / 10) * 10, time.time()
+        if self.afc_on and abs(off) >= AFC_STEP_HZ and self.on_retune:
+            step = max(-AFC_MAX_HZ, min(AFC_MAX_HZ, round(off / 10) * 10))
+            self.afc_fix, self.afc_fix_t = step, time.time()
+            self.afc_dial = None                     # the next block starts a new measurement after settling
+            self.on_retune(dial_hz, dial_hz + step)
 
     def history(self):
         return list(self.calls)
@@ -410,6 +495,10 @@ class DsdDecoder:
         if s is None:
             self._start_later()
         else:
+            try:
+                self._afc(audio, fs, dial_hz)
+            except Exception:
+                pass                # the AFC must never stop the decoder
             pcm = np.clip(self.to_input.run(audio.astype(np.float64)) * INPUT_GAIN * 32767, -32767, 32767).astype("<i2")
             try:
                 s.q.put_nowait(pcm.tobytes())
@@ -545,8 +634,16 @@ class DsdDecoder:
     def _reader(self, s):
         for raw in s.proc.stderr:
             line = ANSI.sub("", raw.decode("utf-8", "replace")).rstrip("\r\n")
+            t = time.time()
+            if line.strip():
+                self.log_seq += 1
+                self.log.append((self.log_seq, t, line))
+                if SYNC.search(line):
+                    self.sync_times.append(t)
+                if DEBUG_ERR.search(line):
+                    self.err_times.append(t)
             try:
-                self.tracker.feed(line, time.time())
+                self.tracker.feed(line, t)
             except Exception:
                 pass                # one odd line must not stop the decoder
         with self.lock:

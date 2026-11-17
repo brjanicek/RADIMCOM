@@ -51,8 +51,10 @@ Tray menu *SDR setup…*, Start menu *RADIMCOM SDR setup* or `RADIMCOM.exe --set
 It stops the receiver (the dongles must be free), runs `setup_web.py` (port 8433, only from this PC) and shows one page:
 
 - **Connected SDR dongles:** every connected RTL-SDR, LimeSDR and Airspy as a card with its serial number; REFRESH after replugging.
-- **Serial numbers:** RTL-SDR dongles with the same or an empty serial cannot be told apart; WRITE TO EEPROM gives them
-  unique numbers of the same length (each EEPROM is backed up to `data\eeprom_backup` first), then replug them.
+- **Serial numbers:** every connected RTL-SDR dongle with its serial number; type a new one (up to the length of the old one, letters,
+  digits and `- _ .`) and WRITE TO EEPROM renames it (only the changed ones are written, each EEPROM is backed up to
+  `data\eeprom_backup` first); a dongle on a VFO stays there under its new number. Dongles with the same or an empty
+  serial cannot be told apart: they are marked SAME and get a unique number offered. Then replug them, REFRESH and SAVE.
 - **VFO A–D:** drag a dongle card onto a VFO (or click the card, then the VFO). Dropped on a VFO that has one, the two
   VFOs swap their dongles; dragged back to the list (or ✕) it is taken off. An empty VFO can *share the dongle of VFO X*
   (chaining). Then per VFO: ppm, HF upconverter with its LO in MHz (30–1000; a value in Hz is converted) and the name on
@@ -132,6 +134,7 @@ Installed with the setup: **RADIMCOM.exe** (Start menu or taskbar), see above. F
 - **Server log:** the window shows only where the log is; everything the launcher and the VFO receivers print
   (messages, errors with tracebacks, output of the SDR libraries and helper programs) goes to
   `data\server_logs\logs_DDMMYYYY_HHMMSS.log`, a new file at each start (date and time of the start), one for all
-  VFOs. Lines of successful web requests are left out, failed ones (4xx, 5xx) stay.
+  VFOs. Every line starts with the time (`15.11.2026 07:24:11.123`) and the letter of the VFO that wrote it (`[A]`;
+  none = the launcher). Lines of successful web requests are left out, failed ones (4xx, 5xx) stay.
 - If the browser does not allow sound without a click, the page shows *"Click anywhere to start audio"*.
   Sound starts after the first click on the page.

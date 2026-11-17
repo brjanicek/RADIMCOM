@@ -16,6 +16,8 @@ import scipy.fft as scipy_fft
 from collections import deque
 
 from autotune import AutoTune
+from gainctl import (SAGC_PARAMS, SAGC_SETTLE, SmartAgc, Target, analyse, kind_for, sagc_params,  # noqa: F401
+                     warning)
 from scanner import Scanner
 from tonesq import CTCSS_DEFAULT_HZ, DCS_DEFAULT, TONE_HPF_HZ, ToneSquelch
 
@@ -34,6 +36,9 @@ WF_DB_STEP = 0.5
 MODES = ("AM", "FM", "WFM", "LSB", "USB", "CW", "DSD")
 DSD_MODE = "DSD"       # digital voice (dsd.py): FM discriminator to the decoder, its voice to the audio output
 DSD_BW = 12500.0       # channel width of the DSD mode; fixed, 12.5 kHz covers the protocols it decodes
+# FILTER of the DSD tab: the filter before the discriminator can be narrower than the channel (DMR occupies about
+# ±4.5 kHz: less noise into the decoder on a weak signal); the scale of the discriminator stays that of DSD_BW
+DSD_FILTERS = (12500.0, 11000.0, 10000.0, 9000.0, 8000.0)
 UPCONV_MAX_HZ = 30e6   # in auto mode only HF (below 30 MHz) goes through the upconverter
 TUNER_MIN_HZ = 24e6    # R820T tuner range without a converter
 V4_MIN_HZ = 0.5e6      # RTL-SDR Blog V4: HF direct (its driver switches on the built-in upconverter below 28.8 MHz)
@@ -182,6 +187,82 @@ def open_device(cfg):
     return RtlSdr(index_by_serial(serial) if serial else int(cfg["device"]))
 
 
+USB_RESET_AFTER = 3     # failed opens in a row (the dongle is on the bus but sends nothing) before its USB is reset
+USB_RESET_EVERY = 30    # then again after this many more failures (~5 min)
+
+
+class _UsbDevDesc(ctypes.Structure):
+    _fields_ = [("bLength", ctypes.c_uint8), ("bDescriptorType", ctypes.c_uint8), ("bcdUSB", ctypes.c_uint16),
+                ("bDeviceClass", ctypes.c_uint8), ("bDeviceSubClass", ctypes.c_uint8),
+                ("bDeviceProtocol", ctypes.c_uint8), ("bMaxPacketSize0", ctypes.c_uint8),
+                ("idVendor", ctypes.c_uint16), ("idProduct", ctypes.c_uint16), ("bcdDevice", ctypes.c_uint16),
+                ("iManufacturer", ctypes.c_uint8), ("iProduct", ctypes.c_uint8), ("iSerialNumber", ctypes.c_uint8),
+                ("bNumConfigurations", ctypes.c_uint8)]
+
+
+def _libusb_reset(serial):
+    """libusb_reset_device on the dongle with this serial number (it must be closed). No admin rights needed."""
+    os.add_dll_directory(LIB_DIR)
+    u = ctypes.CDLL(os.path.join(LIB_DIR, "libusb-1.0.dll"))
+    u.libusb_get_device_list.restype = ctypes.c_ssize_t
+    u.libusb_get_device_list.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))]
+    u.libusb_free_device_list.argtypes = [ctypes.POINTER(ctypes.c_void_p), ctypes.c_int]
+    u.libusb_get_device_descriptor.argtypes = [ctypes.c_void_p, ctypes.POINTER(_UsbDevDesc)]
+    u.libusb_open.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)]
+    u.libusb_get_string_descriptor_ascii.argtypes = [ctypes.c_void_p, ctypes.c_uint8, ctypes.c_char_p, ctypes.c_int]
+    u.libusb_reset_device.argtypes = [ctypes.c_void_p]
+    u.libusb_close.argtypes = [ctypes.c_void_p]
+    u.libusb_exit.argtypes = [ctypes.c_void_p]
+    ctx = ctypes.c_void_p()
+    if u.libusb_init(ctypes.byref(ctx)) != 0:
+        return False, "libusb_init failed"
+    devs = ctypes.POINTER(ctypes.c_void_p)()
+    n = 0
+    try:
+        n = u.libusb_get_device_list(ctx, ctypes.byref(devs))
+        for i in range(max(n, 0)):
+            d = _UsbDevDesc()
+            if u.libusb_get_device_descriptor(devs[i], ctypes.byref(d)) != 0 or d.idVendor != 0x0BDA \
+                    or d.idProduct not in (0x2832, 0x2838) or not d.iSerialNumber:
+                continue
+            h = ctypes.c_void_p()
+            if u.libusb_open(devs[i], ctypes.byref(h)) != 0:
+                continue                            # e.g. another VFO has its dongle open
+            try:
+                buf = ctypes.create_string_buffer(256)
+                if u.libusb_get_string_descriptor_ascii(h, d.iSerialNumber, buf, 256) < 0 \
+                        or buf.value.decode(errors="replace").strip() != serial:
+                    continue
+                rc = u.libusb_reset_device(h)
+                return rc == 0, f"libusb_reset_device (code {rc})"
+            finally:
+                u.libusb_close(h)
+        return False, "dongle not found on USB"
+    finally:
+        if n > 0:
+            u.libusb_free_device_list(devs, 1)
+        u.libusb_exit(ctx)
+
+
+def reset_usb(serial):
+    """A dongle that is on the bus but sends no data (frozen RTL2832): close/open does not wake it, a USB reset may.
+    With admin rights pnputil restarts the device (like replugging it), otherwise libusb resets it.
+    Returns (ok, what was done)."""
+    if not serial:
+        return False, "no serial number in vfos.json"
+    try:
+        if ctypes.windll.shell32.IsUserAnAdmin():
+            import subprocess
+            for pid in ("2838", "2832"):
+                r = subprocess.run(["pnputil", "/restart-device", f"USB\\VID_0BDA&PID_{pid}\\{serial}"],
+                                   capture_output=True, timeout=30, creationflags=subprocess.CREATE_NO_WINDOW)
+                if r.returncode == 0:
+                    return True, "pnputil /restart-device"
+        return _libusb_reset(serial)
+    except Exception as e:
+        return False, f"USB reset failed: {e}"
+
+
 class RtlSdr:
     """Thin wrapper over librtlsdr.dll."""
 
@@ -259,102 +340,7 @@ class RtlSdr:
             raise RuntimeError(f"setting {what} failed (code {rc})")
 
 
-# AGC+ (smart AGC): tuner gain as high as possible while the A/D converter is not clipped. The tuner AGC of the
-# R820T (gain "auto") watches only its LNA and mixer and keeps the IF gain fixed, so it does not see the A/D;
-# this loop measures the raw samples of the whole band and sets the manual tuner gain from them.
-# Settings of AGC+ (SET, DONGLE tab), name: (default, min, max). Kept in the config as "sagc".
-# The defaults = the preset MODERATE of the page (SAGC_PRESETS in app.js); CAREFUL and BOLD are there too.
-SAGC_PARAMS = {
-    "clip_ppm": (100, 0, 1000),       # clipped samples per million in a block above which the gain goes down
-    "heavy_ppm": (2000, 1, 100000),   # above this the gain goes down by heavy_db at once
-    "down_db": (2.5, 0.5, 15),        # gain down on clipping
-    "heavy_db": (6.0, 1, 30),         # gain down on heavy clipping
-    "low_dbfs": (-5.0, -40, -1),      # A/D peak over hold_s below this -> gain up
-    "target_dbfs": (-2.0, -30, 0),    # where a gain increase aims
-    "hold_s": (0.5, 0.1, 30),         # no clipping for this long before going up
-    "up_db": (6.0, 0.5, 30),          # at most per step up
-    "settle": (2, 0, 20),             # blocks ignored after a gain change (the tuner settles), plus those already queued
-    "allow_ppm": (0, 0, 1000),        # bold mode (> 0): clipping up to this still lets the gain go up, a step at a time
-}
-SAGC_SETTLE = SAGC_PARAMS["settle"][0]
-
-
-def sagc_params(cfg):
-    """The AGC+ settings of a config, missing ones by default."""
-    own = cfg.get("sagc") or {}
-    return {k: own.get(k, d) for k, (d, _lo, _hi) in SAGC_PARAMS.items()}
-
-
-class SmartAgc:
-    """AGC+: decides a new tuner gain from the raw samples of each block (None = keep it)."""
-
-    def __init__(self):
-        self.peak, self.clip = 0.0, 0.0          # last block, for the state on the web page
-        self.t, self.ceil, self.ceil_until = 0.0, None, 0.0   # bold: a gain that clipped is not tried again for a while
-        self.reset()
-
-    def reset(self, settle=0):
-        self.win_peak, self.quiet_s, self.skip = 0.0, 0.0, settle
-
-    @staticmethod
-    def measure(raw):
-        """(share of clipped samples, peak 0..1) of the A/D: uint8 (RTL) or complex64 ±1 (Airspy, Lime)."""
-        if raw.dtype == np.uint8:
-            lo, hi = int(raw.min()), int(raw.max())
-            peak = max(hi - 127.5, 127.5 - lo) / 127.5
-            n = (np.count_nonzero(raw == 0) if lo == 0 else 0) + (np.count_nonzero(raw == 255) if hi == 255 else 0)
-        else:
-            a = np.abs(raw.view(np.float32))
-            peak = float(a.max())
-            n = np.count_nonzero(a >= 0.99) if peak >= 0.99 else 0
-        return float(n) / raw.size, float(peak)   # plain floats: the state goes to JSON
-
-    def step(self, raw, gains, gain, block_s, backlog, p, db_per_unit=1.0):
-        """p = sagc_params(): the settings from SET."""
-        self.clip, self.peak = self.measure(raw)
-        self.t += block_s
-        if self.skip > 0:
-            self.skip -= 1
-            return None
-        ppm, allow = self.clip * 1e6, p.get("allow_ppm", 0)
-        if ppm > p["clip_ppm"]:
-            db = p["heavy_db"] if ppm > p["heavy_ppm"] else p["down_db"]
-            lower = [g for g in gains if g <= gain - db / db_per_unit]
-            new = lower[-1] if lower else gains[0]
-            hold_more = 3 * p["hold_s"] if allow > 0 else 0.0   # bold: wait 4x hold after a step down (no see-saw)
-            if allow > 0:                         # bold: this gain clipped too much, do not climb back to it soon
-                self.ceil, self.ceil_until = gain, self.t + 60 * p["hold_s"]
-        elif ppm > allow:
-            self.quiet_s = 0.0                    # tolerated, but no reason to go up
-            return None
-        else:
-            self.win_peak = max(self.win_peak, self.peak)
-            self.quiet_s += block_s
-            if self.quiet_s < p["hold_s"]:
-                return None
-            peak, self.win_peak, self.quiet_s = self.win_peak, 0.0, 0.0
-            peak_db = 20 * np.log10(max(peak, 1e-4))
-            above = [g for g in gains if g > gain]
-            if not above:
-                return None
-            if peak_db < p["low_dbfs"]:
-                db = min(p["up_db"], p["target_dbfs"] - max(peak_db, -60.0))
-                up = [g for g in above if g <= gain + db / db_per_unit]
-                new = up[-1] if up else None
-                if new is None and peak_db + (above[0] - gain) * db_per_unit < -1.0:
-                    new = above[0]                # the next step is bigger than the wanted one but still fits
-            elif allow > 0:
-                new = above[0]                    # bold: a step up while the clipping stays within allow_ppm
-                if self.ceil is not None and self.t < self.ceil_until and new >= self.ceil:
-                    return None                   # that gain clipped above clip_ppm a short while ago
-            else:
-                return None
-            hold_more = 0.0
-        if new is None or new == gain:
-            return None
-        self.reset(backlog + int(p["settle"]))
-        self.quiet_s = -hold_more
-        return new
+# AGC+ (smart AGC): gainctl.py. Its names stay importable from here.
 
 
 def lowpass(cutoff, fs, taps):
@@ -599,6 +585,184 @@ class AutoNotch:
         return allout[:len(x)]
 
 
+NB_LEVEL_DEFAULT = 5      # NB key: level 1 (only strong pulses) … 10 (also weak ones)
+NB_LEVEL_MIN, NB_LEVEL_MAX = 1, 10
+NB_WIDTH_DEFAULT_US = 5.0 # blanked around each pulse (µs on each side)
+NB_WIDTH_MIN_US, NB_WIDTH_MAX_US = 1.0, 50.0
+NB_OFF_MODES = ("WFM", "DAB")
+
+
+class NoiseBlanker:
+    """NB – noise blanker on the wideband samples of the dongle (before the channel filter, where a pulse of ignition,
+    an electric fence or a switching supply is still a few µs long; after the filter it is smeared over the whole
+    filter length and cannot be cut out). Reference = mean magnitude of each SEG of samples (~0.85 ms at 2.4 MS/s,
+    follows the band). Detection on the deviation of the magnitude from its envelope (moving average over ENV_US):
+    the envelope of a station moves slowly, so a pulse weaker than a strong station in the band still stands out of
+    it, and the fast beats of two strong stations are part of the reference. A pulse = deviation above k × its mean
+    (level 1–10: k = 16 … 7.5; on pure noise k = 8 gives 0.5 false pulses a second at 2.4 MS/s, k ≥ 9 none), only when
+    the run is short (≤ MAX_RUN_US): a station is above all the time and is never blanked. The pulse and `width` µs on
+    each side are set to zero (the hole of a few µs is lost in the channel filter)."""
+
+    SEG = 2048
+    MAX_RUN_US = 100.0
+    ENV_US = 13.0                # envelope window: a station's envelope moves slower, a pulse stands out of it
+
+    def __init__(self):
+        self.level = NB_LEVEL_DEFAULT
+        self.width_us = NB_WIDTH_DEFAULT_US
+        self.pulses = 0              # pulses blanked (counter)
+        self.blanked = 0             # samples blanked
+        self.total = 0               # samples seen
+        self.rate = 0.0              # pulses per second (last ~1 s)
+        self.frac = 0.0              # fraction of the samples blanked (last ~1 s)
+        self._acc = [0, 0, 0]        # pulses, blanked, samples of the current second
+
+    def k(self):
+        lv = min(max(float(self.level), NB_LEVEL_MIN), NB_LEVEL_MAX)
+        return 16.0 - 8.5 * (lv - 1) / 9
+
+    def process(self, iq, fs):
+        """New array with the pulses blanked (iq itself may be shared and is not changed)."""
+        n = len(iq) // self.SEG * self.SEG
+        if n == 0:
+            return iq
+        mag = np.abs(iq)
+        m = max(3, int(round(self.ENV_US * 1e-6 * fs)) | 1)     # envelope: centred moving average
+        c = np.cumsum(np.concatenate((np.zeros(m // 2 + 1, np.float32), mag, np.full(m // 2, mag[-1], np.float32))),
+                      dtype=np.float64)
+        env = (c[m:] - c[:-m]) / m
+        dev = np.abs(mag - env[:len(mag)]).astype(np.float32)
+        ref = dev[:n].reshape(-1, self.SEG).mean(axis=1, keepdims=True) + 1e-9
+        over = (dev[:n].reshape(-1, self.SEG) > self.k() * ref).ravel()
+        if len(iq) > n:                                  # a tail shorter than SEG: against the last reference
+            over = np.concatenate((over, dev[n:] > self.k() * ref[-1, 0]))
+        pulses = 0
+        if over.any():
+            d = np.diff(np.concatenate(([0], over.view(np.int8), [0])))
+            starts, ends = np.flatnonzero(d == 1), np.flatnonzero(d == -1)
+            short = (ends - starts) <= self.MAX_RUN_US * 1e-6 * fs
+            starts, ends = starts[short], ends[short]
+            pulses = len(starts)
+            if pulses:
+                w = int(round(self.width_us * 1e-6 * fs))
+                mark = np.zeros(len(iq) + 1, np.int32)   # +1 at each start, −1 after each end, widened; cumsum > 0 = blank
+                np.add.at(mark, np.maximum(starts - w, 0), 1)
+                np.add.at(mark, np.minimum(ends + w, len(iq)), -1)
+                blank = np.cumsum(mark[:-1]) > 0
+                out = iq.copy()
+                out[blank] = 0
+                self._count(pulses, int(blank.sum()), len(iq), fs)
+                return out
+        self._count(0, 0, len(iq), fs)
+        return iq
+
+    def _count(self, pulses, blanked, n, fs):
+        self.pulses += pulses
+        self.blanked += blanked
+        self.total += n
+        a = self._acc
+        a[0] += pulses
+        a[1] += blanked
+        a[2] += n
+        if a[2] >= fs:                                   # about a second: the rates shown
+            self.rate = a[0] * fs / a[2]
+            self.frac = a[1] / a[2]
+            self._acc = [0, 0, 0]
+
+
+DNR_LEVEL_DEFAULT = 5     # DNR key: level 1 (gentle) … 10 (strong)
+DNR_LEVEL_MIN, DNR_LEVEL_MAX = 1, 10
+DNR_MODES = ("AM", "LSB", "USB", "CW")
+
+
+class SpectralNR:
+    """DNR – digital noise reduction: the noise is taken out of the audio all the time, also under speech (NTH only
+    turns down the pauses). STFT (N = 1024, 75 % overlap, Hann analysis and synthesis); in each bin the noise power
+    is the minimum of the smoothed power over the last ~1.5 s (minimum statistics, Martin 2001: speech has pauses
+    and gaps between harmonics, the noise does not), times a bias; the gain is a Wiener gain from the a-priori SNR of
+    the decision-directed estimate (Ephraim–Malah 1984), which keeps the residual noise smooth instead of
+    "musical" (warbling tones), with a floor so the rest of the noise is lowered, not removed, and smoothed over
+    neighbouring bins. Level 1–10: floor 6–24 dB below the input, noise overestimated 1.0–2.35 ×.
+    Delay N samples (27 ms at 37.5 kHz)."""
+
+    N, H = 1024, 256
+    SMOOTH = 0.7           # power smoothing per hop (~20 ms)
+    WIN_S = 1.5            # minimum over this long
+    SUBWIN = 8             # in this many sub-windows (the minimum follows a rising noise in WIN_S)
+    BIAS = 1.7             # the minimum of the smoothed power is below the mean noise power
+    DD = 0.98              # decision-directed weight of the last frame
+
+    def __init__(self, fs):
+        self.fs = fs
+        self.win = np.hanning(self.N + 1)[:-1].astype(np.float32)
+        self.u = max(1, int(round(self.WIN_S * fs / self.H / self.SUBWIN)))   # frames per sub-window
+        self.level = DNR_LEVEL_DEFAULT
+        self.reset()
+
+    def reset(self):
+        nb = self.N // 2 + 1
+        self.inp = np.zeros(self.N - self.H, np.float32)
+        self.ola = np.zeros(self.N, np.float32)
+        self.pending = np.zeros(self.H, np.float32)
+        self.S = None                          # smoothed power
+        self.mins = None                       # minimum of each past sub-window
+        self.cur = None                        # minimum of the current sub-window
+        self.k = 0                             # frames in the current sub-window
+        self.noise = None
+        self.g2p = np.ones(nb)                 # last gain², last a-posteriori SNR (decision-directed)
+        self.gp = np.ones(nb)
+        self.gain = np.ones(nb, np.float32)
+        self.reduction_db = 0.0                # how much the noise is lowered now (shown in SETTINGS)
+
+    def _params(self):
+        lv = min(max(float(self.level), DNR_LEVEL_MIN), DNR_LEVEL_MAX)
+        return 10 ** (-(4.0 + 2.0 * lv) / 20), 1.0 + 0.15 * (lv - 1)
+
+    def _frame(self, X):
+        p = X.real ** 2 + X.imag ** 2
+        if self.S is None:
+            self.S = p.copy()
+            self.cur = p.copy()
+            self.mins = np.tile(p, (self.SUBWIN, 1))
+        self.S = self.SMOOTH * self.S + (1 - self.SMOOTH) * p
+        self.cur = np.minimum(self.cur, self.S)
+        self.k += 1
+        if self.k >= self.u:                   # sub-window done: it replaces the oldest one
+            self.mins = np.roll(self.mins, 1, axis=0)
+            self.mins[0] = self.cur
+            self.cur = self.S.copy()
+            self.k = 0
+        self.noise = self.BIAS * np.minimum(self.mins.min(axis=0), self.cur) + 1e-20
+        floor, over = self._params()
+        gamma = p / (over * self.noise)
+        xi = self.DD * self.g2p * self.gp + (1 - self.DD) * np.maximum(gamma - 1.0, 0.0)
+        g = xi / (1.0 + xi)
+        g = np.convolve(np.pad(g, 1, mode="edge"), (0.25, 0.5, 0.25), "valid")
+        g = np.maximum(g, floor)
+        self.g2p, self.gp = g * g, gamma
+        self.gain = g.astype(np.float32)
+        return X * self.gain
+
+    def process(self, x):
+        N, H, w = self.N, self.H, self.win
+        buf = np.concatenate((self.inp, np.asarray(x, np.float32)))
+        nf = (len(buf) - N) // H + 1
+        out = np.empty(max(nf, 0) * H, np.float32)
+        for k in range(max(nf, 0)):
+            Y = self._frame(np.fft.rfft(buf[k * H:k * H + N] * w))
+            self.ola += np.fft.irfft(Y, N).astype(np.float32) * w / 1.5   # Hann² at 75 % = 1.5
+            out[k * H:(k + 1) * H] = self.ola[:H]
+            self.ola = np.concatenate((self.ola[H:], np.zeros(H, np.float32)))
+        self.inp = buf[max(nf, 0) * H:]
+        if self.noise is not None:             # mean gain over the noise: the reduction where there is no signal
+            quiet = self.gp < 2.0
+            if np.any(quiet):
+                self.reduction_db = round(float(-20 * np.log10(np.mean(self.gain[quiet]) + 1e-6)), 1)
+        allout = np.concatenate((self.pending, out))
+        self.pending = allout[len(x):]
+        return allout[:len(x)]
+
+
 SPUR_WIDTH_DEFAULT = 3000 # Hz, stopband of each line
 SPUR_EDGE_DEFAULT = 1000  # Hz, side of the band-stop from full depth to none
 SPUR_DB_DEFAULT = 40
@@ -771,13 +935,13 @@ class FreqInverter:
         return np.clip(np.convolve(buf, self.h, mode="valid"), -1, 1).astype(np.float32)
 
 
-PASS_ORDER = 6             # Butterworth order of the LPF / HPF keys: 36 dB per octave
+PASS_ORDER = 6             # Butterworth order of the HPF key (and the TSQ high-pass): 36 dB per octave
 LPF_DEFAULT_HZ, LPF_MIN_HZ, LPF_MAX_HZ = 3000.0, 100.0, 15000.0
 HPF_DEFAULT_HZ, HPF_MIN_HZ, HPF_MAX_HZ = 300.0, 20.0, 5000.0
 
 
 class PassFilter:
-    """Audio low-pass or high-pass (LPF / HPF keys), an IIR because a FIR would need thousands of taps at a low
+    """Audio low-pass or high-pass (HPF key, TSQ), an IIR because a FIR would need thousands of taps at a low
     cutoff. Input (n, 2). A change of the cutoff or on/off crossfades over one block, so it does not click."""
 
     def __init__(self, btype):
@@ -809,6 +973,224 @@ class PassFilter:
         return y
 
 
+LPF_TRANSITION_HZ = 150.0  # LPF key: FIR transition band (−6 dB at the cutoff, ~−75 dB 100 Hz above), like the channel filter
+
+
+class SharpLowpass:
+    """LPF key: a linear-phase FIR (windowed sinc, Blackman), as steep as the channel filter, instead of a soft IIR.
+    Input (n, 2). Same interface as PassFilter: hz = None is off, a change crossfades over one block. Delay
+    (taps − 1) / 2 samples (~17 ms at 32 kHz)."""
+
+    def __init__(self):
+        from scipy.signal import oaconvolve
+        self._conv = oaconvolve
+        self.key = None             # (fs, hz) of the running filter, None = off
+        self.h = self.hist = None
+
+    @staticmethod
+    def taps(fs):
+        return int(5.5 * fs / LPF_TRANSITION_HZ) | 1
+
+    def _run(self, x):
+        if self.h is None:
+            return x
+        buf = np.concatenate((self.hist, x))
+        self.hist = buf[len(buf) - (len(self.h) - 1):]
+        return self._conv(buf, self.h[:, None], mode="valid", axes=0)
+
+    def process(self, x, fs, hz):
+        """hz = cutoff (−6 dB), or None = off (passes the input through)."""
+        y = self._run(x)
+        key = (fs, hz) if hz else None
+        if key != self.key:
+            self.key = key
+            self.h = self.hist = None
+            if key:
+                n = self.taps(fs)
+                self.h = lowpass(min(hz, 0.45 * fs), fs, n).astype(np.float64)
+                self.hist = np.zeros((n - 1, x.shape[1]))
+            ramp = np.linspace(0.0, 1.0, len(x))[:, None]
+            y = y * (1 - ramp) + self._run(x) * ramp
+        return y
+
+
+HUM_MODES = ("AM", "LSB", "USB")     # HUM key: mains hum of the station (a transmitter, its studio), like the notch
+HUM_BASES = (50, 60)                # Hz: the mains of the transmitter (Europe, Asia, Africa 50; the Americas 60)
+HUM_WIDTH_DEFAULT_HZ, HUM_WIDTH_MIN_HZ, HUM_WIDTH_MAX_HZ = 4.0, 1.0, 8.0   # width of each notch (−3 dB)
+
+
+HUM_TRACK_HZ = 1.0                  # the mains of the transmitter is followed this far from 50 / 60 Hz
+HUM_WIN_S = 0.5                     # tracking window: the phase of each harmonic in its two halves gives the offset
+HUM_HARMONICS = (1, 2, 3, 4, 5, 6)  # multiples of the base used for tracking (100 Hz = 2: rectified mains)
+
+
+class HumFilter:
+    """HUM key: a comb of narrow notches at the mains frequency of the station and all its multiples (50, 100, 150 …
+    Hz), so the hum goes with all its harmonics (rectified mains: 100, 200, 300 …) while speech and music lose only a
+    few Hz every 50 Hz. H(z) = b0 (1 − z^−D) / (1 − aD z^−D), D = fs / f (the scipy iircomb notch), D fractional by
+    linear interpolation. The mains of a transmitter is not exactly 50 Hz (49.96 Hz measured on 6050 kHz): f follows
+    the hum, from the phase step of its harmonics between the two halves of a 0.5 s window (only while hum is there).
+    removed_db: how much the filter takes out now."""
+
+    def __init__(self):
+        self.key = None
+        self.removed_db = 0.0
+        self.f = 0.0
+
+    def _coeffs(self, fs, width):
+        from scipy.signal import iircomb
+        n = max(int(round(fs / self.f)), 2)
+        b, a = iircomb(fs / n, self.f / width, ftype="notch", fs=n * (fs / n))
+        self.b0, self.bn, self.an = float(b[0]), float(b[n]), float(-a[n])
+        self.d = fs / self.f                      # delay in samples, fractional
+
+    def _setup(self, fs, base, width):
+        self.f = float(base)
+        self.base, self.width = base, width
+        self._coeffs(fs, width)
+        h = int(fs / (base - HUM_TRACK_HZ)) + 2
+        self.xh = np.zeros(h)      # the last input samples, oldest first (long enough for the lowest f)
+        self.yh = np.zeros(h)
+        self.pin = self.pout = 1e-12
+        self.tn = 0                # sample in the tracking window
+        self.za = np.zeros(len(HUM_HARMONICS), complex)
+        self.zb = np.zeros(len(HUM_HARMONICS), complex)
+        self.pw = 0.0
+
+    def reset(self):
+        self.key = None
+
+    def _track(self, x, fs):
+        """Sums of the harmonics in the two halves of the window; at its end f moves by the measured offset."""
+        win = int(HUM_WIN_S * fs)
+        half = win // 2
+        k = np.array(HUM_HARMONICS, float)
+        i = 0
+        while i < len(x):
+            m = min(len(x) - i, (half if self.tn < half else win) - self.tn)
+            c = x[i:i + m]
+            n = self.tn + np.arange(m)
+            e = np.exp(-2j * np.pi * np.outer(k, n) * self.f / fs)
+            z = e @ c
+            if self.tn < half:
+                self.za += z
+            else:
+                self.zb += z
+            self.pw += float(np.dot(c, c))
+            self.tn += m
+            i += m
+            if self.tn >= win:
+                # a harmonic k·(f + δ) turns by 2π k δ half / fs between the halves
+                w = np.abs(self.za) * np.abs(self.zb)
+                hum = float(np.sum(np.abs(self.za) ** 2 + np.abs(self.zb) ** 2)) * 2 / half / max(self.pw, 1e-12)
+                if hum > 0.01:                    # hum at least −20 dB of the audio: worth following
+                    dk = np.angle(self.zb * np.conj(self.za)) * fs / (2 * np.pi * k * half)
+                    delta = float(np.sum(w * k * k * dk) / max(np.sum(w * k * k), 1e-30))
+                    f = float(np.clip(self.f + 0.7 * delta, self.base - HUM_TRACK_HZ, self.base + HUM_TRACK_HZ))
+                    if abs(f - self.f) > 1e-4:
+                        self.f = f
+                        self._coeffs(fs, self.width)
+                self.tn, self.pw = 0, 0.0
+                self.za[:] = 0
+                self.zb[:] = 0
+
+    def process(self, x, fs, base=50, width=HUM_WIDTH_DEFAULT_HZ):
+        key = (fs, base, width)
+        if key != self.key:
+            self.key = key
+            self._setup(fs, base, width)
+        x = np.asarray(x, np.float64)
+        self._track(x, fs)
+        n = int(self.d)
+        mu = self.d - n
+        out = np.empty(len(x))
+        # y = b0 x + bD x[−D] + aD y[−D], x[−D] and y[−D] interpolated; pieces of at most n samples need only the history
+        for i in range(0, len(x), n):
+            c = x[i:i + n]
+            m = len(c)
+            h = len(self.xh)
+            xd = (1 - mu) * self.xh[h - n:h - n + m] + mu * self.xh[h - n - 1:h - n - 1 + m]
+            yd = (1 - mu) * self.yh[h - n:h - n + m] + mu * self.yh[h - n - 1:h - n - 1 + m]
+            yc = self.b0 * c + self.bn * xd + self.an * yd
+            self.xh = np.concatenate((self.xh[m:], c))
+            self.yh = np.concatenate((self.yh[m:], yc))
+            out[i:i + m] = yc
+        self.pin = 0.9 * self.pin + 0.1 * float(np.mean(x * x) + 1e-12)
+        self.pout = 0.9 * self.pout + 0.1 * float(np.mean(out ** 2) + 1e-12)
+        self.removed_db = max(0.0, 10 * np.log10(self.pin / self.pout))
+        return out.astype(np.float32)
+
+
+SAM_SIDEBANDS = ("dsb", "lsb", "usb")   # SAM key: both sidebands, or only the lower / upper one (an interferer on the other side)
+SAM_CARRIER_HZ = 30.0      # bandwidth of the carrier filter: the flywheel that holds the phase through a carrier fade
+SAM_FLL_GAIN = 0.5         # block-rate frequency loop: share of the measured offset corrected each block
+SAM_MAX_OFFSET_HZ = 400.0  # the loop follows a carrier at most this far from the tuned frequency
+SAM_LEVEL_MS = 60.0        # carrier level taken out of the audio (DC); the level itself is left to the ALC: a carrier
+                           # AGC (audio / carrier) would boost the audio exactly when a selective fade takes the carrier
+SAM_LOW_HZ = 60.0          # SB-L / SB-U: audio from this frequency up (the carrier itself stays out)
+
+
+class SyncAM:
+    """SAM key (AM mode): synchronous AM. The carrier is recovered by a narrow filter (SAM_CARRIER_HZ) behind an NCO
+    that a block-rate frequency loop keeps on the carrier; the channel is demodulated coherently with its phase, so a
+    carrier weaker than its sidebands in a selective fade does not distort (the envelope detector does). The level of
+    the audio is left to the ALC. Sideband: "dsb" = both, "lsb" / "usb" = only one, through a complex band-pass of that
+    side (an interferer on the other side stays out)."""
+
+    def __init__(self, fs):
+        from scipy.signal import lfilter
+        self._lfilter = lfilter
+        self.fs = fs
+        self.a = np.exp(-2 * np.pi * SAM_CARRIER_HZ / fs)
+        self.al = np.exp(-1000.0 / (SAM_LEVEL_MS * fs))
+        self.sb_key = None
+        self.reset()
+
+    def reset(self):
+        self.f = 0.0                      # NCO frequency (Hz): the carrier offset found by the loop
+        self.ph = 0.0
+        self.zi = np.zeros(1, np.complex128)
+        self.zl = np.zeros(1)
+        self.hist = None
+        self.locked = False
+
+    def _sb_filter(self, bw, sb):
+        key = (bw, sb)
+        if key != self.sb_key:
+            self.sb_key = key
+            taps = 511
+            width = max(bw / 2 - SAM_LOW_HZ, 300.0)
+            mid = (SAM_LOW_HZ + width / 2) * (1 if sb == "usb" else -1)
+            n = np.arange(taps) - (taps - 1) / 2
+            self.h = (lowpass(width / 2, self.fs, taps) * np.exp(2j * np.pi * mid / self.fs * n)).astype(np.complex64)
+            self.hist = np.zeros(taps - 1, np.complex64)
+        return self.h
+
+    def process(self, ch, bw, sb="dsb"):
+        n = len(ch)
+        fs = self.fs
+        # NCO: the carrier offset found so far taken out
+        ph = self.ph + 2 * np.pi * self.f / fs * np.arange(n)
+        x = ch.astype(np.complex128) * np.exp(-1j * ph)
+        self.ph = float((self.ph + 2 * np.pi * self.f / fs * n) % (2 * np.pi))
+        # carrier: narrow one-pole filter (it keeps the phase while the carrier fades)
+        c, self.zi = self._lfilter([1 - self.a], [1, -self.a], x, zi=self.zi)
+        # frequency loop: the rest of the offset from the phase steps of the carrier, corrected over the next blocks
+        if n > 1:
+            step = np.angle(np.sum(c[1:] * np.conj(c[:-1])))
+            self.f = float(np.clip(self.f + SAM_FLL_GAIN * step * fs / (2 * np.pi), -SAM_MAX_OFFSET_HZ, SAM_MAX_OFFSET_HZ))
+            self.locked = abs(step * fs / (2 * np.pi)) < 5.0
+        y = x * np.exp(-1j * np.angle(c))          # coherent: the carrier on the real axis
+        re = y.real
+        if sb == "dsb":
+            lvl, self.zl = self._lfilter([1 - self.al], [1, -self.al], re, zi=self.zl)
+            return re - lvl                          # the carrier (DC) out
+        h = self._sb_filter(bw, sb)                  # one sideband: the band-pass starts above the carrier
+        buf = np.concatenate((self.hist, y.astype(np.complex64)))
+        self.hist = buf[-(len(h) - 1):]
+        return 2 * np.convolve(buf, h, mode="valid").real
+
+
 class Channel:
     """Channel filter, demodulation and AGC at rate fs (= input / DECIM)."""
 
@@ -823,9 +1205,18 @@ class Channel:
         self.hang = 0
         self.mode = None
         self.bw = None
+        self.filt = None         # filter width when narrower than bw (DSD FILTER), None = bw
         self.h = None
         self.notch_on = False
         self.notch = AutoNotch(fs)
+        self.nr_on = False       # DNR key: spectral noise reduction
+        self.sam = SyncAM(fs)    # SAM key: synchronous AM (mode AM)
+        self.hum = HumFilter()   # HUM key: comb notch of the mains hum of the station
+        self.hum_on = False
+        self.hum_base, self.hum_width = 50, HUM_WIDTH_DEFAULT_HZ
+        self.sam_on = False
+        self.sam_sb = "dsb"
+        self.nr = SpectralNR(fs)
         self.agc_on = True       # off = fixed gain frozen when turned off (volume only with the slider)
         self.fixed_level = None
         self.lim_on = False      # soft limiter (DNR key)
@@ -845,10 +1236,11 @@ class Channel:
         self.ea_snr = None
         self._ea_reset()
 
-    def configure(self, mode, bw):
-        if (mode, bw) == (self.mode, self.bw):
+    def configure(self, mode, bw, filt=None):
+        """filt: the filter width, if it differs from bw (the FM deviation scale still follows bw)."""
+        if (mode, bw, filt) == (self.mode, self.bw, self.filt):
             return
-        self.mode, self.bw = mode, bw
+        self.mode, self.bw, self.filt = mode, bw, filt
         # Narrow filters (CW, FM 500 Hz) need a longer FIR (Blackman transition band ~ 5.5·fs/taps).
         taps = 1023 if mode == "CW" or bw < 2500 else 255
         if taps != self.taps:
@@ -863,7 +1255,7 @@ class Channel:
                 mid = -mid
             h = lowpass(width / 2, self.fs, self.taps) * np.exp(2j * np.pi * mid / self.fs * n)
         else:
-            h = lowpass(bw / 2, self.fs, self.taps)
+            h = lowpass((filt or bw) / 2, self.fs, self.taps)
         self.h = h.astype(np.complex64)
         self.level = 1e-4
         self.last_gain = None
@@ -872,6 +1264,9 @@ class Channel:
         self._ea_reset()
         self.dc = 0.0
         self.notch.reset()
+        self.nr.reset()
+        self.sam.reset()
+        self.hum.reset()
 
     def process(self, x):
         """Returns (audio float32 in ±1, channel power in dBFS)."""
@@ -889,7 +1284,9 @@ class Channel:
             audio = np.angle(ch * np.conj(prev)) * (self.fs / (2 * np.pi * fm_deviation(self.bw)))
             return np.clip(audio * 0.5, -1, 1).astype(np.float32), smeter
 
-        if self.mode == "AM":
+        if self.mode == "AM" and self.sam_on:
+            audio = self.sam.process(ch, self.bw, self.sam_sb)
+        elif self.mode == "AM":
             env = np.abs(ch)
             # Carrier = DC component of the envelope; the first block sets it at once, then it is tracked.
             m = float(env.mean())
@@ -904,10 +1301,18 @@ class Channel:
         else:
             audio = ch.real
         audio = audio.astype(np.float32)
+        if self.hum_on and self.mode in HUM_MODES:      # first: the hum would push the ALC and confuse NF and DNR
+            audio = self.hum.process(audio, self.fs, self.hum_base, self.hum_width)
+        else:
+            self.hum.removed_db = 0.0
         if self.notch_on and self.mode in NOTCH_MODES:   # before the AGC, so whistles do not push the gain down
             audio = self.notch.process(audio)
         else:
             self.notch.notched = 0
+        if self.nr_on and self.mode in DNR_MODES:       # after NF (a whistle is not noise), before the ALC
+            audio = self.nr.process(audio)
+        else:
+            self.nr.reduction_db = 0.0
         if self.agc_on:
             self.fixed_level = None
             out = self.agc(audio)
@@ -1168,6 +1573,7 @@ class Receiver:
         self.has_rtl_agc = cfg.get("driver", "rtl") == "rtl"
         self.smeter = -150.0
         self.sagc = SmartAgc()
+        self._agc_spec_t = 0.0
         self.gain_glitch = 0                    # blocks left that may carry the transient of a tuner gain step (WFM: mono)
         self.sq_open, self.sq_hang, self.sq_gain = True, 0, 1.0
         self.tsq = ToneSquelch()                 # TSQ-C / TSQ-D: CTCSS / DCS detector (tonesq.py)
@@ -1270,10 +1676,34 @@ class Receiver:
         if self.thread:
             self.thread.join(timeout=3)
 
+    def _log(self, msg):
+        """A line in the server log (data/server_logs; serverlog.py adds the time and the VFO letter)."""
+        serial = self.cfg.get("serial")
+        print(f"dongle {serial}: {msg}" if serial else msg, flush=True)
+
+    def _failed(self, err):
+        """A failed open or a dongle that stopped sending: logged (not every retry), USB reset when it keeps failing."""
+        self.fail_streak += 1
+        n = self.fail_streak
+        if n == 1 or err != self.fail_last:
+            self._log(f"error: {err} (retrying every few seconds)")
+        elif n % USB_RESET_EVERY == 0:
+            self._log(f"error: {err} (still failing, attempt {n})")
+        self.fail_last = err
+        if self.cfg.get("driver", "rtl") == "rtl" and not self.chained and (
+                n == USB_RESET_AFTER or (n > USB_RESET_AFTER and (n - USB_RESET_AFTER) % USB_RESET_EVERY == 0)):
+            ok, how = reset_usb(self.cfg.get("serial"))
+            self._log(f"USB reset {'done' if ok else 'failed'}: {how}")
+            if not ok and not self.fail_hint:
+                self.fail_hint = True
+                self._log("if it does not recover: unplug and plug in the dongle (or run RADIMCOM as administrator)")
+
     def _run(self):
+        self.fail_streak, self.fail_last, self.fail_hint = 0, None, False
         while not self._stop.is_set():
             sdr = None
             reader = None
+            failed = None
             try:
                 self.status = "opening dongle"
                 sdr = open_device(self.cfg)
@@ -1307,16 +1737,18 @@ class Receiver:
                 self.status = "restarting dongle"
                 self.on_status()
             except Exception as e:  # device error: show it and try again
-                self.error = str(e)
+                self.error = failed = str(e)
                 self.status = "error"
                 self.on_status()
-                self._stop.wait(5)
             finally:
                 if sdr:
                     if reader:
                         sdr.cancel_async()
                         reader.join(timeout=3)
                     sdr.close()
+            if failed and not self._stop.is_set():
+                self._failed(failed)                # after close: a USB reset needs the dongle closed
+                self._stop.wait(5)
 
     def _configure(self, sdr):
         c = self.cfg
@@ -1331,11 +1763,12 @@ class Receiver:
         self.dec = Decimator(self.fs, cutoff=self.dec_cutoff)
         self.chan = Channel(self.fs / DECIM)
         self.spur = SpurFilter(self.fs / DECIM)
+        self.nb = NoiseBlanker()
         self.spur_mask, self.spur_depth, self.spur_grid, self.spur_settings = None, None, None, None
         self.spur_acc, self.spur_n, self.spur_acc_key = None, 0, None
         self.spur_ema, self.spur_ema_key, self.spur_ema_n = None, None, 0
         self.afi = FreqInverter()
-        self.lpf = PassFilter("lowpass")
+        self.lpf = SharpLowpass()               # LPF key: steep FIR (HPF stays IIR, a FIR at 20 Hz would be too long)
         self.hpf = PassFilter("highpass")
         self.wfm, self.wfm_key = None, None
         self.phase = 0.0
@@ -1408,7 +1841,8 @@ class Receiver:
             c["notch"] = changes["notch"]
         if "audio_agc" in changes:
             c["audio_agc"] = changes["audio_agc"]
-        for k in ("dyn", "dyn_lim", "dyn_exp", "dyn_exp_auto", "dyn_exp_db", "dyn_exp_sens", "dyn_exp_hold_ms", "agc_smooth"):
+        for k in ("dyn", "dyn_lim", "dyn_exp", "dyn_exp_auto", "dyn_exp_db", "dyn_exp_sens", "dyn_exp_hold_ms", "agc_smooth",
+                  "dnr", "dnr_level", "nb", "nb_level", "nb_width_us", "sam", "sam_sb", "hum", "hum_base", "hum_width"):
             if k in changes:
                 c[k] = changes[k]
         if "afi" in changes:
@@ -1664,22 +2098,26 @@ class Receiver:
                 raw = blocks.get(timeout=2)
             except queue.Empty:
                 raise RuntimeError("dongle is not sending data" if reader.is_alive() else "dongle reading stopped")
+            if self.fail_streak:
+                self._log(f"sending data again (after {self.fail_streak} failed attempts)")
+                self.fail_streak, self.fail_last = 0, None
             if isinstance(raw, tuple):              # chained VFO: (owner's metadata, samples)
                 meta, raw = raw
                 self._follow(meta, sdr)
             elif self.iq_server:
                 self.iq_server.publish(raw, self._share_meta())
-            if self.cfg.get("smart_agc") and not self.chained and self.gains:
-                self._smart_agc(sdr, raw, blocks.qsize())
-            elif self.cfg.get("gain", "auto") != "auto":
-                # manual RF gain: only watch the A/D, so the RF bar turns red on clipping
+            blk_s = len(raw) / (2 if raw.dtype == np.uint8 else 1) / self.fs
+            self.sagc.measure(raw, blk_s)           # the A/D of every block: AGC+, the meters, the RF bar
+            if self.cfg.get("gain", "auto") != "auto" and not self.cfg.get("smart_agc"):
+                # manual RF gain: the RF bar turns red on clipping
                 # (worst block over 0.3 s, the state goes out every 0.2 s and must not miss a short clip)
-                clip, peak = SmartAgc.measure(raw)
+                clip, peak = self.sagc.clip, self.sagc.peak
                 now = time.monotonic()
                 if now - getattr(self, "_man_clip_t", 0) > 0.3:
-                    self._man_clip_t, self.sagc.clip, self.sagc.peak = now, clip, peak
+                    self._man_clip_t, self._man_hold = now, (clip, peak)
                 else:
-                    self.sagc.clip, self.sagc.peak = max(self.sagc.clip, clip), max(self.sagc.peak, peak)
+                    self._man_hold = (max(self._man_hold[0], clip), max(self._man_hold[1], peak))
+                self.sagc.clip, self.sagc.peak = self._man_hold
             if self.on_raw and (raw.dtype == np.complex64 or len(raw) == READ_SAMPLES * 2):
                 self.on_raw(raw, self.fs, self.cfg["center_hz"])   # VDL2: raw samples to dumpvdl2
             if raw.dtype == np.complex64:
@@ -1693,6 +2131,7 @@ class Receiver:
             iq = self._remove_dc(iq)
 
             self._waterfall(iq)
+            self._agc_block(sdr, blocks.qsize(), blk_s)
             if self.gain_glitch > 0:
                 self.gain_glitch -= 1
             if self.scan.on or self.scan.cmds:
@@ -1712,6 +2151,12 @@ class Receiver:
                     last_status = now
                     self.on_status()
                 continue
+            if c.get("nb") and c["mode"] not in NB_OFF_MODES:   # NB: pulses blanked in the wideband samples (after the
+                self.nb.level = int(c.get("nb_level", NB_LEVEL_DEFAULT))   # waterfall: it shows the band as it is)
+                self.nb.width_us = float(c.get("nb_width_us", NB_WIDTH_DEFAULT_US))
+                iq = self.nb.process(iq, self.fs)
+            else:
+                self.nb.rate = self.nb.frac = 0.0
             step = -2 * np.pi * offset / self.fs
             mixer = np.exp(1j * (self.phase + step * np.arange(n, dtype=np.float64))).astype(np.complex64)
             self.phase = (self.phase + step * n) % (2 * np.pi)
@@ -1738,10 +2183,21 @@ class Receiver:
                 audio, self.smeter = self.wfm.process(shifted)
                 sub_db = self.wfm.sub_db
             else:
-                self.chan.configure("FM" if dsd else mode, bw)
+                filt = float(c.get("dsd_filter", DSD_BW)) if dsd else None
+                self.chan.configure("FM" if dsd else mode, bw, filt if filt in DSD_FILTERS and filt != bw else None)
                 self.chan.notch_on = bool(c.get("notch", False))
                 self.chan.agc_on = bool(c.get("audio_agc", True))
-                dyn = bool(c.get("dyn", False))           # DNR key: the parts ticked in SETTINGS › AUDIO
+                self.chan.nr_on = bool(c.get("dnr", False))      # DNR key: spectral noise reduction
+                sam_on = bool(c.get("sam", False))                # SAM key: synchronous AM
+                if sam_on and not self.chan.sam_on:
+                    self.chan.sam.reset()
+                self.chan.sam_on = sam_on
+                self.chan.hum_on = bool(c.get("hum", False))      # HUM key: comb notch of the mains hum
+                self.chan.hum_base = int(c.get("hum_base", 50)) if c.get("hum_base") in HUM_BASES else 50
+                self.chan.hum_width = float(c.get("hum_width", HUM_WIDTH_DEFAULT_HZ))
+                self.chan.sam_sb = c.get("sam_sb", "dsb") if c.get("sam_sb") in SAM_SIDEBANDS else "dsb"
+                self.chan.nr.level = int(c.get("dnr_level", DNR_LEVEL_DEFAULT))
+                dyn = bool(c.get("dyn", False))           # NTH key (config "dyn"): the parts ticked in SETTINGS › AUDIO
                 self.chan.lim_on = dyn and bool(c.get("dyn_lim", True))
                 self.chan.exp_on = dyn and bool(c.get("dyn_exp", True))
                 self.chan.exp_depth_db = float(c.get("dyn_exp_db", EXP_DEPTH_DEFAULT_DB))
@@ -1784,19 +2240,72 @@ class Receiver:
                 last_status = now
                 self.on_status()
 
-    def _smart_agc(self, sdr, raw, backlog):
-        """AGC+: the tuner gain from the A/D level of this block (SmartAgc)."""
+    def _agc_ctx(self):
+        """(fs, centre, tuned frequency, mode, bandwidth, A/D bits) for gainctl.analyse."""
         c = self.cfg
+        mode = c["mode"]
+        bw = DSD_BW if mode == DSD_MODE else float(c.get("bandwidth", {}).get(mode, 3000))
+        bits = 8 if c.get("driver", "rtl") == "rtl" else 12
+        return (self.fs, c["center_hz"], c["tune_hz"], mode, bw, bits)
+
+    def agc_target(self):
+        """What AGC+ aims at now: by the mode (or ADS-B / DAB), the band and the HEADROOM setting."""
+        c = self.cfg
+        mode = c["mode"]
+        bw = DSD_BW if mode == DSD_MODE else float(c.get("bandwidth", {}).get(mode, 3000))
+        return Target(kind_for(mode, bool(c.get("adsb")), bool(c.get("dab"))), c["tune_hz"], self.fs > 50 * bw,
+                      sagc_params(c)["headroom_adj"])
+
+    def _set_gain_now(self, sdr, gain, backlog):
+        self.cfg["gain"] = gain
+        sdr.set_gain(gain)
+        self.gain_glitch = backlog + 3          # the step lands in one of the next blocks (those queued + 1, + spare ones)
+
+    def _agc_block(self, sdr, backlog, blk_s):
+        """AGC+ after the waterfall of a block: the band measured (every block while AGC+ runs, else 5× a second for
+        the meters), then the AUTO loop."""
+        c = self.cfg
+        power = self.wf_power
+        busy = bool(c.get("smart_agc") and not self.chained and self.gains)
+        now = time.monotonic()
+        if power is not None and (busy or now - self._agc_spec_t > 0.2):
+            self._agc_spec_t = now
+            try:
+                self.sagc.meter.spec = analyse(power, *self._agc_ctx())
+            except Exception:                       # a measurement must never stop the receiver
+                self.sagc.meter.spec = {}
+        if not busy or c.get("gain", "auto") == "auto":
+            return
+        new = self.sagc.step(None, self.gains, float(c["gain"]), blk_s, backlog, sagc_params(c),
+                             getattr(sdr, "gain_db_per_unit", 1.0), self.agc_target(), measured=True)
+        if new is not None:
+            self._set_gain_now(sdr, new, backlog)
+            self.on_status()
+
+    def agc_state(self):
+        """AGC+ meters, the line "why this gain" and a warning for the page."""
+        c = self.cfg
+        tgt = self.agc_target()
+        p = sagc_params(c)
+        m = self.sagc.meter
+        s = m.spec
         gain = c.get("gain", "auto")
         if gain == "auto":
-            return
-        new = self.sagc.step(raw, self.gains, float(gain), len(raw) / (2 if raw.dtype == np.uint8 else 1) / self.fs,
-                             backlog, sagc_params(c), getattr(sdr, "gain_db_per_unit", 1.0))
-        if new is not None:
-            c["gain"] = new
-            sdr.set_gain(new)
-            self.gain_glitch = backlog + 3      # the step lands in one of the next blocks (those queued + 1, + spare ones)
-            self.on_status()
+            gtxt = "auto"
+        elif c.get("driver") == "airspy" and self.gains:
+            gtxt = f"{float(gain):g} / {self.gains[-1]:g}"
+        else:
+            gtxt = f"{float(gain):.1f} dB"
+        smart = bool(c.get("smart_agc")) and gain != "auto"
+        out = {**tgt.as_dict(), "window": p["window_db"], "wasted": round(tgt.goal + p["wasted_db"], 1),
+               "head": round(m.headroom(False), 1), "head_hold": round(m.headroom(True), 1),
+               "lamp": self.sagc.t - m.clip_t < 2.0,
+               "why": self.sagc.why(tgt, gtxt, p) if smart else "", "last": self.sagc.last if smart else "",
+               "warn": warning(m, tgt, p["wasted_db"])}
+        for k in ("margin", "snr", "floor_db", "nb_db", "nb_hz"):
+            if k in s:
+                out[k] = round(s[k]) if k == "nb_hz" else round(s[k], 1)
+        return out
 
     def _share_meta(self):
         """Dongle state sent with every block to the chained VFOs."""
@@ -1987,6 +2496,23 @@ class Receiver:
             "notch": bool(c.get("notch", False)),
             "audio_agc": bool(c.get("audio_agc", True)),
             "dyn": bool(c.get("dyn", False)),
+            "dnr": bool(c.get("dnr", False)),
+            "sam": bool(c.get("sam", False)),
+            "hum": bool(c.get("hum", False)),
+            "hum_base": int(c.get("hum_base", 50)) if c.get("hum_base") in HUM_BASES else 50,
+            "hum_width": float(c.get("hum_width", HUM_WIDTH_DEFAULT_HZ)),
+            "hum_hz": round(self.chan.hum.f, 3) if getattr(self, "chan", None) is not None else 0.0,
+            "hum_removed_db": round(self.chan.hum.removed_db, 1) if getattr(self, "chan", None) is not None else 0.0,
+            "sam_sb": c.get("sam_sb", "dsb") if c.get("sam_sb") in SAM_SIDEBANDS else "dsb",
+            "sam_offset_hz": round(self.chan.sam.f, 1) if getattr(self, "chan", None) is not None else 0.0,
+            "sam_locked": bool(self.chan.sam.locked) if getattr(self, "chan", None) is not None else False,
+            "nb": bool(c.get("nb", False)),
+            "nb_level": int(c.get("nb_level", NB_LEVEL_DEFAULT)),
+            "nb_width_us": float(c.get("nb_width_us", NB_WIDTH_DEFAULT_US)),
+            "nb_rate": round(self.nb.rate, 1) if getattr(self, "nb", None) is not None else 0.0,
+            "nb_frac": round(self.nb.frac * 100, 3) if getattr(self, "nb", None) is not None else 0.0,
+            "dnr_level": int(c.get("dnr_level", DNR_LEVEL_DEFAULT)),
+            "dnr_reduction_db": self.chan.nr.reduction_db if getattr(self, "chan", None) is not None else 0.0,
             "dyn_lim": bool(c.get("dyn_lim", True)),
             "dyn_exp": bool(c.get("dyn_exp", True)),
             "dyn_exp_db": float(c.get("dyn_exp_db", EXP_DEPTH_DEFAULT_DB)),
@@ -2050,6 +2576,7 @@ class Receiver:
             "adc_clip": bool(self.sagc.clip > 0),
             "adc_clip_ppm": round(self.sagc.clip * 1e6, 1),
             "sagc": sagc_params(c),
+            "agc": self.agc_state(),
             "ppm": c.get("ppm", 0),
             "dc_remove": bool(c.get("dc_remove", True)),
             "dc_hz": c.get("dc_hz", 0),

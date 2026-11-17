@@ -36,6 +36,7 @@ if __name__ == "__main__" and "--vfo" not in sys.argv and os.path.exists(VFOS_PA
     sys.exit(0)
 
 import location
+import antennas
 import memories
 import scanner as scanner_mod
 import satellites
@@ -55,6 +56,7 @@ from sonde import SondeDecoder
 from daylog import LOG_DIR, DayLog, TextLog
 import recorder as recorder_mod
 from recorder import Recorder
+from iqrec import IqRecorder
 import rotor as rotor_module
 from wefax import WefaxDecoder
 from sstv import SstvDecoder
@@ -71,7 +73,7 @@ from ais import AisDecoder
 import adsb as adsb_mod
 from adsb import RATE as ADSB_RATE, AdsbDecoder
 from tonesq import norm_ctcss, norm_dcs
-from sdr import (AFI_MAX_HZ, AFI_MIN_HZ, EXP_DEPTH_MAX_DB, EXP_DEPTH_MIN_DB, EXP_SENS_MAX, EXP_SENS_MIN, EXP_HOLD_MAX_MS, EXP_HOLD_MIN_MS, ASQ_MAX_DB, ASQ_MIN_DB, DECIM, DSD_MODE, HPF_MAX_HZ, HPF_MIN_HZ, LPF_MAX_HZ, LPF_MIN_HZ, MODES, SQUELCH_OFF,
+from sdr import (WF_FFT, DSD_BW, DSD_FILTERS, SAM_SIDEBANDS, HUM_BASES, HUM_WIDTH_MIN_HZ, HUM_WIDTH_MAX_HZ, AFI_MAX_HZ, AFI_MIN_HZ, DNR_LEVEL_MAX, DNR_LEVEL_MIN, NB_LEVEL_MAX, NB_LEVEL_MIN, NB_WIDTH_MAX_US, NB_WIDTH_MIN_US, EXP_DEPTH_MAX_DB, EXP_DEPTH_MIN_DB, EXP_SENS_MAX, EXP_SENS_MIN, EXP_HOLD_MAX_MS, EXP_HOLD_MIN_MS, ASQ_MAX_DB, ASQ_MIN_DB, DECIM, DSD_MODE, HPF_MAX_HZ, HPF_MIN_HZ, LPF_MAX_HZ, LPF_MIN_HZ, MODES, SQUELCH_OFF,
                  SAGC_PARAMS, UPCONV_MAX_HZ, ZOOMS, Receiver, list_devices, lowpass, sagc_params)
 
 
@@ -352,6 +354,7 @@ def own_station():
 packet = PacketDecoder(on_event=decoder_event, station=own_station)
 pocsag = PocsagDecoder(on_event=decoder_event)
 sonde = SondeDecoder(on_event=decoder_event, station=own_station, log_dir=os.path.join(LOG_DIR, "radiosonde"), tag=_tag)
+
 sstv = SstvDecoder(on_event=decoder_event)
 acars = AcarsDecoder(on_event=hub.event, tag=_tag)
 acars.log_on = log_on("acars")
@@ -360,6 +363,23 @@ if cfg.get("dsd_protocol") in DSD_PROTOCOLS:
     dsd.protocol = cfg["dsd_protocol"]
 if cfg.get("dsd_slot") in DSD_SLOTS:
     dsd.slot = cfg["dsd_slot"]
+dsd.afc_on = cfg.get("dsd_afc", True)
+if float(cfg.get("dsd_filter", DSD_BW)) not in DSD_FILTERS:
+    cfg["dsd_filter"] = DSD_BW
+dsd.filter_hz = float(cfg.get("dsd_filter", DSD_BW))
+
+
+def dsd_retune(old_hz, new_hz):
+    """DSD AFC: the signal is off the tuned frequency -> retune the VFO onto it (not while the Doppler correction tunes,
+    nor when somebody tuned elsewhere meanwhile). In its own thread: called from the receiver thread."""
+    if cfg["mode"] != DSD_MODE or cfg["tune_hz"] != old_hz:
+        return
+    if doppler is not None and doppler.on:
+        return
+    threading.Thread(target=rotor_set_freq, args=(float(new_hz),), name="dsd-afc", daemon=True).start()
+
+
+dsd.on_retune = dsd_retune
 vdl2 = Vdl2Decoder(on_acars=acars.accept_vdl2, on_atn=acars.accept_atn, on_state=lambda i: hub.event("vdl2state", i),
                   on_pos=acars.accept_pos)
 
@@ -393,15 +413,16 @@ def audio_muted():
     A running scan pauses ACARS, so its audio is heard (the raw-sample decoders do not let a scan start)."""
     if receiver.scan.on and not (vdl2.enabled or ism.enabled or hfdl.enabled or ais.enabled or adsb.enabled):
         return False
-    return acars.enabled or vdl2.enabled or ism.enabled or hfdl.enabled or ais.enabled or adsb.enabled
+    return (acars.enabled or vdl2.enabled or ism.enabled or hfdl.enabled or ais.enabled or adsb.enabled
+            or sonde.enabled)      # SONDE: the audio of a sonde is only noise (single or MULTI)
 
 
 def state():
     capable = tx_capable()
-    return dict(receiver.state(), ft8=ft8.enabled, ft8_error=ft8.error, wefax=wefax.enabled, cw=cw.enabled, rtty=rtty.enabled, packet=packet.enabled, pocsag=pocsag.enabled, sonde=sonde.enabled,
+    return dict(receiver.state(), ft8=ft8.enabled, ft8_error=ft8.error, wefax=wefax.enabled, cw=cw.enabled, rtty=rtty.enabled, packet=packet.enabled, pocsag=pocsag.enabled, sonde=sonde.enabled, sonde_multi=sonde.multi,
                 sstv=sstv.enabled, acars=acars.enabled, vdl2=vdl2.enabled, vdl2_error=vdl2.error, vdl2_region=vdl2.region, cpdlc=acars.cpdlc_on,
-                dsd=dsd.info(), dab=dab.enabled, dab_error=dab.error, dab_channel=dab.channel, dab_sids=cfg.get("dab_sids") or {}, ism=ism.enabled, ism_error=ism.error, ism_raw=ism.raw, hfdl=hfdl.enabled, hfdl_error=hfdl.error, ais=ais.enabled, ais_error=ais.error, adsb=adsb.enabled, adsb_error=adsb.error, ism_hz=cfg.get("ism_hz", ISM_DEFAULT), audio_muted=audio_muted(), recording=recorder.state(), logs={k: log_on(k) for k in LOG_KEYS},
-                **doppler_trsp(),
+                dsd=dsd.info(), dab=dab.enabled, dab_error=dab.error, dab_channel=dab.channel, dab_sids=cfg.get("dab_sids") or {}, ism=ism.enabled, ism_error=ism.error, ism_raw=ism.raw, hfdl=hfdl.enabled, hfdl_error=hfdl.error, ais=ais.enabled, ais_error=ais.error, adsb=adsb.enabled, adsb_error=adsb.error, ism_hz=cfg.get("ism_hz", ISM_DEFAULT), audio_muted=audio_muted(), recording=recorder.state(), iq_rec=iq_recorder.state(), logs={k: log_on(k) for k in LOG_KEYS},
+                **doppler_trsp(), antenna=cfg.get("antenna", ""),
                 tx_capable=capable, tx_enabled=bool(cfg.get("tx_enabled", False)),
                 can_tx=capable and bool(cfg.get("tx_enabled", False)) and hasattr(receiver.sdr, "tx_start"))
 
@@ -448,6 +469,43 @@ def on_baseband(base, fs, dial_hz):
 
 
 recorder = Recorder()
+# REC IQ: the raw samples of the dongle to WAV (SDR# style) in the subfolder iq of the recordings folder (iqrec.py)
+iq_recorder = IqRecorder(lambda: os.path.join(recorder.folder, "iq"), (VFO or {}).get("name", ""))
+
+
+def _dab_recording():
+    """REC / REC SQ with DAB: the MP3 of the station playing (welle-cli, a second listener beside the browser) goes
+    into the recording as it comes. Follows a change of the station or channel; stops with the buttons or DAB off."""
+    while True:
+        time.sleep(0.5)
+        if not (dab.enabled and any(t.on for t in recorder.tracks.values())):
+            continue
+        channel = dab.channel
+        sid = (cfg.get("dab_sids") or {}).get(channel)
+        if not sid:
+            continue
+        label = sid
+        try:
+            label = next((s["label"] for s in dab.mux().get("services", []) if s.get("sid") == sid and s.get("label")), sid)
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            pass
+        try:
+            stream = dab.audio(sid)
+        except OSError:
+            time.sleep(2)                          # welle-cli not ready yet
+            continue
+        hz = CHANNEL_HZ.get(channel, 0)
+        try:
+            for chunk in stream:
+                recorder.feed_mp3(chunk, hz, label)
+                if not (dab.enabled and dab.channel == channel and (cfg.get("dab_sids") or {}).get(channel) == sid
+                        and any(t.on for t in recorder.tracks.values())):
+                    break
+        finally:
+            stream.close()
+
+
+threading.Thread(target=_dab_recording, daemon=True, name="dab-rec").start()
 
 
 def on_audio(pcm):
@@ -470,6 +528,11 @@ receiver = Receiver(
     on_dsd=dsd.process,
 )
 dsd.set_enabled(cfg["mode"] == DSD_MODE)
+# one decoder on the IQ (IQ_ONE): a config from an older version may have several on (e.g. DAB with SONDE); the first of
+# this order stays, the others are left off
+_iq_on = [k for k in ("dab", "adsb", "vdl2", "acars", "ism", "hfdl", "ais", "sonde") if cfg.get(k)]
+for _k in _iq_on[1:]:
+    cfg[_k] = False
 ft8.set_enabled(cfg.get("ft8", False))
 wefax.slant_ppm = float(cfg.get("wefax_slant_ppm", 0.0))
 wefax.afc_vfo = bool(cfg.get("wefax_afc_vfo", True))
@@ -486,17 +549,33 @@ packet.set_enabled(cfg.get("packet", False))
 pocsag.set_options(cfg.get("pocsag_opts") or {})
 pocsag.set_enabled(cfg.get("pocsag", False))
 sonde.set_enabled(cfg.get("sonde", False))
+sonde.set_multi(cfg.get("sonde_multi", True))
+sonde.set_types(cfg.get("sonde_types"))
 sstv.set_enabled(cfg.get("sstv", False))
 acars.set_enabled(cfg.get("acars", False) and not cfg.get("vdl2", False))
 
 
 def on_raw(raw, fs, center_hz):
+    iq_recorder.feed(raw, fs, center_hz)
     vdl2.feed_raw(raw, fs, center_hz)
     dab.feed_raw(raw, fs, center_hz, receiver.lo)
     ism.feed_raw(raw, fs, center_hz)
     hfdl.feed_raw(raw, fs, center_hz)
     ais.feed_raw(raw, fs, center_hz)
     adsb.feed_raw(raw, fs, center_hz)
+    if sonde.enabled and sonde.multi:
+        sonde.feed_wide(raw, fs, center_hz, visible_view(fs, center_hz))
+
+
+def visible_view(fs, center_hz):
+    """(lo, hi) Hz of the spectrum shown on the waterfall (the whole band before the first line)."""
+    start = receiver.view_start
+    zoom = max(1, int(cfg.get("zoom", 1)))
+    if start is None:
+        return center_hz - fs / 2, center_hz + fs / 2
+    bin_hz = fs / WF_FFT
+    lo = center_hz - fs / 2 + start * bin_hz
+    return lo, lo + WF_FFT // zoom * bin_hz
 
 
 receiver.on_raw = on_raw
@@ -508,6 +587,15 @@ if cfg.get("dab_channel") in CHANNEL_HZ:
     dab.channel = cfg["dab_channel"]          # the page shows the saved channel also while DAB is off
 if cfg.get("dab") and RTL_DONGLE and not OWNER:
     dab.set_enabled(True, cfg.get("dab_channel", DAB_DEFAULT))
+
+
+def sync_dsd(mode=None):
+    """dsd-fme runs only in the DSD mode and not under DAB (DAB keeps the mode of the VFO, but its sound comes from
+    welle-cli: dsd-fme would only decode noise there)."""
+    dsd.set_enabled((mode or cfg["mode"]) == DSD_MODE and not dab.enabled)
+
+
+sync_dsd()
 ism.set_raw(cfg.get("ism_raw", False))
 if cfg.get("ism") and RTL_DONGLE and not OWNER:
     ism.set_enabled(True)
@@ -880,6 +968,16 @@ def api_sonde_sites():
     return jsonify(sonde_sites.sites())
 
 
+@app.route("/api/wind")
+def api_wind():
+    """GFS wind profiles of the 0.25° cells along a predicted sonde flight (?cells=48.75_17.25,49.00_17.50),
+    downloaded from Open-Meteo once per GFS run and kept in data/wind (wind.py)."""
+    import re
+    import wind
+    keys = [k for k in request.args.get("cells", "").split(",") if re.fullmatch(r"-?\d{1,2}\.\d{2}_-?\d{1,3}\.\d{2}", k)]
+    return jsonify(wind.cells(keys))
+
+
 @app.route("/api/sonde", methods=["GET"])
 def api_sonde():
     return jsonify(sonde.info())
@@ -889,6 +987,16 @@ def api_sonde():
 def api_sonde_logs():
     """Flights in the radiosonde log (data/logs/radiosonde), newest first."""
     return jsonify(sonde.logs())
+
+
+@app.route("/api/sonde/history")
+def api_sonde_history():
+    """Flights of all VFOs from the radiosonde log of the last ?days=1..7 (map history 1D / 7D)."""
+    try:
+        days = int(request.args.get("days", 1))
+    except ValueError:
+        days = 1
+    return jsonify(sonde.history(days))
 
 
 @app.route("/api/sonde/log")
@@ -930,6 +1038,8 @@ def api_cpdlc_cmd():
 
 @app.route("/api/dsd", methods=["GET"])
 def api_dsd():
+    if request.args.get("debug") is not None:          # DEBUG box of the DSD tab: only the new lines of dsd-fme
+        return jsonify(dsd.debug(int(request.args.get("debug") or 0)))
     return jsonify(dict(dsd.info(), calls=dsd.history(), protocols=list(DSD_PROTOCOLS), slots=list(DSD_SLOTS)))
 
 
@@ -943,6 +1053,20 @@ def api_dsd_cmd():
         return jsonify({"error": "unknown DSD slot"}), 400
     if body.get("action") == "clear":
         dsd.clear()
+    if "afc" in body:
+        dsd.afc_on = cfg["dsd_afc"] = bool(body["afc"])
+        save_config_later()
+        hub.event("status", state())
+    if "filter" in body:
+        try:
+            hz = float(body["filter"])
+        except (TypeError, ValueError):
+            hz = None
+        if hz not in DSD_FILTERS:
+            return jsonify({"error": "unknown DSD filter width"}), 400
+        dsd.filter_hz = cfg["dsd_filter"] = hz
+        save_config_later()
+        hub.event("status", state())
     if protocol is not None or slot is not None:
         dsd.set_options(protocol, slot)
         cfg["dsd_protocol"], cfg["dsd_slot"] = dsd.protocol, dsd.slot
@@ -976,6 +1100,39 @@ def set_vdl2(on, changes):
     acars.set_vdl2(on)
 
 
+# One decoder on the IQ of a VFO: these take the raw samples (or the baseband) for themselves, mute the audio of the VFO
+# (DAB plays its own) and most hold the dongle on their band, so at most one of them runs; switching one on switches the
+# others off (their sample rate, centre and gain come back). Request key -> decoder.
+IQ_ONE = {"dab": "dab", "acars": "acars", "vdl2": "vdl2", "ism": "ism", "ais": "ais", "ais_center": "ais", "adsb": "adsb",
+          "hfdl": "hfdl", "hfdl_band": "hfdl", "sonde": "sonde"}
+
+
+def iq_only(keep, changes):
+    """Switches off every IQ decoder of IQ_ONE except keep; True when one was on."""
+    was = False
+    if keep != "dab" and dab.enabled:
+        set_dab(False, changes); was = True
+    if keep != "vdl2" and cfg.get("vdl2"):
+        set_vdl2(False, changes); was = True
+    if keep != "ism" and cfg.get("ism"):
+        set_ism(False, changes); was = True
+    if keep != "acars" and cfg.get("acars"):
+        cfg["acars"] = False
+        acars.set_enabled(False); was = True
+    if keep != "adsb" and adsb.enabled:
+        set_adsb(False, changes); was = True
+    if keep != "hfdl" and hfdl.enabled:
+        set_hfdl(False); was = True
+    if keep != "ais" and ais.enabled:
+        set_ais(False); was = True
+    if keep != "sonde" and cfg.get("sonde"):
+        cfg["sonde"] = False
+        sonde.set_enabled(False); was = True
+    if was:
+        sync_cpdlc()
+    return was
+
+
 def set_dab(on, changes, channel=None):
     """DAB on: welle-cli starts and the VFO goes to the ensemble at 2.048 MS/s (ACARS and VDL2 off).
     DAB off: the previous sample rate comes back. RTL-SDR only, not on a chained VFO."""
@@ -1000,6 +1157,7 @@ def set_dab(on, changes, channel=None):
         dab.set_enabled(False)
         if cfg.get("dab_prev_rate") in SAMPLE_RATES and cfg["dab_prev_rate"] != DAB_RATE:
             changes["sample_rate"] = cfg.pop("dab_prev_rate")
+    sync_dsd(changes.get("mode"))
 
 
 def set_ism(on, changes):
@@ -1170,6 +1328,14 @@ def api_ism_cmd():
 @app.route("/api/dab")
 def api_dab():
     return jsonify(dab.mux())
+
+
+@app.route("/api/dab/history/<sid>")
+def api_dab_history(sid):
+    """Songs played by the station (DLS texts), newest first, from data/dab_history/."""
+    if not re.fullmatch(r"(0x)?[0-9a-fA-F]{1,8}", sid):
+        return jsonify([])
+    return jsonify(dab.history.get(sid))
 
 
 @app.route("/api/dab/slide/<sid>")
@@ -1351,6 +1517,22 @@ def api_location():
     return jsonify(location.load())
 
 
+@app.route("/api/antennas", methods=["GET", "POST"])
+def api_antennas():
+    """Antennas of the station (SETTINGS › GENERAL › ANTENNAS, data\\antennas.json), shared by all VFOs.
+    POST {"antennas": [...]} replaces the whole list; returns {"antennas", "types", "polarizations"}."""
+    if request.method == "POST":
+        if not same_host(request):
+            return jsonify({"error": "the antennas can be changed only from this RADIMCOM page"}), 403
+        body = request.get_json(force=True, silent=True) or {}
+        try:
+            antennas.save(body.get("antennas"))
+        except (TypeError, ValueError) as e:
+            return jsonify({"error": str(e)}), 400
+        hub.event("status", state())
+    return jsonify({"antennas": antennas.load(), "types": antennas.TYPES, "polarizations": antennas.POLARIZATIONS})
+
+
 @app.route("/api/sat/setup", methods=["GET", "POST"])
 def api_sat_setup():
     """Minimum elevation and the satellites on the timeline (shared by all VFOs), with the station location of
@@ -1470,10 +1652,12 @@ def api_scan_heatmap():
 
 @app.route("/api/scan/rec/<name>")
 def api_scan_rec(name):
-    """A WAV recording of the scan (subfolder "scan" of the recordings folder)."""
-    if not name.lower().endswith(".wav") or "/" in name or "\\" in name:
+    """A recording of the scan (MP3, older ones WAV; subfolder "scan" of the recordings folder)."""
+    low = name.lower()
+    if not low.endswith((".wav", ".mp3")) or "/" in name or "\\" in name:
         return jsonify({"error": "bad name"}), 400
-    return send_from_directory(scanner_mod.rec_folder(), name, mimetype="audio/wav", conditional=True)
+    return send_from_directory(scanner_mod.rec_folder(), name, mimetype="audio/mpeg" if low.endswith(".mp3") else "audio/wav",
+                               conditional=True)
 
 
 @app.route("/api/scan", methods=["POST"])
@@ -1521,10 +1705,28 @@ def api_scan_cmd():
     return jsonify({"ok": True})
 
 
+def _recs_kind():
+    """?kind= of the RECORDINGS tab: "rec" (MP3 of REC / REC SQ, default) or "scan" (WAV of the scanner)."""
+    kind = request.args.get("kind", "rec")
+    if kind not in ("rec", "scan"):
+        raise ValueError("kind must be rec or scan")
+    return kind
+
+
+def _scan_writing():
+    """The WAV file the scan of this VFO writes now (it may not be deleted)."""
+    f = getattr(receiver.scan, "rec_file", "") if getattr(receiver.scan, "rec_wav", None) is not None else ""
+    return {f} if f else set()
+
+
 @app.route("/api/recordings", methods=["GET"])
 def api_recordings():
-    """The MP3 recordings in the recordings folder (RECORDINGS tab), newest first."""
-    return jsonify(recorder.files())
+    """The recordings (RECORDINGS tab), newest first: ?kind=rec the MP3 of REC / REC SQ, ?kind=scan the WAV of the scan."""
+    try:
+        kind = _recs_kind()
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify(recorder.files(kind, _scan_writing()))
 
 
 @app.route("/api/recording_folder", methods=["GET", "POST"])
@@ -1549,14 +1751,19 @@ def api_recording_folder():
 
 @app.route("/api/recordings/<name>", methods=["GET"])
 def api_recording_file(name):
-    """One recording; Range requests work, so the browser can seek while playing."""
-    return send_from_directory(recorder.folder, name, mimetype="audio/mpeg", conditional=True)
+    """One recording (?kind=rec / scan); Range requests work, so the browser can seek while playing."""
+    try:
+        kind = _recs_kind()
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    return send_from_directory(recorder.kind_folder(kind), name, mimetype="audio/wav" if kind == "scan" else "audio/mpeg",
+                               conditional=True)
 
 
 @app.route("/api/recordings/<name>", methods=["DELETE"])
 def api_recording_delete(name):
     try:
-        recorder.delete(name)
+        recorder.delete(name, _recs_kind(), _scan_writing())
     except (ValueError, OSError) as e:
         return jsonify({"error": str(e)}), 400
     return jsonify({"deleted": name})
@@ -1753,9 +1960,25 @@ def api_set():
             changes["notch"] = bool(body["notch"])
         if "audio_agc" in body:
             changes["audio_agc"] = bool(body["audio_agc"])
-        for k in ("dyn", "dyn_lim", "dyn_exp", "dyn_exp_auto", "agc_smooth"):
+        for k in ("dyn", "dyn_lim", "dyn_exp", "dyn_exp_auto", "agc_smooth", "dnr", "nb", "sam", "hum"):
             if k in body:
                 changes[k] = bool(body[k])
+        if "hum_base" in body:
+            if body["hum_base"] not in HUM_BASES:
+                return jsonify({"error": "hum_base must be 50 or 60"}), 400
+            changes["hum_base"] = int(body["hum_base"])
+        if "hum_width" in body:
+            changes["hum_width"] = min(max(float(body["hum_width"]), HUM_WIDTH_MIN_HZ), HUM_WIDTH_MAX_HZ)
+        if "sam_sb" in body:
+            if body["sam_sb"] not in SAM_SIDEBANDS:
+                return jsonify({"error": "sam_sb must be " + ", ".join(SAM_SIDEBANDS)}), 400
+            changes["sam_sb"] = body["sam_sb"]
+        if "nb_level" in body:
+            changes["nb_level"] = int(min(max(round(float(body["nb_level"])), NB_LEVEL_MIN), NB_LEVEL_MAX))
+        if "nb_width_us" in body:
+            changes["nb_width_us"] = min(max(float(body["nb_width_us"]), NB_WIDTH_MIN_US), NB_WIDTH_MAX_US)
+        if "dnr_level" in body:
+            changes["dnr_level"] = int(min(max(round(float(body["dnr_level"])), DNR_LEVEL_MIN), DNR_LEVEL_MAX))
         if "dyn_exp_db" in body:
             changes["dyn_exp_db"] = min(max(float(body["dyn_exp_db"]), EXP_DEPTH_MIN_DB), EXP_DEPTH_MAX_DB)
         if "dyn_exp_sens" in body:
@@ -1866,6 +2089,13 @@ def api_set():
             changes["sample_rate"] = sr
     except (TypeError, ValueError) as e:
         return jsonify({"error": str(e)}), 400
+    if "antenna" in body:
+        aid = str(body["antenna"] or "")
+        if aid and not antennas.get(aid):
+            return jsonify({"error": "unknown antenna (SETTINGS › GENERAL › ANTENNAS)"}), 400
+        cfg["antenna"] = aid
+        save_config_later()
+        hub.event("status", state())
     if "ft8" in body:
         cfg["ft8"] = bool(body["ft8"])
         ft8.set_enabled(cfg["ft8"])
@@ -1907,11 +2137,25 @@ def api_set():
         pocsag.set_enabled(cfg["pocsag"])
         save_config_later()
         hub.event("status", state())
+    on_iq = {d for k, d in IQ_ONE.items() if body.get(k)}
+    if len(on_iq) == 1 and iq_only(next(iter(on_iq)), changes):   # one decoder on the IQ: the one switched on stays
+        save_config_later()
+        hub.event("status", state())
     if "sonde" in body:
         cfg["sonde"] = bool(body["sonde"])
         sonde.set_enabled(cfg["sonde"])
         save_config_later()
         hub.event("status", state())
+    if "sonde_multi" in body:
+        cfg["sonde_multi"] = bool(body["sonde_multi"])
+        sonde.set_multi(cfg["sonde_multi"])
+        save_config_later()
+        hub.event("status", state())
+    if "sonde_types" in body:
+        t = body["sonde_types"]
+        cfg["sonde_types"] = [str(x) for x in t] if isinstance(t, list) else None
+        sonde.set_types(cfg["sonde_types"])
+        save_config_later()
     if "tx_enabled" in body:
         if not tx_capable():
             return jsonify({"error": "this VFO cannot transmit"}), 400
@@ -2047,7 +2291,9 @@ def api_set():
             recorder.set("squelch", bool(body["rec_sq"]))
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
-    if "rec" in body or "rec_sq" in body:
+    if "rec_iq" in body:
+        iq_recorder.set(bool(body["rec_iq"]))
+    if "rec" in body or "rec_sq" in body or "rec_iq" in body:
         hub.event("status", state())
     if "tune_hz" in changes and changes["tune_hz"] != cfg.get("tune_hz"):
         with tx_lock:
@@ -2067,7 +2313,7 @@ def api_set():
         receiver.scan.command("pause", why="tuned by hand")   # tuning by hand holds the scan (START continues)
     receiver.update(changes)
     if "mode" in changes:
-        dsd.set_enabled(changes["mode"] == DSD_MODE)
+        sync_dsd(changes["mode"])
     if set(changes) - {"reset"}:
         save_config_later()
     return jsonify({"ok": True})
@@ -2297,6 +2543,7 @@ def exit_with_parent():
     """The VFO process ends when the launcher ends (its input is closed)."""
     sys.stdin.read()
     recorder.stop_all()
+    iq_recorder.stop()
     rotor_link.stop()
     if doppler is not None:
         doppler.stop()
@@ -2325,5 +2572,6 @@ if __name__ == "__main__":
         app.run(host=cfg.get("host", "0.0.0.0"), port=port, threaded=True, use_reloader=False)
     finally:
         recorder.stop_all()
+        iq_recorder.stop()
         rotor_link.stop()
         receiver.stop()
