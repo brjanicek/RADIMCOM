@@ -30,7 +30,8 @@ Test beta (GitHub branch `1.1beta1`; continues the release 1.0).
   See `docs/composite.md`.
 - **Precipitation radar on the maps** of VDL2 / ACARS, HFDL, ADS-B, SONDE and COMPOSITE: the RainViewer radar (only the map
   tiles are asked, no position), the last 30 minutes animated (frames every 10 min, the newest held, its time in the corner),
-  switch in the top right corner, remembered per map, off by default. **Trails** switch on the VDL2, HFDL, ADS-B and
+  switch in the top right corner, remembered per map, off by default; an opacity slider (10–100 %, 60 % by default, per map)
+  beside the time of the frame. **Trails** switch on the VDL2, HFDL, ADS-B and
   COMPOSITE maps.
 
 ### Changes

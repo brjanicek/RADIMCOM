@@ -90,7 +90,7 @@ New
 - COMPOSITE map (COM key under DEC): aircraft, ships and sondes from the decoders of all VFOs (ADS-B, ACARS / VDL2, HFDL,
   AIS, SONDE) on one map; sources to pick, the same aircraft from more decoders joined into one (ICAO, registration,
   flight number, squawk), details with all sources on the right, 6 hours of history kept over a restart, also in a new tab.
-- Precipitation radar (animated, last 30 min) on the VDL2, HFDL, ADS-B, SONDE and COMPOSITE maps; Trails switch.
+- Precipitation radar (animated, last 30 min, opacity slider) on the VDL2, HFDL, ADS-B, SONDE and COMPOSITE maps; Trails switch.
 Changes
 - Decoder maps keep their zoom and position after a switch of the VFO or tab.
 - HUM without the echo: only the harmonics where the hum really is are notched (2-8 instead of all ~60); the hum goes

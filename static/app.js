@@ -16439,13 +16439,34 @@ function mapPrecip(map, kind, trails) {
   const SPAN_S = 1800, STEP_MS = 600, HOLD_STEPS = 3;
   let frames = [], cur = 0, tick = 0, timer = null, anim = null;
   const group = L.layerGroup();
-  const Lbl = L.Control.extend({ onAdd() { return L.DomUtil.create("div", "map-precip-time"); } });
+  // the box in the bottom left corner: the time of the frame shown + the opacity of the radar (remembered per map)
+  const okey = `mapPrecipOpa.${kind}`;
+  let opa = Math.min(1, Math.max(0.1, +(recall(okey) || 0.6) || 0.6)), tEl = null;
+  const Lbl = L.Control.extend({
+    onAdd() {
+      const box = L.DomUtil.create("div", "map-precip-time");
+      tEl = L.DomUtil.create("span", "", box);
+      const r = L.DomUtil.create("input", "", box);
+      Object.assign(r, { type: "range", min: 10, max: 100, step: 5, value: Math.round(opa * 100), title: "Opacity of the precipitation radar" });
+      const pc = L.DomUtil.create("span", "map-precip-opa", box);
+      pc.textContent = `${r.value} %`;
+      r.addEventListener("input", () => {
+        opa = r.value / 100;
+        pc.textContent = `${r.value} %`;
+        store(okey, String(opa));
+        show(cur);
+      });
+      L.DomEvent.disableClickPropagation(box);
+      L.DomEvent.disableScrollPropagation(box);
+      return box;
+    },
+  });
   const lbl = new Lbl({ position: "bottomleft" });
   const hm = (t) => new Date(t * 1000).toISOString().slice(11, 16);
   function show(i) {
-    frames.forEach((f, k) => f.layer.setOpacity(k === i ? 0.6 : 0));
+    frames.forEach((f, k) => f.layer.setOpacity(k === i ? opa : 0));
     cur = i;
-    const el = lbl.getContainer();
+    const el = tEl;
     if (el && frames[i]) el.textContent = `Radar ${hm(frames[i].time)} UTC${i === frames.length - 1 ? "" : ` (−${Math.round((frames[frames.length - 1].time - frames[i].time) / 60)} min)`}`;
   }
   function step() {

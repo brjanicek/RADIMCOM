@@ -80,8 +80,8 @@ browser): it comes back after a switch of the VFO or tab and after a reload, and
 marks again. The VDL2, HFDL, ADS-B, SONDE and COMPOSITE maps have switches in the top right corner:
 
 - **Precipitation:** the RainViewer radar (no position sent, only the map tiles), the last 30 minutes as an animation
-  (frames every 10 minutes, the newest held a moment; its time in the bottom left corner), refreshed every 5 minutes;
-  sharp up to zoom 7. Off by default.
+  (frames every 10 minutes, the newest held a moment; its time in the bottom left corner with an opacity slider,
+  10–100 %, 60 % by default, remembered per map), refreshed every 5 minutes; sharp up to zoom 7. Off by default.
 - **Trails** (aircraft maps): the tracks of the aircraft on / off. On by default.
 
 ### COMPOSITE

@@ -3700,3 +3700,7 @@ html.app-shell .r-logo-led:hover .r-logo-ledtip { display: inline; }
 .com-side .com-parts { width: 100%; border-collapse: collapse; margin-bottom: 2px; }
 .com-side .com-parts td { padding: 1px 4px 1px 0; vertical-align: top; white-space: nowrap; }
 .com-side .com-parts td:nth-child(3) { white-space: normal; }
+.map-precip-time { display: flex; align-items: center; gap: 6px; }
+.map-precip-time input[type=range] { width: 80px; height: 12px; margin: 0; accent-color: #6cb8ff; cursor: pointer; }
+.map-precip-opa { min-width: 32px; text-align: right; color: #8fa3bd; }
+.map-precip-time > span:first-child { display: inline-block; width: 25ch; white-space: nowrap; }   /* time text of a fixed width: the slider does not move */
