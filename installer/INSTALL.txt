@@ -83,6 +83,10 @@ Change log
 Ver. 1.1beta1
 (test beta, GitHub branch 1.1beta1; continues the release 1.0)
 New
+- Remote RTL-SDR dongles over the network (rtl_tcp, by Brano): a VFO can take its dongle from another computer, e.g. a
+  Raspberry Pi with several dongles (install script and server in the folder rpi). SDR setup: Network dongles, FIND.
+  SETTINGS > RTL_TCP SERVER: state of the server (link, CPU, power, graphs) and its dongles, RESTART / UPDATE. The VFO
+  window shows a network icon, orange when the network does not carry all the samples, red when the server is unreachable.
 - NTH expander FAST (SETTINGS > AUDIO > NTH, on by default with AUTO): for weak signals it opens sooner and does not drop
   in the middle of a word.
 - ALC card (SETTINGS > AUDIO): FAST / SLOW with their hold and rise times; FAST by default (hold 400 ms, rise 100 ms), so the

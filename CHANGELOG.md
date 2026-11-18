@@ -6,7 +6,7 @@ Test beta (GitHub branch `1.1beta1`; continues the release 1.0).
 
 ### Main Features
 
-- **Remote dongles over the network (rtl_tcp):** a VFO can take its RTL-SDR dongle over USB or from another computer,
+- **Remote dongles over the network (rtl_tcp)** *(by Brano, [brjanicek](https://github.com/brjanicek))*: a VFO can take its RTL-SDR dongle over USB or from another computer,
   e.g. a Raspberry Pi with several dongles. New driver `rtltcp` (rtltcp.py): the VFO tunes, sets gain, RTL AGC, ppm and
   bias-tee over the network and gets the same raw I/Q as from USB, so VDL2, DAB and ISM work too. A dongle on a server
   with rtltcp-manager is addressed by its serial (`SDR1@192.168.1.50`: its port is looked up, the USB socket on the server
