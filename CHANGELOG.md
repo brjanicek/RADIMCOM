@@ -4,8 +4,51 @@
 
 Test beta (GitHub branch `1.1beta1`; continues the release 1.0).
 
+### New
+
+- **NTH › EXP › FAST** (SETTINGS › AUDIO, on by default together with AUTO) for weak signals, where the expander often turned the speech down:
+  the voice detector smooths less (a syllable is caught one step sooner), the audio goes out ~8 ms later so the opening
+  comes before the syllable (look-ahead), it stays open down to 1/3 of the threshold (normally 1/2), holds at least 250 ms
+  and closes in 150 ms (normally 80). Simulated weak speech (−3 / 0 dB over 6 kHz): speech turned down 100 % → 9 %,
+  35 % → 1 %; more of the noise between words stays open. *Now* shows FAST. It also switches the ALC to FAST.
+- **ALC card** (SETTINGS › AUDIO, under NTH, per VFO): **FAST / SLOW** switch and their times – *hold* after a louder signal
+  and the *rise* time constant of the gain coming back (hold 0–2000 ms, rise 100–5000 ms, DEFAULT). **FAST is the default**
+  (hold 400 ms, rise 100 ms; SLOW: 600 ms, 1000 ms; before: 400 ms, 1500 ms), so weak speech after a loud part is loud again
+  sooner (−10 dB back in ~0.4 s with FAST, ~1.4 s with SLOW; before ~2 s). NTH › EXP › FAST switches the ALC to FAST by itself. The value beside the
+  title and the tooltip of the ALC key say SLOW / FAST.
+- **COMPOSITE map** (new **COM** key in DECODE, under DEC; tab COMPOSITE): one map with everything that has a position
+  from the decoders running on all VFOs – ADS-B, ACARS / VDL2, HFDL, AIS, SONDE (e.g. VFO A on VDL2, B on HFDL, C on the
+  sondes). SOURCES keys per VFO and decoder to show / hide; aircraft, ships and sondes with the icons and labels of their
+  own maps (an aircraft turned by its track, the trail, or the track of the adsb.fi / adsb.lol lookup), trail colour =
+  source, Precipitation / Trails switches, the view kept, ↗ opens the pane alone in a new tab. The **same aircraft** from
+  more VFOs / decoders becomes one: by ICAO address, registration, flight number (ACARS / HFDL IATA `LH0123` = ADS-B ICAO
+  `DLH123`, table of ~100 airlines) or an uncommon squawk within 150 km and 15 min; two different ICAO addresses never.
+  A click shows the **details on the right** (the lines of the own map's popup) with **SOURCES (n)** – every record joined,
+  its VFO, decoder, identifiers and time – and *joined by …*. **History:** each VFO server keeps 6 h of positions (every
+  30 s, also with the tab closed) in `data\composite_<VFO>.json`, read back after a restart. New `GET /api/positions`
+  (one format for all sources, a test for merging the feeds of more stations); **JSON** downloads the merged feed.
+  See `docs/composite.md`.
+- **Precipitation radar on the maps** of VDL2 / ACARS, HFDL, ADS-B, SONDE and COMPOSITE: the RainViewer radar (only the map
+  tiles are asked, no position), the last 30 minutes animated (frames every 10 min, the newest held, its time in the corner),
+  switch in the top right corner, remembered per map, off by default. **Trails** switch on the VDL2, HFDL, ADS-B and
+  COMPOSITE maps.
+
 ### Changes
 
+- **Decoder maps keep their view:** FT8, PACKET, ACARS / VDL2, HFDL, ADS-B, AIS and SONDE remember centre and zoom (per map,
+  in the browser); after a switch of the VFO or tab or a reload the map comes back where it was instead of fitting itself
+  to the marks again or jumping to the QTH.
+
+- **HUM without the echo:** the former comb notched all ~60 multiples of 50 Hz up to 3 kHz at once and rang every 20 ms
+  in the speech it took out (an echo, −12 dB). Now each harmonic is followed separately (demodulated, low-passed to the
+  notch width with two poles, put back and subtracted) and notched only while it is a steady tone over 1 s standing 6 dB
+  over the other harmonics – typically 2–8 notches, coming and going smoothly. On a simulation: echo −28 dB, the hum
+  20–28 dB down under speech (was ~9 dB), speech without hum untouched, ~3 % of a CPU core; it catches the hum in
+  ~1–1.5 s. The mains of the transmitter is followed as before. Tests `tests/test_hum.py`.
+- **A/D value not red for a few clipped samples:** the dBFS value of the VFO window and the AGC+ bar turned red when a
+  single sample hit full scale in the last 2 s (an impulse), while the value (the 99.9 % peak) was far under it. Red now
+  only over the AGC+ clipping limit (BOLD 0.03 %, that cuts the gain); a few clipped samples under it are amber, with
+  their share in the tooltip.
 - **AGC+ on HF: the sensitivity wins over the headroom.** A temporary SNR sweep (the S/N of the tuned signal at every tuner gain) on 31 m (AM) showed AGC+ holding 3.7 dB with the
   band's floor only ~3 dB over the A/D's noise, while the S/N was 5–10 dB better at 15–20 dB of gain (7 dB of headroom,
   no clipping); on 80 m (RWM) it kept rising up to a floor 11–14 dB over the A/D's noise with 2.5–4.5 dB of headroom.

@@ -96,7 +96,19 @@ EXP_AUTO_DEPTH = (8.0, 18.0, 1.0)       # depth = the measured speech-to-noise r
 EXP_AUTO_WIN_S = 6.0                    # the speech and noise powers of the last this many seconds give the SNR,
 EXP_AUTO_MIN_FRAMES = 20                # at least this many of each (~0.2 s), every EXP_AUTO_UPDATE_S
 EXP_AUTO_UPDATE_S = 0.2
-EXP_AUTO_FAST_S = 3.0                   # after a retune / new mode: double steps, the depth taken at once, …
+# FAST (NTH › EXP › FAST): for weak signals – opens sooner and does not drop in the middle of a word:
+EXP_FAST_SMOOTH = 0.35                  # less smoothing of the bin powers: a syllable stands out one hop sooner
+EXP_FAST_KEEP = 3.0                     # stays open while over 1/3 of the threshold (normally 1/2)
+EXP_FAST_HOLD_MIN_S = 0.25              # hold at least this
+EXP_FAST_RELEASE_S = 0.15               # closes slower (normally EXP_RELEASE_S)
+# ALC (SETTINGS › AUDIO › ALC): after a peak the gain holds this long, then rises with this time constant (ms);
+# SLOW / FAST (default FAST); FAST also while NTH › EXP › FAST is on (weak speech loud again sooner, the expander turns the lifted noise down)
+ALC_HANG_MS, ALC_DECAY_MS = 600, 1000
+ALC_FAST_HANG_MS, ALC_FAST_DECAY_MS = 400, 100
+ALC_HANG_MIN_MS, ALC_HANG_MAX_MS = 0, 2000
+ALC_DECAY_MIN_MS, ALC_DECAY_MAX_MS = 100, 5000
+# … and the audio is delayed by one hop (~8 ms), so the opening comes before the syllable (look-ahead)
+EXP_AUTO_FAST_S = 3.0                  # after a retune / new mode: double steps, the depth taken at once, …
 EXP_AUTO_FAST_NF_UP_DB_S = 20.0         # … and the noise floor of each bin rises this fast (a noisier band)
 # LIM (soft limiter): instead of the hard clip at ±1 a soft knee; with ALC the level is also driven by LIM_DRIVE,
 # the AGC overshoots (attack, smoothed gain) are rounded off instead of cut.
@@ -1022,39 +1034,47 @@ HUM_WIDTH_DEFAULT_HZ, HUM_WIDTH_MIN_HZ, HUM_WIDTH_MAX_HZ = 4.0, 1.0, 8.0   # wid
 HUM_TRACK_HZ = 1.0                  # the mains of the transmitter is followed this far from 50 / 60 Hz
 HUM_WIN_S = 0.5                     # tracking window: the phase of each harmonic in its two halves gives the offset
 HUM_HARMONICS = (1, 2, 3, 4, 5, 6)  # multiples of the base used for tracking (100 Hz = 2: rectified mains)
+HUM_MAX_HZ = 3000.0                 # notches looked for up to here
+HUM_GATE_S = 1.0                    # a harmonic is notched while it is a steady tone over this time …
+HUM_GATE_LO, HUM_GATE_HI = 0.4, 0.7  # … coherent / notch power from LO (off) to HI (fully on); hum ~1, speech / noise ~0.1
+HUM_SUB = 16                        # demodulation in sub-blocks of this many samples (baseband at fs / 16)
+HUM_GATE_OVER = 4.0                 # … and the tone at least this much (6 dB) over the median notch power of all harmonics
 
 
 class HumFilter:
-    """HUM key: a comb of narrow notches at the mains frequency of the station and all its multiples (50, 100, 150 …
-    Hz), so the hum goes with all its harmonics (rectified mains: 100, 200, 300 …) while speech and music lose only a
-    few Hz every 50 Hz. H(z) = b0 (1 − z^−D) / (1 − aD z^−D), D = fs / f (the scipy iircomb notch), D fractional by
-    linear interpolation. The mains of a transmitter is not exactly 50 Hz (49.96 Hz measured on 6050 kHz): f follows
-    the hum, from the phase step of its harmonics between the two halves of a 0.5 s window (only while hum is there).
+    """HUM key: narrow notches at the mains frequency of the station and its multiples (50, 100, 150 … Hz; rectified
+    mains: 100, 200, 300 …), but only on the harmonics where the hum really is. Each harmonic k·f is demodulated
+    (x · e^−jφk, in sub-blocks of HUM_SUB samples: one matrix product for all of them), low-passed to the notch width
+    (two poles, −3 dB full width = width) and put back (only the harmonics in use, at the full rate); that estimate is
+    subtracted. A harmonic is notched only while its estimate is a steady tone: the coherent mean over HUM_GATE_S
+    against the power in the notch – hum (a steady tone) ~1, speech and noise ~0.1 – standing over the other harmonics. The old comb notched all ~60
+    harmonics up to 3 kHz at once and rang every 20 ms in the speech it took out (an echo); now 2–8 notches.
+    The mains of a transmitter is not exactly 50 Hz (49.96 Hz measured on 6050 kHz): f follows the hum, from the
+    phase step of its harmonics between the two halves of a 0.5 s window (only while hum is there).
     removed_db: how much the filter takes out now."""
 
     def __init__(self):
         self.key = None
         self.removed_db = 0.0
         self.f = 0.0
-
-    def _coeffs(self, fs, width):
-        from scipy.signal import iircomb
-        n = max(int(round(fs / self.f)), 2)
-        b, a = iircomb(fs / n, self.f / width, ftype="notch", fs=n * (fs / n))
-        self.b0, self.bn, self.an = float(b[0]), float(b[n]), float(-a[n])
-        self.d = fs / self.f                      # delay in samples, fractional
+        self.active = 0                           # harmonics notched now
 
     def _setup(self, fs, base, width):
         self.f = float(base)
         self.base, self.width = base, width
-        self._coeffs(fs, width)
-        h = int(fs / (base - HUM_TRACK_HZ)) + 2
-        self.xh = np.zeros(h)      # the last input samples, oldest first (long enough for the lowest f)
-        self.yh = np.zeros(h)
+        self.kk = np.arange(1, int(min(HUM_MAX_HZ, fs / 2 - 100) / (base - HUM_TRACK_HZ)) + 1, dtype=float)
+        nk = len(self.kk)
+        self.ph = np.zeros(nk)                    # phase of each harmonic's oscillator (continuous over f changes)
+        self.za = np.zeros((2, nk), complex)      # notch low-pass state (two poles)
+        self.coh = np.zeros(nk, complex)          # slow coherent mean of the demodulated harmonic
+        self.pwr = np.full(nk, 1e-20)             # slow mean power in the notch
+        self.gate = np.zeros(nk)                  # 0 … 1: how much of each notch is used
+        self.last_est = np.zeros(nk, complex)     # the last sub-block estimate (interpolation into the next block)
+        self._wkey = None
         self.pin = self.pout = 1e-12
         self.tn = 0                # sample in the tracking window
-        self.za = np.zeros(len(HUM_HARMONICS), complex)
-        self.zb = np.zeros(len(HUM_HARMONICS), complex)
+        self.tza = np.zeros(len(HUM_HARMONICS), complex)
+        self.tzb = np.zeros(len(HUM_HARMONICS), complex)
         self.pw = 0.0
 
     def reset(self):
@@ -1073,48 +1093,81 @@ class HumFilter:
             e = np.exp(-2j * np.pi * np.outer(k, n) * self.f / fs)
             z = e @ c
             if self.tn < half:
-                self.za += z
+                self.tza += z
             else:
-                self.zb += z
+                self.tzb += z
             self.pw += float(np.dot(c, c))
             self.tn += m
             i += m
             if self.tn >= win:
                 # a harmonic k·(f + δ) turns by 2π k δ half / fs between the halves
-                w = np.abs(self.za) * np.abs(self.zb)
-                hum = float(np.sum(np.abs(self.za) ** 2 + np.abs(self.zb) ** 2)) * 2 / half / max(self.pw, 1e-12)
+                w = np.abs(self.tza) * np.abs(self.tzb)
+                hum = float(np.sum(np.abs(self.tza) ** 2 + np.abs(self.tzb) ** 2)) * 2 / half / max(self.pw, 1e-12)
                 if hum > 0.01:                    # hum at least −20 dB of the audio: worth following
-                    dk = np.angle(self.zb * np.conj(self.za)) * fs / (2 * np.pi * k * half)
+                    dk = np.angle(self.tzb * np.conj(self.tza)) * fs / (2 * np.pi * k * half)
                     delta = float(np.sum(w * k * k * dk) / max(np.sum(w * k * k), 1e-30))
-                    f = float(np.clip(self.f + 0.7 * delta, self.base - HUM_TRACK_HZ, self.base + HUM_TRACK_HZ))
-                    if abs(f - self.f) > 1e-4:
-                        self.f = f
-                        self._coeffs(fs, self.width)
+                    self.f = float(np.clip(self.f + 0.7 * delta, self.base - HUM_TRACK_HZ, self.base + HUM_TRACK_HZ))
                 self.tn, self.pw = 0, 0.0
-                self.za[:] = 0
-                self.zb[:] = 0
+                self.tza[:] = 0
+                self.tzb[:] = 0
 
     def process(self, x, fs, base=50, width=HUM_WIDTH_DEFAULT_HZ):
+        from scipy.signal import lfilter
         key = (fs, base, width)
         if key != self.key:
             self.key = key
             self._setup(fs, base, width)
         x = np.asarray(x, np.float64)
+        m = len(x)
+        if m == 0:
+            return x.astype(np.float32)
         self._track(x, fs)
-        n = int(self.d)
-        mu = self.d - n
-        out = np.empty(len(x))
-        # y = b0 x + bD x[−D] + aD y[−D], x[−D] and y[−D] interpolated; pieces of at most n samples need only the history
-        for i in range(0, len(x), n):
-            c = x[i:i + n]
-            m = len(c)
-            h = len(self.xh)
-            xd = (1 - mu) * self.xh[h - n:h - n + m] + mu * self.xh[h - n - 1:h - n - 1 + m]
-            yd = (1 - mu) * self.yh[h - n:h - n + m] + mu * self.yh[h - n - 1:h - n - 1 + m]
-            yc = self.b0 * c + self.bn * xd + self.an * yd
-            self.xh = np.concatenate((self.xh[m:], c))
-            self.yh = np.concatenate((self.yh[m:], yc))
-            out[i:i + m] = yc
+        kk = self.kk[self.kk * self.f < min(HUM_MAX_HZ, fs / 2 - 100)]
+        nk = len(kk)
+        w = 2 * np.pi * kk * self.f / fs                           # rad per sample of each harmonic
+        # every harmonic demodulated in sub-blocks of L samples (one matrix product): baseband at fs / L
+        L = HUM_SUB
+        ns = -(-m // L)
+        xs = np.zeros(ns * L)
+        xs[:m] = x
+        if self._wkey != (L, self.f, nk):
+            self._wkey = (L, self.f, nk)
+            self._W = np.exp(-1j * np.outer(np.arange(L), w))      # L × nk
+        b = (xs.reshape(ns, L) @ self._W) / L                      # ns × nk
+        if m % L:
+            b[-1] *= L / (m % L)                                   # the padded last sub-block
+        b *= np.exp(-1j * (self.ph[None, :nk] + np.outer(np.arange(ns) * L, w)))
+        # two poles (the neighbour harmonics 50 Hz away leak in at ~−48 dB, one pole only ~−28 dB); each pole set so
+        # that the pair has the −3 dB full width = width (a pair of equal poles: −3 dB at 0.644 of one pole's corner)
+        a = np.exp(-np.pi * self.width / 0.644 * L / fs)
+        est, self.za[:, :nk] = lfilter([(1 - a) ** 2], [1, -2 * a, a * a], b, axis=0, zi=self.za[:, :nk])
+        # steady tone over the other harmonics? (coherent mean against the power in the notch, slow)
+        beta = np.exp(-m / fs / HUM_GATE_S)
+        self.coh[:nk] = beta * self.coh[:nk] + (1 - beta) * b.mean(axis=0)
+        self.pwr[:nk] = beta * self.pwr[:nk] + (1 - beta) * np.mean(np.abs(est) ** 2, axis=0)
+        tone = np.abs(self.coh[:nk]) ** 2
+        ratio = tone / np.maximum(self.pwr[:nk], 1e-30)
+        new = np.clip((ratio - HUM_GATE_LO) / (HUM_GATE_HI - HUM_GATE_LO), 0.0, 1.0)
+        new[tone < HUM_GATE_OVER * float(np.median(self.pwr[:nk]))] = 0.0   # a random steady bit of weak noise: not hum
+        old = self.gate[:nk].copy()
+        self.gate[:nk] = new
+        self.active = int(np.sum(new > 0.5))
+        # the hum put back at the full rate only for the harmonics in use: estimate interpolated between sub-blocks
+        hum = np.zeros(m)
+        use = np.flatnonzero((new > 0) | (old > 0))
+        if len(use):
+            n = np.arange(m)
+            centres = np.concatenate(([-L / 2], np.arange(ns) * L + L / 2))
+            ramp = np.arange(1, m + 1) / m
+            for k in use:
+                prev = self.last_est[k]
+                re = np.interp(n, centres, np.concatenate(([prev.real], est[:, k].real)))
+                im = np.interp(n, centres, np.concatenate(([prev.imag], est[:, k].imag)))
+                g = old[k] + (new[k] - old[k]) * ramp                # no click when a notch comes or goes
+                hum += 2 * g * (re * np.cos(self.ph[k] + w[k] * n) - im * np.sin(self.ph[k] + w[k] * n))
+        self.last_est[:nk] = est[-1]
+        self.ph[:nk] = (self.ph[:nk] + w * m) % (2 * np.pi)
+        out = x - hum
         self.pin = 0.9 * self.pin + 0.1 * float(np.mean(x * x) + 1e-12)
         self.pout = 0.9 * self.pout + 0.1 * float(np.mean(out ** 2) + 1e-12)
         self.removed_db = max(0.0, 10 * np.log10(self.pin / self.pout))
@@ -1230,6 +1283,11 @@ class Channel:
         self.exp_hold = 0
         self.exp_key = None      # (fs, mode, bw) the detector STFT was set up for
         self.exp_auto = True     # EXP AUTO: sensitivity, hold and depth set by themselves
+        self.exp_fast = True     # EXP FAST (default on): opens sooner, holds weak speech (EXP_FAST_*), audio delayed one hop
+        self.alc_norm = (ALC_HANG_MS, ALC_DECAY_MS)            # ALC (hold ms, rise time constant ms)
+        self.alc_fast = (ALC_FAST_HANG_MS, ALC_FAST_DECAY_MS)  # … while FAST (ALC switch, or NTH EXP FAST)
+        self.alc_fast_on = True                                # ALC switch SLOW / FAST (default FAST)
+        self.exp_la = None       # FAST look-ahead: (the last hop of audio, its gains) not played yet
         self.ea_sens = EXP_SENS_DEFAULT
         self.ea_hold_s = EXP_AUTO_HOLD[2]
         self.ea_depth = EXP_DEPTH_DEFAULT_DB
@@ -1350,8 +1408,12 @@ class Channel:
         if nb == 0:
             return x
         peaks = np.abs(x[:nb * block]).reshape(nb, block).max(axis=1)
-        decay = np.exp(-block / self.fs / 1.5)
-        hang_blocks = int(0.4 * self.fs / block)
+        # NTH EXP FAST: the level comes back up faster after a loud part (weak speech is loud again sooner); the noise
+        # it lifts between words is turned down by the expander
+        fast = self.alc_fast_on or (self.exp_on and self.exp_fast)
+        hang_ms, decay_ms = self.alc_fast if fast else self.alc_norm
+        decay = np.exp(-block / self.fs / (decay_ms / 1000))
+        hang_blocks = int(hang_ms / 1000 * self.fs / block)
         gains = np.empty(len(peaks), np.float32)
         level = self.level
         for i, p in enumerate(peaks):
@@ -1411,6 +1473,7 @@ class Channel:
         self.exp_hist = np.zeros(n - n // 2)     # the end of the last frame (frames overlap by half)
         self.exp_pend = np.zeros(0)               # samples after the last full hop
         self.exp_s = self.exp_nfb = None          # smoothed bin powers and their noise floors
+        self.exp_la = None
         self.exp_key = (self.fs, self.mode, self.bw)
 
     def expander(self, x, audio):
@@ -1447,8 +1510,13 @@ class Channel:
                 self.exp_s = np.median(pw, axis=0) + 1e-20
                 self.exp_nfb = self.exp_s.copy()
             s, nfb = self.exp_s, self.exp_nfb
-            hold_hops = int(round((self.ea_hold_s if auto else self.exp_hold_s) / hop_s))
-            rel = 10 ** (-(self.ea_depth if auto else self.exp_depth_db) / (EXP_RELEASE_S / hop_s) / 20)
+            fast_mode = self.exp_fast
+            smooth = EXP_FAST_SMOOTH if fast_mode else EXP_SMOOTH
+            keep = EXP_FAST_KEEP if fast_mode else 2.0
+            hold_s = self.ea_hold_s if auto else self.exp_hold_s
+            hold_hops = int(round((max(hold_s, EXP_FAST_HOLD_MIN_S) if fast_mode else hold_s) / hop_s))
+            rel = 10 ** (-(self.ea_depth if auto else self.exp_depth_db)
+                         / ((EXP_FAST_RELEASE_S if fast_mode else EXP_RELEASE_S) / hop_s) / 20)
             gains = np.empty(nh, np.float32)
             eg = self.exp_gain
             fpow = pw.sum(axis=1)                        # band power of each frame (before any gain)
@@ -1460,7 +1528,7 @@ class Channel:
                 if fast:
                     ea["fast"] -= 1
                 m2 = 2.0 if fast else 1.0                # fast start: double steps
-                s = EXP_SMOOTH * s + (1 - EXP_SMOOTH) * pw[i]
+                s = smooth * s + (1 - smooth) * pw[i]
                 nfb = np.where(s < nfb, np.maximum(s, nfb * down), nfb * (up_fast if fast else up))
                 frac = float(np.mean(s > nfb * k))
                 speech = frac > thr
@@ -1469,13 +1537,13 @@ class Channel:
                         if auto and ea["since_close"] is not None and ea["since_close"] * hop_s < EXP_CHOP_S \
                                 and ea["last_ep"] * hop_s >= EXP_CHOP_S:
                             self.ea_hold_s = min(EXP_AUTO_HOLD[1], self.ea_hold_s + EXP_AUTO_HOLD_STEP * m2)   # chop: hold longer
-                            hold_hops = int(round(self.ea_hold_s / hop_s))
+                            hold_hops = int(round((max(self.ea_hold_s, EXP_FAST_HOLD_MIN_S) if fast_mode else self.ea_hold_s) / hop_s))
                             ea["quiet"] = 0
                         ea["ep_len"], ea["ep_speech"] = 0, 0
                     eg = 1.0
                     self.exp_hold = hold_hops
                     ea["ep_speech"] += 1
-                elif frac > thr / 2 and eg >= 1.0:       # hysteresis: a weaker frame keeps it open
+                elif frac > thr / keep and eg >= 1.0:    # hysteresis: a weaker frame keeps it open
                     self.exp_hold = hold_hops
                 elif self.exp_hold > 0:
                     self.exp_hold -= 1
@@ -1536,7 +1604,20 @@ class Channel:
         else:
             g = np.full(len(x), self.exp_gain, np.float32)
         self.exp_pend = data[nh * hop:]
-        return x * g
+        if not self.exp_fast:
+            self.exp_la = None
+            return x * g
+        # FAST look-ahead: the audio goes out one hop later, each sample with the highest gain of the next hop, so an
+        # opening reaches back before the syllable (the closing comes a hop later, which only helps the word's end)
+        d = self.exp_n // 2
+        if self.exp_la is None or len(self.exp_la[0]) != d:
+            self.exp_la = (np.zeros(d, np.float32), np.full(d, g[0] if len(g) else self.exp_gain, np.float32))
+        xx = np.concatenate((self.exp_la[0], x.astype(np.float32)))
+        gg = np.concatenate((self.exp_la[1], g))
+        n = len(x)
+        gm = np.lib.stride_tricks.sliding_window_view(gg, d + 1).max(axis=1)[:n]
+        self.exp_la = (xx[n:], gg[n:])
+        return xx[:n] * gm
 
 
 class Receiver:
@@ -1841,7 +1922,7 @@ class Receiver:
             c["notch"] = changes["notch"]
         if "audio_agc" in changes:
             c["audio_agc"] = changes["audio_agc"]
-        for k in ("dyn", "dyn_lim", "dyn_exp", "dyn_exp_auto", "dyn_exp_db", "dyn_exp_sens", "dyn_exp_hold_ms", "agc_smooth",
+        for k in ("dyn", "dyn_lim", "dyn_exp", "dyn_exp_auto", "dyn_exp_fast", "alc_fast", "alc_hang_ms", "alc_decay_ms", "alc_fast_hang_ms", "alc_fast_decay_ms", "dyn_exp_db", "dyn_exp_sens", "dyn_exp_hold_ms", "agc_smooth",
                   "dnr", "dnr_level", "nb", "nb_level", "nb_width_us", "sam", "sam_sb", "hum", "hum_base", "hum_width"):
             if k in changes:
                 c[k] = changes[k]
@@ -2204,6 +2285,11 @@ class Receiver:
                 self.chan.exp_sens = float(c.get("dyn_exp_sens", EXP_SENS_DEFAULT))
                 self.chan.exp_hold_s = float(c.get("dyn_exp_hold_ms", 1000 * EXP_HOLD_S)) / 1000
                 self.chan.exp_auto = bool(c.get("dyn_exp_auto", True))
+                self.chan.exp_fast = bool(c.get("dyn_exp_fast", True))
+                self.chan.alc_norm = (float(c.get("alc_hang_ms", ALC_HANG_MS)), float(c.get("alc_decay_ms", ALC_DECAY_MS)))
+                self.chan.alc_fast_on = bool(c.get("alc_fast", True))
+                self.chan.alc_fast = (float(c.get("alc_fast_hang_ms", ALC_FAST_HANG_MS)),
+                                      float(c.get("alc_fast_decay_ms", ALC_FAST_DECAY_MS)))
                 self.chan.smooth_on = bool(c.get("agc_smooth", True))
                 audio, self.smeter = self.chan.process(base)
                 sub_db = self.chan.sub_db
@@ -2300,6 +2386,7 @@ class Receiver:
         out = {**tgt.as_dict(), "window": p["window_db"], "wasted": round(tgt.goal + p["wasted_db"], 1),
                "head": round(m.headroom(False), 1), "head_hold": round(m.headroom(True), 1),
                "lamp": self.sagc.t - m.clip_t < 2.0,
+               "clip_ppm_2s": round(m.clip_max() * 1e6, 1), "clip_limit_ppm": p["clip_ppm"],
                "why": self.sagc.why(tgt, gtxt, p) if smart else "", "last": self.sagc.last if smart else "",
                "warn": warning(m, tgt, p["wasted_db"])}
         for k in ("margin", "snr", "floor_db", "nb_db", "nb_hz"):
@@ -2519,6 +2606,11 @@ class Receiver:
             "dyn_exp_sens": float(c.get("dyn_exp_sens", EXP_SENS_DEFAULT)),
             "dyn_exp_hold_ms": float(c.get("dyn_exp_hold_ms", 1000 * EXP_HOLD_S)),
             "dyn_exp_auto": bool(c.get("dyn_exp_auto", True)),
+            "dyn_exp_fast": bool(c.get("dyn_exp_fast", True)),
+            "alc_fast": bool(c.get("alc_fast", True)),
+            "alc_hang_ms": c.get("alc_hang_ms", ALC_HANG_MS), "alc_decay_ms": c.get("alc_decay_ms", ALC_DECAY_MS),
+            "alc_fast_hang_ms": c.get("alc_fast_hang_ms", ALC_FAST_HANG_MS),
+            "alc_fast_decay_ms": c.get("alc_fast_decay_ms", ALC_FAST_DECAY_MS),
             "dyn_exp_info": self.chan.exp_info() if getattr(self, "chan", None) is not None else None,
             "agc_smooth": bool(c.get("agc_smooth", True)),
             "afi": bool(c.get("afi", False)),

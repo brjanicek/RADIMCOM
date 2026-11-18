@@ -155,6 +155,7 @@ class FrontMeter:
         self.hold = deque()                     # (time, peak) over HOLD_S
         self.spec = {}                          # the last analyse()
         self.clip_t = -1e9                      # last block with clipping (the lamp holds 2 s)
+        self.clip_hold = deque()                # (time, clipped share) of the blocks that clipped, over HOLD_S
 
     def block(self, raw, t):
         """(clipped share, peak 0..1) of a block of A/D samples: uint8 (RTL) or complex64 ±1 (Airspy, Lime);
@@ -174,10 +175,17 @@ class FrontMeter:
         self.clip, self.peak = float(n) / max(raw.size, 1), float(peak)
         if self.clip > 0:
             self.clip_t = t
+            self.clip_hold.append((t, self.clip))
+        while self.clip_hold and self.clip_hold[0][0] < t - self.HOLD_S:
+            self.clip_hold.popleft()
         self.hold.append((t, self.peak))
         while self.hold and self.hold[0][0] < t - self.HOLD_S:
             self.hold.popleft()
         return self.clip, self.peak
+
+    def clip_max(self):
+        """The worst clipped share of a block over the last HOLD_S (0 = none)."""
+        return max((c for _t, c in self.clip_hold), default=0.0)
 
     @staticmethod
     def head_of(x):

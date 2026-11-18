@@ -49,7 +49,7 @@ class HumFilter(unittest.TestCase):
         x = np.fft.irfft(X, n)
         y, h = run(x)
         loss = 10 * np.log10(np.mean(y[n // 2:] ** 2) / np.mean(x[n // 2:] ** 2))
-        self.assertGreater(loss, -0.8)                       # 4 Hz notches every 50 Hz: about 0.5 dB
+        self.assertGreater(loss, -0.8)                       # no hum: no notch in use
         self.assertAlmostEqual(h.f, 50.0, delta=0.5)         # no hum: stays near the base
 
     def test_hum_under_speech(self):

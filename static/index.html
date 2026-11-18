@@ -238,6 +238,7 @@
     </div></div>
     <div class="kgroup" data-g="DECODE"><span class="klabel">DECODE</span><div class="keys">
       <button id="decKey" class="key" aria-controls="decPane" title="DEC: decoders on/off – shows or hides the DECODERS tab, one page for each decoder (CW, FT8, PACKET, POCSAG, RTTY, SSTV, WEFAX | ACARS, ADS-B, HFDL, VDL2 | AIS | SONDE | ISM); DAB and DSD are modes with their own tabs">DEC</button>
+      <button id="comKey" class="key" aria-controls="comPane" title="COM: the COMPOSITE tab – one map with everything that has a position from the decoders running on all VFOs (ADS-B, ACARS / VDL2, HFDL, AIS, SONDE); pick the sources to show. The same aircraft heard by more VFOs or decoders is joined into one">COM</button>
     </div></div>
     <div class="kgroup" data-g="TRACKING"><span class="klabel">TRACKING</span><div class="keys">
       <button id="satKey" class="key sat-key" aria-label="Satellite tracking" aria-controls="amsatPane" title="Satellite tracking: the SATELLITES tab (passes, map, Doppler, rotor)"><svg class="sat-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.6 7C3.2 12.6 8.4 18.8 15 17.4Z"/><path d="M9.8 12.2L13.4 8.6"/><circle cx="14.6" cy="7.4" r="1.6"/><path d="M16.6 3.1A5 5 0 0 1 19 5.5"/><path d="M17.2.6A8 8 0 0 1 21.5 4.9"/><path d="M7.6 15.4L5.8 20.6M11 17.2L12.4 20.6M3.2 21.2H15"/></svg></button>
@@ -267,6 +268,7 @@
     <button data-tab="dec" id="decTab">DECODERS <span id="decCount" class="dec-count"></span><span id="decNew" class="dec-new" hidden>●</span></button>
     <button data-tab="sat" id="amsatTab">SATELLITES</button>
     <button data-tab="rot" id="rotTab" hidden>ROTOR CONTROL</button>
+    <button data-tab="com" id="comTab" hidden>COMPOSITE</button>
     <button data-tab="mem" id="memTab" hidden>MEMORIES</button>
     <button data-tab="recs" id="recsTab" hidden>RECORDINGS</button>
     <button data-tab="scan" id="scanTab" hidden>SCAN <span id="scanTabDot" class="dec-new" hidden>●</span></button>
@@ -1066,6 +1068,16 @@
          shown by their groups (one checkbox per group beside the map).
          Pages MAP and SETTINGS: on SETTINGS the block scheme of the sources of the wanted AZ / EL (SAT TRACKER, MEMORY RECALL, RCTRL MAP),
          each with a switch that disconnects it from the rotor (data\rotor.json, the whole station), and the rotor controller. -->
+    <div class="set-pane com-pane" id="comPane" hidden aria-label="Composite map">
+      <div class="amsat-head">
+        <span class="com-label">SOURCES</span>
+        <div class="com-srcs" id="comSrcs" title="Decoders with positions running on the VFOs; a click shows / hides one on the map"></div>
+        <a id="comJson" class="key small" href="#" title="Download the merged feed (all shown sources, the same aircraft joined) as JSON – a test of the format for merging the feeds of more stations">JSON</a>
+        <span class="amsat-info" id="comInfo"></span>
+      </div>
+      <div class="com-body"><div id="comMap"></div><div id="comSide" class="com-side"></div></div>
+      <div id="comNote" class="muted"></div>
+    </div>
     <div class="set-pane rot-pane" id="rotPane" hidden aria-label="Rotor control">
       <div class="amsat-head">
         <div class="amsat-pages" id="rcPages" role="tablist">
@@ -2041,10 +2053,30 @@ ecordings, played in the browser -->
                 <p class="note">Audio frequency inversion (AFI key): the audio spectrum is mirrored around this frequency
                   (f → 2·F − f, band 0 … 2·F). The same setting scrambles and descrambles. Default 1750 Hz (band up to 3500 Hz). 500–4000 Hz.</p>
               </div>
+              <div class="setting set-alc">
+                <div class="row"><span>ALC – audio level (ALC key)</span><span id="alcInfo" class="value"></span></div>
+                <div class="seg alc-mode" id="alcMode" role="radiogroup" aria-label="ALC mode">
+                  <button class="key small" data-alc="slow" role="radio">SLOW</button>
+                  <button class="key small" data-alc="fast" role="radio">FAST</button></div>
+                <div class="set-cols">
+                  <label class="set-field"><span>SLOW hold (ms)</span><input id="alcHang" data-def="600" type="number" step="50" min="0" max="2000" value="600"></label>
+                  <label class="set-field"><span>SLOW rise (ms)</span><input id="alcDecay" data-def="1000" type="number" step="50" min="100" max="5000" value="1000"></label>
+                </div>
+                <div class="set-cols">
+                  <label class="set-field"><span>FAST hold (ms)</span><input id="alcFastHang" data-def="400" type="number" step="10" min="0" max="2000" value="400"></label>
+                  <label class="set-field"><span>FAST rise (ms)</span><input id="alcFastDecay" data-def="100" type="number" step="50" min="100" max="5000" value="100"></label>
+                </div>
+                <div class="def-row"><button class="key small def-btn" data-def-for="alcHang alcDecay alcFastHang alcFastDecay" title="SLOW: hold 600 ms, rise 1000 ms; FAST: hold 400 ms, rise 100 ms (default)">DEFAULT</button></div>
+                <p class="note">The ALC lowers the audio gain at once on a louder signal; after it the gain <i>holds</i> and then
+                  comes back up with the <i>rise</i> time constant (−10 dB back in ~hold + 1.15× rise). <b>FAST</b> (default) uses the FAST times,
+                  <b>SLOW</b> the SLOW ones; while NTH › EXP › FAST is on, FAST is used by itself: weak speech after a loud part (a strong station, a crash) is loud again sooner, and the noise
+                  lifted between words is turned down by the expander. For this VFO.</p>
+              </div>
               <div class="setting set-dyn">
                 <div class="row"><span>NTH – Noise Threshold (NTH key)</span></div>
                 <label class="switch"><input id="dynExp" type="checkbox"><span></span> EXP – expander: quiet between words</label>
                 <label class="switch dyn-sub"><input id="dynExpAuto" type="checkbox"><span></span> AUTO – sets itself</label>
+                <label class="switch dyn-sub"><input id="dynExpFast" type="checkbox"><span></span> FAST – for weak signals: opens sooner, does not drop in a word</label>
                 <div class="dyn-now dyn-sub"><span>Now</span><span id="dynExpInfo" class="value"></span></div>
                 <div class="set-cols dyn-sub">
                   <label class="set-field"><span>Depth (dB)</span><input id="dynExpDb" data-def="12" type="number" step="1" min="3" max="30" value="12"></label>
@@ -2062,6 +2094,10 @@ ecordings, played in the browser -->
                   Settles in about 2–3 s, after a retune it starts again fast; <i>Now</i> shows the values in use. AUTO off: depth 3–30 dB (12),
                   sensitivity 1–10 (5; chopped speech → raise, noise opening it → lower), hold 20–1000 ms (100; chopped words → longer).
                   The SNR in <i>Now</i> (speech vs. noise between words) is measured in both modes.</p>
+                <p class="note"><b>FAST</b> (on by default) for weak signals: the voice detector smooths less (the syllable is
+                  caught one step sooner), the audio goes out ~8 ms later so the opening comes before the syllable, it stays open
+                  down to 1/3 of the threshold (normally 1/2), holds at least 250 ms and closes in 150 ms – fewer drops in the
+                  middle of a word.</p>
                 <p class="note"><b>LIM</b>: soft limiter instead of hard clipping; with ALC +4 dB, the peaks rounded, not cut.</p>
               </div>
               <div class="setting set-nb">
@@ -2089,12 +2125,11 @@ ecordings, played in the browser -->
                 <div class="dyn-now"><span>Now</span><span id="humInfo" class="value"></span></div>
                 <div class="def-row"><button class="key small def-btn" data-def-for="humWidth" title="Width 4 Hz (default)">DEFAULT</button></div>
                 <p class="note">The HUM key (AUDIO, under NB; AM/LSB/USB) takes out the hum some stations carry from the mains of
-                  their transmitter or studio: a narrow notch at the mains frequency and at every multiple of it (50, 100, 150,
-                  200 … Hz; a rectifier hums at 100 Hz and its harmonics), so all of the hum goes while speech and music lose
-                  only a few Hz every 50 Hz. The mains of a transmitter is not exactly 50 Hz: the filter follows it (±1 Hz;
+                  their transmitter or studio: narrow notches at the mains frequency and its multiples (50, 100, 150, 200 … Hz;
+                  a rectifier hums at 100 Hz and its harmonics), only on those where the hum is (a steady tone over 1 s;
+                  caught in ~1–1.5 s), so speech and music without hum stay untouched and nothing echoes. The mains of a transmitter is not exactly 50 Hz: the filter follows it (±1 Hz;
                   <i>Now</i> shows it and how much is taken out). <i>Mains</i>: 50 Hz (Europe, Asia, Africa), 60 Hz (the
-                  Americas). <i>Width</i> of each notch: wider takes more of a hum that fades with the station, 4 Hz costs
-                  speech about 0.5 dB. First in the audio chain, before NF, DNR and the ALC.</p>
+                  Americas). <i>Width</i> of each notch: wider takes more of a hum that fades with the station. First in the audio chain, before NF, DNR and the ALC.</p>
               </div>
               <div class="setting set-dnr">
                 <div class="row"><span>DNR – Digital Noise Reduction (DNR key)</span></div>

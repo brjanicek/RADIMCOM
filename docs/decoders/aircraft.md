@@ -44,6 +44,8 @@ Airliners exchange data with the ground over two VHF links, and RADIMCOM receive
   up at the time of the message), from ADS-C reports (FANS and ATN) and, on VDL2, from the XID frames, where an aircraft
   sends its approximate location when it sets up or hands off the link (also aircraft that send no ACARS). VDL2 ground
   stations that broadcast their position are green ▲. The □ key in the top right corner opens the map alone in a new tab.
+  **Precipitation** (animated radar, last 30 min) and **Trails** switches in the top right corner; the map keeps its view.
+  All aircraft of all VFOs on one map: [COMPOSITE](../composite.md).
 
   ![VDL2 card: European ATN CPDLC (WILCO, LOGICAL ACKNOWLEDGEMENT with MIN/MRN) between plain ACARS messages with aircraft type and position from ADS-B](../images/decoders_vdl2.png)
 

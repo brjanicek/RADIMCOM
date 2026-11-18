@@ -82,7 +82,20 @@ Change log
 
 Ver. 1.1beta1
 (test beta, GitHub branch 1.1beta1; continues the release 1.0)
+New
+- NTH expander FAST (SETTINGS > AUDIO > NTH, on by default with AUTO): for weak signals it opens sooner and does not drop
+  in the middle of a word.
+- ALC card (SETTINGS > AUDIO): FAST / SLOW with their hold and rise times; FAST by default (hold 400 ms, rise 100 ms), so the
+  level comes back sooner after a loud part.
+- COMPOSITE map (COM key under DEC): aircraft, ships and sondes from the decoders of all VFOs (ADS-B, ACARS / VDL2, HFDL,
+  AIS, SONDE) on one map; sources to pick, the same aircraft from more decoders joined into one (ICAO, registration,
+  flight number, squawk), details with all sources on the right, 6 hours of history kept over a restart, also in a new tab.
+- Precipitation radar (animated, last 30 min) on the VDL2, HFDL, ADS-B, SONDE and COMPOSITE maps; Trails switch.
 Changes
+- Decoder maps keep their zoom and position after a switch of the VFO or tab.
+- HUM without the echo: only the harmonics where the hum really is are notched (2-8 instead of all ~60); the hum goes
+  20-28 dB down, speech without hum stays untouched.
+- A/D value in the VFO window red only for clipping over the AGC+ limit; a few clipped samples (spikes) amber.
 - AGC+ on HF: more gain where it buys SNR – while the band's noise is close to the A/D's own noise, it climbs down to
   4 dB of headroom (was ~15 dB), the floor's goal on HF 12 dB over the A/D's noise (was 8); clipping still cuts at once.
 - AGC+: only the former preset BOLD, now the default (the others set too little gain); a VFO saved with another one gets it.

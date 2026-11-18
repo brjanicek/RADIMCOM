@@ -23,6 +23,7 @@ Decoders:
 | [SONDE](decoders/sonde.md) | radiosondes (weather balloons) on 400–406 MHz: RS41, DFM, M10, M20, MULTI, map, history |
 | [AIS](decoders/ais.md) | ships on 161.975 / 162.025 MHz, own GMSK decoder, map |
 | [ADS-B](decoders/adsb.md) | aircraft on 1090 MHz, own Mode S / ADS-B decoder, map |
+| [COMPOSITE map](composite.md) | positions from the decoders of all VFOs on one map, joined aircraft, history, feed format |
 | [DAB / DAB+](decoders/dab.md) | digital broadcast radio via welle-cli |
 | [DSD](decoders/dsd.md) | digital voice (DMR, P25, D-Star, YSF, NXDN, …) via DSD-FME |
 | [ISM](decoders/ism.md) | 433 / 868 MHz devices via rtl_433 |
