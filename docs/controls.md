@@ -60,7 +60,9 @@ browser – and the **CUE** key of that VFO (orange LED): that VFO stays audible
 - **ADC** bar between them (read only): the A/D converter level in dBFS, −40 … 0 dBFS (the 99.9 % peak of the samples that
   AGC+ measures, else the block peak). The scale has the colours of the AGC+ meter: **green** around the AGC+ headroom target
   for the signal kind and band (target ± dead band under full scale), **blue** too quiet, **amber** too hot, **red** the last dB
-  and clipping; the value is coloured by the zone it is in. The tooltip shows both peaks, the clipping share and the target.
+  and clipping; the value is coloured by the zone it is in. **Red** only when the A/D clipped more than the AGC+ limit in the
+  last 2 s (*Overload: clipping above*, BOLD 0.03 %; that cuts the gain); a few clipped samples under it (an impulse, a
+  spike, harmless) only **amber**, with their share in the tooltip. The tooltip shows both peaks, the clipping share and the target.
 
 ## Frequency display
 
@@ -76,6 +78,8 @@ browser – and the **CUE** key of that VFO (orange LED): that VFO stays audible
 - **STEP**: tuning step: 10 Hz, 100 Hz, 1 kHz, 10 kHz in every mode, WFM included. WFM remembers its own chosen step, the other modes share one (in the browser). **Zoom** (1×–64×; at 64× the section is 24 kHz wide at 1.536 MS/s, each point 23 Hz from its own finer FFT) is the bar in the top right corner of the frequency scale: − / +, a click on a cell, or the mouse wheel over it. **Waterfall speed** (WF, 1/8 – 4×) is the same bar in the top right corner of the waterfall: below 1× several rows are averaged into one line (slower, longer history), above 1× each row is drawn taller (faster); the setting is kept in the browser. **Waterfall settings**: the gear in a square above the speed bar; with the mouse over it a half transparent window opens with the **colour scheme** (Classic, Inferno, Viridis, Turbo, Ice, Matrix; only new rows take the new colours), **colour range** and **colour offset**. Kept in the browser. **Spectrum settings**: the same gear and bar in the top right corner of the spectrum; the bar (dB) moves the **zero** (bottom edge of the spectrum) against the noise floor, −20 … +20 dB in 5 dB steps, the gear opens the **colour schemes** of the spectrum (background gradient / curve: Graphite, Waterfall, Night blue, Phosphor, Amber, Dusk, Ember, Steel). Kept in the browser.
 - **DEC** (group DECODE): turns on the CW, FT8, PACKET, RTTY, SSTV, WEFAX, ACARS, ADS-B, HFDL, VDL2, AIS or ISM decoder (DAB and DSD are keys in MODE with their own tabs). The panels are in the
   **DECODERS** tab next to SPECTRUM; turning a decoder on opens it, a green dot signals a new message/image.
+- **COM** (group DECODE, under DEC): shows / hides the **COMPOSITE** tab – one map with the positions from the decoders of all
+  VFOs (ADS-B, ACARS / VDL2, HFDL, AIS, SONDE), the same aircraft joined, details on the right. See [COMPOSITE map](composite.md).
   Every panel has a LOG checkbox for the daily log:
   - FT8: band buttons (160 m – 10 m) and CLR. The station map has a faint WW locator (Maidenhead) grid: fields
     (JN) always, squares (JN88) from zoom 5, subsquares (JN88wq) from zoom 10.
@@ -178,6 +182,11 @@ browser – and the **CUE** key of that VFO (orange LED): that VFO stays audible
     As in every radio, a DCS code is the same as its cyclic shifts, so e.g. 023N also opens on 047I.
   - ALC: automatic audio level in AM/LSB/USB/CW; off = fixed gain. Its gain rises smoothly (a ramp, no clicks); the switch
     *Smooth ALC gain* by AGC+ in SETTINGS › SDR DONGLE › ADVANCED turns that off.
+    **SETTINGS › AUDIO › ALC** (per VFO): on a louder signal the gain falls at once, then it *holds* and comes back up with
+    the *rise* time constant (−10 dB back in about hold + 1.15 × rise). **FAST** (default: hold 400 ms, rise 100 ms) or
+    **SLOW** (hold 600 ms, rise 1000 ms), each with its own times (hold 0–2000 ms, rise 100–5000 ms, DEFAULT). While NTH ›
+    EXP › FAST is on, FAST is used even with SLOW chosen. The value beside the title and the tooltip of the ALC key say
+    which one runs now (*SLOW*, *FAST*, *FAST (NTH EXP FAST)*).
   - NTH – Noise Threshold (beside ALC; called DNR before 1.0beta1, config key `dyn`): weak voices out of the noise in AM/LSB/USB/CW – the noise between words is turned down, the speech
     stays at full level. Switches on the parts ticked in SETTINGS › AUDIO (both by default):
     **EXP** – expander (soft noise gate) with a voice detector: between words the audio is turned down by the depth
@@ -187,6 +196,11 @@ browser – and the **CUE** key of that VFO (orange LED): that VFO stays audible
     **EXP AUTO** (default on): sensitivity, hold and depth set themselves – a noise blip lowers the sensitivity, missed weak
     speech raises it, a chop (reopening soon after closing) makes the hold longer, the depth follows the measured SNR
     (8–18 dB); *Now* shows the values in use and the measured SNR (also with AUTO off). It settles in about 2–3 s, after a retune it starts again fast.
+    **EXP FAST** (default on, with AUTO) for weak signals: the voice detector smooths less (a syllable is caught one step sooner), the
+    audio goes out ~8 ms later so the opening comes before the syllable (look-ahead), it stays open down to 1/3 of the
+    threshold (normally 1/2), holds at least 250 ms and closes in 150 ms (normally 80). On simulated weak speech (−3 dB
+    over 6 kHz) the share of speech turned down fell from 100 % to 9 %; more of the noise between words stays open. It also
+    switches the ALC to FAST.
     The VFO window shows **NTH** (green, in the annunciator row after ALC) while it is on.
     **LIM** – soft limiter instead of the hard clipping, the peaks are rounded; with ALC +4 dB louder.
   - DNR – Digital Noise Reduction (under NTH): in AM/LSB/USB/CW the noise is taken out all the time, also under speech
@@ -206,9 +220,12 @@ browser – and the **CUE** key of that VFO (orange LED): that VFO stays audible
     pulses a second): pulses 10× the noise in the channel 6 dB lower, 30× 15 dB lower, under a station 40 dB stronger
     than the wanted one 6.5 dB lower. 6–10 % of a CPU core while on. The VFO window shows **NB** before NTH.
   - HUM – mains hum filter (under NB; AM/LSB/USB): takes out the hum a station carries from the mains of its
-    transmitter or studio. A comb of narrow notches at the mains frequency and every multiple of it (50, 100, 150,
-    200 … Hz; a rectifier hums at 100 Hz and its harmonics), so all of the hum goes while speech and music lose only a
-    few Hz every 50 Hz (about 0.5 dB at the default width 4 Hz). The mains of a transmitter is not exactly 50 Hz (49.96 Hz
+    transmitter or studio. Narrow notches at the mains frequency and its multiples (50, 100, 150, 200 … Hz up to 3 kHz;
+    a rectifier hums at 100 Hz and its harmonics), but **only on the harmonics where the hum is**: each one is followed
+    separately and notched while it is a steady tone over 1 s standing 6 dB over the other harmonics (typically 2–8
+    notches; they come and go smoothly). It takes ~1–1.5 s to catch the hum. Speech and music without hum stay untouched,
+    and there is no echo (the former comb of all ~60 notches rang every 20 ms in the speech it took out, −12 dB; now
+    −28 dB); the hum goes down by 20–28 dB under speech. The mains of a transmitter is not exactly 50 Hz (49.96 Hz
     measured on 6050 kHz): the filter follows it within ±1 Hz, from the phase of the harmonics. SETTINGS › VFO › AUDIO:
     **Mains** 50 / 60 Hz (the Americas), **Width** 1–8 Hz (wider takes more of a hum that fades with the station),
     *Now* the mains found and how much is taken out. First in the audio chain, before NF, DNR and the ALC.
@@ -293,7 +310,7 @@ browser – and the **CUE** key of that VFO (orange LED): that VFO stays audible
         A signal on a spur is removed with it.
       - **AGC+** (inspired by the auto gain of OnAir, adswill/OnAir; `gainctl.py`):
         - **Meter strip**: the A/D level bar (the 99.9 % peak of the samples from −40 dBFS to full scale, a tick at the headroom
-          target; green at the target, amber too hot, red clipping, blue too quiet) and the **CLIP** lamp (held 2 s); under it the
+          target; green at the target, amber too hot or a few clipped samples, red clipping over the AGC+ limit, blue too quiet) and the **CLIP** lamp (held 2 s); under it the
           headroom, the noise floor over the A/D's own noise (with its goal and the *gain wasted* line), the channel SNR, the signal
           kind and band; the first **warning** in plain words (clipping, a strong signal nearby with its frequency and level, gain
           too low, antenna noise far over the A/D's) and with AUTO **why** the gain is where it is and its last decision.
@@ -303,9 +320,14 @@ browser – and the **CUE** key of that VFO (orange LED): that VFO stays audible
           *Overload: clipping above*) cuts at once by at least *cut*, 6 / 9 / 14 / 30 dB at 0.1 / 1 / 5 / 20 % clipped, and leaves a
           ceiling 3 dB under that gain for 20 s (90 s after three in a minute); then it climbs back to the gain before (4 dB per 1.2 s).
           Headroom under target − *dead band*: down by the error (every 0.8 s). Room: up by at most *up* every *between steps* – not
-          while the noise floor is more than *gain wasted* over its goal (narrow 10 dB, FM 5, DAB 8, ADS-B 12; HF −2), 3 dB more
+          while the noise floor is more than *gain wasted* over its goal (narrow 10 dB, FM 5, DAB 8, ADS-B 12; HF +2), 3 dB more
           takes a step down; inside the dead band a floor under its goal raises the gain 3 dB. After a step down a step up needs
           1.5× the dead band for 8 s; the first 8 s after a start or a retune climb faster. *Settle*: blocks ignored after a change.
+          **HF:** below 30 MHz (narrow channel), while the floor is under its goal (+ the dead band), the sensitivity wins:
+          AGC+ climbs 3 dB at a time down to a headroom of **4 dB** instead of stopping at the headroom target (on 31 m and 80 m the
+          S/N was 5–10 dB better there); clipping still cuts at once. A step up for the sensitivity must not take the floor over
+          its goal + the dead band (predicted by the measured step), and a step down for the headroom goes no deeper than the
+          floor's goal, so it does not hunt across it.
           **Real steps:** AGC+ measures how far each gain step really moved the headroom (the low steps of an R820T are much bigger
           than the table says: on HF 0 → 3.7 dB moved the A/D by ~15 dB) and steps up only when the measured step (or a chain of
           measured ones) does not take it under the dead band. A step down within 10 s of a step up holds the gain there for 30 s

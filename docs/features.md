@@ -25,7 +25,7 @@
   *why this gain*; defaults = the former preset BOLD (the others dropped in 1.1beta1). With the squelch set, AGC+ switches it to auto squelch. A diagram beside its settings (SETTINGS › VFO › ADVANCED) shows where AGC+, each of its settings and the audio ALC work. See [Function keys → GAIN](controls.md#function-keys).
 - **ATU (autotune), experimental,** in USB, LSB and AM: a click on a signal moves the tuning onto its carrier (AM within a few Hz in under 1 s);
   in SSB the suppressed carrier goes onto the red line, snapped to a whole kHz or rounded to 100 Hz (from the carrier-side edge of the voice band, ~2 s). See [Function keys → TUNE](controls.md#function-keys).
-- **Audio processing:** automatic notch filter (NF), audio low-pass and high-pass filters (LPF / HPF; the LPF as steep as the channel filter), automatic audio level (ALC) with smooth gain, **DNR** – digital noise reduction (spectral, Wiener gain from minimum-statistics noise: the noise lowered also under speech, level 1–10), **HUM** – mains hum filter (comb notch at 50 / 60 Hz and all multiples, following the mains of the transmitter), **NB** – noise blanker (pulses blanked in the wideband samples before the channel filter, stations never), and **NTH** – noise threshold: an expander with a voice detector turns the noise between words down while the speech stays at full level (AUTO sets it by itself), plus a soft limiter.
+- **Audio processing:** automatic notch filter (NF), audio low-pass and high-pass filters (LPF / HPF; the LPF as steep as the channel filter), automatic audio level (ALC) with smooth gain and SLOW / FAST times (FAST by default), **DNR** – digital noise reduction (spectral, Wiener gain from minimum-statistics noise: the noise lowered also under speech, level 1–10), **HUM** – mains hum filter (narrow notches at 50 / 60 Hz and its multiples, only where the hum is, following the mains of the transmitter; no echo), **NB** – noise blanker (pulses blanked in the wideband samples before the channel filter, stations never), and **NTH** – noise threshold: an expander with a voice detector turns the noise between words down while the speech stays at full level (AUTO and FAST by default: it sets itself, opens sooner and does not drop in a word on weak signals), plus a soft limiter.
 - **AFI (audio frequency inversion):** voice inversion scrambler / descrambler, inversion frequency 500–4000 Hz; REC and the decoders get the descrambled audio.
   See [Function keys → AUDIO](controls.md#function-keys).
 - **Remove DC peak** and **remove spurs** from local sources, in the waterfall and in the received signal.
@@ -72,6 +72,24 @@
 
 ACARS and VDL2 messages show the aircraft type, flight level, speed and squawk from adsb.fi / adsb.lol (emergency squawks 7500, 7600, 7700 framed in red)
 and the country flag from the ICAO address; a click on a message pauses the list. Every decoder card has a LOG checkbox for a daily log.
+
+### Decoder maps
+
+The maps of FT8, PACKET, ACARS / VDL2, HFDL, ADS-B, AIS and SONDE keep their **view** (centre and zoom, per map, in the
+browser): it comes back after a switch of the VFO or tab and after a reload, and new data no longer fits the map to the
+marks again. The VDL2, HFDL, ADS-B, SONDE and COMPOSITE maps have switches in the top right corner:
+
+- **Precipitation:** the RainViewer radar (no position sent, only the map tiles), the last 30 minutes as an animation
+  (frames every 10 minutes, the newest held a moment; its time in the bottom left corner), refreshed every 5 minutes;
+  sharp up to zoom 7. Off by default.
+- **Trails** (aircraft maps): the tracks of the aircraft on / off. On by default.
+
+### COMPOSITE
+
+**COM** key (group DECODE): one map with the positions from the decoders of **all VFOs** (ADS-B, ACARS / VDL2, HFDL, AIS,
+SONDE), sources to pick, the same aircraft from more VFOs / decoders joined into one (ICAO, registration, flight number in
+IATA / ICAO form, uncommon squawk), details of the selected aircraft, ship or sonde on the right with all its sources,
+6 hours of history kept over a server restart, also in a new tab, the merged feed as JSON. See [COMPOSITE map](composite.md).
 
 ## UI features
 

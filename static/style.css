@@ -2152,6 +2152,9 @@ body.map-only .ft8-map.map-only-box { flex-direction: column; }
 /* VFO › AUDIO: filters | AFI over ASQ | TSQ, DNR in the third column over both rows */
 .set-grid3:has(> .set-dyn) { align-items: stretch; }   /* boxes of one row equally high, no holes */
 .set-grid3 > .set-dyn { grid-column: 3; grid-row: 1 / span 2; }
+.set-grid3 > .set-alc { grid-column: 3; grid-row: 3; }   /* ALC under NTH (its FAST times follow NTH › EXP › FAST) */
+.set-alc .row .value { font-size: 12px; }
+.set-alc .alc-mode { display: flex; gap: 6px; margin: 2px 0 6px; }
 .set-dyn .dyn-sub { margin-left: 26px; }
 .set-dyn .dyn-now { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; }
 .set-dyn .dyn-now > span:first-child { color: var(--dim); }
@@ -2176,7 +2179,7 @@ body.map-only .ft8-map.map-only-box { flex-direction: column; }
 .sagc-presets { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 8px; }
 .sagc-presets-label { font-size: 11px; letter-spacing: 0.08em; opacity: 0.7; margin-right: 4px; }
 @media (max-width: 1100px) { .set-grid4 { columns: 2; } }
-@media (max-width: 700px) { .set-grid3 > .set-dyn { grid-column: auto; grid-row: auto; } .set-grid4 { columns: 1; } .set-grid3, .set-grid2, .set-meter, .set-skins, .set-cols { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 700px) { .set-grid3 > .set-dyn, .set-grid3 > .set-alc { grid-column: auto; grid-row: auto; } .set-grid4 { columns: 1; } .set-grid3, .set-grid2, .set-meter, .set-skins, .set-cols { grid-template-columns: minmax(0, 1fr); } }
 .meter-card .row small { color: var(--muted); font-size: 11px; font-weight: 400; }
 .meter-card .meter-picks { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .set-panel .setting { padding: 10px; gap: 6px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255, 255, 255, .02); }
@@ -3721,3 +3724,26 @@ html.app-shell .r-logo-led:hover .r-logo-ledtip { display: inline; }
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .agc-diagram .z-ok { fill: color-mix(in srgb, var(--muted) 35%, transparent); }
 .agc-diagram .agc-ceil { stroke: var(--amber); stroke-width: 1.5; stroke-dasharray: 4 3; }
+.map-precip-time { background: rgba(0,0,0,.6); color: #cfe3ff; font: 11px/1.4 monospace; padding: 1px 6px; border-radius: 3px; }   /* time of the radar frame shown */
+/* COMPOSITE: one map of the positions from the decoders of all VFOs */
+#comPane { --yellow: #6cb8ff; --accent: var(--yellow); }
+.com-label { font-size: 12px; color: var(--muted); }
+.com-srcs { display: flex; flex-wrap: wrap; gap: 4px; }
+.com-srcs .key.small { position: relative; padding-left: 18px; }
+.com-srcs .key.small::before { content: ""; position: absolute; left: 6px; top: 50%; width: 7px; height: 7px; margin-top: -4px; border-radius: 50%; background: var(--sc); opacity: .35; }
+.com-srcs .key.small.on::before { opacity: 1; }
+.com-srcs .muted { font-size: 12px; }
+.com-body { flex: 1 1 0; display: flex; gap: 8px; min-height: 300px; }
+.com-side { flex: 0 0 280px; overflow: auto; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: #0e1116; font-size: 12px; line-height: 1.55; }
+.com-side .com-kind { font-size: 11px; color: var(--muted); letter-spacing: .05em; margin-bottom: 4px; }
+.com-side a { color: var(--yellow); }
+@media (max-width: 760px) { .com-body { flex-direction: column; } .com-side { flex: 0 0 auto; } }
+#comMap { flex: 1 1 0; min-width: 0; min-height: 300px; border: 1px solid var(--line); border-radius: 6px; background: #0e1116; }
+#comMap.leaflet-container { font: 12px system-ui, sans-serif; }
+.com-mark { color: var(--sc); font-size: 15px; line-height: 14px; text-align: center; text-shadow: 0 0 2px #000, 0 0 2px #000; }
+.com-mark.old { opacity: .45; }
+.com-gs { color: var(--sc); font-size: 11px; line-height: 12px; text-align: center; opacity: .7; text-shadow: 0 0 2px #000; }
+.com-side .com-parts-head { margin-top: 8px; }
+.com-side .com-parts { width: 100%; border-collapse: collapse; margin-bottom: 2px; }
+.com-side .com-parts td { padding: 1px 4px 1px 0; vertical-align: top; white-space: nowrap; }
+.com-side .com-parts td:nth-child(3) { white-space: normal; }

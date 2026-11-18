@@ -66,7 +66,7 @@ class Target:
         head, goal, hold = KINDS[kind]
         band = ""
         if freq_hz < 30e6:
-            head, goal, band = head + 3, goal - 2, "HF: the band's noise is far above the radio's, strong stations"
+            head, goal, band = head + 3, goal + 2, "HF: the band's noise is far above the radio's, strong stations"
         elif 87.5e6 <= freq_hz <= 108e6 and kind != "fm":
             head, band = head + 3, "FM broadcast band: strong stations"
         elif 30e6 <= freq_hz < 87.5e6 or 108e6 < freq_hz < 174e6:
@@ -76,6 +76,11 @@ class Target:
         if wide_capture:
             head += 2                           # the band is much wider than the channel: more strong signals reach the A/D
         self.kind, self.band, self.freq_hz = kind, band, freq_hz
+        # HF: while the band's floor is under its goal over the A/D's noise, the sensitivity wins over the headroom
+        # target down to this headroom (the SNR SWEEP of 2026-11-17: 31 m AM, AGC+ held 3.7 dB with the floor 3 dB over
+        # the A/D's noise, the S/N was 5-10 dB better at 15-20 dB of gain with 7 dB of headroom and no clipping; on 80 m RWM
+        # it kept rising up to 11-14 dB of floor and 2.5-4.5 dB of headroom: HF goal 12 dB (was 8), head_min 4 dB (was 6))
+        self.head_min = 4.0 if freq_hz < 30e6 and kind == "narrow" else None
         self.head, self.goal, self.use_hold = head + adj, goal, hold
 
     def as_dict(self):
@@ -150,6 +155,7 @@ class FrontMeter:
         self.hold = deque()                     # (time, peak) over HOLD_S
         self.spec = {}                          # the last analyse()
         self.clip_t = -1e9                      # last block with clipping (the lamp holds 2 s)
+        self.clip_hold = deque()                # (time, clipped share) of the blocks that clipped, over HOLD_S
 
     def block(self, raw, t):
         """(clipped share, peak 0..1) of a block of A/D samples: uint8 (RTL) or complex64 ±1 (Airspy, Lime);
@@ -169,10 +175,17 @@ class FrontMeter:
         self.clip, self.peak = float(n) / max(raw.size, 1), float(peak)
         if self.clip > 0:
             self.clip_t = t
+            self.clip_hold.append((t, self.clip))
+        while self.clip_hold and self.clip_hold[0][0] < t - self.HOLD_S:
+            self.clip_hold.popleft()
         self.hold.append((t, self.peak))
         while self.hold and self.hold[0][0] < t - self.HOLD_S:
             self.hold.popleft()
         return self.clip, self.peak
+
+    def clip_max(self):
+        """The worst clipped share of a block over the last HOLD_S (0 = none)."""
+        return max((c for _t, c in self.clip_hold), default=0.0)
 
     @staticmethod
     def head_of(x):
@@ -261,12 +274,14 @@ class SmartAgc:
                     todo.append(n)
         return seen[up] if up in seen else (up - gain) * dpu
 
-    def _fit(self, gains, gain, up, tgt, dpu, head, floor):
-        """The highest gain from gain to up (exclusive / inclusive) whose predicted headroom stays at or over floor."""
+    def _fit(self, gains, gain, up, tgt, dpu, head, floor, mcap=None):
+        """The highest gain from gain to up (exclusive / inclusive) whose predicted headroom stays at or over floor;
+        mcap = (margin, cap): and the floor over the A/D's noise not over cap (it rises at most as much as the signals)."""
         if up is None:
             return None
         for g in reversed([g for g in gains if gain < g <= up + 1e-9]):
-            if head - self._est(tgt, gain, g, dpu) >= floor:
+            est = self._est(tgt, gain, g, dpu)
+            if head - est >= floor and (mcap is None or mcap[0] + est <= mcap[1] - 0.5):
                 return g
         return None
 
@@ -297,6 +312,9 @@ class SmartAgc:
                 d = max(abs(h0 - head), 0.3)
                 self.step_db[k] = d if k not in self.step_db else 0.5 * self.step_db[k] + 0.5 * d
         hunt = t - self.last_up < 10.0         # a step down this soon after a step up: the step up was too big
+        # HF with the floor under its goal (+ the dead band as hysteresis): the headroom may go down to head_min
+        sens = tgt.head_min is not None and margin is not None and margin < tgt.goal + win
+        low = min(tgt.head - win, tgt.head_min) if sens else tgt.head - win
         if ppm > p["clip_ppm"]:
             # overload: cut at once by how bad it is; a soft ceiling 3 dB under this gain, longer when it repeats
             cut = _cut_db(ppm, p["down_db"])
@@ -314,13 +332,18 @@ class SmartAgc:
                 self._note(f"down {(gain - new) * dpu:.1f} dB: the A/D clipped {ppm / 1e4:.3f} % of the samples")
                 self.last_down = t
             self.limit = "overload"
-        elif head < tgt.head - win:
+        elif head < low:
             # too hot (no clipping yet): down by the error, at most every 0.8 s
             self.limit = "headroom"
             if t - self.last_down >= 0.8:
-                new = _down(gains, gain, max(tgt.head - head, 1.0), dpu)
+                aim = tgt.head_min + win if sens else tgt.head
+                db = aim - head
+                if tgt.head_min is not None and not sens and margin is not None:
+                    db = min(db, margin - tgt.goal)     # HF: not deeper than the floor's goal (else it hunts across it)
+                new = _down(gains, gain, max(db, 1.0), dpu)
                 if new != gain:
-                    self._note(f"down {(gain - new) * dpu:.1f} dB: headroom {head:.1f} dB under the target {tgt.head:.0f} dB"
+                    self._note(f"down {(gain - new) * dpu:.1f} dB: headroom {head:.1f} dB under the "
+                               + (f"minimum {tgt.head_min:.0f} dB" if sens else f"target {tgt.head:.0f} dB")
                                + self._hunting(hunt, new, t))
                     self.last_down = t
                     self.before = None
@@ -365,9 +388,12 @@ class SmartAgc:
                     self.limit = "top"
                 else:
                     self.limit = "headroom"
-            elif (margin is not None and margin < tgt.goal and abs(room) <= win and head - 3 >= tgt.head - win
-                  and t - self.last_up >= hold):
-                up = self._fit(gains, gain, _up(gains, gain, 3.0, dpu, ceil), tgt, dpu, head, tgt.head - win)
+            elif (margin is not None and margin < tgt.goal and t - self.last_up >= hold
+                  and (sens or (abs(room) <= win and head - 3 >= tgt.head - win))):
+                # the floor too close to the A/D's noise: 3 dB up (HF: as long as the headroom stays over head_min)
+                up = self._fit(gains, gain, _up(gains, gain, 3.0, dpu, ceil), tgt, dpu, self.win_head if sens else head,
+                               tgt.head_min + 1.0 if sens else tgt.head - win,
+                               (margin, tgt.goal + win) if sens else None)
                 if up is not None:
                     new = up
                     self._note(f"up {(new - gain) * dpu:.1f} dB: the noise floor only {margin:.1f} dB over the A/D's (goal {tgt.goal:.0f} dB)")

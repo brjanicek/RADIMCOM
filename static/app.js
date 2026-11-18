@@ -135,7 +135,7 @@ let active = null; // active VFO
 // no spectrum, and it saves nothing to the browser, so the settings of the main window stay as they are
 const MAP_ONLY = (() => {
   const m = new URLSearchParams(location.search).get("map");
-  return ["packet", "hfdl", "ais", "adsb", "acars", "ft8", "sonde"].includes(m) ? m : null;
+  return ["packet", "hfdl", "ais", "adsb", "acars", "ft8", "sonde", "com"].includes(m) ? m : null;
 })();
 
 function store(key, value) { if (MAP_ONLY) return; try { localStorage.setItem(key, value); } catch (e) { /* no storage */ } }
@@ -2462,12 +2462,30 @@ function renderRds() {
   const expAuto = st.dyn_exp_auto !== false;
   $("dynExpAuto").checked = expAuto;
   $("dynExpAuto").disabled = !expOn;     // AUTO only sets the expander: nothing to do without EXP
+  $("dynExpFast").checked = !!st.dyn_exp_fast;
+  for (const [id, key] of [["alcHang", "alc_hang_ms"], ["alcDecay", "alc_decay_ms"], ["alcFastHang", "alc_fast_hang_ms"], ["alcFastDecay", "alc_fast_decay_ms"]]) {
+    if (st[key] != null && document.activeElement !== $(id)) $(id).value = Math.round(st[key]);
+  }
+  const alcSel = st.alc_fast !== false;   // the switch, FAST by default
+  const alcByNth = !!st.dyn && expOn && !!st.dyn_exp_fast, alcFast = alcSel || alcByNth;
+  $("alcInfo").textContent = !alcMode ? "not in " + st.mode : st.audio_agc === false ? "ALC off"
+    : alcSel ? "FAST" : alcByNth ? "FAST (NTH EXP FAST)" : "SLOW";
+  for (const b of document.querySelectorAll("#alcMode [data-alc]")) {
+    const on = (b.dataset.alc === "fast") === alcSel;
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-checked", on ? "true" : "false");
+  }
+  const alcLit = alcMode && st.audio_agc !== false;
+  $("alcKey").title = "Audio ALC (automatic audio level) in AM/LSB/USB/CW; off = fixed gain, set the level with MAIN" +
+    (!alcLit ? "" : alcFast ? `. Now FAST${alcSel ? "" : " (by NTH › EXP › FAST)"}: the level comes back up soon after a loud part`
+      : ". Now SLOW: the level comes back up slowly after a loud part") + " (SETTINGS › AUDIO › ALC)";
+  $("dynExpFast").disabled = !expOn;
   for (const [id, key] of [["dynExpDb", "dyn_exp_db"], ["dynExpSens", "dyn_exp_sens"], ["dynExpHold", "dyn_exp_hold_ms"]]) {
     $(id).disabled = !expOn || expAuto;  // AUTO: the manual values are not used
     if (st[key] != null && document.activeElement !== $(id)) $(id).value = st[key];
   }
   const ei = st.dyn_exp_info;
-  $("dynExpInfo").textContent = !expOn ? "EXP off" : !ei ? "" : `${ei.auto ? "AUTO" : "manual"} · sens ${ei.sens} · depth ${Math.round(ei.depth_db)} dB · hold ${ei.hold_ms} ms`
+  $("dynExpInfo").textContent = !expOn ? "EXP off" : !ei ? "" : `${ei.auto ? "AUTO" : "manual"}${st.dyn_exp_fast ? " FAST" : ""} · sens ${ei.sens} · depth ${Math.round(ei.depth_db)} dB · hold ${ei.hold_ms} ms`
     + ` · SNR ${ei.snr_db == null ? "…" : Math.round(ei.snr_db) + " dB"}`;
   $("agcSmooth").checked = st.agc_smooth !== false;
   const afiMode = st.mode !== "WFM" && st.mode !== "DSD";
@@ -2714,7 +2732,10 @@ function renderAgcMeter() {
   const head = a.kind === "pulsed" ? a.head_hold : a.head, w = Number(p.window_db) || 3;
   const live = !auto && head != null;
   const lvl = live ? Math.max(0, Math.min(1, (40 - head) / 40)) : 0;
-  const col = !live ? "" : st.adc_clip || a.lamp ? "clip" : head < a.target - w ? "hot" : head > a.target + w + 6 ? "quiet" : "ok";
+  // red only over the AGC+ clipping limit (as the dBFS value of the VFO window); a few clipped samples: amber
+  const anyClip = !!st.adc_clip || !!a.lamp;
+  const overLimit = anyClip && Math.max(a.clip_ppm_2s ?? 0, st.adc_clip_ppm ?? 0) > (a.clip_limit_ppm ?? 300);
+  const col = !live ? "" : overLimit ? "clip" : anyClip || head < a.target - w ? "hot" : head > a.target + w + 6 ? "quiet" : "ok";
   $("agcBarFill").style.width = `${(lvl * 100).toFixed(1)}%`;
   $("agcBarFill").className = `fill ${col}`;
   $("agcBarTick").style.left = a.target != null ? `${Math.max(0, Math.min(100, (40 - a.target) / 40 * 100))}%` : "-10px";
@@ -2807,6 +2828,12 @@ $("notchKey").addEventListener("click", () => {
   renderRds();
   send({ notch: st.notch });
 });
+document.querySelectorAll("#alcMode [data-alc]").forEach((b) => b.addEventListener("click", () => {
+  if (!st) return;
+  st.alc_fast = b.dataset.alc === "fast";
+  renderRds();
+  send({ alc_fast: st.alc_fast });
+}));
 $("alcKey").addEventListener("click", () => {
   if (!st) return;
   st.audio_agc = st.audio_agc === false;
@@ -2855,14 +2882,17 @@ $("dnrLevel").addEventListener("change", () => {
   $("dnrLevel").value = v;
   send({ dnr_level: v });
 });
-for (const [id, key, lo, hi, def] of [["dynExpDb", "dyn_exp_db", 3, 30, 12], ["dynExpSens", "dyn_exp_sens", 1, 10, 5], ["dynExpHold", "dyn_exp_hold_ms", 20, 1000, 100]]) {
+for (const [id, key, lo, hi, def] of [["alcHang", "alc_hang_ms", 0, 2000, 600], ["alcDecay", "alc_decay_ms", 100, 5000, 1000],
+  ["alcFastHang", "alc_fast_hang_ms", 0, 2000, 400], ["alcFastDecay", "alc_fast_decay_ms", 100, 5000, 100],
+  ["dynExpDb", "dyn_exp_db", 3, 30, 12], ["dynExpSens", "dyn_exp_sens", 1, 10, 5], ["dynExpHold", "dyn_exp_hold_ms", 20, 1000, 100]]) {
   $(id).addEventListener("change", () => {
-    const v = Math.min(hi, Math.max(lo, Math.round(Number($(id).value)) || def));
+    const n = Math.round(Number($(id).value));
+    const v = Math.min(hi, Math.max(lo, $(id).value !== "" && Number.isFinite(n) ? n : def));   // 0 is a valid hold
     $(id).value = v;
     send({ [key]: v });
   });
 }
-for (const [id, key] of [["dynLim", "dyn_lim"], ["dynExp", "dyn_exp"], ["dynExpAuto", "dyn_exp_auto"]]) {
+for (const [id, key] of [["dynLim", "dyn_lim"], ["dynExp", "dyn_exp"], ["dynExpAuto", "dyn_exp_auto"], ["dynExpFast", "dyn_exp_fast"]]) {
   $(id).addEventListener("change", () => {
     if (!st) return;
     st[key] = $(id).checked;
@@ -3344,7 +3374,7 @@ $("ft8Clear").addEventListener("click", () => {
 const ft8St = new Map();    // call -> {call, grid, lat, lon, ts, first, n, snr, freq_hz, msg, cq}
 let ft8Win = Number(recall("ft8Win")) || 3600;
 var ft8PageShown = false;   // var: renderDecTab can run before this line
-let ft8Map = null, ft8MapLay = null, ft8MapFitted = false, ft8Sel = null, ft8Qth = null, ft8MapTimer = null;
+let ft8Map = null, ft8MapLay = null, ft8MapFitted = !!mapViewSaved("ft8"), ft8Sel = null, ft8Qth = null, ft8MapTimer = null;
 
 const ft8Shown = () => MAP_ONLY === "ft8" || (bodyTab === "dec" && decPage === "ft8");
 const ft8BandOf = (hz) => FT8_BANDS[Object.keys(FT8_BANDS).find((f) => Math.abs(f - hz) < 5000)];
@@ -3400,7 +3430,7 @@ async function ft8StLoad() {
     ft8St.clear();
     for (const s of list) ft8St.set(s.call, s);
   } catch { /* server unreachable */ }
-  ft8MapFitted = false;
+  ft8MapFitted = !!mapViewSaved("ft8");
   ft8MapLater();
 }
 
@@ -3623,7 +3653,7 @@ renderFt8MapOpts();
 function ft8StClear() {
   ft8St.clear();
   ft8Sel = null;
-  ft8MapFitted = false;
+  ft8MapFitted = !!mapViewSaved("ft8");
   if (ft8MapLay) { ft8MapLay.st.clearLayers(); ft8MapLay.path.clearLayers(); ft8MapLay.marks.clear(); }
   renderFt8Map();
 }
@@ -3665,6 +3695,7 @@ function guessBodyTab() {
 }
 
 function setBodyTab(tab, save = true) {
+  if (MAP_ONLY === "com") tab = "com";   // the COMPOSITE map tab stays on its map
   bodyTab = tab;
   if (save) store(tabKey(), tab);
   if (tab === "sat" && save) store(satOnKey(), "1");   // the SATELLITES tab open → SAT on for this VFO
@@ -3674,6 +3705,7 @@ function setBodyTab(tab, save = true) {
   if (tab === "recs" && save) store("recsOn", "1");     // the RECORDINGS tab open → the RECS key on
   if (tab === "rot" && save) store("rotOn", "1");       // the ROTOR CONTROL tab open → the RCTRL key on
   if (tab === "scan" && save) store("scanOn", "1");     // the SCAN tab open → the SCAN key on
+  if (tab === "com" && save) store("comOn", "1");       // the COMPOSITE tab open → the COM key on
   for (const b of $("bodyTabs").querySelectorAll("button")) b.classList.toggle("on", b.dataset.tab === tab);
   $("decPane").hidden = tab !== "dec";
   $("dabPane").hidden = tab !== "dab";
@@ -3685,6 +3717,7 @@ function setBodyTab(tab, save = true) {
   $("recsPane").hidden = tab !== "recs";
   $("rotPane").hidden = tab !== "rot";
   $("scanPane").hidden = tab !== "scan";
+  $("comPane").hidden = tab !== "com";
   if (tab === "dec") { $("decNew").hidden = true; decNewPages.delete(decPage); }
   renderDecKey();
   renderDecTab();
@@ -3695,6 +3728,8 @@ function setBodyTab(tab, save = true) {
   renderRecsKey();
   renderRotKey();
   renderScanKey();
+  renderComKey();
+  setTimeout(() => comShown(tab === "com"));       // the COMPOSITE map polls only while open (declared further down)
   if (tab === "scan") setTimeout(scanPaneOpened);  // declared further down
   if (tab === "mem") setTimeout(memPaneOpened);    // declared further down
   if (tab === "recs") setTimeout(loadRecordings);  // declared further down
@@ -3900,6 +3935,20 @@ function renderScanKey() {
   $("scanTabDot").hidden = !(sc && sc.on);
 }
 $("scanKey").addEventListener("click", () => setScanOn(!scanTabShown()));
+/** COM key (DECODE group): the COMPOSITE tab (one map of the decoders of all VFOs) is there only while it is on; one switch for all VFOs. */
+function comTabShown() { return recall("comOn") === "1"; }
+function setComOn(on) {
+  store("comOn", on ? "1" : "0");
+  if (on) setBodyTab("com");
+  else if (bodyTab === "com") setBodyTab("scope");
+  else renderComKey();
+}
+function renderComKey() {
+  const on = comTabShown();
+  $("comKey").classList.toggle("on", on);
+  $("comTab").hidden = !on;
+}
+$("comKey").addEventListener("click", () => setComOn(!comTabShown()));
 for (const id of ["ft8On", "wefaxOn", "cwOn", "rttyOn", "sstvOn", "packetOn", "pocsagOn", "sondeOn", "acarsOn", "vdl2On", "hfdlOn", "aisOn", "adsbOn"]) {
   $(id).addEventListener("change", () => renderDecTab());
 }
@@ -5682,7 +5731,7 @@ const acarsAc = new Map();       // key -> aircraft {key, hex, reg, flight, ac, 
 const acarsAcAlias = new Map();  // "hex:…" / "reg:…" / "flt:…" -> aircraft
 const acarsGsPos = new Map();    // VDL2 ground station address -> {lat, lon, gs_loc, gs_city, t}
 let acarsView = MAP_ONLY ? "map" : recall("acarsView") || "msgs";
-let acarsMap = null, acarsMapLayers = null, acarsMapFitted = false, acarsSel = null, acarsViewTimer = null;
+let acarsMap = null, acarsMapLayers = null, acarsMapFitted = !!mapViewSaved("acars"), acarsSel = null, acarsViewTimer = null;
 
 /** Time of a message (UTC date + time strings) in seconds. */
 function acarsT(m) {
@@ -5813,11 +5862,12 @@ async function acarsMapOpen() {
     // a click on the map (not on a mark) drops the selection: the red mark and trail get their own colors back
     acarsMap.on("click", () => { if (acarsSel != null) { acarsSel = null; renderAcarsMap(); } });
     acarsMapLayers = { gs: L.layerGroup().addTo(acarsMap), tracks: L.layerGroup().addTo(acarsMap), planes: L.layerGroup().addTo(acarsMap), marks: new Map() };
+    mapPrecip(acarsMap, "acars", acarsMapLayers.tracks);
     try {
       const s = await satFetch("/api/location");
       if (s && Number.isFinite(s.lat) && Number.isFinite(s.lon)) {
         L.circleMarker([s.lat, s.lon], { radius: 6, color: "#000", weight: 2, fillColor: "#ff5a3c", fillOpacity: 1 }).bindTooltip("QTH").addTo(acarsMap);
-        if (!acarsMapLayers.marks.size) acarsMap.setView([s.lat, s.lon], 6);
+        if (!acarsMapLayers.marks.size && !mapViewSaved("acars")) acarsMap.setView([s.lat, s.lon], 6);
       }
     } catch { /* server unreachable */ }
   }
@@ -5908,7 +5958,7 @@ function acarsAcClear() {
   acarsAcAlias.clear();
   acarsGsPos.clear();
   acarsSel = null;
-  acarsMapFitted = false;
+  acarsMapFitted = !!mapViewSaved("acars");
   if (acarsMapLayers) { acarsMapLayers.planes.clearLayers(); acarsMapLayers.tracks.clearLayers(); acarsMapLayers.gs.clearLayers(); acarsMapLayers.marks.clear(); }
   renderAcarsView();
 }
@@ -6646,7 +6696,7 @@ let pktView = ["frames", "stations", "map"].includes(recall("packetView")) ? rec
 const pktStations = new Map();   // callsign / object name -> newest state (from the server)
 let pktMap = null;               // Leaflet map, made when MAP is first opened
 const pktMarks = new Map();
-let pktFitted = false;
+let pktFitted = !!mapViewSaved("packet");
 let pktStTimer = null;
 
 const pktTime = (t) => new Date(t * 1000).toISOString().slice(11, 19);
@@ -6786,7 +6836,7 @@ function packetReset() {
   pktStations.clear();
   for (const mk of pktMarks.values()) mk.remove();
   pktMarks.clear();
-  pktFitted = false;
+  pktFitted = !!mapViewSaved("packet");
   renderPktStations();
 }
 
@@ -6952,7 +7002,7 @@ const SONDE_MAX_FRAMES = 500;
 const SONDE_OLD_S = 600;         // no frame for 10 min: lost (grey)
 const sondes = new Map();        // serial -> {…sonde from the server, pts: [[lat, lon, alt, t]]}
 let sondeView = recall("sondeView") === "profile" ? "map" : ["sondes", "map", "frames"].includes(recall("sondeView")) ? recall("sondeView") : "sondes";
-let sondeMap = null, sondeLayers = null, sondeFitted = false, sondeSel = recall("sondeSel") || null, sondeTimer = null;
+let sondeMap = null, sondeLayers = null, sondeFitted = !!mapViewSaved("sonde"), sondeSel = recall("sondeSel") || null, sondeTimer = null;
 
 const sondeKmh = (v) => (v == null ? "" : (v * 3.6).toFixed(0));
 const sondeClimb = (v) => (v == null ? "" : `${v > 0 ? "+" : ""}${v.toFixed(1)}`);
@@ -7164,7 +7214,7 @@ async function sondeMapOpen() {
       if (s && Number.isFinite(s.lat) && Number.isFinite(s.lon)) {
         sondeQth = s;
         L.circleMarker([s.lat, s.lon], { radius: 6, color: "#000", weight: 2, fillColor: "#ff5a3c", fillOpacity: 1 }).bindTooltip("QTH").addTo(sondeMap);
-        sondeMap.setView([s.lat, s.lon], 7);
+        if (!mapViewSaved("sonde")) sondeMap.setView([s.lat, s.lon], 7);
       }
     } catch { /* server unreachable */ }
   }
@@ -7275,7 +7325,7 @@ function sondeSitesInit() {
   sondeMap.createPane("sondeSitesPane").style.zIndex = 390;   // under the sondes and their tracks
   sondeSitesLayer = L.layerGroup();
   if (recall("sondeSites") !== "0") sondeSitesLayer.addTo(sondeMap);
-  L.control.layers(null, { "Launch sites": sondeSitesLayer }, { collapsed: false, position: "topright" }).addTo(sondeMap);
+  mapPrecip(sondeMap, "sonde").addOverlay(sondeSitesLayer, "Launch sites");   // one switch box with Precipitation
   sondeMap.on("overlayadd overlayremove", (e) => { if (e.layer === sondeSitesLayer) store("sondeSites", e.type === "overlayadd" ? "1" : "0"); });
   sondeSitesLoad();
 }
@@ -8016,7 +8066,7 @@ function sondeReset() {
   $("sondeFrameRows").innerHTML = "";
   $("sondeFrameEmpty").hidden = false;
   sondes.clear();   // the choice (sondeSel) stays: shown again when the sonde comes back
-  sondeFitted = false;
+  sondeFitted = !!mapViewSaved("sonde");
   if (sondeLayers) { sondeLayers.marks.clearLayers(); sondeLayers.tracks.clearLayers(); sondeLayers.m.clear(); }
   renderSondeView();
 }
@@ -9579,7 +9629,7 @@ function onHfdlInfo(d) {
 const hfdlAc = new Map();       // key -> aircraft {hex, reg, flight, ac, first, last, n, gs, pts: [{lat, lon, t, src}]}
 const hfdlAcAlias = new Map();  // "hex:…" / "reg:…" / "flt:…" -> aircraft (the same aircraft arrives with different identifiers)
 let hfdlView = recall("hfdlView") || "msgs";
-let hfdlMap = null, hfdlMapLayers = null, hfdlMapFitted = false, hfdlSel = null, hfdlViewTimer = null;
+let hfdlMap = null, hfdlMapLayers = null, hfdlMapFitted = !!mapViewSaved("hfdl"), hfdlSel = null, hfdlViewTimer = null;
 const HFDL_OLD_S = 3600;        // older positions: grey aircraft on the map
 
 function hfdlAcUpdate(m, now) {
@@ -9706,6 +9756,7 @@ async function hfdlMapOpen() {
     // a click on the map (not on a mark) drops the selection: the red mark and trail get their own colors back
     hfdlMap.on("click", () => { if (hfdlSel != null) { hfdlSel = null; renderHfdlMap(); } });
     hfdlMapLayers = { gs: L.layerGroup().addTo(hfdlMap), tracks: L.layerGroup().addTo(hfdlMap), planes: L.layerGroup().addTo(hfdlMap), marks: new Map() };
+    mapPrecip(hfdlMap, "hfdl", hfdlMapLayers.tracks);
     try {
       const s = await satFetch("/api/location");
       if (s && Number.isFinite(s.lat) && Number.isFinite(s.lon))
@@ -9811,7 +9862,7 @@ function hfdlAcClear() {
   hfdlAc.clear();
   hfdlAcAlias.clear();
   hfdlSel = null;
-  hfdlMapFitted = false;
+  hfdlMapFitted = !!mapViewSaved("hfdl");
   if (hfdlMapLayers) { hfdlMapLayers.planes.clearLayers(); hfdlMapLayers.tracks.clearLayers(); hfdlMapLayers.marks.clear(); }
   renderHfdlView();
 }
@@ -10060,7 +10111,7 @@ $("aisRows").addEventListener("click", (e) => {
 
 const aisShips = new Map();     // mmsi -> {…ship from the server, pts: [{lat, lon, t}]}
 let aisView = recall("aisView") || "msgs";
-let aisMap = null, aisMapLayers = null, aisMapFitted = false, aisSel = null, aisViewTimer = null;
+let aisMap = null, aisMapLayers = null, aisMapFitted = !!mapViewSaved("ais"), aisSel = null, aisViewTimer = null;
 const AIS_OLD_S = 1800;         // no message for 30 min: grey on the map
 
 function aisShipUpdate(m) {
@@ -10174,7 +10225,7 @@ async function aisMapOpen() {
       const s = await satFetch("/api/location");
       if (s && Number.isFinite(s.lat) && Number.isFinite(s.lon)) {
         L.circleMarker([s.lat, s.lon], { radius: 6, color: "#000", weight: 2, fillColor: "#ff5a3c", fillOpacity: 1 }).bindTooltip("QTH").addTo(aisMap);
-        aisMap.setView([s.lat, s.lon], 8);
+        if (!mapViewSaved("ais")) aisMap.setView([s.lat, s.lon], 8);
       }
     } catch { /* server unreachable */ }
   }
@@ -10261,7 +10312,7 @@ setTimeout(() => setAisView(aisView));   // after the declarations below
 function aisShipsClear() {
   aisShips.clear();
   aisSel = null;
-  aisMapFitted = false;
+  aisMapFitted = !!mapViewSaved("ais");
   if (aisMapLayers) { aisMapLayers.ships.clearLayers(); aisMapLayers.tracks.clearLayers(); aisMapLayers.marks.clear(); }
   renderAisView();
 }
@@ -10371,7 +10422,7 @@ let adsbLast = {};              // the status sends only on/off and the error; t
 let adsbFreq = 1090000000;
 const adsbAc = new Map();       // icao -> {…aircraft from the server, pts: [[lat, lon, t, alt]]}
 let adsbView = recall("adsbView") || "ac";
-let adsbMap = null, adsbMapLayers = null, adsbMapFitted = false, adsbSel = null, adsbViewTimer = null, adsbQth = null;
+let adsbMap = null, adsbMapLayers = null, adsbMapFitted = !!mapViewSaved("adsb"), adsbSel = null, adsbViewTimer = null, adsbQth = null;
 
 const adsbUtc = (t) => new Date(t * 1000).toISOString().slice(11, 19);
 const adsbAge = (t) => { const s = Date.now() / 1000 - t; return s < 90 ? `${Math.max(0, Math.round(s))} s` : `${Math.round(s / 60)} min`; };
@@ -10586,6 +10637,7 @@ async function adsbMapOpen() {
     // a click on the map (not on a mark) drops the selection: the red mark and trail get their own colors back
     adsbMap.on("click", () => { if (adsbSel != null) { adsbSel = null; renderAdsbMap(); } });
     adsbMapLayers = { range: L.layerGroup().addTo(adsbMap), rings: L.layerGroup().addTo(adsbMap), tracks: L.layerGroup().addTo(adsbMap), planes: L.layerGroup().addTo(adsbMap), marks: new Map() };
+    mapPrecip(adsbMap, "adsb", adsbMapLayers.tracks);
     try {
       const s = await satFetch("/api/location");
       if (s && Number.isFinite(s.lat) && Number.isFinite(s.lon) && (s.lat || s.lon)) {
@@ -10594,7 +10646,7 @@ async function adsbMapOpen() {
           L.circle([s.lat, s.lon], { radius: km * 1000, color: "#6cb8ff", weight: 1, opacity: 0.35, fill: false, interactive: false }).addTo(adsbMapLayers.rings);
         }
         L.circleMarker([s.lat, s.lon], { radius: 6, color: "#000", weight: 2, fillColor: "#ff5a3c", fillOpacity: 1 }).bindTooltip("QTH · rings 50, 100, 200, 300 km").addTo(adsbMap);
-        adsbMap.setView([s.lat, s.lon], 7);
+        if (!mapViewSaved("adsb")) adsbMap.setView([s.lat, s.lon], 7);
       }
     } catch { /* server unreachable */ }
   }
@@ -10751,7 +10803,7 @@ function adsbReset() {
   adsbLast = {};
   adsbAc.clear();
   adsbSel = null;
-  adsbMapFitted = false;
+  adsbMapFitted = !!mapViewSaved("adsb");
   if (adsbMapLayers) { adsbMapLayers.planes.clearLayers(); adsbMapLayers.tracks.clearLayers(); adsbMapLayers.marks.clear(); }
   $("adsbMsgRows").innerHTML = "";
   $("adsbMsgEmpty").hidden = false;
@@ -14164,14 +14216,17 @@ function renderVfoAdc(row, s) {
   bar.style.setProperty("--z1", pos(-(t + w + 6)));
   bar.style.setProperty("--z2", pos(-(t - w)));
   bar.style.setProperty("--z3", pos(-1, last));
-  const clip = !!s.adc_clip || !!a.lamp;
-  const zone = lvl == null ? "" : clip || lvl > -1 ? "clip" : lvl > -(t - w) ? "hot" : lvl < -(t + w + 6) ? "quiet" : "ok";
+  // red only when the A/D clipped more than the AGC+ limit (that cuts the gain); a few clipped samples under it
+  // (an impulse, a spike) only amber – the value is the 99.9 % peak, far under full scale then
+  const cppm = Math.max(a.clip_ppm_2s ?? 0, s.adc_clip_ppm ?? 0), limit = a.clip_limit_ppm ?? 300;
+  const clip = (!!s.adc_clip || !!a.lamp) && cppm > limit, spikes = (!!s.adc_clip || !!a.lamp) && !clip;
+  const zone = lvl == null ? "" : clip || lvl > -1 ? "clip" : spikes || lvl > -(t - w) ? "hot" : lvl < -(t + w + 6) ? "quiet" : "ok";
   val.className = `vfo-adcv ${zone}`;
   val.textContent = lvl == null ? "---" : `${minusSign(lvl.toFixed(1))} dBFS`;
   const tip = lvl == null ? "A/D converter: not measured" :
     `A/D converter: 99.9 % peak ${minusSign(lvl.toFixed(1))} dBFS, block peak ${minusSign(s.adc_peak)} dBFS` +
-    `${clip ? `, CLIPPING ${ppmPct(s.adc_clip_ppm || 0)}` : ""}\nScale: green = the AGC+ headroom target ${t} ± ${w} dB under full scale` +
-    `${a.kind_text ? ` (${a.kind_text}${a.band ? `, ${a.band.split(":")[0]}` : ""})` : ""}, amber too hot, red clipping, blue too quiet`;
+    `${clip ? `, CLIPPING ${ppmPct(cppm)} (over the AGC+ limit ${ppmPct(limit)})` : spikes ? `, a few samples hit full scale (${ppmPct(cppm)}, under the AGC+ limit ${ppmPct(limit)}: spikes, harmless)` : ""}\nScale: green = the AGC+ headroom target ${t} ± ${w} dB under full scale` +
+    `${a.kind_text ? ` (${a.kind_text}${a.band ? `, ${a.band.split(":")[0]}` : ""})` : ""}, amber too hot or a few clipped samples, red clipping over the AGC+ limit, blue too quiet`;
   const foot = bar.closest(".vfo-foot");
   if (!foot.matches(":hover")) foot.title = tip;
 }
@@ -16025,6 +16080,17 @@ $("donBtn").onclick = donateWin;
 
 /** "?map=…" tab: the map box alone over the whole window, the map view of its decoder. */
 function mapOnlySetup() {
+  if (MAP_ONLY === "com") {   // COMPOSITE: the whole pane (sources, map, details), polling all VFOs
+    const box = $("comPane");
+    document.body.append(box);
+    box.hidden = false;
+    box.classList.add("map-only-box");
+    document.body.classList.add("map-only");
+    document.title = "Composite map · RADIMCOM";
+    bodyTab = "com";
+    comShown(true);
+    return;
+  }
   const box = $(`${MAP_ONLY}MapBox`);
   document.body.append(box);
   box.classList.add("map-only-box");
@@ -16033,8 +16099,428 @@ function mapOnlySetup() {
   ({ packet: setPktView, hfdl: setHfdlView, ais: setAisView, adsb: setAdsbView, acars: setAcarsView, ft8: () => renderFt8Map(), sonde: setSondeView })[MAP_ONLY]("map");
 }
 
+/** Decoder maps remember their view (centre and zoom, per map, in the browser): it comes back after a switch of the
+ *  VFO, of the tab or a reload, and new data (another VFO) no longer fits the map to the marks again once a view is kept. */
+function mapViewSaved(kind) {
+  try {
+    const v = JSON.parse(recall(`mapView.${kind}`) || "null");
+    return v && Number.isFinite(v.lat) && Number.isFinite(v.lon) && Number.isFinite(v.z) ? v : null;
+  } catch { return null; }
+}
+function mapViewKeep(map, kind) {
+  const v = mapViewSaved(kind);
+  if (v) map.setView([v.lat, v.lon], v.z, { animate: false });
+  map.on("moveend", () => {
+    const c = map.getCenter();
+    store(`mapView.${kind}`, JSON.stringify({ lat: +c.lat.toFixed(5), lon: +c.lng.toFixed(5), z: map.getZoom() }));
+  });
+}
+
 /** □ key in the top right corner of a map: the same map in a new browser tab. */
+// ---------- COMPOSITE: one map with the positions from the decoders of all VFOs ----------
+// Each VFO server gives /api/positions (one shape for all sources); here they are merged: the same aircraft
+// (ICAO hex) heard by more VFOs / decoders becomes one mark with all its sources and one joined trail.
+
+const COM_SRC = {   // source key → name and colour
+  adsb: ["ADS-B", "#ffd84a"], acars: ["ACARS", "#6cb8ff"], vdl2: ["VDL2", "#6cb8ff"], hfdl: ["HFDL", "#ff9a3c"],
+  ais: ["AIS", "#6cff9c"], sonde: ["SONDE", "#ff6cd2"],
+};
+const COM_POLL_MS = 5000, COM_OLD_S = 900;
+let comMap = null, comLayers = null, comTimer = null, comFeeds = new Map(), comFitted = !!mapViewSaved("com");
+let comOff = new Set((recall("comOff") || "").split(",").filter(Boolean));   // "A:vdl2" … switched off by the user
+let comMerged = [];
+
+function comShown(open) {
+  if (open && !comTimer) {
+    comPoll();
+    comTimer = setInterval(comPoll, COM_POLL_MS);
+  } else if (!open && comTimer) {
+    clearInterval(comTimer);
+    comTimer = null;
+  }
+}
+
+async function comPoll() {
+  // the map-only tab has no event streams (online unknown): it asks all VFOs, a stopped one just does not answer
+  const list = vfos.length ? vfos.filter((v) => v.online || MAP_ONLY) : [{ name: "", base: vbase }];
+  const got = await Promise.all(list.map(async (v) => {
+    try { return [v.name, await satFetch("/api/positions", undefined, v.base)]; } catch { return [v.name, null]; }
+  }));
+  comFeeds = new Map(got.filter(([, d]) => d));
+  renderComSrcs();
+  await renderComMap();
+}
+
+const comKey = (vfo, src) => `${vfo}:${src}`;
+
+function renderComSrcs() {
+  const box = $("comSrcs"), btns = [];
+  for (const [vfo, d] of comFeeds) {
+    for (const src of [...d.sources, ...(d.hist_sources || [])]) {
+      const k = comKey(vfo, src), n = d.items.filter((i) => i.src === src).length, hist = !d.sources.includes(src);
+      const b = document.createElement("button");
+      b.className = "key small" + (comOff.has(k) ? "" : " on");
+      b.dataset.k = k;
+      b.style.setProperty("--sc", (COM_SRC[src] || ["", "#fff"])[1]);
+      b.textContent = `${vfo ? `VFO ${vfo} · ` : ""}${(COM_SRC[src] || [src.toUpperCase()])[0]} (${n})${hist ? " · history" : ""}`;
+      b.title = hist ? "This decoder does not run now: the positions it saw in the last 6 hours (history kept over a server restart)"
+        : "Positions of this decoder: live + what it saw in the last 6 hours (history kept over a server restart)";
+      btns.push(b);
+    }
+  }
+  if (!btns.length) {
+    const m = document.createElement("span");
+    m.className = "muted";
+    m.textContent = "No decoder with positions runs on any VFO (ADS-B, ACARS / VDL2, HFDL, AIS, SONDE)";
+    btns.push(m);
+  }
+  box.replaceChildren(...btns);
+}
+$("comSrcs").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-k]");
+  if (!b) return;
+  if (comOff.has(b.dataset.k)) comOff.delete(b.dataset.k); else comOff.add(b.dataset.k);
+  store("comOff", [...comOff].join(","));
+  renderComSrcs();
+  renderComMap();
+});
+
+// IATA → ICAO airline codes: ACARS / HFDL send the flight as IATA + number (LH0123), ADS-B as ICAO + number (DLH123)
+const COM_AIRLINES = Object.fromEntries((
+  "LH:DLH LX:SWR OS:AUA SN:BEL EW:EWG 4U:GWI DE:CFG AF:AFR KL:KLM BA:BAW VS:VIR EI:EIN IB:IBE VY:VLG UX:AEA " +
+  "TP:TAP AZ:ITY SK:SAS AY:FIN DY:NAX D8:IBK LO:LOT OK:CSA RO:ROT JU:ASL OU:CTN A3:AEE TK:THY PC:PGT " +
+  "FR:RYR RK:RUK U2:EZY EC:EJU DS:EZS W6:WZZ W4:WMT 5W:WAZ HV:TRA TO:TVF LS:EXS BY:TOM X3:TUI 6B:BLX " +
+  "QR:QTR EK:UAE EY:ETD SV:SVA MS:MSR RJ:RJA GF:GFA WY:OMA KU:KAC LY:ELY ET:ETH SA:SAA KQ:KQA AT:RAM " +
+  "AA:AAL UA:UAL DL:DAL AC:ACA B6:JBU WS:WJA AS:ASA LA:LAN AV:AVA CM:CMP " +
+  "SQ:SIA CX:CPA NH:ANA JL:JAL KE:KAL OZ:AAR CI:CAL BR:EVA CA:CCA MU:CES CZ:CSN HU:CHH TG:THA MH:MAS " +
+  "GA:GIA AI:AIC 6E:IGO QF:QFA NZ:ANZ VA:VOZ PK:PIA SU:AFL " +
+  "5X:UPS FX:FDX QY:BCS D0:DHK CV:CLX LD:AHK PO:PAC K4:CKS 3S:BOX X5:CVK"
+).split(" ").map((p) => p.split(":")));
+const COM_SQ_COMMON = new Set(["0000", "1000", "1200", "2000", "7000", "7500", "7600", "7700", "0021", "0022", "0033"]);
+const COM_SQ_KM = 150, COM_SQ_S = 900;   // squawk join: only near each other in place and time
+
+/** Flight number in the ICAO form without leading zeros (LH0123 / DLH123 / DLH 123 → DLH123); "" = not a flight number. */
+function comFlight(f) {
+  const s = String(f || "").toUpperCase().replace(/[\s.-]/g, "");
+  let m = /^([A-Z]{3})0*(\d{1,4}[A-Z]{0,2})$/.exec(s);
+  if (m) return m[1] + m[2];
+  m = /^([A-Z0-9]{2})0*(\d{1,4}[A-Z]{0,2})$/.exec(s);
+  return m && COM_AIRLINES[m[1]] ? COM_AIRLINES[m[1]] + m[2] : "";
+}
+
+function comKm(a, b) {
+  const r = Math.PI / 180, dLa = (b.lat - a.lat) * r, dLo = (b.lon - a.lon) * r;
+  const h = Math.sin(dLa / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLo / 2) ** 2;
+  return 12742 * Math.asin(Math.sqrt(h));
+}
+
+/** The items of the switched-on sources, the same object joined. Aircraft are joined by ICAO hex, registration,
+ *  flight number (IATA and ICAO forms) or an uncommon squawk seen near in place and time; ships and sondes by
+ *  source + id. The newest position wins; the trails are joined by time. */
+function comMerge() {
+  const list = [];
+  for (const [vfo, d] of comFeeds) for (const i of d.items) if (!comOff.has(comKey(vfo, i.src))) list.push({ vfo, i });
+  // union-find over the items: each identifier seen joins the items that have it
+  const up = list.map((_, k) => k), why = list.map(() => new Set()), gHex = list.map(() => "");
+  const root = (k) => { while (up[k] !== k) k = up[k] = up[up[k]]; return k; };
+  const join = (a, b, how) => {
+    const ra = root(a), rb = root(b);
+    if (ra === rb || (gHex[ra] && gHex[rb] && gHex[ra] !== gHex[rb])) return;   // two ICAO addresses = two aircraft, never one
+    up[rb] = ra;
+    gHex[ra] = gHex[ra] || gHex[rb];
+    for (const w of why[rb]) why[ra].add(w);
+    why[ra].add(how);
+  };
+  const byKey = new Map(), sq = [];
+  list.forEach(({ i }, k) => {
+    const a = i.air;
+    if (!a) return;
+    const hex = /^[0-9A-F]{6}$/i.test(a.hex || "") ? a.hex.toUpperCase() : /^[0-9A-F]{6}$/i.test(i.id) ? i.id.toUpperCase() : "";
+    const reg = String(a.reg || "").toUpperCase().replace(/[\s.-]/g, "");
+    gHex[k] = hex;
+    const keys = [hex && ["hex:" + hex, "ICAO"], reg.length >= 3 && ["reg:" + reg, "registration"], comFlight(a.flight || i.label) && ["flt:" + comFlight(a.flight || i.label), "callsign"]];
+    for (const kk of keys) {
+      if (!kk) continue;
+      const [key, how] = kk;
+      if (byKey.has(key)) join(byKey.get(key), k, how); else byKey.set(key, k);
+    }
+    if (/^[0-7]{4}$/.test(a.squawk || "") && !COM_SQ_COMMON.has(a.squawk)) sq.push(k);
+  });
+  for (let x = 0; x < sq.length; x++) {
+    for (let y = x + 1; y < sq.length; y++) {
+      const A = list[sq[x]].i, B = list[sq[y]].i;
+      if (A.air.squawk === B.air.squawk && Math.abs(A.t - B.t) < COM_SQ_S && comKm(A, B) < COM_SQ_KM) join(sq[x], sq[y], "squawk");
+    }
+  }
+  const out = new Map();
+  list.forEach(({ vfo, i }, k) => {
+    const r = root(k);
+    let m = out.get(r);
+    if (!m) {
+      m = { id: "", label: i.label, lat: i.lat, lon: i.lon, alt_m: i.alt_m, t: i.t, track: i.track, srcs: new Set(), vfos: new Set(),
+        trail: [], air: null, joined: why[r] };
+      out.set(r, m);
+    }
+    if (i.air) {   // aircraft details: the newer source wins, empty values keep the other one
+      const fresh = !m.air || i.t >= m.t, a = m.air || {};
+      m.air = { ...a };
+      for (const [kk, v] of Object.entries(i.air)) if (v != null && v !== "" && (fresh || a[kk] == null || a[kk] === "")) m.air[kk] = v;
+      m.air.n = (a.n || 0) + (i.air.n || 0);
+    }
+    m.srcs.add(i.src);
+    m.hist = (m.hist ?? true) && !!i.hist;   // only from the history (not in the decoder now)
+    if (i.ship && (!m.ship || i.t >= m.t)) m.ship = i.ship;     // AIS: the whole ship record (details on the right)
+    if (i.sonde && (!m.sonde || i.t >= m.t)) m.sonde = i.sonde;
+    if (vfo) m.vfos.add(vfo);
+    if (i.t >= m.t) {
+      Object.assign(m, { lat: i.lat, lon: i.lon, t: i.t, alt_m: i.alt_m ?? m.alt_m, track: i.track ?? m.track });
+      if (i.label && i.label !== i.id) m.label = i.label;
+    } else if (m.label === i.id && i.label) m.label = i.label;
+    m.trail.push(...i.trail);
+    m.keys = m.keys || [];
+    m.keys.push(`${i.src}:${i.id}`);
+    m.parts = m.parts || [];   // every record joined into this object (the details list all of them)
+    m.parts.push({ vfo, src: i.src, id: i.id, label: i.label, t: i.t, hist: !!i.hist, flight: i.air && i.air.flight, reg: i.air && i.air.reg,
+      hex: i.air && i.air.hex, squawk: i.air && i.air.squawk, n: i.air && i.air.n });
+  });
+  for (const m of out.values()) {
+    m.trail.sort((a, b) => a[2] - b[2]);
+    m.trail = m.trail.filter((p, k, a) => !k || p[0] !== a[k - 1][0] || p[1] !== a[k - 1][1]);
+    m.srcs = [...m.srcs];
+    m.vfos = [...m.vfos];
+    m.joined = [...m.joined];
+    // a stable id (the selection keeps it over the polls): the ICAO hex when known, else the first source + id
+    const hex = m.air && /^[0-9A-F]{6}$/i.test(m.air.hex || "") ? m.air.hex.toUpperCase() : "";
+    m.id = hex ? `air:${hex}` : m.keys.sort()[0];
+  }
+  return [...out.values()].sort((a, b) => b.t - a.t);
+}
+
+let comSel = null;   // the selected aircraft (red, its popup open; a click on the map drops it)
+
+/** Heading from the last two trail points (when the source gives no track). */
+function comHeading(m) {
+  const t = m.trail, p = t[t.length - 1], q = t[t.length - 2];
+  if (!p || !q) return null;
+  const r = Math.PI / 180, dl = (p[1] - q[1]) * r;
+  const y = Math.sin(dl) * Math.cos(p[0] * r);
+  const x = Math.cos(q[0] * r) * Math.sin(p[0] * r) - Math.sin(q[0] * r) * Math.cos(p[0] * r) * Math.cos(dl);
+  return (Math.atan2(y, x) / r + 360) % 360;
+}
+
+/** All the records joined into the object: VFO, decoder, its identifiers, last time; and by what they were joined. */
+function comPartsHtml(m) {
+  const esc = escHtml, parts = [...(m.parts || [])].sort((a, b) => b.t - a.t);
+  const rows = parts.map((p) => {
+    const ids = [p.flight, p.reg, p.hex && /^[0-9A-F]{6}$/i.test(p.hex) ? p.hex.toUpperCase() : "", p.squawk && `sq ${p.squawk}`]
+      .filter((x, k, a) => x && a.indexOf(x) === k);
+    return `<tr><td>${p.vfo ? `VFO ${esc(p.vfo)}` : ""}</td><td><b style="color:${(COM_SRC[p.src] || ["", "#fff"])[1]}">${esc((COM_SRC[p.src] || [p.src])[0])}</b></td>` +
+      `<td>${esc(ids.join(" · ") || p.label || p.id)}${p.n ? ` · ${p.n} msgs` : ""}</td><td>${hfdlUtc(p.t)}${p.hist ? " (history)" : ""}</td></tr>`;
+  }).join("");
+  const how = parts.length > 1 ? `joined by ${esc((m.joined || []).join(", ") || "?")}` : "one record, nothing joined";
+  return `<div class="com-kind com-parts-head">SOURCES (${parts.length})</div><table class="com-parts">${rows}</table><span class="muted">${how}</span>`;
+}
+
+/** Popup of an aircraft: the same lines as on the HFDL / VDL2 / ADS-B maps, plus which VFOs and decoders heard it. */
+function comAirPopup(m) {
+  const a = m.air, esc = escHtml, hex = /^[0-9A-F]{6}$/i.test(a.hex || "") ? a.hex.toUpperCase() : "";
+  const c = hex ? icaoCountry(hex) : null;
+  const nav = [a.ground ? "GND" : a.alt_ft != null ? `${Math.round(a.alt_ft).toLocaleString("en-US")} ft` : "",
+    a.gs_kt != null && !a.ground ? `${Math.round(a.gs_kt)} kt` : "", m.track != null ? `${Math.round(m.track)}°` : "", a.squawk && `squawk ${a.squawk}`].filter(Boolean).join(" · ");
+  const lines = [`<b>${esc(a.flight || a.reg || hex || m.label)}</b> ${esc([a.reg, hex && `ICAO ${hex}`].filter((x) => x && x !== a.flight).join(" · "))}${c ? ` · ${esc(c.name)}` : ""}`];
+  if (a.type || a.desc) lines.push(esc([a.type, a.desc].filter(Boolean).join(" · ")));
+  if (nav) lines.push(esc(nav));
+  lines.push(`position ${m.lat.toFixed(3)}, ${m.lon.toFixed(3)} (${hfdlAge(m.t)} ago)`);
+  lines.push(`${esc(m.srcs.map((x) => (COM_SRC[x] || [x])[0]).join(" + "))}${m.vfos.length ? ` · VFO ${esc(m.vfos.join(", "))}` : ""}` +
+    `${a.gs ? ` · via ${esc(a.gs)}` : ""}${a.n ? ` · ${a.n} msgs` : ""} · last ${hfdlUtc(m.t)} UTC`);
+  lines.push(comPartsHtml(m));
+  if (hex) lines.push(`<a href="https://globe.adsb.fi/?icao=${hex.toLowerCase()}" target="_blank" rel="noopener">adsb.fi</a> · <a href="https://adsb.lol/?icao=${hex.toLowerCase()}" target="_blank" rel="noopener">adsb.lol</a>`);
+  return lines.join("<br>");
+}
+
+/** The panel right of the map: details of the selected aircraft, ship or sonde (the same lines as the popups of their own maps). */
+function renderComSide() {
+  const m = comSel && comMerged.find((x) => x.id === comSel), box = $("comSide");
+  if (!m) {
+    box.innerHTML = '<div class="muted">Click an aircraft, ship or sonde on the map: its details show here.</div>';
+    return;
+  }
+  const kind = m.air ? "AIRCRAFT" : m.ship ? "SHIP / AIS STATION" : m.sonde ? "RADIOSONDE" : "OBJECT";
+  const body = m.air ? comAirPopup(m) : m.ship ? aisPopup(m.ship) : m.sonde ? sondePopup(m.sonde)
+    : `<b>${escHtml(m.label)}</b><br>position ${m.lat.toFixed(4)}, ${m.lon.toFixed(4)} (${hfdlAge(m.t)} ago)`;
+  box.innerHTML = `<div class="com-kind">${kind}${m.hist ? " · FROM HISTORY" : ""}</div>${body}${m.air ? "" : `<br>${comPartsHtml(m)}`}`;
+}
+
+async function comMapOpen() {
+  if (comMap) return true;
+  try {
+    await Promise.all([satAsset("/static/leaflet/leaflet.css"), satAsset("/static/leaflet/leaflet.js")]);
+  } catch (e) {
+    $("comNote").textContent = e.message;
+    return false;
+  }
+  if (comMap) return true;   // another poll made it meanwhile
+  comMap = L.map($("comMap"), { worldCopyJump: true, minZoom: 2 }).setView([48, 17], 5);
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 13, className: "hfdl-dark",
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors',
+  }).addTo(comMap);
+  mapPopout(comMap, "com");   // remembers the view; the ↗ key opens the map alone in a new tab
+  comMap.on("click", () => { if (comSel) { comSel = null; renderComMap(); } });
+  comLayers = { gs: L.layerGroup().addTo(comMap), tracks: L.layerGroup().addTo(comMap), marks: L.layerGroup().addTo(comMap) };
+  mapPrecip(comMap, "com", comLayers.tracks);
+  try {
+    const s = await satFetch("/api/location");
+    if (s && Number.isFinite(s.lat) && Number.isFinite(s.lon)) {
+      L.circleMarker([s.lat, s.lon], { radius: 6, color: "#000", weight: 2, fillColor: "#ff5a3c", fillOpacity: 1 }).bindTooltip("QTH").addTo(comMap);
+      if (!mapViewSaved("com") && !comFitted) comMap.setView([s.lat, s.lon], 6);
+    }
+  } catch { /* server unreachable */ }
+  return true;
+}
+
+async function renderComMap() {
+  if (bodyTab !== "com" || !(await comMapOpen())) return;
+  comMap.invalidateSize();
+  const esc = escHtml, now = Date.now() / 1000;
+  comMerged = comMerge();
+  comLayers.gs.clearLayers();
+  comLayers.tracks.clearLayers();
+  comLayers.marks.clearLayers();
+  const seen = new Set();
+  for (const [vfo, d] of comFeeds) {
+    for (const g of d.gs) {
+      const k = `${g.src}:${g.id}`;
+      if (comOff.has(comKey(vfo, g.src)) || seen.has(k)) continue;
+      seen.add(k);
+      const [name, col] = COM_SRC[g.src] || [g.src, "#fff"];
+      L.marker([g.lat, g.lon], { icon: L.divIcon({ className: "com-gs", html: `<span style="--sc:${col}">▲</span>`, iconSize: [12, 12], iconAnchor: [6, 6] }), zIndexOffset: -1000 })
+        .bindTooltip(`${name} ground station ${esc(g.label)}`, { direction: "top" }).addTo(comLayers.gs);
+    }
+  }
+  const pts = [];
+  if (comSel && !comMerged.some((m) => m.id === comSel)) comSel = null;
+  for (const m of comMerged) {
+    const col = (COM_SRC[m.srcs[0]] || ["", "#fff"])[1], old = now - m.t > COM_OLD_S, sel = m.id === comSel;
+    if (m.trail.length > 1) L.polyline(m.trail.map((p) => [p[0], p[1]]), { color: sel ? "#ff4b3c" : col, weight: sel ? 2.5 : 1.5, opacity: sel ? 0.9 : 0.6, interactive: false }).addTo(comLayers.tracks);
+    pts.push([m.lat, m.lon]);
+    let icon, label, cls = "ais-label";
+    if (m.air) {   // an aircraft: as on the ADS-B / HFDL / VDL2 maps – icon turned to the heading, label below
+      const a = m.air, svg = `<svg viewBox="0 0 24 24" style="transform: rotate(${Math.round(m.track ?? comHeading(m) ?? a.track ?? 0)}deg)"><path d="M12 2c.6 0 1 .9 1 2v5.2l8 4.6v2l-8-2.5v4.9l2.2 1.6V21L12 20.2 8.8 21v-1.2L11 18.2v-4.9l-8 2.5v-2l8-4.6V4c0-1.1.4-2 1-2z"/></svg>`;
+      const fl = a.ground ? "GND" : a.alt_ft != null ? `FL${String(Math.round(a.alt_ft / 100)).padStart(3, "0")}` : "";
+      label = `${esc(a.flight || a.reg || a.hex || m.label)}${a.type ? `<br>${esc(a.type)}` : fl ? `<br>${fl}` : ""}`;
+      icon = L.divIcon({ className: `hfdl-plane${sel ? " sel" : ""}${old ? " old" : ""}`, html: svg, iconSize: [22, 22], iconAnchor: [11, 11] });
+      cls = "hfdl-label";
+    } else if (m.ship) {   // as on the AIS map
+      const s = m.ship;
+      icon = aisIcon(s, sel);
+      label = `${esc(aisLabel(s))}${s.sog != null && s.sog >= 0.3 ? `<br>${aisKt(s.sog)}` : ""}`;
+    } else if (m.sonde) {   // as on the SONDE map
+      const s = m.sonde;
+      icon = sondeIcon(s, sel);
+      label = `${esc(s.serial)}<br>${s.freq_hz ? `${fmtMHz(s.freq_hz, 3)} MHz<br>` : ""}${sondeAlt(s.alt)} m ${sondeClimb(s.vv)}`;
+    } else {
+      icon = L.divIcon({ className: `com-mark${old ? " old" : ""}`, html: `<span style="--sc:${col}">●</span>`, iconSize: [16, 16], iconAnchor: [8, 8] });
+      label = esc(m.label);
+    }
+    const mk = L.marker([m.lat, m.lon], { icon, zIndexOffset: sel ? 1000 : 0 })
+      .bindTooltip(label, { permanent: true, direction: "bottom", offset: [0, m.sonde ? 2 : 8], className: cls }).addTo(comLayers.marks);
+    mk.on("click", (e) => { L.DomEvent.stopPropagation(e); comSel = m.id; renderComMap(); });
+  }
+  renderComSide();
+  if (!comFitted && pts.length) {
+    comFitted = true;
+    comMap.fitBounds(pts, { padding: [30, 30], maxZoom: 8 });
+  }
+  const joined = comMerged.filter((m) => m.keys.length > 1).length;
+  $("comInfo").textContent = `${comMerged.length} with a position${joined ? ` · ${joined} joined from more sources` : ""}`;
+  $("comNote").textContent = "a click on an aircraft, ship or sonde = its details on the right (red = selected, grey = no position for 15 min) · aircraft, ships and sondes as on their own maps · ▲ ground stations · trail colour = source · one object heard by more VFOs / decoders = one mark";
+}
+
+$("comJson").addEventListener("click", (e) => {
+  e.preventDefault();
+  const feed = { format: "radimcom-composite", version: 1, t: Math.round(Date.now() / 1000), items: comMerged };
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(feed, null, 1)], { type: "application/json" }));
+  a.download = `composite_${new Date().toISOString().slice(0, 19).replace(/[-:T]/g, "")}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+});
+
+/** Precipitation radar overlay (RainViewer, the newest past frame, refreshed every 10 min) with a switch on the map,
+ *  remembered per map. Only the tile requests go out, no position. */
+function mapPrecip(map, kind, trails) {
+  const key = `mapPrecip.${kind}`;
+  // RainViewer radar frames come every 10 min; the loop plays the last 30 min (4 frames), holding on the newest one
+  const SPAN_S = 1800, STEP_MS = 600, HOLD_STEPS = 3;
+  let frames = [], cur = 0, tick = 0, timer = null, anim = null;
+  const group = L.layerGroup();
+  const Lbl = L.Control.extend({ onAdd() { return L.DomUtil.create("div", "map-precip-time"); } });
+  const lbl = new Lbl({ position: "bottomleft" });
+  const hm = (t) => new Date(t * 1000).toISOString().slice(11, 16);
+  function show(i) {
+    frames.forEach((f, k) => f.layer.setOpacity(k === i ? 0.6 : 0));
+    cur = i;
+    const el = lbl.getContainer();
+    if (el && frames[i]) el.textContent = `Radar ${hm(frames[i].time)} UTC${i === frames.length - 1 ? "" : ` (−${Math.round((frames[frames.length - 1].time - frames[i].time) / 60)} min)`}`;
+  }
+  function step() {
+    if (frames.length < 2) return;
+    if (cur === frames.length - 1 && ++tick < HOLD_STEPS) return;   // a pause on the newest frame
+    tick = 0;
+    show((cur + 1) % frames.length);
+  }
+  async function load() {
+    try {
+      const r = await fetch("https://api.rainviewer.com/public/weather-maps.json", { cache: "no-store" });
+      const j = await r.json();
+      const past = (j && j.radar && j.radar.past) || [];
+      if (!past.length) return;
+      const newest = past[past.length - 1].time;
+      const want = past.filter((f) => f.time >= newest - SPAN_S);
+      const old = frames;
+      frames = want.map((f) => {
+        const had = old.find((o) => o.time === f.time);
+        if (had) return had;
+        const layer = L.tileLayer(`${j.host}${f.path}/256/{z}/{x}/{y}/2/1_1.png`, {
+          opacity: 0, maxNativeZoom: 7, maxZoom: 13, zIndex: 300,
+          attribution: 'Radar &copy; <a href="https://www.rainviewer.com/" target="_blank" rel="noopener noreferrer">RainViewer</a>',
+        });
+        group.addLayer(layer);
+        return { time: f.time, layer };
+      });
+      for (const o of old) if (!frames.includes(o)) group.removeLayer(o.layer);
+      show(frames.length - 1);
+    } catch { /* offline: no overlay */ }
+  }
+  const on = () => {
+    lbl.addTo(map);
+    load();
+    if (!timer) timer = setInterval(load, 300000);
+    if (!anim) anim = setInterval(step, STEP_MS);
+  };
+  const off = () => {
+    clearInterval(timer); clearInterval(anim); timer = anim = null;
+    lbl.remove();
+  };
+  const tkey = `mapTrails.${kind}`, ov = { "Precipitation": group };
+  if (trails) {   // the aircraft trails can be switched off too (on by default)
+    ov["Trails"] = trails;
+    if (recall(tkey) === "0") map.removeLayer(trails);
+  }
+  const ctl = L.control.layers(null, ov, { collapsed: false, position: "topright" }).addTo(map);
+  map.on("overlayadd overlayremove", (e) => {
+    if (trails && e.layer === trails) { store(tkey, e.type === "overlayadd" ? "1" : "0"); return; }
+    if (e.layer !== group) return;
+    store(key, e.type === "overlayadd" ? "1" : "0");
+    e.type === "overlayadd" ? on() : off();
+  });
+  if (recall(key) === "1") group.addTo(map);
+  return ctl;   // more overlays can join the same switch box (addOverlay)
+}
+
 function mapPopout(map, kind) {
+  mapViewKeep(map, kind);
   if (MAP_ONLY) return;
   const Ctl = L.Control.extend({
     onAdd() {

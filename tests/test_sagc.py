@@ -134,7 +134,23 @@ class Auto(unittest.TestCase):
               f"changes {early} in all, {n} after 90 s")
         self.assertEqual(n, 0)                                              # it learnt the real steps: no hunting
         self.assertLessEqual(early, 8)                                      # learning costs a few steps, 30 s apart
-        self.assertGreater(min(heads), tgt.head - p["window_db"])
+        self.assertGreaterEqual(min(heads), tgt.head_min)                  # HF: the sensitivity may take it to head_min
+
+    def test_hf_sensitivity_wins_over_the_headroom(self):
+        # 31 m in the evening (SNR SWEEP of 2026-11-17): the band's floor near the A/D's noise; AGC+ held a low gain for
+        # the headroom target, the S/N was 5-10 dB better with ~7 dB of headroom. On HF it now climbs to the floor's
+        # goal as long as the headroom stays over head_min (4 dB) and nothing clips.
+        p = gainctl.sagc_params({})
+        front = Front(ant=-125.0, rx0=-140.0, strong=-45.0, center=9.6e6)
+        tgt = gainctl.Target("narrow", 9.6e6 + 300e3, True, p["headroom_adj"])
+        log = run_auto(front, p, tgt, seconds=300, g0=3.7)
+        late = [(g, h, m, c) for t, g, h, m, c in log if t > 120]
+        print(f"\nHF sensitivity: gain {log[-1][1]} dB, headroom min {min(x[1] for x in late):.1f}, "
+              f"floor {np.median([x[2] for x in late]):.1f} dB over the A/D (goal {tgt.goal})")
+        self.assertGreater(log[-1][1], 20)
+        self.assertGreaterEqual(min(x[1] for x in late), tgt.head_min)
+        self.assertEqual(max(x[3] for x in late), 0)                     # no clipping
+        self.assertEqual(changes(log, 120), 0)
 
     def test_recovers_after_an_overload_burst(self):
         p = gainctl.sagc_params({})

@@ -4,7 +4,9 @@ Frequencies in the interface are real frequencies. On HF the dongle is tuned to 
 + lo_offset_hz (upconverter LO, e.g. 100 MHz: 3.6 MHz -> 103.6 MHz), above 30 MHz
 (upconverter mode "auto") directly.
 """
+import atexit
 import base64
+import calendar
 import json
 import os
 import queue
@@ -73,7 +75,7 @@ from ais import AisDecoder
 import adsb as adsb_mod
 from adsb import RATE as ADSB_RATE, AdsbDecoder
 from tonesq import norm_ctcss, norm_dcs
-from sdr import (WF_FFT, DSD_BW, DSD_FILTERS, SAM_SIDEBANDS, HUM_BASES, HUM_WIDTH_MIN_HZ, HUM_WIDTH_MAX_HZ, AFI_MAX_HZ, AFI_MIN_HZ, DNR_LEVEL_MAX, DNR_LEVEL_MIN, NB_LEVEL_MAX, NB_LEVEL_MIN, NB_WIDTH_MAX_US, NB_WIDTH_MIN_US, EXP_DEPTH_MAX_DB, EXP_DEPTH_MIN_DB, EXP_SENS_MAX, EXP_SENS_MIN, EXP_HOLD_MAX_MS, EXP_HOLD_MIN_MS, ASQ_MAX_DB, ASQ_MIN_DB, DECIM, DSD_MODE, HPF_MAX_HZ, HPF_MIN_HZ, LPF_MAX_HZ, LPF_MIN_HZ, MODES, SQUELCH_OFF,
+from sdr import (WF_FFT, DSD_BW, DSD_FILTERS, SAM_SIDEBANDS, HUM_BASES, HUM_WIDTH_MIN_HZ, HUM_WIDTH_MAX_HZ, AFI_MAX_HZ, AFI_MIN_HZ, DNR_LEVEL_MAX, DNR_LEVEL_MIN, NB_LEVEL_MAX, NB_LEVEL_MIN, NB_WIDTH_MAX_US, NB_WIDTH_MIN_US, EXP_DEPTH_MAX_DB, EXP_DEPTH_MIN_DB, EXP_SENS_MAX, EXP_SENS_MIN, EXP_HOLD_MAX_MS, EXP_HOLD_MIN_MS, ALC_HANG_MIN_MS, ALC_HANG_MAX_MS, ALC_DECAY_MIN_MS, ALC_DECAY_MAX_MS, ASQ_MAX_DB, ASQ_MIN_DB, DECIM, DSD_MODE, HPF_MAX_HZ, HPF_MIN_HZ, LPF_MAX_HZ, LPF_MIN_HZ, MODES, SQUELCH_OFF,
                  SAGC_PARAMS, UPCONV_MAX_HZ, ZOOMS, Receiver, list_devices, lowpass, sagc_params)
 
 
@@ -1255,6 +1257,231 @@ def api_adsb_cmd():
     return jsonify(adsb.info())
 
 
+def _positions_live():
+    """COMPOSITE map: everything with a position from the decoders running on this VFO, in one shape for all
+    sources (also a test of a format to merge the feeds of several stations):
+    {"t", "sources": [running source keys], "items": [{"src", "id", "label", "lat", "lon", "alt_m", "t", "trail": [[lat, lon, t]…],
+     "air": aircraft details or absent}], "gs": [{"src", "id", "label", "lat", "lon", "t"}]}  – alt_m in metres (None = not known),
+     t = UNIX seconds; air = {"hex", "reg", "flight", "type", "desc", "alt_ft", "gs_kt", "squawk", "ground", "gs", "n"}."""
+    now = time.time()
+    items, gs, srcs = [], [], []
+
+    def air(old, hex_="", reg="", flight="", ac=None, **kw):
+        """Aircraft details joined over the messages: newer values win, empty ones keep the older."""
+        d = dict(old or {"hex": "", "reg": "", "flight": "", "type": "", "desc": "", "alt_ft": None, "gs_kt": None,
+                         "squawk": "", "ground": False, "gs": "", "n": 0})
+        ac = ac if isinstance(ac, dict) and ac.get("found") else {}
+        new = {"hex": (hex_ or "").upper(), "reg": reg or ac.get("reg", ""), "flight": (flight or ac.get("callsign", "") or "").strip(),
+               "type": ac.get("type", ""), "desc": ac.get("desc", ""), "alt_ft": ac.get("alt_ft", ac.get("alt")),
+               "gs_kt": ac.get("gs_kt", ac.get("gs")), "squawk": ac.get("squawk", ""), "ground": ac.get("ground"),
+               "track": ac.get("track")}   # heading from the ADS-B lookup: for an aircraft with one position only
+        new.update(kw)
+        for k, v in new.items():
+            if v not in (None, "") and k != "n":
+                d[k] = v
+        d["n"] = kw.get("n", d["n"] + 1)
+        return d
+
+    def vdl2_hex(m):
+        """24-bit ICAO address of the aircraft of an ACARS / VDL2 message (as acarsAirHex in app.js)."""
+        if m.get("atn"):
+            a = m.get("reg") or ""
+        else:
+            v = m.get("vdl2") or {}
+            a = (v.get("src") if m.get("dir") == "down" else v.get("dst")) or ""
+        return a.upper() if re.fullmatch(r"[0-9A-Fa-f]{6}", a) and a.lower() != "ffffff" else ""
+
+    def item(src, iid, label, lat, lon, t, alt_m=None, trail=None, **extra):
+        if lat is None or lon is None:
+            return
+        items.append(dict(src=src, id=iid, label=label, lat=round(lat, 5), lon=round(lon, 5), alt_m=alt_m,
+                          t=round(t or now, 1), trail=trail or [], **extra))
+
+    if adsb.enabled:
+        srcs.append("adsb")
+        for a in adsb.aircraft_list():
+            alt = a.get("alt")
+            net = a.get("net") if isinstance(a.get("net"), dict) else None
+            item("adsb", a["icao"], (a.get("flight") or "").strip() or a["icao"], a.get("lat"), a.get("lon"),
+                 a.get("pos_time") or a.get("last"), None if alt is None else round(alt * 0.3048),
+                 [[p[0], p[1], p[2]] for p in a.get("trail", [])], track=a.get("track"),
+                 air=air(None, a["icao"], "", a.get("flight"), net, alt_ft=alt, gs_kt=a.get("gs"), squawk=a.get("squawk"),
+                         ground=bool(a.get("ground")), n=a.get("n", 0)))
+    if ais.enabled:
+        srcs.append("ais")
+        for s in ais.ship_list():
+            item("ais", str(s["mmsi"]), s.get("name") or s.get("callsign") or str(s["mmsi"]), s.get("lat"), s.get("lon"),
+                 s.get("pos_time") or s.get("last"), track=s.get("cog") if s.get("hdg") is None else s.get("hdg"),
+                 ship={k: v for k, v in s.items() if not k.startswith("_")})
+    if sonde.enabled:
+        srcs.append("sonde")
+        for s in sonde.info().get("sondes", []):
+            item("sonde", s["serial"], f'{s["serial"]} {s.get("type", "")}'.strip(), s.get("lat"), s.get("lon"),
+                 s.get("pos_time") or s.get("last"), None if s.get("alt") is None else round(s["alt"]),
+                 [[p[0], p[1], p[3]] for p in s.get("pts", [])], burst=bool(s.get("burst")),
+                 sonde={k: v for k, v in s.items() if k != "pts" and not k.startswith("_")})
+    if hfdl.enabled:
+        srcs.append("hfdl")
+        acs = {}
+        for m in hfdl.messages():
+            if m.get("lat") is None:
+                continue
+            key = (m.get("icao") or "").upper() or m.get("reg") or m.get("flight")
+            if not key:
+                continue
+            a = acs.setdefault(key, {"label": "", "trail": [], "air": None})
+            a["label"] = m.get("flight") or m.get("reg") or a["label"] or key
+            a["trail"].append([m["lat"], m["lon"], m.get("time") or now])
+            a["air"] = air(a["air"], m.get("icao"), m.get("reg"), m.get("flight"), m.get("ac"), gs=m.get("gs"))
+        for key, a in acs.items():
+            tr = sorted(a["trail"], key=lambda p: p[2])[-200:]
+            item("hfdl", key, a["label"], tr[-1][0], tr[-1][1], tr[-1][2], trail=tr, air=a["air"])
+        for s in hfdl_mod.STATIONS:
+            if s["lat"] is not None:
+                gs.append({"src": "hfdl", "id": str(s["id"]), "label": s["name"], "lat": s["lat"], "lon": s["lon"], "t": None})
+    if acars.enabled or vdl2.enabled:
+        src = "vdl2" if vdl2.enabled else "acars"
+        srcs.append(src)
+        a_info = acars.info()
+        acs = {}
+
+        def add(key, label, lat, lon, t):
+            if not key or lat is None or lon is None:
+                return
+            a = acs.setdefault(key, {"label": key, "trail": [], "air": None})
+            if label:
+                a["label"] = label
+            a["trail"].append([lat, lon, t])
+
+        for p in a_info["positions"]:
+            add(p["addr"], None, p["lat"], p["lon"], p["t"])
+            if p["addr"] in acs:
+                acs[p["addr"]]["air"] = air(acs[p["addr"]]["air"], p["addr"], gs=p.get("gs_loc") if p.get("gs_loc") != "-" else "")
+        for m in a_info["messages"]:
+            ac = m.get("ac") if isinstance(m.get("ac"), dict) and m["ac"].get("found") else None
+            pos = (m.get("cpdlc") or {}).get("pos") if isinstance(m.get("cpdlc"), dict) else None
+            hx = vdl2_hex(m)
+            reg = "" if m.get("atn") else (m.get("reg") or "")
+            key = hx or reg or m.get("flight")
+            gsl = ((m.get("vdl2") or {}).get("gs_loc") or "").replace("-", "")
+            if key in acs:   # an aircraft with a position: its details also from the messages without one
+                acs[key]["air"] = air(acs[key]["air"], hx, reg, m.get("flight"), ac, gs=gsl)
+            if not ac and not pos:
+                continue
+            label = m.get("flight") or (ac or {}).get("callsign") or reg
+            try:
+                t = calendar.timegm(time.strptime(f'{m["date"]} {m["time"]}', "%Y-%m-%d %H:%M:%S"))
+            except (KeyError, TypeError, ValueError):
+                t = now
+            if pos:
+                add(key, label, pos.get("lat"), pos.get("lon"), t)
+            if ac:
+                add(key, label, ac.get("lat"), ac.get("lon"), t)
+            if key in acs and not acs[key]["air"]:
+                acs[key]["air"] = air(None, hx, reg, m.get("flight"), ac, gs=gsl)
+        for key, a in acs.items():
+            tr = sorted(a["trail"], key=lambda p: p[2])[-200:]
+            item(src, key, a["label"], tr[-1][0], tr[-1][1], tr[-1][2], trail=tr, air=a["air"] or air(None, key if re.fullmatch(r"[0-9A-F]{6}", key) else ""))
+        for g in a_info["gs_pos"]:
+            gs.append({"src": src, "id": g["addr"], "label": g.get("gs_loc") or g["addr"], "lat": g["lat"], "lon": g["lon"], "t": g.get("t")})
+    return {"t": round(now, 1), "sources": srcs, "items": items, "gs": gs}
+
+
+# ----- COMPOSITE history: what the decoders of this VFO saw in the last COM_KEEP_S, kept over a server restart -----
+COM_KEEP_S = 6 * 3600       # an object not seen for longer drops out of the history
+COM_TRAIL = 500             # trail points kept per object
+COM_EVERY_S = 30            # the history takes the live positions this often (also while the COMPOSITE tab is closed)
+COM_SAVE_S = 120            # and is written to data\composite_<VFO>.json this often
+COM_FILE = data(f"composite_{_tag or 'main'}.json")
+_com_lock = threading.Lock()
+_com_items, _com_gs, _com_srcs = {}, {}, {}   # "src:id" -> item / ground station; source -> last time it ran
+
+
+def _com_load():
+    try:
+        with open(COM_FILE, encoding="utf-8") as f:
+            d = json.load(f)
+    except (OSError, ValueError):
+        return
+    now = time.time()
+    with _com_lock:
+        for it in d.get("items", []):
+            if isinstance(it, dict) and now - (it.get("t") or 0) < COM_KEEP_S:
+                _com_items[f'{it["src"]}:{it["id"]}'] = it
+        for g in d.get("gs", []):
+            if isinstance(g, dict):
+                _com_gs[f'{g["src"]}:{g["id"]}'] = g
+        _com_srcs.update({k: v for k, v in d.get("sources", {}).items() if now - v < COM_KEEP_S})
+
+
+def _com_update(live):
+    """Live positions into the history: the newest record of each object, its trail joined with the stored one."""
+    now = time.time()
+    with _com_lock:
+        for src in live["sources"]:
+            _com_srcs[src] = now
+        for it in live["items"]:
+            k = f'{it["src"]}:{it["id"]}'
+            old = _com_items.get(k)
+            if old and old.get("trail"):
+                tr = {round(p[2], 1): p for p in old["trail"]}
+                tr.update({round(p[2], 1): p for p in it["trail"]})
+                it = dict(it, trail=[tr[t] for t in sorted(tr)][-COM_TRAIL:])
+            _com_items[k] = it
+        for g in live["gs"]:
+            _com_gs[f'{g["src"]}:{g["id"]}'] = g
+        for k in [k for k, it in _com_items.items() if now - (it.get("t") or 0) > COM_KEEP_S]:
+            del _com_items[k]
+        for k in [k for k, t in _com_srcs.items() if now - t > COM_KEEP_S]:
+            del _com_srcs[k]
+        for k in [k for k, g in _com_gs.items() if g["src"] not in _com_srcs]:
+            del _com_gs[k]
+
+
+def _com_save():
+    with _com_lock:
+        d = {"t": round(time.time(), 1), "sources": dict(_com_srcs), "items": list(_com_items.values()), "gs": list(_com_gs.values())}
+    tmp = COM_FILE + ".tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(d, f, separators=(",", ":"))
+        os.replace(tmp, COM_FILE)
+    except OSError:
+        pass
+
+
+def _com_loop():
+    last_save = time.time()
+    while True:
+        time.sleep(COM_EVERY_S)
+        try:
+            _com_update(_positions_live())
+        except Exception as e:      # a decoder changing its data meanwhile: try again next time
+            print(f"composite history: {e}", file=sys.stderr)
+        if time.time() - last_save >= COM_SAVE_S:
+            last_save = time.time()
+            _com_save()
+
+
+_com_load()
+threading.Thread(target=_com_loop, name="composite-history", daemon=True).start()
+atexit.register(_com_save)   # a normal stop also keeps the last minutes
+
+
+@app.route("/api/positions", methods=["GET"])
+def api_positions():
+    """COMPOSITE map: the live positions of this VFO joined with its history (COM_KEEP_S, kept over a restart).
+    Items only in the history have "hist": true; "sources" = running now, "hist_sources" = only in the history."""
+    live = _positions_live()
+    _com_update(live)
+    keys = {f'{it["src"]}:{it["id"]}' for it in live["items"]}
+    with _com_lock:
+        items = [it if k in keys else dict(it, hist=True) for k, it in _com_items.items()]
+        gs = list(_com_gs.values())
+        hist_srcs = [x for x in _com_srcs if x not in live["sources"]]
+    return jsonify({"t": live["t"], "sources": live["sources"], "hist_sources": hist_srcs, "items": items, "gs": gs})
+
+
 @app.route("/api/adsb_range", methods=["GET"])
 def api_adsb_range():
     if adsb.enabled:
@@ -2027,7 +2254,7 @@ def api_set():
             changes["notch"] = bool(body["notch"])
         if "audio_agc" in body:
             changes["audio_agc"] = bool(body["audio_agc"])
-        for k in ("dyn", "dyn_lim", "dyn_exp", "dyn_exp_auto", "agc_smooth", "dnr", "nb", "sam", "hum"):
+        for k in ("dyn", "dyn_lim", "dyn_exp", "dyn_exp_auto", "dyn_exp_fast", "alc_fast", "agc_smooth", "dnr", "nb", "sam", "hum"):
             if k in body:
                 changes[k] = bool(body[k])
         if "hum_base" in body:
@@ -2050,6 +2277,10 @@ def api_set():
             changes["dyn_exp_db"] = min(max(float(body["dyn_exp_db"]), EXP_DEPTH_MIN_DB), EXP_DEPTH_MAX_DB)
         if "dyn_exp_sens" in body:
             changes["dyn_exp_sens"] = min(max(float(body["dyn_exp_sens"]), EXP_SENS_MIN), EXP_SENS_MAX)
+        for key, lo, hi in (("alc_hang_ms", ALC_HANG_MIN_MS, ALC_HANG_MAX_MS), ("alc_fast_hang_ms", ALC_HANG_MIN_MS, ALC_HANG_MAX_MS),
+                            ("alc_decay_ms", ALC_DECAY_MIN_MS, ALC_DECAY_MAX_MS), ("alc_fast_decay_ms", ALC_DECAY_MIN_MS, ALC_DECAY_MAX_MS)):
+            if key in body:
+                changes[key] = min(max(float(body[key]), lo), hi)
         if "dyn_exp_hold_ms" in body:
             changes["dyn_exp_hold_ms"] = min(max(float(body["dyn_exp_hold_ms"]), EXP_HOLD_MIN_MS), EXP_HOLD_MAX_MS)
         if "afi" in body:
