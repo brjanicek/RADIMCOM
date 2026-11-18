@@ -45,7 +45,7 @@ V4_MIN_HZ = 0.5e6      # RTL-SDR Blog V4: HF direct (its driver switches on the 
 TUNER_MAX_HZ = 1766e6
 # Tuning range by device type (driver in vfos.json / config).
 # LimeSDR Mini officially starts at 10 MHz; lower (via the NCO) it receives weaker, but usable.
-TUNER_LIMITS = {"rtl": (TUNER_MIN_HZ, TUNER_MAX_HZ), "lime": (1e6, 3500e6), "airspy": (24e6, 1750e6)}
+TUNER_LIMITS = {"rtl": (TUNER_MIN_HZ, TUNER_MAX_HZ), "rtltcp": (TUNER_MIN_HZ, TUNER_MAX_HZ), "lime": (1e6, 3500e6), "airspy": (24e6, 1750e6)}
 SSB_LOW_CUT = 300.0   # Hz, lower edge of the SSB passband
 CW_PITCH = 700.0      # Hz, tone pitch of a CW signal tuned exactly to the frequency
 SQUELCH_OFF = -120.0  # dBFS, squelch at this level and below is off
@@ -184,7 +184,7 @@ def index_by_serial(serial):
 
 
 def open_device(cfg):
-    """Opens the device by cfg["driver"] (rtl / lime / airspy); the classes have the same interface."""
+    """Opens the device by cfg["driver"] (rtl / rtltcp / lime / airspy); the classes have the same interface."""
     serial = cfg.get("serial")
     if cfg.get("chain"):
         # chained VFO: the samples come from the VFO that owns the dongle (iqshare.py)
@@ -196,6 +196,10 @@ def open_device(cfg):
     if cfg.get("driver", "rtl") == "airspy":
         from airspy import AirspySdr
         return AirspySdr(READ_SAMPLES, serial=serial, index=int(cfg["device"]))
+    if cfg.get("driver", "rtl") == "rtltcp":
+        # RTL-SDR dongle on another computer (rtl_tcp); "serial" is its network address (rtltcp.py)
+        from rtltcp import RtlTcpSdr
+        return RtlTcpSdr(READ_SAMPLES, serial)
     return RtlSdr(index_by_serial(serial) if serial else int(cfg["device"]))
 
 
@@ -1650,8 +1654,8 @@ class Receiver:
         self.status = "stopped"
         self.error = None
         self.gains = []
-        self.has_bias_tee = cfg.get("driver", "rtl") in ("rtl", "airspy")
-        self.has_rtl_agc = cfg.get("driver", "rtl") == "rtl"
+        self.has_bias_tee = cfg.get("driver", "rtl") in ("rtl", "rtltcp", "airspy")
+        self.has_rtl_agc = cfg.get("driver", "rtl") in ("rtl", "rtltcp")
         self.smeter = -150.0
         self.sagc = SmartAgc()
         self._agc_spec_t = 0.0
@@ -1756,6 +1760,17 @@ class Receiver:
         self._stop.set()
         if self.thread:
             self.thread.join(timeout=3)
+
+    def _net_ratio(self):
+        """rtl_tcp (rtltcp.py): share of the samples arriving; logged when the network starts / stops keeping up."""
+        from rtltcp import SLOW_RATIO
+        r = getattr(self.sdr, "net_ratio", None) if self.status == "running" else None
+        slow = r is not None and r < SLOW_RATIO
+        if slow != getattr(self, "_net_slow", False):
+            self._net_slow = slow
+            self._log(f"network too slow: only {r * 100:.0f} % of the samples arrive (the rtl_tcp server drops the rest);"
+                      " lower the sample rate or use a faster link" if slow else "network keeps up again")
+        return r
 
     def _log(self, msg):
         """A line in the server log (data/server_logs; serverlog.py adds the time and the VFO letter)."""
@@ -2331,7 +2346,7 @@ class Receiver:
         c = self.cfg
         mode = c["mode"]
         bw = DSD_BW if mode == DSD_MODE else float(c.get("bandwidth", {}).get(mode, 3000))
-        bits = 8 if c.get("driver", "rtl") == "rtl" else 12
+        bits = 8 if c.get("driver", "rtl") in ("rtl", "rtltcp") else 12
         return (self.fs, c["center_hz"], c["tune_hz"], mode, bw, bits)
 
     def agc_target(self):
@@ -2648,6 +2663,8 @@ class Receiver:
             "out_of_band": self.out_of_band,
             "chained_vfos": self.iq_server.count if self.iq_server else 0,
             "driver": c.get("driver", "rtl"),
+            "net_ratio": self._net_ratio(),         # rtl_tcp: share of the samples that arrive over the network
+            "net_warn": getattr(self.sdr, "server_warn", None) if self.status == "running" else None,   # rtl_tcp server
             "has_bias_tee": self.has_bias_tee,
             "has_rtl_agc": self.has_rtl_agc,
             "range": self.tune_range(),

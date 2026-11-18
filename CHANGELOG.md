@@ -4,6 +4,30 @@
 
 Test beta (GitHub branch `1.1beta1`; continues the release 1.0).
 
+### Main Features
+
+- **Remote dongles over the network (rtl_tcp):** a VFO can take its RTL-SDR dongle over USB or from another computer,
+  e.g. a Raspberry Pi with several dongles. New driver `rtltcp` (rtltcp.py): the VFO tunes, sets gain, RTL AGC, ppm and
+  bias-tee over the network and gets the same raw I/Q as from USB, so VDL2, DAB and ISM work too. A dongle on a server
+  with rtltcp-manager is addressed by its serial (`SDR1@192.168.1.50`: its port is looked up, the USB socket on the server
+  does not matter), any plain rtl_tcp server as `host:port`. **SDR setup** has a new line *Network dongles (rtl_tcp
+  servers)*: enter the server, FIND, and its dongles join the list to be dragged onto a VFO (saved in vfos.json).
+- **Raspberry Pi server: `rpi/install_rtltcp.sh`** for a clean Raspberry Pi OS (any Debian): builds the rtl-sdr-blog driver
+  (V3, V4, generic) into /opt/rtlsdr-blog without touching a librtlsdr already there, blacklists the DVB-T driver and
+  installs the service **rtltcp-manager**: one rtl_tcp per dongle by serial on a fixed port (1234, 1235 …), dongles
+  plugged in later start by themselves, an rtl_tcp whose client stopped answering is restarted (rtl_tcp serves one client
+  and would block the reconnect for minutes, e.g. after a WiFi switch). Its HTTP side (port 1233) lists the dongles and
+  the state of the server for RADIMCOM.
+- **SETTINGS › RTL_TCP SERVER** (the settings pages are now GENERAL, STATION, VFO, RTL_TCP SERVER): one card per server
+  with name, IP, link (LAN / WIFI 2G / WIFI 5G with SSID, signal and rate), ping, CPU (load, clock, temperature), RAM,
+  disk, power (Raspberry Pi under-voltage / throttling, with a warning), time against this PC (NTP), graphs of the last
+  10 minutes (data sent per dongle against what is needed, ping, WiFi signal), the dongles with their VFO, frequency,
+  data rate, share of the samples arriving and client, and keys RESTART (one dongle), RESTART SERVER, SHUTDOWN (with a
+  confirmation) and UPDATE (installs the rtltcp-manager shipped with RADIMCOM). Refreshed only while the page is open.
+- **VFO window: network icon for rtl_tcp** instead of the USB symbol; **orange** when the network does not carry all the
+  samples (the VFO compares what arrives with the sample rate; rtl_tcp drops the rest silently, so this is the only place
+  it shows; also in the VFO log), **red** when the server is not reachable, and a **blinking lightning** when the server
+  has under-voltage or overheats.
 ### New
 
 - **NTH › EXP › FAST** (SETTINGS › AUDIO, on by default together with AUTO) for weak signals, where the expander often turned the speech down:

@@ -56,10 +56,24 @@ def index():
     return send_from_directory(app.static_folder, "setup.html")
 
 
+def servers_arg(raw):
+    """rtl_tcp servers from the page ("192.168.1.50, 10.0.0.7:1234"), or None = the saved ones."""
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        raw = raw.replace(";", ",").replace(" ", ",").split(",")
+    return [str(s).strip() for s in raw if str(s).strip()]
+
+
 @app.route("/api/devices")
 def api_devices():
+    servers = servers_arg(request.args.get("servers"))
+    if servers is None:
+        servers = setup_sdr.rtltcp_servers()
     with lock:
-        devs = setup_sdr.devices()
+        devs = setup_sdr.devices([])
+    net, net_errors = setup_sdr.net_devices(servers) if servers else ([], [])
+    devs += net
     rtl = [d for d in devs if d["driver"] == "rtl"]
     bad = {d["index"] for d in setup_sdr.to_rewrite(rtl)}
     taken = {d["serial"] for d in rtl}
@@ -75,6 +89,7 @@ def api_devices():
             x["suggest"] = new or ""
         out.append(x)
     return jsonify({"devices": out, "no_serials": bool(devs) and not any(d["serial"] for d in devs),
+                    "servers": servers, "server_errors": net_errors,
                     "current": current(), "max_vfos": setup_sdr.MAX_VFOS, "first_port": setup_sdr.FIRST_PORT})
 
 
@@ -128,9 +143,11 @@ def api_back():
 def api_save():
     """{"vfos": [{"name": "A", "device": [driver, serial]} or {"name": "B", "chain": "A"}, with "ppm", "lo" (MHz or
     null), "note"}]} -> vfos.json (the old settings go to data/config_backup/)."""
-    rows = (request.get_json(force=True, silent=True) or {}).get("vfos", [])
+    body = request.get_json(force=True, silent=True) or {}
+    rows = body.get("vfos", [])
+    servers = servers_arg(body.get("servers"))
     with lock:
-        devs = setup_sdr.devices()
+        devs = setup_sdr.devices(servers)
     vfos, errors = [], []
     for i, r in enumerate(rows[:setup_sdr.MAX_VFOS]):
         name = setup_sdr.NAMES[i]
@@ -164,7 +181,7 @@ def api_save():
         return jsonify({"error": "; ".join(errors)}), 400
     if not vfos:
         return jsonify({"error": "no VFO has an SDR"}), 400
-    backup = setup_sdr.save(vfos)
+    backup = setup_sdr.save(vfos, servers)
     print(f"SDR setup saved: " + ", ".join(f"VFO {v['name']} = {v.get('chain') or v['serial']}" for v in vfos))
     return jsonify({"saved": setup_sdr.VFOS_PATH, "backup": backup, "vfos": vfos})
 
