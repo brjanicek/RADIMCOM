@@ -1,5 +1,15 @@
 # Changelog
 
+## Ver. 1.1beta2
+
+Test beta (GitHub branch `1.1beta2`; continues 1.1beta1).
+
+### Changes
+
+- **Development:** git workflow for working on one version branch together without conflicts: pull requests from short
+  topic branches rebased onto the version branch, the change log written by the maintainer from the PR description,
+  line endings fixed by `.gitattributes`. Rules in CONTRIBUTING.md (Git workflow) and CLAUDE.md for AI assistants.
+
 ## Ver. 1.1beta1
 
 Test beta (GitHub branch `1.1beta1`; continues the release 1.0).

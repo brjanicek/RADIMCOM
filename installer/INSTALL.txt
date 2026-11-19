@@ -80,6 +80,11 @@ Change log
 ----------
 (also in CHANGELOG.md)
 
+Ver. 1.1beta2
+(test beta, GitHub branch 1.1beta2; continues 1.1beta1)
+Changes
+- Development: rules for working on the code together without git conflicts (CONTRIBUTING.md, CLAUDE.md).
+
 Ver. 1.1beta1
 (test beta, GitHub branch 1.1beta1; continues the release 1.0)
 New
