@@ -1,1 +1,17 @@
+# The repository stores text files with LF. Git converts them on checkout as each
+# contributor's settings ask, so line endings never show up as a change or a conflict.
+* text=auto
+
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.sh  text eol=lf
 rpi/* text eol=lf
+
+*.png binary
+*.PNG binary
+*.jpg binary
+*.ico binary
+*.exe binary
+*.dll binary
+*.zip binary
+*.wav binary
