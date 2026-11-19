@@ -67,6 +67,24 @@ Test beta (GitHub branch `1.1beta1`; continues the release 1.0).
   30 s, also with the tab closed) in `data\composite_<VFO>.json`, read back after a restart. New `GET /api/positions`
   (one format for all sources, a test for merging the feeds of more stations); **JSON** downloads the merged feed.
   See `docs/composite.md`.
+- **COMPOSITE map: settings, lists, sharing** *(by Brano, [brjanicek](https://github.com/brjanicek))*: the ⚙ key opens
+  **Settings** in sections that open and close (remembered in the browser, the same in all windows of the address):
+  **Sources** for aircrafts, radiosondes and ships (one part open at a time; the local decoders instead of the SOURCES
+  row, and **Sharing** from other stations: **adsb.fi** aircraft, **aisstream.io** ships (free API key, stored on the
+  server), **SondeHub** radiosondes, each with a filter – radius, the nearest N, only those the local decoders do not
+  hear, altitude / moving / in flight …), **Map** (base map OSM / Esri dark grey / OpenTopoMap / Esri satellite / own tile
+  address / plain colour, darken, **OpenSeaMap**, **OpenAIP** with its API key stored on the server, own **GeoJSON / KML /
+  GPX layers** stored in `data\maplayers`, **A/D map** rings and azimuths around the station, **ADS-B range** with line /
+  fill colour per band), **Weather** (precipitation: only the latest frame or a loop of 20–120 min, refreshed when the
+  source has a new frame; **clouds**: MTG infrared from EUMETSAT), **Aircrafts**, **Radiosondes**, **Ships** and **Labels**
+  with columns Selected / Local / Sharing (trails: full, fading dots or radar **echo** of the last minutes; icon size,
+  aircraft symbol, **prediction** line with minute ticks, colours, no-position colour and time, hide after; label items
+  incl. azimuth / distance, font, background, text colour, without units). Selected object orange; squawk 7500 / 7600 /
+  7700 red, 1.5× bigger, red trail. Labels can be dragged (per window) and have a line to their icon. **Status row** under
+  the map (tracks, precipitation and cloud time, cursor LAT / LON / A-D, JSON); **lists** beside the map (Aircrafts,
+  Radiosondes, Ships, sortable; an emergency opens Aircrafts and stays red). The marks are kept between the drawings
+  (hundreds of objects drew for seconds). New `/api/maplayers`, `/api/mapkeys`, `/api/share/adsbfi`,
+  `/api/share/aisstream`, `/api/share/sondehub`; ADS-B trail points keep the squawk. See `docs/composite.md`.
 - **Precipitation radar on the maps** of VDL2 / ACARS, HFDL, ADS-B, SONDE and COMPOSITE: the RainViewer radar (only the map
   tiles are asked, no position), the last 30 minutes animated (frames every 10 min, the newest held, its time in the corner),
   switch in the top right corner, remembered per map, off by default; an opacity slider (10–100 %, 60 % by default, per map)

@@ -3207,6 +3207,7 @@ html[data-ink="dark"] .r-top, html[data-ink="dark"] .r-keys { border-bottom-colo
 .ais-ship.sar svg { fill: #ff8a6b; }
 .ais-ship.old svg { fill: #8a929c; }
 .ais-ship.sel svg { fill: #ff4b3c; }
+#comMap .hfdl-plane.sel svg, #comMap .ais-ship.sel svg { fill: #ff8c1a; }   /* COMPOSITE: the selected object orange */
 /* ADS-B card (DECODERS › ADS-B): AIRCRAFT, MAP and MESSAGES like AIS */
 #adsbInfo.err { color: #ff7b6b; }
 .adsb table { table-layout: fixed; }
@@ -3911,7 +3912,7 @@ html.app-shell .r-master .r-logo { margin-top: 10px; }
 .com-srcs .key.small.on::before { opacity: 1; }
 .com-srcs .muted { font-size: 12px; }
 .com-body { flex: 1 1 0; display: flex; gap: 8px; min-height: 300px; }
-.com-side { flex: 0 0 280px; overflow: auto; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: #0e1116; font-size: 12px; line-height: 1.55; }
+.com-side { flex: 0 0 340px; display: flex; flex-direction: column; overflow: hidden; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: #0e1116; font-size: 12px; line-height: 1.55; }
 .com-side .com-kind { font-size: 11px; color: var(--muted); letter-spacing: .05em; margin-bottom: 4px; }
 .com-side a { color: var(--yellow); }
 @media (max-width: 760px) { .com-body { flex-direction: column; } .com-side { flex: 0 0 auto; } }
@@ -3926,6 +3927,30 @@ html.app-shell .r-master .r-logo { margin-top: 10px; }
 .com-side .com-parts td:nth-child(3) { white-space: normal; }
 .map-precip-time { display: flex; align-items: center; gap: 6px; }
 .map-precip-time input[type=range] { width: 80px; height: 12px; margin: 0; accent-color: #6cb8ff; cursor: pointer; }
+/* the map settings window (⚙ in the top right corner, the same for all maps) */
+.map-opts { background: rgba(10, 13, 18, .78); color: #dfe4ea; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
+.map-opts .map-opts-btn { background: transparent; color: #dfe4ea; font-size: 16px; line-height: 30px; text-align: center; text-decoration: none; }
+.map-opts .map-opts-btn:hover { background: #1c2533; color: #fff; }
+.map-opts-panel { padding: 6px 10px 8px; font: 12px/1.5 system-ui, sans-serif; width: 470px; max-width: calc(100vw - 80px); box-sizing: border-box; border-top: 1px solid #2a3546; text-shadow: 0 0 2px #000; }
+.map-opts-panel[hidden] { display: none; }
+.map-opts-panel label { display: flex; align-items: center; gap: 6px; margin: 3px 0; cursor: pointer; white-space: nowrap; }
+.map-opts-panel select { font: inherit; color: #dfe4ea; background: #141b26; border: 1px solid #3a4a60; border-radius: 3px; padding: 1px 2px; cursor: pointer; }
+.map-opts-panel input[type=range] { width: 90px; accent-color: #6cb8ff; cursor: pointer; }
+.map-opts-h { margin: 6px 0 2px; color: #6cb8ff; font-weight: 600; text-transform: uppercase; font-size: 11px; letter-spacing: .04em; }
+.map-opts-h:first-child { margin-top: 0; }
+.map-opts-h small { color: #8fa3bd; font-weight: 400; text-transform: none; letter-spacing: 0; }
+.map-opts-opa { color: #8fa3bd; min-width: 34px; }
+.map-opts-panel { max-height: 70vh; overflow-y: auto; }
+.map-opts-t { border-collapse: collapse; margin-top: 2px; }
+.map-opts-hr { border: 0; border-top: 1px solid #3a4a60; margin: 8px 0 6px; }
+.map-opts-t td.muted { color: #6b7a8c; font-size: 11px; }
+.map-opts-t th, .map-opts-t td { padding: 1px 4px; text-align: center; font-weight: 400; }
+.map-opts-t tr > th:first-child { text-align: left; color: #cfd6df; padding-left: 0; }
+.map-opts-t tr:first-child th { color: #8fa3bd; font-size: 11px; }
+.map-opts-t tr:first-child th.map-opts-h { color: #6cb8ff; font-weight: 600; }
+.map-opts-t th.map-opts-sub { color: #6cb8ff !important; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; padding-top: 6px; }
+.map-opts-t input[type=checkbox] { margin: 0; cursor: pointer; }
+.map-opts-note { margin: 6px 0 0; color: #8fa3bd; font-size: 11px; }
 .map-precip-opa { min-width: 32px; text-align: right; color: #8fa3bd; }
 .map-precip-time > span:first-child { display: inline-block; width: 25ch; white-space: nowrap; }   /* time text of a fixed width: the slider does not move */
 /* AD: DSD calls on air, one line per time slot (two lines when both DMR slots carry a call) */
@@ -4006,3 +4031,96 @@ html.app-shell .r-master .r-logo { margin-top: 10px; }
 .lg-acts { display: flex; gap: 4px; justify-content: flex-end; }
 .lg-acts a.key, .lg-hist a.key { text-decoration: none; }
 .lg-hist-msg { flex: 1 1 100%; color: #9fd0ff; }
+
+
+/* map settings: icons sized by the settings (the svg fills the icon box); emergency squawk 7500 / 7600 / 7700 red over all */
+.map-scaled svg { width: 100% !important; height: 100% !important; }
+.map-cwrap { display: block; width: 100%; height: 100%; }
+.map-colored:not(.old) svg { fill: var(--mc) !important; }   /* icon colour from the map settings (an old object stays grey) */
+.map-colored:not(.old) svg .ln { stroke: var(--mc) !important; }
+.map-colored:not(.old) .map-cwrap span { color: var(--mc) !important; }
+.map-scaled.old:not(.sel):not(.map-emerg) svg { fill: var(--oc) !important; }   /* no position: the colour of the map settings (grey) */
+.map-scaled.old:not(.sel):not(.map-emerg) svg .ln { stroke: var(--oc) !important; }
+.map-scaled.old:not(.sel):not(.map-emerg) .map-cwrap span { color: var(--oc) !important; }
+.map-emerg svg, .map-emerg.sel svg, .map-emerg.old svg, .map-emerg.map-colored svg { fill: #ff2a2a !important; }
+.map-opts-c { display: inline-flex; align-items: center; gap: 3px; }
+.map-opts-c input[type=color] { width: 26px; height: 18px; padding: 0; border: 1px solid #3a4a60; border-radius: 3px; background: none; cursor: pointer; }
+.map-opts-c button { font: 10px/1 system-ui, sans-serif; color: #8fa3bd; background: #141b26; border: 1px solid #3a4a60; border-radius: 3px; padding: 2px 4px; cursor: pointer; }
+.map-opts-c.auto input[type=color] { opacity: .35; }
+.map-opts-c.auto button { color: #fff; border-color: #6cb8ff; }
+/* labels can be moved with the mouse (a double click puts one back) */
+.leaflet-tooltip.map-lbl { pointer-events: auto; cursor: move; touch-action: none; user-select: none; }
+.leaflet-tooltip.map-lbl.dragging { outline: 1px dashed #6cb8ff; }
+/* prediction line: a tick every minute, across the track */
+.map-tick { pointer-events: none; }
+.map-tick i { display: block; width: 9px; height: 0; margin-top: 4px; border-top: 1px solid; opacity: .9; }
+/* range rings around the station: distance and azimuth labels */
+.map-ad-lbl { pointer-events: none; font: 10px/12px ui-monospace, Consolas, monospace; white-space: nowrap; text-shadow: 0 0 2px #000, 0 0 2px #000; }
+.map-ad-lbl.az { text-align: center; }
+.map-opts-cp { width: 26px; height: 18px; padding: 0; border: 1px solid #3a4a60; border-radius: 3px; background: none; cursor: pointer; }
+/* map settings: base map address, own layers */
+.map-opts-url { width: 100%; min-width: 220px; font: 11px ui-monospace, Consolas, monospace; color: #dfe4ea; background: #141b26; border: 1px solid #3a4a60; border-radius: 3px; padding: 2px 4px; }
+.map-opts-lays th label { margin: 0; max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
+.map-opts-del { font: 11px/1 system-ui, sans-serif; color: #ff8a80; background: #141b26; border: 1px solid #3a4a60; border-radius: 3px; padding: 2px 5px; cursor: pointer; }
+.map-opts-up input[type=file] { font-size: 11px; color: #8fa3bd; max-width: 190px; }
+.map-opts-msg:empty { display: none; }
+/* clouds (satellite infrared): cold tops white over the map, the warm ground pressed to black and blended away */
+.map-clouds { mix-blend-mode: screen; filter: contrast(1.8) brightness(.85); }
+/* map settings: collapsible sections */
+.map-opts-sec { border-top: 1px solid #2a3546; }
+.map-opts-sec:first-child { border-top: 0; }
+.map-opts-sec > summary { cursor: pointer; padding: 6px 0; color: #6cb8ff; font-weight: 600; text-transform: uppercase; font-size: 11px; letter-spacing: .04em; list-style: none; user-select: none; }
+.map-opts-sec > summary::-webkit-details-marker { display: none; }
+.map-opts-sec > summary::before { content: "▸"; display: inline-block; width: 12px; color: #8fa3bd; transition: transform .15s; }
+.map-opts-sec[open] > summary::before { transform: rotate(90deg); }
+.map-opts-sec > summary small { color: #8fa3bd; font-weight: 400; text-transform: none; letter-spacing: 0; margin-left: 4px; }
+.map-opts-body { padding: 0 0 8px 12px; }
+.map-opts-sub2 { margin: 8px 0 2px; color: #cfd6df; font-weight: 600; font-size: 11px; }
+.map-opts-sub2:first-child { margin-top: 0; }
+.map-opts-sub2 small { color: #8fa3bd; font-weight: 400; }
+/* map settings: "Settings" beside the gear while open; the dot of a source */
+.map-opts .map-opts-name { display: none; }
+.map-opts.open .map-opts-btn { width: auto; padding: 0 10px 0 8px; text-align: left; }
+.map-opts.open .map-opts-name { display: inline; margin-left: 6px; font: 600 12px/30px system-ui, sans-serif; letter-spacing: .03em; vertical-align: top; }
+.map-opts-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+/* COMPOSITE: the status row under the map (tracks, radar time, JSON; more to come) */
+.com-status { display: flex; align-items: center; gap: 14px; padding: 3px 8px; margin-top: 4px; border: 1px solid var(--line); border-radius: 6px; background: #0e1116; font: 12px/1.6 ui-monospace, Consolas, monospace; color: #cfd6df; }
+.com-status > span[id] + span[id]:not([hidden]) { border-left: 1px solid #3a4a60; padding-left: 14px; }
+.com-status-gap { flex: 1; }
+.map-opts-err { color: #ff8a80; }
+.map-opts-filter th { font-weight: 400; color: #cfd6df; text-align: left; padding-right: 4px; }
+label.map-opts-sub2 { display: flex; align-items: center; gap: 6px; cursor: pointer; }   /* a heading with its switch */
+/* COMPOSITE: the details of the selected object above the list of the objects on the map */
+.com-detail { flex: 0 0 auto; max-height: 55%; overflow: auto; padding-bottom: 6px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
+.com-list { flex: 1 1 0; overflow: auto; margin: 0 -10px; min-height: 80px; }
+.com-ml { grid-template-columns: 22px 1fr 44px 46px 58px 42px; box-shadow: inset 3px 0 0 var(--sc); }
+.com-ml.sel { background: rgba(255, 140, 26, .22); }
+.com-ml.emerg { box-shadow: inset 3px 0 0 #d83a2e; background: rgba(255, 60, 60, .14); }
+/* COMPOSITE: the lists beside the map (Aircraft, Radiosondes, Ships), sortable tables */
+.com-list { padding: 0 6px; }
+.com-lsec > summary .com-lcount { color: #8fa3bd; font-weight: 400; letter-spacing: 0; text-transform: none; }
+.com-lt { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 12px; }
+.com-lt th { position: sticky; top: 0; background: #0e1116; color: #8fa3bd; font-weight: 400; text-align: left; padding: 2px 4px; cursor: pointer; user-select: none; white-space: nowrap; }
+.com-lt th.sorted { color: #6cb8ff; }
+.com-lt th.sorted::after { content: " ▲"; font-size: 9px; }
+.com-lt th.sorted.desc::after { content: " ▼"; }
+.com-lt td { padding: 1px 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.com-lt td.c-name { width: 34%; }
+.com-lt td img, .com-lt td .noflag { width: 18px; height: 12px; object-fit: cover; border-radius: 2px; margin-right: 5px; vertical-align: -1px; display: inline-block; }
+.com-lt tr.com-ml { cursor: pointer; box-shadow: inset 3px 0 0 var(--sc); }
+.com-lt tr.com-ml:hover { background: rgba(255, 255, 255, .06); }
+.com-lt tr.com-ml.sel { background: rgba(255, 140, 26, .22); }
+.com-lt tr.com-ml.old { opacity: .55; }
+.com-lt tr.com-ml.emerg, .com-lt tr.com-ml.emerg b, .com-lt tr.com-ml.emerg .stype { color: #ff4b3c; }
+.com-lt tr.com-ml.emerg { box-shadow: inset 3px 0 0 #ff2a2a; background: rgba(255, 60, 60, .14); }
+.com-lt th:nth-child(1) { width: 34%; }
+.map-opts-sub3 { margin: 4px 0 1px 2px; color: #8fa3bd; font-size: 11px; }
+.map-opts-sub3 small { color: #6b7a8c; }
+/* Sources: a part per kind (one open at a time) */
+.map-opts-subsec { margin: 2px 0; border-left: 2px solid #2a3546; padding-left: 8px; }
+.map-opts-subsec > summary { cursor: pointer; list-style: none; color: #cfd6df; font-weight: 600; font-size: 12px; padding: 3px 0; user-select: none; }
+.map-opts-subsec > summary::-webkit-details-marker { display: none; }
+.map-opts-subsec > summary::before { content: "▸"; display: inline-block; width: 12px; color: #8fa3bd; transition: transform .15s; }
+.map-opts-subsec[open] > summary::before { transform: rotate(90deg); }
+.map-opts-subsec > summary small { color: #8fa3bd; font-weight: 400; margin-left: 4px; }
+.map-opts-subsec[open] { border-left-color: #6cb8ff; }
