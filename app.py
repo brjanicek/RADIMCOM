@@ -1257,10 +1257,16 @@ def api_adsb_cmd():
     return jsonify(adsb.info())
 
 
+def _emerg_sq(sq):
+    """The 4th element of a trail point: the squawk, only an emergency one (7500 / 7600 / 7700), so the map draws
+    that part of the trail red; nothing otherwise (the points stay short)."""
+    return [sq] if sq in ("7500", "7600", "7700") else []
+
+
 def _positions_live():
     """COMPOSITE map: everything with a position from the decoders running on this VFO, in one shape for all
     sources (also a test of a format to merge the feeds of several stations):
-    {"t", "sources": [running source keys], "items": [{"src", "id", "label", "lat", "lon", "alt_m", "t", "trail": [[lat, lon, t]…],
+    {"t", "sources": [running source keys], "items": [{"src", "id", "label", "lat", "lon", "alt_m", "t", "trail": [[lat, lon, t, (emergency squawk)]…],
      "air": aircraft details or absent}], "gs": [{"src", "id", "label", "lat", "lon", "t"}]}  – alt_m in metres (None = not known),
      t = UNIX seconds; air = {"hex", "reg", "flight", "type", "desc", "alt_ft", "gs_kt", "squawk", "ground", "gs", "n"}."""
     now = time.time()
@@ -1304,7 +1310,7 @@ def _positions_live():
             net = a.get("net") if isinstance(a.get("net"), dict) else None
             item("adsb", a["icao"], (a.get("flight") or "").strip() or a["icao"], a.get("lat"), a.get("lon"),
                  a.get("pos_time") or a.get("last"), None if alt is None else round(alt * 0.3048),
-                 [[p[0], p[1], p[2]] for p in a.get("trail", [])], track=a.get("track"),
+                 [[p[0], p[1], p[2]] + _emerg_sq(p[4] if len(p) > 4 else "") for p in a.get("trail", [])], track=a.get("track"),
                  air=air(None, a["icao"], "", a.get("flight"), net, alt_ft=alt, gs_kt=a.get("gs"), squawk=a.get("squawk"),
                          ground=bool(a.get("ground")), n=a.get("n", 0)))
     if ais.enabled:
@@ -1331,7 +1337,7 @@ def _positions_live():
                 continue
             a = acs.setdefault(key, {"label": "", "trail": [], "air": None})
             a["label"] = m.get("flight") or m.get("reg") or a["label"] or key
-            a["trail"].append([m["lat"], m["lon"], m.get("time") or now])
+            a["trail"].append([m["lat"], m["lon"], m.get("time") or now] + _emerg_sq((m.get("ac") or {}).get("squawk") if isinstance(m.get("ac"), dict) else ""))
             a["air"] = air(a["air"], m.get("icao"), m.get("reg"), m.get("flight"), m.get("ac"), gs=m.get("gs"))
         for key, a in acs.items():
             tr = sorted(a["trail"], key=lambda p: p[2])[-200:]
@@ -1345,13 +1351,13 @@ def _positions_live():
         a_info = acars.info()
         acs = {}
 
-        def add(key, label, lat, lon, t):
+        def add(key, label, lat, lon, t, sq=""):
             if not key or lat is None or lon is None:
                 return
             a = acs.setdefault(key, {"label": key, "trail": [], "air": None})
             if label:
                 a["label"] = label
-            a["trail"].append([lat, lon, t])
+            a["trail"].append([lat, lon, t] + _emerg_sq(sq))
 
         for p in a_info["positions"]:
             add(p["addr"], None, p["lat"], p["lon"], p["t"])
@@ -1376,7 +1382,7 @@ def _positions_live():
             if pos:
                 add(key, label, pos.get("lat"), pos.get("lon"), t)
             if ac:
-                add(key, label, ac.get("lat"), ac.get("lon"), t)
+                add(key, label, ac.get("lat"), ac.get("lon"), t, ac.get("squawk"))
             if key in acs and not acs[key]["air"]:
                 acs[key]["air"] = air(None, hx, reg, m.get("flight"), ac, gs=gsl)
         for key, a in acs.items():
@@ -1480,6 +1486,123 @@ def api_positions():
         gs = list(_com_gs.values())
         hist_srcs = [x for x in _com_srcs if x not in live["sources"]]
     return jsonify({"t": live["t"], "sources": live["sources"], "hist_sources": hist_srcs, "items": items, "gs": gs})
+
+
+# ----- COMPOSITE sharing: aircraft around the station from adsb.fi (open data, 1 request per second at most) -----
+_share_afi = {"t": 0.0, "key": None, "data": None}
+_share_lock = threading.Lock()
+SHARE_AFI_KEEP = ("hex", "flight", "r", "t", "desc", "alt_baro", "gs", "track", "lat", "lon", "squawk", "seen_pos", "category")
+
+
+@app.route("/api/share/adsbfi", methods=["GET"])
+def api_share_adsbfi():
+    """The aircraft adsb.fi sees within ?dist= NM (10–250) of the station: {"t", "aircraft": [adsb.fi records, the
+    fields of SHARE_AFI_KEEP]}. Asked from adsb.fi at most every 4 s; the windows filter what they show."""
+    import urllib.request
+    try:
+        dist = max(10, min(250, int(request.args.get("dist", 100))))
+    except ValueError:
+        dist = 100
+    loc = location.load()
+    lat, lon = loc.get("lat"), loc.get("lon")
+    if lat is None or lon is None or (not lat and not lon):
+        return jsonify(error="the station location is not set (MENU › SETUP › LOCATION)"), 400
+    key = (round(lat, 3), round(lon, 3), dist)
+    with _share_lock:
+        if _share_afi["key"] == key and time.time() - _share_afi["t"] < 4:
+            return jsonify(_share_afi["data"])
+        url = f"https://opendata.adsb.fi/api/v2/lat/{lat:.4f}/lon/{lon:.4f}/dist/{dist}"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "RADIMCOM"})
+            with urllib.request.urlopen(req, timeout=8) as r:
+                d = json.load(r)
+        except Exception as e:      # no internet, adsb.fi down or rate limited
+            return jsonify(error=f"adsb.fi: {e}"), 502
+        ac = d.get("aircraft") or d.get("ac") or []
+        out = {"t": round(time.time(), 1), "aircraft": [{k: a[k] for k in SHARE_AFI_KEEP if k in a} for a in ac if a.get("lat") is not None]}
+        _share_afi.update(t=time.time(), key=key, data=out)
+    return jsonify(out)
+
+
+# ----- keys of map services (OpenAIP), one file for the station: every window and computer has them -----
+MAPKEYS_PATH = data("mapkeys.json")
+
+
+@app.route("/api/mapkeys", methods=["GET", "POST"])
+def api_mapkeys():
+    """GET: {"openaip": key or ""}. POST {"openaip": key}: stores it ("" removes it)."""
+    try:
+        with open(MAPKEYS_PATH, encoding="utf-8") as f:
+            keys = json.load(f)
+        if not isinstance(keys, dict):
+            keys = {}
+    except (OSError, ValueError):
+        keys = {}
+    if request.method == "POST":
+        d = request.get_json(silent=True) or {}
+        if "openaip" in d:
+            k = str(d.get("openaip") or "").strip()
+            if k and not re.fullmatch(r"[A-Za-z0-9_-]{8,128}", k):
+                return jsonify(error="the key has letters, digits, - and _ only"), 400
+            keys["openaip"] = k
+        with open(MAPKEYS_PATH, "w", encoding="utf-8") as f:
+            json.dump(keys, f)
+    return jsonify(openaip=keys.get("openaip", ""))
+
+
+# ----- own map layers (GeoJSON; KML / GPX are turned into GeoJSON in the browser): one folder for all VFOs -----
+MAPLAYER_DIR = data("maplayers")
+MAPLAYER_MAX = 20 * 1024 * 1024     # bytes of one layer
+
+
+def _maplayer_path(lid):
+    return os.path.join(MAPLAYER_DIR, lid + ".json") if re.fullmatch(r"[A-Za-z0-9_-]{1,64}", lid or "") else None
+
+
+@app.route("/api/maplayers", methods=["GET", "POST"])
+def api_maplayers():
+    """GET: the layers [{id, name, t, n, size}]. POST {"name", "geojson"}: stores a new layer, answers its id."""
+    os.makedirs(MAPLAYER_DIR, exist_ok=True)
+    if request.method == "POST":
+        d = request.get_json(silent=True) or {}
+        name = str(d.get("name") or "").strip()[:80]
+        gj = d.get("geojson")
+        if not name or not isinstance(gj, dict) or gj.get("type") not in ("FeatureCollection", "Feature"):
+            return jsonify(error="a name and GeoJSON (FeatureCollection) are needed"), 400
+        raw = json.dumps({"name": name, "t": round(time.time()), "geojson": gj}, separators=(",", ":"))
+        if len(raw) > MAPLAYER_MAX:
+            return jsonify(error=f"the layer is too big (over {MAPLAYER_MAX // 1048576} MB)"), 413
+        lid = (re.sub(r"[^A-Za-z0-9_-]+", "_", name).strip("_")[:40] or "layer") + "_" + format(int(time.time() * 1000), "x")
+        with open(_maplayer_path(lid), "w", encoding="utf-8") as f:
+            f.write(raw)
+        return jsonify(id=lid)
+    out = []
+    for fn in sorted(os.listdir(MAPLAYER_DIR)):
+        if not fn.endswith(".json"):
+            continue
+        path = os.path.join(MAPLAYER_DIR, fn)
+        try:
+            with open(path, encoding="utf-8") as f:
+                d = json.load(f)
+            gj = d.get("geojson") or {}
+            n = len(gj.get("features") or []) if gj.get("type") == "FeatureCollection" else 1
+            out.append({"id": fn[:-5], "name": d.get("name") or fn[:-5], "t": d.get("t"), "n": n, "size": os.path.getsize(path)})
+        except (OSError, ValueError, AttributeError):
+            continue
+    return jsonify(layers=out)
+
+
+@app.route("/api/maplayers/<lid>", methods=["GET", "DELETE"])
+def api_maplayer(lid):
+    """GET: the GeoJSON of a layer. DELETE: removes it."""
+    path = _maplayer_path(lid)
+    if not path or not os.path.exists(path):
+        return jsonify(error="no such layer"), 404
+    if request.method == "DELETE":
+        os.remove(path)
+        return jsonify(ok=True)
+    with open(path, encoding="utf-8") as f:
+        return jsonify(json.load(f).get("geojson") or {})
 
 
 @app.route("/api/adsb_range", methods=["GET"])

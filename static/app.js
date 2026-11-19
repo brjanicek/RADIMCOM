@@ -16123,12 +16123,63 @@ function mapViewKeep(map, kind) {
 
 const COM_SRC = {   // source key → name and colour
   adsb: ["ADS-B", "#ffd84a"], acars: ["ACARS", "#6cb8ff"], vdl2: ["VDL2", "#6cb8ff"], hfdl: ["HFDL", "#ff9a3c"],
-  ais: ["AIS", "#6cff9c"], sonde: ["SONDE", "#ff6cd2"],
+  ais: ["AIS", "#6cff9c"], sonde: ["SONDE", "#ff6cd2"], adsbfi: ["adsb.fi", "#9ad0ff"],
 };
+const COM_SHARED = new Set(["adsbfi"]);   // sources from other stations (Sharing)
+
+// ----- Sharing: aircraft around the station from adsb.fi, filtered as the map settings say -----
+let comShare = { ac: [], t: 0, err: "", got: 0, shown: 0 }, comShareAt = 0;
+const comShareTr = new Map();   // hex -> [[lat, lon, t]…] of the last 15 minutes (adsb.fi gives positions only, the trails are made here)
+async function comShareLoad(force) {
+  if (!mapOpts.shAfi) return;
+  if (!force && Date.now() - comShareAt < mapOpts.shInt * 1000) return;
+  comShareAt = Date.now();
+  try {
+    const d = await mapLayApi(`/api/share/adsbfi?dist=${mapOpts.shDist}`);
+    const now = Date.now() / 1000;
+    comShare = { ...comShare, ac: d.aircraft || [], t: d.t || now, err: "", got: (d.aircraft || []).length };
+    for (const a of comShare.ac) {
+      const hex = String(a.hex || "").toUpperCase(), t = comShare.t - (a.seen_pos || 0);
+      if (!/^[0-9A-F]{6}$/.test(hex)) continue;
+      const tr = comShareTr.get(hex) || [];
+      const last = tr[tr.length - 1];
+      if (!last || last[0] !== a.lat || last[1] !== a.lon) tr.push(mapEmerg(a.squawk) ? [a.lat, a.lon, t, a.squawk] : [a.lat, a.lon, t]);
+      comShareTr.set(hex, tr);
+    }
+    for (const [hex, tr] of comShareTr) {
+      while (tr.length && now - tr[0][2] > 900) tr.shift();
+      if (!tr.length) comShareTr.delete(hex);
+    }
+  } catch (e) { comShare = { ...comShare, err: e.message }; }
+}
+/** The adsb.fi aircraft that pass the filter, as items of the COMPOSITE feed. */
+function comShareItems() {
+  if (!mapOpts.shAfi) return [];
+  const o = mapOpts, q = mapQthV, local = new Set();
+  if (o.shNotLocal) for (const [vfo, d] of comFeeds) if (vfo !== "~share") for (const i of d.items) if (i.air && i.air.hex) local.add(String(i.air.hex).toUpperCase());
+  let list = comShare.ac.filter((a) => {
+    const hex = String(a.hex || "").toUpperCase(), gnd = a.alt_baro === "ground", alt = typeof a.alt_baro === "number" ? a.alt_baro : null;
+    if (!/^[0-9A-F]{6}$/.test(hex) || local.has(hex) || (a.seen_pos || 0) > 60) return false;
+    if (gnd) return o.shGround;
+    if (o.shAltMin && (alt == null || alt < o.shAltMin)) return false;
+    if (o.shAltMax && alt != null && alt > o.shAltMax) return false;
+    return true;
+  });
+  if (q) list = list.map((a) => [mapAzDist(q, a)[1], a]).sort((x, y) => x[0] - y[0]).map((x) => x[1]);
+  if (o.shMax) list = list.slice(0, o.shMax);
+  comShare.shown = list.length;
+  return list.map((a) => {
+    const hex = String(a.hex).toUpperCase(), alt = typeof a.alt_baro === "number" ? a.alt_baro : null;
+    return { src: "adsbfi", id: hex, label: (a.flight || "").trim() || hex, lat: a.lat, lon: a.lon, alt_m: alt == null ? null : Math.round(alt * 0.3048),
+      t: comShare.t - (a.seen_pos || 0), trail: comShareTr.get(hex) || [], track: a.track,
+      air: { hex, reg: a.r || "", flight: (a.flight || "").trim(), type: a.t || "", desc: a.desc || "", alt_ft: alt, gs_kt: a.gs, squawk: a.squawk || "",
+        ground: a.alt_baro === "ground", track: a.track, gs: "", n: 0 } };
+  });
+}
 const COM_POLL_MS = 5000, COM_OLD_S = 900;
 let comMap = null, comLayers = null, comTimer = null, comFeeds = new Map(), comFitted = !!mapViewSaved("com");
 let comOff = new Set((recall("comOff") || "").split(",").filter(Boolean));   // "A:vdl2" … switched off by the user
-let comMerged = [];
+let comMerged = [], comDrawn = [], comMarks = new Map();   // … and the marks on the map by object id   // all joined objects / those on the map now
 
 function comShown(open) {
   if (open && !comTimer) {
@@ -16147,6 +16198,7 @@ async function comPoll() {
     try { return [v.name, await satFetch("/api/positions", undefined, v.base)]; } catch { return [v.name, null]; }
   }));
   comFeeds = new Map(got.filter(([, d]) => d));
+  await comShareLoad();
   renderComSrcs();
   await renderComMap();
 }
@@ -16175,6 +16227,7 @@ function renderComSrcs() {
     btns.push(m);
   }
   box.replaceChildren(...btns);
+  if (comMap && comMap._optsSources) comMap._optsSources();   // the Sources section of the map settings
 }
 $("comSrcs").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-k]");
@@ -16220,6 +16273,7 @@ function comKm(a, b) {
 function comMerge() {
   const list = [];
   for (const [vfo, d] of comFeeds) for (const i of d.items) if (!comOff.has(comKey(vfo, i.src))) list.push({ vfo, i });
+  for (const i of comShareItems()) list.push({ vfo: "~share", i });   // Sharing (adsb.fi), filtered
   // union-find over the items: each identifier seen joins the items that have it
   const up = list.map((_, k) => k), why = list.map(() => new Set()), gHex = list.map(() => "");
   const root = (k) => { while (up[k] !== k) k = up[k] = up[up[k]]; return k; };
@@ -16314,7 +16368,7 @@ function comPartsHtml(m) {
   const rows = parts.map((p) => {
     const ids = [p.flight, p.reg, p.hex && /^[0-9A-F]{6}$/i.test(p.hex) ? p.hex.toUpperCase() : "", p.squawk && `sq ${p.squawk}`]
       .filter((x, k, a) => x && a.indexOf(x) === k);
-    return `<tr><td>${p.vfo ? `VFO ${esc(p.vfo)}` : ""}</td><td><b style="color:${(COM_SRC[p.src] || ["", "#fff"])[1]}">${esc((COM_SRC[p.src] || [p.src])[0])}</b></td>` +
+    return `<tr><td>${p.vfo === "~share" ? "Sharing" : p.vfo ? `VFO ${esc(p.vfo)}` : ""}</td><td><b style="color:${(COM_SRC[p.src] || ["", "#fff"])[1]}">${esc((COM_SRC[p.src] || [p.src])[0])}</b></td>` +
       `<td>${esc(ids.join(" · ") || p.label || p.id)}${p.n ? ` · ${p.n} msgs` : ""}</td><td>${hfdlUtc(p.t)}${p.hist ? " (history)" : ""}</td></tr>`;
   }).join("");
   const how = parts.length > 1 ? `joined by ${esc((m.joined || []).join(", ") || "?")}` : "one record, nothing joined";
@@ -16340,9 +16394,12 @@ function comAirPopup(m) {
 
 /** The panel right of the map: details of the selected aircraft, ship or sonde (the same lines as the popups of their own maps). */
 function renderComSide() {
-  const m = comSel && comMerged.find((x) => x.id === comSel), box = $("comSide");
+  const side = $("comSide");
+  if (!$("comDetail")) side.innerHTML = '<div id="comDetail" class="com-detail"></div><div id="comList" class="com-list"></div>';
+  renderComList();
+  const m = comSel && comMerged.find((x) => x.id === comSel), box = $("comDetail");
   if (!m) {
-    box.innerHTML = '<div class="muted">Click an aircraft, ship or sonde on the map: its details show here.</div>';
+    box.innerHTML = '<div class="muted">Click an aircraft, ship or sonde on the map or in the list: its details show here.</div>';
     return;
   }
   const kind = m.air ? "AIRCRAFT" : m.ship ? "SHIP / AIS STATION" : m.sonde ? "RADIOSONDE" : "OBJECT";
@@ -16368,7 +16425,7 @@ async function comMapOpen() {
   mapPopout(comMap, "com");   // remembers the view; the ↗ key opens the map alone in a new tab
   comMap.on("click", () => { if (comSel) { comSel = null; renderComMap(); } });
   comLayers = { gs: L.layerGroup().addTo(comMap), tracks: L.layerGroup().addTo(comMap), marks: L.layerGroup().addTo(comMap) };
-  mapPrecip(comMap, "com", comLayers.tracks);
+  comMapSettings(comMap, "com", () => renderComMap());   // the map settings window (⚙)
   try {
     const s = await satFetch("/api/location");
     if (s && Number.isFinite(s.lat) && Number.isFinite(s.lon)) {
@@ -16380,13 +16437,14 @@ async function comMapOpen() {
 }
 
 async function renderComMap() {
+  if (mapLblDrag) return;   // a label is being dragged: the marks are made again on each render
   if (bodyTab !== "com" || !(await comMapOpen())) return;
   comMap.invalidateSize();
   const esc = escHtml, now = Date.now() / 1000;
   comMerged = comMerge();
   comLayers.gs.clearLayers();
   comLayers.tracks.clearLayers();
-  comLayers.marks.clearLayers();
+  const keepMk = new Set();
   const seen = new Set();
   for (const [vfo, d] of comFeeds) {
     for (const g of d.gs) {
@@ -16399,43 +16457,174 @@ async function renderComMap() {
     }
   }
   const pts = [];
+  comDrawn = [];
   if (comSel && !comMerged.some((m) => m.id === comSel)) comSel = null;
   for (const m of comMerged) {
     const col = (COM_SRC[m.srcs[0]] || ["", "#fff"])[1], old = now - m.t > COM_OLD_S, sel = m.id === comSel;
-    if (m.trail.length > 1) L.polyline(m.trail.map((p) => [p[0], p[1]]), { color: sel ? "#ff4b3c" : col, weight: sel ? 2.5 : 1.5, opacity: sel ? 0.9 : 0.6, interactive: false }).addTo(comLayers.tracks);
+    const g = sel ? true : m.srcs.every((x) => COM_SHARED.has(x)) ? "Shr" : false;   // selected / only from shared sources / local
+    if (mapGone(m.t, g)) continue;
+    mapTrail(comLayers.tracks, m.trail, { color: sel ? MAP_SEL_C : col, weight: sel ? 2.5 : 1.5, opacity: sel ? 0.9 : 0.6, interactive: false }, g);
+    const pv = m.air ? [m.track ?? comHeading(m) ?? m.air.track, m.air.ground ? null : m.air.gs_kt] : m.ship ? [m.ship.cog, m.ship.sog]
+      : m.sonde ? [m.sonde.dir, m.sonde.vh != null ? m.sonde.vh * 1.94384 : null] : [null, null];
+    mapPredict(comLayers.tracks, m, pv[0], pv[1], m.t, g, sel ? MAP_SEL_C : col);
+    const src = m.srcs.map((x) => (COM_SRC[x] || [x.toUpperCase()])[0]).join(" + ");
+    let emerg = false;
     pts.push([m.lat, m.lon]);
+    comDrawn.push(m);
     let icon, label, cls = "ais-label";
     if (m.air) {   // an aircraft: as on the ADS-B / HFDL / VDL2 maps – icon turned to the heading, label below
       const a = m.air, svg = `<svg viewBox="0 0 24 24" style="transform: rotate(${Math.round(m.track ?? comHeading(m) ?? a.track ?? 0)}deg)"><path d="M12 2c.6 0 1 .9 1 2v5.2l8 4.6v2l-8-2.5v4.9l2.2 1.6V21L12 20.2 8.8 21v-1.2L11 18.2v-4.9l-8 2.5v-2l8-4.6V4c0-1.1.4-2 1-2z"/></svg>`;
       const fl = a.ground ? "GND" : a.alt_ft != null ? `FL${String(Math.round(a.alt_ft / 100)).padStart(3, "0")}` : "";
-      label = `${esc(a.flight || a.reg || a.hex || m.label)}${a.type ? `<br>${esc(a.type)}` : fl ? `<br>${fl}` : ""}`;
+      emerg = mapEmerg(a.squawk);
+      label = mapLabel({ at: m, name: a.flight || a.reg || a.hex || m.label, reg: a.reg, id: a.hex, type: a.type, alt: fl,
+        spd: a.gs_kt != null && !a.ground ? `${Math.round(a.gs_kt)} kt` : "", sq: a.squawk, src }, g);
       icon = L.divIcon({ className: `hfdl-plane${sel ? " sel" : ""}${old ? " old" : ""}`, html: svg, iconSize: [22, 22], iconAnchor: [11, 11] });
       cls = "hfdl-label";
     } else if (m.ship) {   // as on the AIS map
       const s = m.ship;
       icon = aisIcon(s, sel);
-      label = `${esc(aisLabel(s))}${s.sog != null && s.sog >= 0.3 ? `<br>${aisKt(s.sog)}` : ""}`;
+      label = mapLabel({ ...aisLblF(s), src, at: m }, g);
     } else if (m.sonde) {   // as on the SONDE map
       const s = m.sonde;
       icon = sondeIcon(s, sel);
-      label = `${esc(s.serial)}<br>${s.freq_hz ? `${fmtMHz(s.freq_hz, 3)} MHz<br>` : ""}${sondeAlt(s.alt)} m ${sondeClimb(s.vv)}`;
+      label = mapLabel({ ...sondeLblF(s), src, at: m }, g);
     } else {
       icon = L.divIcon({ className: `com-mark${old ? " old" : ""}`, html: `<span style="--sc:${col}">●</span>`, iconSize: [16, 16], iconAnchor: [8, 8] });
-      label = esc(m.label);
+      label = mapLabel({ name: m.label, src, at: m }, g);
     }
-    const mk = L.marker([m.lat, m.lon], { icon, zIndexOffset: sel ? 1000 : 0 })
-      .bindTooltip(label, { permanent: true, direction: "bottom", offset: [0, m.sonde ? 2 : 8], className: cls }).addTo(comLayers.marks);
-    mk.on("click", (e) => { L.DomEvent.stopPropagation(e); comSel = m.id; renderComMap(); });
+    const k = mapIconK(g, emerg), ic = mapIcon(icon, g, emerg, m.t), id = m.id;
+    const isig = `${ic.options.className}|${ic.options.html}|${ic.options.iconSize}|${cls}`;
+    let mk = comMarks.get(id);
+    if (mk && mk._isig && mk._isig.split("|").pop() !== cls) { mk.remove(); mk = null; }   // another kind of label: made again
+    if (!mk) {
+      mk = L.marker([m.lat, m.lon], { icon: ic }).addTo(comLayers.marks);
+      mk.bindTooltip("", { permanent: true, direction: "bottom", offset: [0, m.sonde ? 2 : 8], className: cls });
+      mk.on("click", (e) => { L.DomEvent.stopPropagation(e); comSel = id; renderComMap(); });
+      comMarks.set(id, mk);
+    } else {
+      const ll = mk.getLatLng();
+      if (ll.lat !== m.lat || ll.lng !== m.lon) mk.setLatLng([m.lat, m.lon]);
+      if (mk._isig !== isig) mk.setIcon(ic);
+    }
+    mk._isig = isig;
+    mk.setZIndexOffset(emerg ? 2000 : sel ? 1000 : 0);
+    keepMk.add(id);
+    mapSetLabel(mk, label, k, id, g);
   }
+  for (const [id, mk] of comMarks) if (!keepMk.has(id)) { mk.remove(); comMarks.delete(id); }
   renderComSide();
   if (!comFitted && pts.length) {
     comFitted = true;
     comMap.fitBounds(pts, { padding: [30, 30], maxZoom: 8 });
   }
   const joined = comMerged.filter((m) => m.keys.length > 1).length;
-  $("comInfo").textContent = `${comMerged.length} with a position${joined ? ` · ${joined} joined from more sources` : ""}`;
-  $("comNote").textContent = "a click on an aircraft, ship or sonde = its details on the right (red = selected, grey = no position for 15 min) · aircraft, ships and sondes as on their own maps · ▲ ground stations · trail colour = source · one object heard by more VFOs / decoders = one mark";
+  const shown = comLayers.marks.getLayers().length;   // the status row under the map
+  $("comInfo").textContent = `Tracks ${shown}${shown !== comMerged.length ? ` of ${comMerged.length}` : ""}${joined ? ` · ${joined} joined` : ""}`;
+  $("comNote").textContent = "a click on an aircraft, ship or sonde = its details on the right (orange = selected, red = emergency squawk, grey = no position for 15 min) · aircraft, ships and sondes as on their own maps · ▲ ground stations · trail colour = source · one object heard by more VFOs / decoders = one mark";
 }
+
+/** The lists beside the map: Aircraft, Radiosondes and Ships, each a section that opens and closes (remembered) with a
+ *  table sorted by a click on a column (again = the other way, remembered). Only what is on the map. A click on a row
+ *  selects it and centres the map. An aircraft with an emergency squawk opens Aircraft, is scrolled into view and its
+ *  row stays red while the squawk lasts and a minute after. */
+const COM_LISTS = [
+  ["air", "Aircraft", [["name", "Flight"], ["type", "Type"], ["alt", "FL"], ["spd", "kt"], ["dist", "Dist"], ["age", "Age"]]],
+  ["sonde", "Radiosondes", [["name", "Serial"], ["type", "Type"], ["alt", "Alt m"], ["vs", "m/s"], ["dist", "Dist"], ["age", "Age"]]],
+  ["ship", "Ships", [["name", "Name"], ["type", "Type"], ["spd", "kt"], ["dist", "Dist"], ["age", "Age"]]],
+];
+const comEmerg = new Map();   // aircraft id -> the last time it had an emergency squawk (s)
+let comListSort = (() => { try { return JSON.parse(localStorage.getItem("comListSort") || "{}") || {}; } catch { return {}; } })();
+function comListOpen() {
+  try { const v = JSON.parse(localStorage.getItem("comListOpen") || "null"); return Array.isArray(v) ? v : ["air"]; } catch { return ["air"]; }
+}
+function comListSave() {
+  const open = [...document.querySelectorAll("#comList details[data-list][open]")].map((d) => d.dataset.list);
+  try { localStorage.setItem("comListOpen", JSON.stringify(open)); localStorage.setItem("comListSort", JSON.stringify(comListSort)); } catch { /* this page only */ }
+}
+/** One row of a list: [cells for the columns (html), values to sort by]. */
+function comListRow(kind, m, q, unit) {
+  const esc = escHtml, now = Date.now() / 1000;
+  let dkm = null;
+  if (q) dkm = mapAzDist(q, m)[1];
+  const dist = dkm == null ? "" : `${Math.round(unit === "NM" ? dkm / 1.852 : dkm)}`, age = hfdlAge(m.t);
+  if (kind === "air") {
+    const a = m.air, c = a.hex ? icaoCountry(a.hex) : null;
+    const fl = a.ground ? "GND" : a.alt_ft != null ? String(Math.round(a.alt_ft / 100)).padStart(3, "0") : "";
+    const name = a.flight || a.reg || a.hex || m.label;
+    return [[`${c && c.cc ? `<img src="${flagUrl(c.cc)}" alt="" title="${esc(c.name)}">` : '<span class="noflag"></span>'}<b>${esc(name)}</b>`,
+      `<span class="stype">${esc(a.type || "")}</span>`, fl, a.gs_kt != null && !a.ground ? Math.round(a.gs_kt) : "", dist, age],
+      { name, type: a.type || "", alt: a.ground ? -1 : a.alt_ft ?? -2, spd: a.gs_kt ?? -1, dist: dkm ?? 1e9, age: now - m.t }];
+  }
+  if (kind === "sonde") {
+    const s = m.sonde;
+    return [[`<b>${esc(s.serial)}</b>`, `<span class="stype">${esc(s.type || "")}</span>`, s.alt != null ? sondeAlt(s.alt) : "", s.vv != null ? sondeClimb(s.vv) : "", dist, age],
+      { name: s.serial, type: s.type || "", alt: s.alt ?? -1, vs: s.vv ?? -99, dist: dkm ?? 1e9, age: now - m.t }];
+  }
+  const s = m.ship, type = s.station !== "ship" ? s.station : s.shiptype || "";
+  return [[`${s.cc ? `<img src="${flagUrl(s.cc)}" alt="" title="${esc(s.country || "")}">` : '<span class="noflag"></span>'}<b>${esc(aisLabel(s))}</b>`,
+    `<span class="stype">${esc(type)}</span>`, s.sog != null ? s.sog.toFixed(1) : "", dist, age],
+    { name: aisLabel(s), type, spd: s.sog ?? -1, dist: dkm ?? 1e9, age: now - m.t }];
+}
+function renderComList() {
+  const box = $("comList");
+  if (!box) return;
+  const now = Date.now() / 1000, q = mapQthV, unit = mapOpts.adUnit === "nm" ? "NM" : "km";
+  if (!box.querySelector("details[data-list]")) {   // the sections once: they keep open / closed and the scroll
+    const open = comListOpen();
+    box.innerHTML = COM_LISTS.map(([k, title, cols]) => `<details class="map-opts-sec com-lsec" data-list="${k}"${open.includes(k) ? " open" : ""}>` +
+      `<summary>${title} <small class="com-lcount"></small></summary><table class="com-lt"><thead><tr>` +
+      cols.map(([c, h]) => `<th data-sort="${c}">${h}</th>`).join("") + `</tr></thead><tbody></tbody></table></details>`).join("");
+  }
+  // emergencies: the time each was last seen; a new one opens Aircraft and is scrolled into view
+  let fresh = null;
+  for (const m of comDrawn || []) {
+    if (!m.air || !mapEmerg(m.air.squawk)) continue;
+    if (!comEmerg.has(m.id) || now - comEmerg.get(m.id) > 60) fresh = m.id;
+    comEmerg.set(m.id, now);
+  }
+  for (const [id, t] of comEmerg) if (now - t > 120) comEmerg.delete(id);
+  for (const [k, , cols] of COM_LISTS) {
+    const sec = box.querySelector(`details[data-list="${k}"]`), list = (comDrawn || []).filter((m) => m[k]);
+    const srt = comListSort[k] || { key: "age", dir: 1 };
+    const rows = list.map((m) => ({ m, r: comListRow(k, m, q, unit), red: k === "air" && comEmerg.has(m.id) && now - comEmerg.get(m.id) <= 60 }));
+    rows.sort((x, y) => (y.red - x.red) || (() => {
+      const a = x.r[1][srt.key], b = y.r[1][srt.key];
+      return (typeof a === "string" ? a.localeCompare(b, "en", { numeric: true, sensitivity: "base" }) : a - b) * srt.dir;
+    })());
+    sec.querySelector(".com-lcount").textContent = `${list.length}${k === "air" && rows.some((x) => x.red) ? " · EMERGENCY" : ""}`;
+    sec.querySelectorAll("th[data-sort]").forEach((th) => { th.classList.toggle("desc", th.dataset.sort === srt.key && srt.dir < 0); th.classList.toggle("sorted", th.dataset.sort === srt.key); });
+    sec.querySelector("tbody").innerHTML = rows.map(({ m, r, red }) => {
+      const col = (COM_SRC[m.srcs[0]] || ["", "#fff"])[1];
+      const title = m.air ? [m.air.hex, m.air.reg, m.air.desc || m.air.type, m.air.squawk && `squawk ${m.air.squawk}`] : m.ship ? [m.ship.mmsi && `MMSI ${m.ship.mmsi}`] : m.sonde ? [m.sonde.freq_hz && `${fmtMHz(m.sonde.freq_hz, 3)} MHz`] : [];
+      return `<tr class="com-ml${m.id === comSel ? " sel" : ""}${now - m.t > COM_OLD_S ? " old" : ""}${red ? " emerg" : ""}" data-id="${escHtml(m.id)}" style="--sc: ${col}" ` +
+        `title="${escHtml([...title, `${unit} from the station`, m.srcs.map((x) => (COM_SRC[x] || [x])[0]).join(" + ")].filter(Boolean).join(" · "))}">` +
+        r[0].map((c, i) => `<td class="c-${cols[i][0]}">${c}</td>`).join("") + "</tr>";
+    }).join("");
+  }
+  if (fresh) {   // a new emergency: Aircraft open, its row in view
+    const sec = box.querySelector('details[data-list="air"]');
+    if (!sec.open) { sec.open = true; comListSave(); }
+    const row = sec.querySelector(`tr[data-id="${CSS.escape(fresh)}"]`);
+    if (row) row.scrollIntoView({ block: "center", behavior: "smooth" });
+  }
+}
+$("comSide").addEventListener("click", (e) => {
+  const th = e.target.closest("#comList th[data-sort]");
+  if (th) {   // sort by this column (again: the other way)
+    const k = th.closest("details").dataset.list, s = comListSort[k] || { key: "age", dir: 1 };
+    comListSort[k] = s.key === th.dataset.sort ? { key: s.key, dir: -s.dir } : { key: th.dataset.sort, dir: 1 };
+    comListSave();
+    renderComList();
+    return;
+  }
+  const row = e.target.closest(".com-ml[data-id]");   // a row: select it, show it on the map
+  if (!row) return;
+  comSel = row.dataset.id;
+  const m = comMerged.find((x) => x.id === comSel);
+  if (m && comMap) comMap.setView([m.lat, m.lon], Math.max(comMap.getZoom(), 8));
+  renderComMap();
+});
+$("comSide").addEventListener("toggle", (e) => { if (e.target.matches && e.target.matches("details[data-list]")) comListSave(); }, true);
 
 $("comJson").addEventListener("click", (e) => {
   e.preventDefault();
@@ -16446,6 +16635,1045 @@ $("comJson").addEventListener("click", (e) => {
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
+
+// ----- base maps, OpenSeaMap and own layers (map settings) -----
+const MAP_OSM_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors';
+const MAP_BASES = {
+  osm: ["OpenStreetMap", "https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxNativeZoom: 19, attribution: MAP_OSM_ATTR }],
+  carto: ["Esri dark grey", "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+    { maxNativeZoom: 16, attribution: "Tiles &copy; Esri, HERE, Garmin, &copy; OpenStreetMap contributors" }],   // (CARTO tiles now want an API key)
+  topo: ["OpenTopoMap", "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
+    { subdomains: "abc", maxNativeZoom: 17, attribution: `${MAP_OSM_ATTR}, SRTM | &copy; <a href="https://opentopomap.org" target="_blank" rel="noopener noreferrer">OpenTopoMap</a> (CC-BY-SA)` }],
+  esri: ["Esri satellite", "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    { maxNativeZoom: 18, attribution: "Imagery &copy; Esri, Maxar, Earthstar Geographics" }],
+  custom: ["Own tile address", "", { maxNativeZoom: 19, attribution: "" }],
+  solid: ["Plain colour", "", {}],   // no tiles: the map background in one colour
+};
+const MAP_LAY_OPA = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1];
+
+// the layer list and the layers' GeoJSON, asked from the VFO of the page (or any VFO; one folder for all)
+let mapLayList = null, mapLayListP = null;
+const mapLayGj = new Map();   // id -> Promise of the GeoJSON
+async function mapLayApi(path, opts) {
+  let err = null;
+  for (const base of [vbase, ...(vfos || []).map((v) => v.base)]) {
+    try {
+      const r = await fetch(base + path, opts);
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      return j;
+    } catch (e) { err = e; if (opts && opts.method && opts.method !== "GET") break; }   // a change is sent once
+  }
+  throw err || new Error("no VFO answers");
+}
+function mapLayListGet(force) {
+  if (force) { mapLayList = null; mapLayListP = null; }
+  if (mapLayList) return Promise.resolve(mapLayList);
+  return (mapLayListP = mapLayListP || mapLayApi("/api/maplayers").then((j) => (mapLayList = j.layers || [])).catch(() => (mapLayList = [])));
+}
+function mapLayGet(id) {
+  if (!mapLayGj.has(id)) mapLayGj.set(id, mapLayApi(`/api/maplayers/${encodeURIComponent(id)}`).catch(() => { mapLayGj.delete(id); return null; }));
+  return mapLayGj.get(id);
+}
+// keys of map services (OpenAIP) from the server, asked once (again when another window changes one)
+let mapKeys = null, mapKeysP = null;
+function mapKeysGet(force) {
+  if (force) { mapKeys = null; mapKeysP = null; }
+  if (mapKeys) return Promise.resolve(mapKeys);
+  return (mapKeysP = mapKeysP || mapLayApi("/api/mapkeys").then((j) => (mapKeys = j)).catch(() => (mapKeys = {})));
+}
+const mapLayOpt = (id) => ({ on: true, c: "#ff6cd2", o: 0.8, ...((mapOpts.lay || {})[id] || {}) });
+
+/** KML or GPX text → GeoJSON FeatureCollection (points, lines, polygons; name and description kept). */
+function mapToGeoJson(text, kind) {
+  const doc = new DOMParser().parseFromString(text, "application/xml");
+  if (doc.getElementsByTagName("parsererror").length) throw new Error("the file is not valid XML");
+  const feats = [], txt = (el, tag) => { const x = el.getElementsByTagName(tag)[0]; return x ? x.textContent.trim() : ""; };
+  const props = (el) => { const p = {}; const n = txt(el, "name"), d = txt(el, "desc") || txt(el, "description"); if (n) p.name = n; if (d) p.description = d; return p; };
+  if (kind === "gpx") {
+    const ll = (e) => [+e.getAttribute("lon"), +e.getAttribute("lat")];
+    for (const w of doc.getElementsByTagName("wpt")) feats.push({ type: "Feature", properties: props(w), geometry: { type: "Point", coordinates: ll(w) } });
+    for (const r of doc.getElementsByTagName("rte")) feats.push({ type: "Feature", properties: props(r), geometry: { type: "LineString", coordinates: [...r.getElementsByTagName("rtept")].map(ll) } });
+    for (const t of doc.getElementsByTagName("trk")) {
+      const segs = [...t.getElementsByTagName("trkseg")].map((g) => [...g.getElementsByTagName("trkpt")].map(ll)).filter((c) => c.length > 1);
+      if (segs.length) feats.push({ type: "Feature", properties: props(t), geometry: { type: "MultiLineString", coordinates: segs } });
+    }
+  } else {
+    const coords = (el) => (el ? el.textContent.trim().split(/\s+/).map((c) => c.split(",").map(Number)).filter((c) => c.length >= 2 && c.every(Number.isFinite)).map((c) => [c[0], c[1]]) : []);
+    for (const pm of doc.getElementsByTagName("Placemark")) {
+      const geoms = [];
+      for (const pt of pm.getElementsByTagName("Point")) { const c = coords(pt.getElementsByTagName("coordinates")[0]); if (c.length) geoms.push({ type: "Point", coordinates: c[0] }); }
+      for (const ls of pm.getElementsByTagName("LineString")) { const c = coords(ls.getElementsByTagName("coordinates")[0]); if (c.length > 1) geoms.push({ type: "LineString", coordinates: c }); }
+      for (const pg of pm.getElementsByTagName("Polygon")) {
+        const outer = pg.getElementsByTagName("outerBoundaryIs")[0], rings = [coords(outer && outer.getElementsByTagName("coordinates")[0])];
+        for (const ib of pg.getElementsByTagName("innerBoundaryIs")) rings.push(coords(ib.getElementsByTagName("coordinates")[0]));
+        if (rings[0].length > 2) geoms.push({ type: "Polygon", coordinates: rings.filter((r) => r.length > 2) });
+      }
+      if (geoms.length) feats.push({ type: "Feature", properties: props(pm), geometry: geoms.length === 1 ? geoms[0] : { type: "GeometryCollection", geometries: geoms } });
+    }
+  }
+  if (!feats.length) throw new Error("no points, lines or areas found in the file");
+  return { type: "FeatureCollection", features: feats };
+}
+
+/** A file chosen in the map settings → a new layer on the server (GeoJSON, KML or GPX). */
+async function mapLayUpload(file) {
+  const ext = (file.name.split(".").pop() || "").toLowerCase(), text = await file.text();
+  let gj;
+  if (ext === "kml") gj = mapToGeoJson(text, "kml");
+  else if (ext === "gpx") gj = mapToGeoJson(text, "gpx");
+  else if (ext === "geojson" || ext === "json") {
+    try { gj = JSON.parse(text); } catch { throw new Error("the file is not valid JSON"); }
+    if (gj && gj.type === "Feature") gj = { type: "FeatureCollection", features: [gj] };
+    else if (gj && /^(Point|MultiPoint|LineString|MultiLineString|Polygon|MultiPolygon|GeometryCollection)$/.test(gj.type)) gj = { type: "FeatureCollection", features: [{ type: "Feature", properties: {}, geometry: gj }] };
+    if (!gj || gj.type !== "FeatureCollection") throw new Error("not GeoJSON");
+  } else throw new Error("only GeoJSON, KML and GPX files (KMZ: unpack the KML from it)");
+  const r = await mapLayApi("/api/maplayers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: file.name.replace(/\.[^.]+$/, ""), geojson: gj }) });
+  return r.id;
+}
+
+// clouds: the infrared (10.5 µm) image of the MTG satellite from EUMETSAT (WMS, a new one every 10 min), cold cloud
+// tops white; blended over the map so the warm ground stays dark
+const MAP_CLOUD_WMS = "https://view.eumetsat.int/geoserver/wms";
+const MAP_CLOUD_CAPS = "https://view.eumetsat.int/geoserver/mtg_fd/ir105_hrfi/ows?service=WMS&version=1.3.0&request=GetCapabilities";
+
+/** Base map, OpenSeaMap and own layers of one map, as the map settings say. */
+function mapBaseInit(map) {
+  let base0 = null;   // the OpenStreetMap layer the map was made with
+  map.eachLayer((l) => { if (!base0 && l instanceof L.TileLayer && /tile\.openstreetmap\.org/.test(l._url)) base0 = l; });
+  const maxZoom = base0 ? base0.options.maxZoom : 16;
+  let base = base0, baseSig = "osm|1|", sea = null, lays = new Map();   // id -> {sig, layer}
+  let cloud = null, cloudTimer = null, aip = null, aipKey = "";
+  const statClouds = document.getElementById("comStatClouds");   // the status row under the COMPOSITE map
+  return async function apply() {
+    const o = mapOpts, url = o.base === "custom" ? o.baseUrl : (MAP_BASES[o.base] || MAP_BASES.osm)[1];
+    const sig = `${o.base}|${o.dark ? 1 : 0}|${o.base === "custom" ? o.baseUrl : ""}`;
+    map.getContainer().style.background = o.base === "solid" ? o.baseColor : "";   // plain colour: no tiles over it
+    if (sig !== baseSig && o.base === "solid") {
+      baseSig = sig;
+      if (base) { map.removeLayer(base); base = null; }
+    } else if (sig !== baseSig && (o.base !== "custom" || /^https?:\/\/.*\{z\}.*\{x\}.*\{y\}/.test(url))) {
+      baseSig = sig;
+      if (base) map.removeLayer(base);
+      const [, , opt] = MAP_BASES[o.base] || MAP_BASES.osm;
+      base = L.tileLayer(url, { ...opt, maxZoom, className: o.dark ? "hfdl-dark" : "" }).addTo(map);
+      base.bringToBack();
+    }
+    if (o.sea && !sea) {
+      sea = L.tileLayer("https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png", { maxZoom, maxNativeZoom: 18, zIndex: 250,
+        attribution: '&copy; <a href="https://www.openseamap.org" target="_blank" rel="noopener noreferrer">OpenSeaMap</a>' }).addTo(map);
+    } else if (!o.sea && sea) { map.removeLayer(sea); sea = null; }
+    if (o.cld && !cloud) {
+      cloud = L.tileLayer.wms(MAP_CLOUD_WMS, { layers: "mtg_fd:ir105_hrfi", styles: "", format: "image/jpeg", version: "1.3.0", maxZoom,
+        zIndex: 280, opacity: o.cldOpa, className: "map-clouds", attribution: 'Clouds &copy; <a href="https://view.eumetsat.int" target="_blank" rel="noopener noreferrer">EUMETSAT</a>' }).addTo(map);
+      const newest = async () => {   // the time of the newest image: asked every 2 min, the tiles of exactly that image
+        try {
+          const x = await fetch(MAP_CLOUD_CAPS, { cache: "no-store" }).then((r) => r.text());
+          const t = (x.match(/<Dimension name="time" default="([^"]+)"/) || [])[1];
+          if (t && cloud && t !== cloud.wmsParams.time) cloud.setParams({ time: t });
+          if (t && statClouds) statClouds.textContent = `Clouds ${t.slice(11, 16)} UTC`;
+        } catch { /* offline: the tiles keep what they have */ }
+      };
+      newest();
+      cloudTimer = setInterval(newest, 120000);
+      if (statClouds) { statClouds.hidden = false; statClouds.textContent = "Clouds …"; }
+    } else if (!o.cld && cloud) {
+      map.removeLayer(cloud); cloud = null; clearInterval(cloudTimer); cloudTimer = null;
+      if (statClouds) statClouds.hidden = true;
+    }
+    if (cloud) cloud.setOpacity(o.cldOpa);
+    // OpenAIP: airspaces, airports, navaids over the map (needs the free API key, stored on the server)
+    const key = o.aip ? ((await mapKeysGet()).openaip || "") : "";
+    if (aip && (!o.aip || key !== aipKey)) { map.removeLayer(aip); aip = null; }
+    if (o.aip && key && !aip) {
+      aipKey = key;
+      aip = L.tileLayer(`https://api.tiles.openaip.net/api/data/openaip/{z}/{x}/{y}.png?apiKey=${encodeURIComponent(key)}`, { maxZoom, maxNativeZoom: 14, zIndex: 260,
+        opacity: o.aipOpa, attribution: '&copy; <a href="https://www.openaip.net" target="_blank" rel="noopener noreferrer">openAIP</a> (CC BY-NC)' }).addTo(map);
+    }
+    if (aip) aip.setOpacity(o.aipOpa);
+    // own layers
+    const list = await mapLayListGet();
+    const ids = new Set(list.map((x) => x.id));
+    for (const [id, x] of lays) if (!ids.has(id) || !mapLayOpt(id).on) { map.removeLayer(x.layer); lays.delete(id); }
+    for (const it of list) {
+      const lo = mapLayOpt(it.id), s2 = `${lo.c}|${lo.o}`;
+      if (!lo.on) continue;
+      const had = lays.get(it.id);
+      if (had && had.sig === s2) continue;
+      const gj = await mapLayGet(it.id);
+      if (!gj || !mapLayOpt(it.id).on) continue;
+      if (had) map.removeLayer(had.layer);
+      const st = { color: lo.c, weight: 2, opacity: lo.o, fillColor: lo.c, fillOpacity: lo.o * 0.2, interactive: true };
+      const layer = L.geoJSON(gj, {
+        style: () => st,
+        pointToLayer: (f, ll) => L.circleMarker(ll, { ...st, radius: 4, fillOpacity: lo.o }),
+        onEachFeature: (f, l) => {
+          const p = f.properties || {}, n = p.name || p.Name || p.title || "";
+          if (n || p.description) l.bindTooltip(`${n ? `<b>${escHtml(String(n))}</b>` : ""}${p.description ? `${n ? "<br>" : ""}${escHtml(String(p.description).replace(/<[^>]*>/g, " ").slice(0, 300))}` : ""}`, { className: "ais-label", sticky: true });
+        },
+      }).addTo(map);
+      lays.set(it.id, { sig: s2, layer });
+    }
+  };
+}
+
+// ---------- Map settings: one window (⚙ in the top right corner) for all decoder maps ----------
+// Remembered in the browser (also from a map-only tab) and applied at once to every map of this page and of all
+// other open tabs / windows (the storage event), and to every map opened later. The object settings have two
+// columns: the selected object and the others.
+const MAP_OPT_KEY = "mapOpts";
+const MAP_SEL_C = "#ff8c1a", MAP_EMERG_C = "#ff2a2a";   // selected object orange, emergency squawk red
+const MAP_EMERG_SQ = ["7500", "7600", "7700"];
+const mapEmerg = (sq) => MAP_EMERG_SQ.includes(String(sq || ""));
+const MAP_SPANS = [0, 20, 30, 60, 90, 120];   // radar: 0 = only the newest frame, else a loop of the last minutes
+const MAP_TRAILS = [["full", "Full (line)"], ["1", "Dots 1 min"], ["2", "Dots 2 min"], ["3", "Dots 3 min"],
+  ["5", "Dots 5 min"], ["10", "Dots 10 min"], ["e1", "Echo 1 min"], ["e2", "Echo 2 min"], ["e3", "Echo 3 min"],
+  ["e5", "Echo 5 min"], ["off", "Off"]];
+const MAP_ECHO_S = 4;   // radar echoes: one per antenna turn (s), as a primary radar paints them
+const MAP_ICON_K = [0.5, 0.75, 1, 1.25, 1.5, 2, 2.5];   // icon size × the normal one
+const MAP_FONT_K = [0.8, 1, 1.2, 1.4, 1.6, 2];         // label font × the normal one
+const MAP_LBL_BG = Array.from({ length: 21 }, (_, i) => i / 20);   // label background opacity 0–100 % by 5 %
+const MAP_PRED = [0, 1, 2, 3, 5, 10];
+const MAP_AD_MAX = [50, 100, 150, 200, 250, 300, 350, 400];   // range rings: as far as (km / NM)
+const MAP_AD_OPA = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1];   // brightness of the rings
+const mapHex = (v, d) => (/^#[0-9a-f]{6}$/i.test(v || "") ? v : d);
+const MAP_RNG_OPA = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1];   // brightness of an ADS-B range band (0 = hidden)
+// colours (selected / others; "" = automatic, the map's own colours); the swatch shown while automatic
+const MAP_COLORS = { cIcon: ["#ffd84a", "#ff8c1a"], cTrail: ["#ffffff", "#ff8c1a"], cPred: ["#ffffff", "#ff8c1a"], cText: ["#ffffff", "#ffffff"] };   // prediction line: minutes ahead (0 = none)
+const MAP_DROP = [0, 1, 2, 3, 5, 10];
+// Sharing (adsb.fi): radius (NM), refresh (s), altitude band (ft; 0 = any), at most the nearest (0 = all)
+const MAP_SH_DIST = [25, 50, 100, 150, 200, 250], MAP_SH_INT = [5, 10, 30, 60];
+const MAP_SH_ALT_MIN = [0, 1000, 5000, 10000, 20000, 30000], MAP_SH_ALT_MAX = [0, 5000, 10000, 20000, 30000, 45000], MAP_SH_MAX = [25, 50, 100, 200, 0];
+// aircraft symbols: the icon, or an outline only (square, circle, triangle) or an asterisk
+const MAP_SYMS = [["icon", "aircraft"], ["box", "square □"], ["circle", "circle ○"], ["tri", "triangle △"], ["star", "asterisk *"]];
+const MAP_SYM_SVG = {
+  box: '<svg viewBox="0 0 24 24"><path fill-rule="evenodd" d="M7 7h10v10H7zM9.5 9.5v5h5v-5z"/></svg>',
+  circle: '<svg viewBox="0 0 24 24"><path fill-rule="evenodd" d="M12 6a6 6 0 1 0 0 12a6 6 0 1 0 0-12zM12 8.4a3.6 3.6 0 1 1 0 7.2a3.6 3.6 0 1 1 0-7.2z"/></svg>',
+  tri: '<svg viewBox="0 0 24 24"><path fill-rule="evenodd" d="M12 4.5L19.5 18h-15zM12 9.4L8.6 15.6h6.8z"/></svg>',
+  star: '<svg viewBox="0 0 24 24"><rect x="10.9" y="5" width="2.2" height="14"/><rect x="10.9" y="5" width="2.2" height="14" transform="rotate(60 12 12)"/><rect x="10.9" y="5" width="2.2" height="14" transform="rotate(-60 12 12)"/></svg>',
+};
+const MAP_STALE = [0, 1, 2, 3, 5, 10];   // icon in the "no position" colour after so many minutes (0 = the map's own time)   // hide an object without a new position for so many minutes (0 = always shown)
+const MAP_LBL = [["name", "Name / flight"], ["reg", "Registration"], ["id", "ICAO / MMSI"], ["type", "Type"], ["alt", "Altitude"],
+  ["spd", "Speed"], ["vs", "Climb"], ["sq", "Squawk"], ["freq", "Frequency"], ["az", "Azimuth"], ["dist", "Distance"], ["src", "Source"]];
+const MAP_LBL_DEF = { lbl: ["name", "type", "alt", "freq"], lblSel: ["name", "reg", "id", "type", "alt", "spd", "vs", "sq", "freq", "src"] };
+function mapOptsRead() {
+  let o = null;
+  try { o = JSON.parse(localStorage.getItem(MAP_OPT_KEY) || "null"); } catch { o = null; }
+  if (!o || typeof o !== "object") {   // the first time: from the old per-map switches (any map with the radar on → on)
+    o = {};
+    try {
+      const ks = Object.keys(localStorage);
+      o.precip = ks.some((k) => k.startsWith("mapPrecip.") && localStorage.getItem(k) === "1");
+      if (ks.some((k) => k.startsWith("mapTrails.") && localStorage.getItem(k) === "0")) o.trails = o.trailsSel = "off";
+    } catch { /* no storage */ }
+  }
+  const trail = (v) => (MAP_TRAILS.some(([x]) => x === v) ? v : "full");
+  const k = (list, v) => (list.includes(+v) ? +v : 1);
+  const lbl = (v, d) => (Array.isArray(v) ? v.filter((x) => MAP_LBL.some(([id]) => id === x)) : d);
+  return {
+    precip: !!o.precip,
+    span: MAP_SPANS.includes(+o.span) ? +o.span : 30,
+    opa: Math.min(1, Math.max(0.1, +o.opa || 0.6)),
+    trails: trail(o.trails), trailsSel: trail(o.trailsSel),
+    icon: k(MAP_ICON_K, o.icon), iconSel: k(MAP_ICON_K, o.iconSel),
+    font: k(MAP_FONT_K, o.font), fontSel: k(MAP_FONT_K, o.fontSel),
+    lbl: lbl(o.lbl, MAP_LBL_DEF.lbl), lblSel: lbl(o.lblSel, MAP_LBL_DEF.lblSel),
+    drop: MAP_DROP.includes(+o.drop) ? +o.drop : 0,
+    stale: MAP_STALE.includes(+o.stale) ? +o.stale : 0, cStale: mapHex(o.cStale, "#8a929c"),
+    base: MAP_BASES[o.base] ? o.base : "osm", baseColor: mapHex(o.baseColor, "#000000"), dark: o.dark != null ? !!o.dark : true, baseUrl: typeof o.baseUrl === "string" ? o.baseUrl.slice(0, 500) : "",
+    sea: !!o.sea, layRev: +o.layRev || 0,
+    aip: !!o.aip, aipOpa: MAP_LAY_OPA.includes(+o.aipOpa) ? +o.aipOpa : 0.8, keyRev: +o.keyRev || 0,
+    sym: MAP_SYMS.some(([v]) => v === o.sym) ? o.sym : "icon", cld: !!o.cld, cldOpa: Math.min(1, Math.max(0.1, +o.cldOpa || 0.7)),
+    lay: Object.fromEntries(Object.entries(o.lay && typeof o.lay === "object" ? o.lay : {}).filter(([id, v]) => /^[\w-]{1,64}$/.test(id) && v && typeof v === "object")
+      .map(([id, v]) => [id, { on: v.on !== false, c: mapHex(v.c, "#ff6cd2"), o: MAP_LAY_OPA.includes(+v.o) ? +v.o : 0.8 }])),
+    bg: MAP_LBL_BG.includes(+o.bg) ? +o.bg : 0.85, bgSel: MAP_LBL_BG.includes(+o.bgSel) ? +o.bgSel : 0.85,
+    pred: MAP_PRED.includes(+o.pred) ? +o.pred : 0, predSel: MAP_PRED.includes(+o.predSel) ? +o.predSel : 3,
+    rng: o.rng != null ? !!o.rng : true,   // ADS-B range
+    ...Object.fromEntries(ADSB_RANGE_BANDS.flatMap(([, , c], i) => [["cRng" + i, mapHex(o["cRng" + i], c)],   // line
+      ["oRng" + i, MAP_RNG_OPA.includes(+o["oRng" + i]) ? +o["oRng" + i] : 0.8],
+      ["fRng" + i, mapHex(o["fRng" + i], c)], ["pRng" + i, MAP_LBL_BG.includes(+o["pRng" + i]) ? +o["pRng" + i] : 0.05]])),   // fill
+    ad: !!o.ad, adMax: MAP_AD_MAX.includes(+o.adMax) ? +o.adMax : 200, adUnit: o.adUnit === "nm" ? "nm" : "km", adFine: !!o.adFine,
+    cAd: mapHex(o.cAd, "#6cb8ff"), adOpa: MAP_AD_OPA.includes(+o.adOpa) ? +o.adOpa : 0.6,
+    cAdFine: mapHex(o.cAdFine, "#6cb8ff"), adFineOpa: MAP_AD_OPA.includes(+o.adFineOpa) ? +o.adFineOpa : 0.3,
+    ...Object.fromEntries(Object.keys(MAP_COLORS).flatMap((k) => [k, k + "Sel", k + "Shr"]).map((k) => [k, /^#[0-9a-f]{6}$/i.test(o[k] || "") ? o[k] : ""])),
+    // Sharing: objects from other stations (to come)
+    trailsShr: trail(o.trailsShr), iconShr: k(MAP_ICON_K, o.iconShr), predShr: MAP_PRED.includes(+o.predShr) ? +o.predShr : 0,
+    symShr: MAP_SYMS.some(([v]) => v === o.symShr) ? o.symShr : "icon", staleShr: MAP_STALE.includes(+o.staleShr) ? +o.staleShr : 0,
+    cStaleShr: mapHex(o.cStaleShr, "#8a929c"), dropShr: MAP_DROP.includes(+o.dropShr) ? +o.dropShr : 0,
+    shAfi: !!o.shAfi, shDist: MAP_SH_DIST.includes(+o.shDist) ? +o.shDist : 100, shInt: MAP_SH_INT.includes(+o.shInt) ? +o.shInt : 10,
+    shAltMin: MAP_SH_ALT_MIN.includes(+o.shAltMin) ? +o.shAltMin : 0, shAltMax: MAP_SH_ALT_MAX.includes(+o.shAltMax) ? +o.shAltMax : 0,
+    shMax: MAP_SH_MAX.includes(+o.shMax) ? +o.shMax : 100, shNotLocal: o.shNotLocal != null ? !!o.shNotLocal : true, shGround: !!o.shGround,
+    noUnits: !!o.noUnits, noUnitsSel: !!o.noUnitsSel, noUnitsShr: !!o.noUnitsShr,
+    fontShr: k(MAP_FONT_K, o.fontShr), bgShr: MAP_LBL_BG.includes(+o.bgShr) ? +o.bgShr : 0.85, lblShr: lbl(o.lblShr, MAP_LBL_DEF.lbl),
+  };
+}
+let mapOpts = mapOptsRead();
+const mapOptSubs = new Set();   // apply() of every map on this page
+function mapOptsSet(patch) {
+  mapOpts = { ...mapOpts, ...patch };
+  try { localStorage.setItem(MAP_OPT_KEY, JSON.stringify(mapOpts)); } catch { /* no storage: this page only */ }
+  mapOptSubs.forEach((f) => f(false));
+}
+window.addEventListener("storage", (e) => {   // changed in another tab / window
+  if (e.key !== MAP_OPT_KEY) return;
+  mapOpts = mapOptsRead();
+  mapOptSubs.forEach((f) => f(true));
+});
+
+// the column of the map settings an object takes: g = true (selected), "Shr" (only from shared sources) or false (local)
+const mapG = (g) => (g === true ? "Sel" : g === "Shr" ? "Shr" : "");
+const mapO = (k, g) => mapOpts[k + mapG(g)];
+
+/** A trail as the map settings say (one setting for the selected object, one for the others): the whole line, small
+ *  dots of the last minutes fading with age, or nothing. pts = [[lat, lon, t, squawk?]…] (t in UNIX seconds),
+ *  line = the polyline options (its colour also colours the dots). Positions sent with an emergency squawk are red
+ *  (dots; on the full line a red line over them). */
+function mapTrail(layer, pts, line, sel) {
+  const m = mapO("trails", sel), c = mapO("cTrail", sel);
+  if (c) line = { ...line, color: c };   // the colour chosen in the map settings
+  if (m === "off" || !pts.length) return;
+  if (m === "full") {
+    if (pts.length > 1) L.polyline(pts.map((p) => [p[0], p[1]]), line).addTo(layer);
+    let run = [];   // the emergency parts
+    const flush = () => { if (run.length > 1) L.polyline(run, { ...line, color: MAP_EMERG_C, opacity: 0.9 }).addTo(layer); run = []; };
+    for (const p of pts) if (mapEmerg(p[3])) run.push([p[0], p[1]]); else flush();
+    flush();
+    return;
+  }
+  const echo = m[0] === "e", now = Date.now() / 1000, win = +(echo ? m.slice(1) : m) * 60, from = now - win;
+  layer._dots = layer._dots || L.canvas({ padding: 0.3 });   // many small dots: one canvas, not SVG
+  const top = sel === true ? 1 : 0.85;
+  if (echo) {   // primary radar look: at each painted position a piece of an annulus centred on the station (as wide
+    // as the beam across the line of sight, as deep as the pulse along it), fading with age
+    const map = layer._map, q = mapQthV;
+    if (!map) return;
+    if (!q) { mapQth(); return; }   // the station is not known yet: the next drawing has it
+    const z = map.getZoom();
+    let last = -1e9;
+    for (const p of pts) {
+      if (!(p[2] >= from) || p[2] - last < MAP_ECHO_S * 0.9) continue;
+      last = p[2];
+      const age = Math.min(1, Math.max(0, (now - p[2]) / win)), em = mapEmerg(p[3]);
+      const d = mapAzDist(q, { lat: p[0], lon: p[1] });
+      const mpp = (40075016.686 * Math.cos((p[0] * Math.PI) / 180)) / 2 ** (z + 8) / 1000;   // km per pixel here
+      const half = (sel === true ? 8 : 6) * mpp, depth = (sel === true ? 2.5 : 2) * mpp;   // 12 × 4 px (16 × 5 selected)
+      if (d[1] < half * 2) continue;   // at the station itself: no direction
+      const w = ((half / d[1]) * 180) / Math.PI, r0 = d[1] - depth, r1 = d[1] + depth, steps = [-1, -0.5, 0, 0.5, 1];
+      const ring = [...steps.map((f) => mapDest(q.lat, q.lon, d[0] + f * w, r1)), ...steps.reverse().map((f) => mapDest(q.lat, q.lon, d[0] + f * w, r0))];
+      const c = em ? MAP_EMERG_C : line.color, a = top * (1 - 0.9 * age);
+      L.polygon(ring, { renderer: layer._dots, stroke: false, fill: true, fillColor: c, fillOpacity: a, interactive: false, echo: true }).addTo(layer);
+    }
+    return;
+  }
+  for (const p of pts) {
+    if (!(p[2] >= from)) continue;
+    const age = Math.min(1, Math.max(0, (now - p[2]) / win)), em = mapEmerg(p[3]);   // age 0 = now, 1 = the oldest dot shown
+    L.circleMarker([p[0], p[1]], { renderer: layer._dots, radius: em ? 1.8 : sel === true ? 1.6 : 1.2, stroke: false, fillColor: em ? MAP_EMERG_C : line.color,
+      fillOpacity: top * (1 - 0.85 * age), interactive: false }).addTo(layer);
+  }
+}
+
+/** True = the object had no new position for longer than the map settings allow: not drawn (the selected one stays).
+ *  t = the time of its newest position (UNIX seconds). */
+const mapGone = (t, sel) => sel !== true && mapO("drop", sel) > 0 && t > 0 && Date.now() / 1000 - t > mapO("drop", sel) * 60;
+
+/** Where it will be in some minutes: a thin line from the icon along the track / course, as long as the map settings
+ *  say (selected / others), with a tick every minute. at = {lat, lon}, brg = track in degrees, kt = speed in knots,
+ *  t = the time of the position (an older one than 5 min, or a stop, gets no line). */
+function mapPredict(layer, at, brg, kt, t, sel, color) {
+  const n = mapO("pred", sel);
+  color = mapO("cPred", sel) || color;
+  if (!n || !at || brg == null || !(brg >= 0 && brg < 360) || !(kt >= 1) || !(Date.now() / 1000 - t < 300)) return;
+  const km = (kt * 1.852) / 60, R = 6371, b = (brg * Math.PI) / 180, la = (at.lat * Math.PI) / 180, lo = (at.lon * Math.PI) / 180;
+  const dest = (d) => {   // great circle: the point d km ahead
+    const r = d / R, la2 = Math.asin(Math.sin(la) * Math.cos(r) + Math.cos(la) * Math.sin(r) * Math.cos(b));
+    const lo2 = lo + Math.atan2(Math.sin(b) * Math.sin(r) * Math.cos(la), Math.cos(r) - Math.sin(la) * Math.sin(la2));
+    return [(la2 * 180) / Math.PI, (lo2 * 180) / Math.PI];
+  };
+  const pts = [[at.lat, at.lon]];
+  for (let i = 1; i <= n; i++) pts.push(dest(km * i));
+  L.polyline(pts, { color, weight: 1, opacity: 0.85, interactive: false }).addTo(layer);
+  const tick = L.divIcon({ className: "map-tick", html: `<i style="transform: rotate(${Math.round(brg)}deg); border-color: ${color}"></i>`, iconSize: [9, 9], iconAnchor: [4.5, 4.5] });
+  for (let i = 1; i <= n; i++) L.marker(pts[i], { icon: tick, interactive: false, keyboard: false }).addTo(layer);
+}
+
+/** Azimuth (degrees) and great-circle distance (km) from a to b ({lat, lon}). */
+function mapAzDist(a, b) {
+  const r = Math.PI / 180, la1 = a.lat * r, la2 = b.lat * r, dl = (b.lon - a.lon) * r;
+  const y = Math.sin(dl) * Math.cos(la2), x = Math.cos(la1) * Math.sin(la2) - Math.sin(la1) * Math.cos(la2) * Math.cos(dl);
+  const h = Math.sin((la2 - la1) / 2) ** 2 + Math.cos(la1) * Math.cos(la2) * Math.sin(dl / 2) ** 2;
+  return [(Math.atan2(y, x) / r + 360) % 360, 2 * 6371 * Math.asin(Math.min(1, Math.sqrt(h)))];
+}
+
+/** The point d km from lat / lon in the direction brg (degrees), on a great circle. */
+function mapDest(lat, lon, brg, d) {
+  const R = 6371, b = (brg * Math.PI) / 180, la = (lat * Math.PI) / 180, lo = (lon * Math.PI) / 180, r = d / R;
+  const la2 = Math.asin(Math.sin(la) * Math.cos(r) + Math.cos(la) * Math.sin(r) * Math.cos(b));
+  const lo2 = lo + Math.atan2(Math.sin(b) * Math.sin(r) * Math.cos(la), Math.cos(r) - Math.sin(la) * Math.sin(la2));
+  return [(la2 * 180) / Math.PI, (lo2 * 180) / Math.PI];
+}
+// the station location (MENU › SETUP › LOCATION), asked once for all maps of the page
+let mapQthP = null, mapQthV = null;   // mapQthV = the location once known (labels need it at once)
+const mapQth = () => (mapQthP = mapQthP || satFetch("/api/location").then((q) => (mapQthV = q && Number.isFinite(q.lat) && Number.isFinite(q.lon) && (q.lat || q.lon) ? { lat: q.lat, lon: q.lon } : null))
+  .catch(() => { mapQthP = null; return null; }));
+
+// ADS-B range (adsb.py RangeMap: the farthest decoded position per 2° sector and altitude band), one file for the
+// station: asked from the VFO of the page (or any VFO), at most every 30 s for all maps of the page
+let mapRangeD = null, mapRangeAt = 0, mapRangeP = null;
+function mapRangeGet() {
+  if (mapRangeD && Date.now() - mapRangeAt < 30000) return Promise.resolve(mapRangeD);
+  if (!mapRangeP) {
+    mapRangeP = (async () => {
+      for (const base of [vbase, ...(vfos || []).map((v) => v.base)]) {
+        try { const r = await fetch(base + "/api/adsb_range"); if (r.ok) return await r.json(); } catch { /* the next VFO */ }
+      }
+      return null;
+    })().then((d) => { mapRangeD = d; mapRangeAt = Date.now(); mapRangeP = null; return d; });
+  }
+  return mapRangeP;
+}
+/** The range bands as outlines, each in the colour and brightness of the map settings (brightness 0 = not shown). */
+function mapRangeShapes(layer, d) {
+  layer.clearLayers();
+  if (!mapOpts.rng || !d || !d.bands) return;
+  ADSB_RANGE_BANDS.forEach(([name, label], i) => {
+    const color = mapOpts["cRng" + i], op = mapOpts["oRng" + i], fill = mapOpts["pRng" + i], bins = d.bands[name] || {};
+    const pts = Object.keys(bins).map(Number).sort((x, y) => x - y).map((k) => bins[k]);
+    if ((!op && !fill) || pts.length < 3) return;
+    L.polygon(pts.map((v) => [v[1], v[2]]), { stroke: op > 0, color, weight: 1.5, opacity: op, fill: fill > 0, fillColor: mapOpts["fRng" + i], fillOpacity: fill, interactive: false }).addTo(layer);
+    if (!op) return;
+    const far = pts.reduce((x, y) => (y[0] > x[0] ? y : x));
+    L.circleMarker([far[1], far[2]], { radius: 3, color, weight: 1, opacity: op, fillColor: color, fillOpacity: op })
+      .bindTooltip(`ADS-B range ${label}: farthest ${Math.round(far[0])} km${far[3] != null ? ` at ${far[3].toLocaleString("en-US")} ft` : ""} (${new Date(far[4] * 1000).toISOString().slice(0, 16).replace("T", " ")} UTC${far[5] ? ", position from adsb.fi" : ""})`, { className: "ais-label" })
+      .addTo(layer);
+  });
+}
+
+/** Range rings and azimuth lines around the station: rings every 50 km / NM (every 100 thicker) up to the distance of
+ *  the map settings and lines every 30°; with "fine" also rings every 10 and lines every 10°. Each group its own
+ *  colour and brightness. */
+async function mapAdDraw(map, layer) {
+  layer.clearLayers();
+  const o = mapOpts;
+  if (!o.ad) return;
+  const q = await mapQth();
+  if (!q || !o.ad) return;
+  layer.clearLayers();
+  const f = o.adUnit === "nm" ? 1.852 : 1, unit = o.adUnit === "nm" ? "NM" : "km", max = o.adMax;
+  const main = { color: o.cAd, opacity: o.adOpa, interactive: false }, fine = { color: o.cAdFine, opacity: o.adFineOpa, weight: 0.6, interactive: false };
+  for (let d = 10; d <= max; d += 10) {
+    const m = d % 50 === 0;
+    if (!m && !o.adFine) continue;
+    L.circle([q.lat, q.lon], { ...(m ? main : fine), radius: d * f * 1000, fill: false, weight: m ? (d % 100 === 0 ? 2 : 1) : 0.6 }).addTo(layer);
+    if (m) L.marker(mapDest(q.lat, q.lon, 0, d * f), { icon: L.divIcon({ className: "map-ad-lbl", html: `<span style="color: ${o.cAd}; opacity: ${Math.max(0.5, o.adOpa)}">${d} ${unit}</span>`, iconSize: [60, 12], iconAnchor: [-3, 13] }), interactive: false, keyboard: false }).addTo(layer);
+  }
+  for (let b = 0; b < 360; b += 10) {
+    const m = b % 30 === 0;
+    if (!m && !o.adFine) continue;
+    const pts = [];
+    for (let i = 0; i <= 16; i++) pts.push(mapDest(q.lat, q.lon, b, (max * f * i) / 16));
+    L.polyline(pts, m ? { ...main, weight: 1 } : fine).addTo(layer);
+    if (m) L.marker(mapDest(q.lat, q.lon, b, max * f * 1.04), { icon: L.divIcon({ className: "map-ad-lbl az", html: `<span style="color: ${o.cAd}; opacity: ${Math.max(0.5, o.adOpa)}">${b}°</span>`, iconSize: [30, 12], iconAnchor: [15, 6] }), interactive: false, keyboard: false }).addTo(layer);
+  }
+}
+
+/** The icon in the size of the map settings (selected / others), an emergency squawk 1.5× and red. */
+function mapIcon(icon, sel, emerg, t) {
+  const o = icon.options, k = mapO("icon", sel) * (emerg ? 1.5 : 1), c = mapO("cIcon", sel), sym = sel === "Shr" ? mapOpts.symShr : mapOpts.sym;
+  const stale = sel === "Shr" ? mapOpts.staleShr : mapOpts.stale, cStale = sel === "Shr" ? mapOpts.cStaleShr : mapOpts.cStale;
+  // "no position" (grey by default): after the time of the map settings, or the map's own time (auto)
+  let cls = o.className, html = o.html;
+  if (MAP_SYM_SVG[sym] && /\bhfdl-plane\b/.test(cls)) html = MAP_SYM_SVG[sym];   // an aircraft as another symbol
+  if (stale && t > 0) cls = cls.replace(/\bold\b/g, "").trim() + (Date.now() / 1000 - t > stale * 60 ? " old" : "");
+  return L.divIcon({ ...o, className: `${cls} map-scaled${emerg ? " map-emerg" : ""}${c ? " map-colored" : ""}`,
+    html: `<span class="map-cwrap" style="${c ? `--mc: ${c}; ` : ""}--oc: ${cStale}">${html}</span>`,   // the colours of the map settings
+    iconSize: o.iconSize.map((v) => Math.round(v * k)), iconAnchor: o.iconAnchor.map((v) => Math.round(v * k)) });
+}
+const mapIconK = (sel, emerg) => mapO("icon", sel) * (emerg ? 1.5 : 1);
+
+/** Label text from the items chosen in the map settings. f = {name, reg, id, type, alt, spd, vs, sq, freq, src}
+ *  (already formatted, empty = not known). "" = no label. */
+function mapLabel(f, sel) {
+  const on = new Set(mapO("lbl", sel)), bare = mapO("noUnits", sel);
+  // "without units": the numbers alone (FL350 → 350, 34975 ft → 34975, 431 kt → 431, 403.000 MHz → 403.000 …)
+  const strip = (v) => (bare ? v.replace(/^FL(?=\d)/, "").replace(/\s*(ft\/min|ft|kt|km\/h|m\/s|MHz|km|NM|m)$/, "") : v);
+  const g = (k) => (on.has(k) && f[k] != null && f[k] !== "" ? escHtml(["alt", "spd", "vs", "freq"].includes(k) ? strip(String(f[k])) : String(f[k])) : "");
+  const sq = g("sq") && (mapEmerg(f.sq) ? `<span class="sq-emerg">${g("sq")}</span>` : bare ? g("sq") : `sq ${g("sq")}`);
+  // azimuth / distance from the station (MENU › SETUP › LOCATION), in the unit of the A/D map: 123°/45km
+  let ad = "";
+  if (f.at && mapQthV && (on.has("az") || on.has("dist"))) {
+    const d = mapQthV.lat === f.at.lat && mapQthV.lon === f.at.lon ? null : mapAzDist(mapQthV, f.at);
+    if (d) {
+      const v = mapOpts.adUnit === "nm" ? d[1] / 1.852 : d[1];
+      const az = on.has("az") ? `${Math.round(d[0]) % 360}${bare ? "" : "°"}` : "";
+      const dist = on.has("dist") ? `${v < 10 ? v.toFixed(1) : Math.round(v)}${bare ? "" : mapOpts.adUnit === "nm" ? "NM" : "km"}` : "";
+      ad = [az, dist].filter(Boolean).join("/");
+    }
+  }
+  const lines = [[g("name"), g("reg") !== g("name") ? g("reg") : ""], [g("id") !== g("name") ? g("id") : "", g("type")],
+    [g("alt"), g("spd"), g("vs"), sq, g("freq")], [ad], [g("src")]].map((l) => l.filter(Boolean).join(" · ")).filter(Boolean);
+  return lines.length ? `<span style="font-size:${mapO("font", sel)}em">${lines.join("<br>")}</span>` : "";
+}
+
+/** Puts the label on a mark (bound with a permanent tooltip): hidden when empty, moved below a bigger icon. */
+function mapSetLabel(mk, html, k, key, sel) {
+  const tt = mk.getTooltip();
+  if (!tt) return;
+  if (tt._baseY == null) tt._baseY = L.point(tt.options.offset).y;
+  tt._lbl = { key: key == null ? null : String(key), k, on: !!html };
+  const off0 = tt.options.offset && L.point(tt.options.offset);
+  mapLblPlace(tt, mk._map);
+  const moved = !off0 || !off0.equals(L.point(tt.options.offset));
+  if (tt._html !== html || moved) {   // a tooltip update measures the page: only when something changed
+    tt._html = html;
+    mk.setTooltipContent(html || "&nbsp;");
+    tt.setOpacity(html ? 1 : 0);
+  }
+  const el = tt.getElement();
+  if (el) {
+    el._tt = tt;
+    el.classList.toggle("map-lbl", !!html && tt._lbl.key != null);
+    const a = mapO("bg", sel);   // background opacity from the settings; a see-through one gets a text shadow
+    el.style.background = `rgba(20, 24, 30, ${a})`;
+    el.style.borderColor = `rgba(68, 68, 68, ${a})`;
+    el.style.textShadow = a < 0.5 ? "0 0 2px #000, 0 0 2px #000" : "";
+    el.style.color = mapO("cText", sel) || "";
+  }
+  mapLeaderLater(tt);
+}
+// the lines to the labels: measured together after all labels are set (one layout of the page, not one per label)
+const mapLeaderQ = new Set();
+function mapLeaderLater(tt) {
+  if (!mapLeaderQ.size) queueMicrotask(() => {   // first all the measuring, then all the drawing
+    const q = [...mapLeaderQ], boxes = new Map();
+    mapLeaderQ.clear();
+    const ll = q.map((tt) => {
+      const map = tt._source && tt._source._map;
+      if (map && !boxes.has(map)) boxes.set(map, map.getContainer().getBoundingClientRect());
+      return mapLeaderCalc(tt, map && boxes.get(map));
+    });
+    q.forEach((tt, i) => mapLeaderSet(tt, ll[i]));
+  });
+  mapLeaderQ.add(tt);
+}
+
+/** Removes the line of a label (from its group too, so the group does not keep it). */
+function mapLeaderDrop(tt) {
+  if (!tt._leader) return;
+  const g = tt._leaderGroup;
+  if (g) g.removeLayer(tt._leader); else tt._leader.remove();
+  tt._leader = null;
+}
+
+/** A thin line from the icon to its label, joined to the corner or the middle of a longer side of the label that is
+ *  nearest to the icon. Drawn again when the label or the mark moves and after a zoom. */
+function mapLeader(tt) { mapLeaderSet(tt, mapLeaderCalc(tt)); }
+/** Where the line of a label goes (only reads the page): null = no line, undefined = leave it. */
+function mapLeaderCalc(tt, box) {
+  const mk = tt._source, map = mk && mk._map, el = tt.getElement();
+  if (!map || !el || !tt._lbl || !tt._lbl.on) return null;
+  box = box || map.getContainer().getBoundingClientRect();
+  const r = el.getBoundingClientRect();
+  if (!box.width || !r.width) return undefined;   // the map or the label is not shown now
+  const x = r.left - box.left, y = r.top - box.top, w = r.width, h = r.height;
+  const a = map.latLngToContainerPoint(mk.getLatLng());
+  const mid = w >= h ? [[w / 2, 0], [w / 2, h]] : [[0, h / 2], [w, h / 2]];
+  const best = [[0, 0], [w, 0], [0, h], [w, h], ...mid].map(([dx, dy]) => L.point(x + dx, y + dy))
+    .reduce((b, q) => (q.distanceTo(a) < b.distanceTo(a) ? q : b));
+  return [mk.getLatLng(), map.containerPointToLatLng(best)];
+}
+/** Draws the line of a label (only writes the page). */
+function mapLeaderSet(tt, ll) {
+  if (ll === undefined) return;
+  if (ll === null) { if (tt._leader) mapLeaderDrop(tt); return; }
+  const mk = tt._source, map = mk && mk._map;
+  if (!map) return;
+  if (tt._leader) {
+    const o = tt._leader.getLatLngs();
+    if (!o[0].equals(ll[0]) || !o[1].equals(ll[1])) tt._leader.setLatLngs(ll);
+    return;
+  }
+  if (!map._leaders) {
+    map._leaders = L.layerGroup().addTo(map);
+    map.on("zoomend", () => setTimeout(() => map.eachLayer((l) => { if (l.getTooltip && l.getTooltip() && l.getTooltip()._leader) mapLeaderLater(l.getTooltip()); })));
+  }
+  tt._leader = L.polyline(ll, { color: "#cfd6df", weight: 1, opacity: 0.7, interactive: false }).addTo(map._leaders);
+  tt._leaderGroup = map._leaders;
+  mk.once("remove", () => mapLeaderDrop(tt));
+}
+
+// Labels moved with the mouse: an offset per object, kept for this window only (sessionStorage: it survives a reload
+// of the tab, other and new windows do not get it). A double click puts the label back.
+let mapLblDrag = false;
+function mapLblOffs(map) {
+  if (!map) return {};
+  if (!map._lblOffs) {
+    try { map._lblOffs = JSON.parse(sessionStorage.getItem(`mapLblOff.${map._optKind}`) || "{}") || {}; } catch { map._lblOffs = {}; }
+  }
+  return map._lblOffs;
+}
+function mapLblSave(map) {
+  try { sessionStorage.setItem(`mapLblOff.${map._optKind}`, JSON.stringify(map._lblOffs || {})); } catch { /* this page only */ }
+}
+function mapLblPlace(tt, map) {
+  const o = (tt._lbl.key != null && mapLblOffs(map)[tt._lbl.key]) || [0, 0];
+  tt.options.offset = L.point(o[0], Math.round(tt._baseY * tt._lbl.k) + o[1]);
+}
+function mapLblDragInit(map) {
+  const box = map.getContainer();
+  const lblAt = (e) => { const el = e.target.closest && e.target.closest(".leaflet-tooltip.map-lbl"); return el && el._tt && el._tt._lbl ? el : null; };
+  box.addEventListener("pointerdown", (e) => {
+    const el = lblAt(e);
+    if (!el || e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const tt = el._tt, key = tt._lbl.key, offs = mapLblOffs(map), o0 = offs[key] || [0, 0], x0 = e.clientX, y0 = e.clientY;
+    mapLblDrag = true;
+    if (map.dragging) map.dragging.disable();
+    el.classList.add("dragging");
+    try { el.setPointerCapture(e.pointerId); } catch { /* older browser */ }
+    const move = (ev) => {
+      offs[key] = [o0[0] + ev.clientX - x0, o0[1] + ev.clientY - y0];
+      mapLblPlace(tt, map);
+      tt.update();
+      mapLeader(tt);
+    };
+    const up = () => {
+      el.removeEventListener("pointermove", move);
+      el.removeEventListener("pointerup", up);
+      el.removeEventListener("pointercancel", up);
+      el.classList.remove("dragging");
+      if (map.dragging) map.dragging.enable();
+      mapLblDrag = false;
+      mapLblSave(map);
+    };
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerup", up);
+    el.addEventListener("pointercancel", up);
+  }, true);
+  // a click on a label does nothing on the map (no deselect); a double click puts it back under its mark
+  box.addEventListener("click", (e) => { if (lblAt(e)) e.stopPropagation(); }, true);
+  box.addEventListener("dblclick", (e) => {
+    const el = lblAt(e);
+    if (!el) return;
+    e.stopPropagation();
+    delete mapLblOffs(map)[el._tt._lbl.key];
+    mapLblSave(map);
+    mapLblPlace(el._tt, map);
+    el._tt.update();
+    mapLeader(el._tt);
+  }, true);
+}
+
+/** The map settings (⚙, top right) and the precipitation radar overlay (RainViewer: only the newest frame, or a loop of
+ *  the last minutes; the frame list is asked again shortly after the source should have a new frame). rerender draws
+ *  the map again when an object setting changes (without it the map has no object settings); noTrails = the map has
+ *  no trails setting. Only the tile requests go out, no position. Returns { addOverlay(layer, name) } for more
+ *  switches of this map in the same window. */
+function comMapSettings(map, kind, rerender, noTrails) {
+  // RainViewer radar frames come every 10 min and reach 2 hours back
+  const FRAME_S = 600, STEP_MS = 600, HOLD_STEPS = 3;
+  let frames = [], cur = 0, tick = 0, timer = null, anim = null, onMap = false, all = null, tEl = null, shownSpan = null;
+  const group = L.layerGroup();
+  // the box in the bottom left corner: the time of the frame shown (only while the radar is on)
+  const Lbl = L.Control.extend({
+    onAdd() {
+      const box = L.DomUtil.create("div", "map-precip-time");
+      tEl = L.DomUtil.create("span", "", box);
+      if (frames[cur]) show(cur);
+      return box;
+    },
+  });
+  const lbl = new Lbl({ position: "bottomleft" });
+  const hm = (t) => new Date(t * 1000).toISOString().slice(11, 16);
+  function show(i) {
+    frames.forEach((f, k) => f.layer.setOpacity(k === i ? mapOpts.opa : 0));
+    cur = i;
+    if (tEl && frames[i]) tEl.textContent = `${statRadar ? "Precipitation" : "Radar"} ${hm(frames[i].time)} UTC${i === frames.length - 1 ? "" : ` (−${Math.round((frames[frames.length - 1].time - frames[i].time) / 60)} min)`}`;
+  }
+  function step() {
+    if (frames.length < 2) return;
+    if (cur === frames.length - 1 && ++tick < HOLD_STEPS) return;   // a pause on the newest frame
+    tick = 0;
+    show((cur + 1) % frames.length);
+  }
+  // the frames of the chosen span out of the last frame list (layers of frames kept are reused, no tiles loaded again)
+  function build() {
+    if (!all) return;
+    const { host, past } = all, span = mapOpts.span;
+    const newest = past[past.length - 1].time;
+    const want = span ? past.filter((f) => f.time >= newest - span * 60) : past.slice(-1);
+    const old = frames;
+    frames = want.map((f) => {
+      const had = old.find((o) => o.time === f.time);
+      if (had) return had;
+      const layer = L.tileLayer(`${host}${f.path}/256/{z}/{x}/{y}/2/1_1.png`, {
+        opacity: 0, maxNativeZoom: 7, maxZoom: 13, zIndex: 300,
+        attribution: 'Radar &copy; <a href="https://www.rainviewer.com/" target="_blank" rel="noopener noreferrer">RainViewer</a>',
+      });
+      group.addLayer(layer);
+      return { time: f.time, layer };
+    });
+    for (const o of old) if (!frames.includes(o)) group.removeLayer(o.layer);
+    shownSpan = span;
+    tick = 0;
+    show(frames.length - 1);
+  }
+  // ask again 1 min after the next frame is due (RainViewer publishes a frame ~30 s after its time); a late frame
+  // is asked for every minute; at least 1 min, at most 10 min apart
+  function later(newest) {
+    clearTimeout(timer);
+    if (!onMap) return;
+    const due = newest ? (newest + FRAME_S + 60) * 1000 - Date.now() : 300000;
+    timer = setTimeout(load, Math.min(FRAME_S * 1000, Math.max(60000, due)));
+  }
+  async function load() {
+    let newest = 0;
+    try {
+      const r = await fetch("https://api.rainviewer.com/public/weather-maps.json", { cache: "no-store" });
+      const j = await r.json();
+      const past = (j && j.radar && j.radar.past) || [];
+      if (past.length) {
+        newest = past[past.length - 1].time;
+        all = { host: j.host, past };
+        if (onMap) build();
+      }
+    } catch { /* offline: no overlay, try again later */ }
+    later(newest);
+  }
+  // COMPOSITE: the time of the radar frame in the status row under the map, not on the map
+  const statRadar = kind === "com" ? document.getElementById("comStatRadar") : null;
+  const statCur = kind === "com" ? document.getElementById("comStatCursor") : null;
+  if (statCur) {
+    map.on("mousemove", (e) => {
+      const { lat, lng } = e.latlng.wrap(), q = mapQthV;
+      let ad = "";
+      if (q) {
+        const d = mapAzDist(q, { lat, lon: lng }), v = mapOpts.adUnit === "nm" ? d[1] / 1.852 : d[1];
+        ad = ` A/D: ${String(Math.round(d[0]) % 360).padStart(3, "0")}° / ${v < 100 ? v.toFixed(1) : Math.round(v)} ${mapOpts.adUnit === "nm" ? "NM" : "km"}`;
+      }
+      statCur.textContent = `LAT: ${lat.toFixed(4)} LON: ${lng.toFixed(4)}${ad}`;
+      statCur.hidden = false;
+    });
+    map.on("mouseout", () => { statCur.hidden = true; });
+  }
+  function radar(want) {
+    if (want === onMap) return;
+    onMap = want;
+    if (want) {
+      group.addTo(map);
+      if (statRadar) { tEl = statRadar; statRadar.hidden = false; } else lbl.addTo(map);
+      load();
+      if (!anim) anim = setInterval(step, STEP_MS);
+    } else {
+      clearTimeout(timer); clearInterval(anim); timer = anim = null;
+      map.removeLayer(group);
+      if (statRadar) statRadar.hidden = true; else lbl.remove();
+    }
+  }
+
+  // the settings window
+  const extra = [];   // [layer, name] of more switches of this map (e.g. the sonde launch sites)
+  const objSig = () => JSON.stringify(["trails", "trailsSel", "icon", "iconSel", "font", "fontSel", "lbl", "lblSel", "drop",
+    "trailsShr", "iconShr", "symShr", "predShr", "staleShr", "cStaleShr", "dropShr", "fontShr", "bgShr", "lblShr", "noUnits", "noUnitsSel", "noUnitsShr", "bg", "bgSel", "pred", "predSel", "adUnit", "stale", "cStale", "sym", ...(kind === "adsb" ? Object.keys(mapOpts).filter((k) => /^(rng|cRng|oRng|fRng|pRng)/.test(k)) : []), ...Object.keys(MAP_COLORS).flatMap((k) => [k, k + "Sel"])].map((k) => mapOpts[k]));
+  let panel = null, objShown = objSig();
+  const Ctl = L.Control.extend({
+    onAdd() {
+      const box = L.DomUtil.create("div", "leaflet-bar map-opts");
+      const a = L.DomUtil.create("a", "map-opts-btn", box);
+      a.href = "#";
+      a.title = "Map settings (the same for all maps, remembered in the browser)";
+      a.setAttribute("role", "button");
+      a.innerHTML = '<span class="map-opts-gear">⚙</span><span class="map-opts-name">Settings</span>';
+      panel = L.DomUtil.create("div", "map-opts-panel", box);
+      panel.hidden = true;
+      L.DomEvent.on(a, "click", (e) => {
+        L.DomEvent.preventDefault(e);
+        panel.hidden = !panel.hidden;
+        box.classList.toggle("open", !panel.hidden);   // the name shows beside the gear while open
+        if (!panel.hidden) fill();
+      });
+      panel.addEventListener("input", onInput);
+      panel.addEventListener("change", onInput);
+      panel.addEventListener("toggle", (e) => {   // a section opened / closed: remembered
+        if (!e.target.matches || !e.target.matches("details[data-sec]")) return;
+        const open = [...panel.querySelectorAll("details[data-sec][open]")].map((d) => d.dataset.sec);
+        try { localStorage.setItem("mapOptsOpen", JSON.stringify(open)); } catch { /* this page only */ }
+      }, true);
+      panel.addEventListener("click", (e) => {   // "auto" next to a colour: back to the map's own colours
+        const del = e.target.closest("button[data-laydel]");
+        if (del) {   // delete an own layer (from the server: all windows lose it)
+          const id = del.dataset.laydel, it = (mapLayList || []).find((x) => x.id === id);
+          if (!confirm(`Delete the layer "${it ? it.name : id}"? It is removed for all windows.`)) return;
+          mapLayApi(`/api/maplayers/${encodeURIComponent(id)}`, { method: "DELETE" }).then(async () => {
+            mapLayGj.delete(id);
+            await mapLayListGet(true);
+            const lay = { ...mapOpts.lay };
+            delete lay[id];
+            mapOptsSet({ lay, layRev: Date.now() });
+            fill();
+          }).catch((err) => { panel.querySelector(".map-opts-msg").textContent = `Not deleted: ${err.message}`; });
+          return;
+        }
+        const b = e.target.closest("button[data-cr]");
+        if (!b) return;
+        mapOptsSet({ [b.dataset.cr]: "" });
+        fill();
+      });
+      L.DomEvent.disableClickPropagation(box);
+      L.DomEvent.disableScrollPropagation(box);
+      return box;
+    },
+  });
+  // COMPOSITE: one switch per VFO and decoder with positions (the SOURCES row above the map does the same)
+  function srcHtml() {
+    const rows = [];
+    for (const [vfo, d] of comFeeds) {
+      for (const src of [...d.sources, ...(d.hist_sources || [])]) {
+        const k = comKey(vfo, src), n = d.items.filter((i) => i.src === src).length, hist = !d.sources.includes(src);
+        const [name, col] = COM_SRC[src] || [src.toUpperCase(), "#fff"];
+        rows.push(`<label title="${hist ? "This decoder does not run now: what it saw in the last 6 hours" : "Live positions + the last 6 hours"}">` +
+          `<input type="checkbox" data-src="${escHtml(k)}"${comOff.has(k) ? "" : " checked"}> <span class="map-opts-dot" style="background: ${col}"></span>` +
+          `${vfo ? `VFO ${escHtml(vfo)} · ` : ""}${escHtml(name)} <small class="muted">${n}${hist ? " · history" : ""}</small></label>`);
+      }
+    }
+    return '<div class="map-opts-sub2">Local decoders</div>' + (rows.join("") || '<p class="map-opts-note">No decoder with positions runs on any VFO.</p>') +
+      '<div class="map-opts-sub2">Sharing <small>from other stations</small></div>' + shareHtml();
+  }
+  function shareHtml() {
+    const o = mapOpts, opt = (k, list, name) => `<select data-o="${k}">${list.map((v) => `<option value="${v}"${v === o[k] ? " selected" : ""}>${name(v)}</option>`).join("")}</select>`;
+    const st = !o.shAfi ? "" : comShare.err ? `<span class="map-opts-err">${escHtml(comShare.err)}</span>` : comShare.t ? `${comShare.got} received · ${comShare.shown} shown` : "asking…";
+    return `<label title="Aircraft around the station seen by the adsb.fi network (open data)"><input type="checkbox" data-o="shAfi"${o.shAfi ? " checked" : ""}> ` +
+      `<span class="map-opts-dot" style="background: ${COM_SRC.adsbfi[1]}"></span>adsb.fi <small class="muted">${st}</small></label>` +
+      (o.shAfi ? `<table class="map-opts-t map-opts-filter">` +
+        `<tr><th>Radius</th><td>${opt("shDist", MAP_SH_DIST, (v) => `${v} NM`)}</td><th>Refresh</th><td>${opt("shInt", MAP_SH_INT, (v) => `${v} s`)}</td></tr>` +
+        `<tr><th>Altitude from</th><td>${opt("shAltMin", MAP_SH_ALT_MIN, (v) => (v ? `${v} ft` : "any"))}</td><th>to</th><td>${opt("shAltMax", MAP_SH_ALT_MAX, (v) => (v ? `${v} ft` : "any"))}</td></tr>` +
+        `<tr><th>At most</th><td>${opt("shMax", MAP_SH_MAX, (v) => (v ? `${v} nearest` : "all"))}</td><td colspan="2"></td></tr></table>` +
+        `<label><input type="checkbox" data-o="shNotLocal"${o.shNotLocal ? " checked" : ""}> only aircraft the local decoders do not hear</label>` +
+        `<label><input type="checkbox" data-o="shGround"${o.shGround ? " checked" : ""}> also aircraft on the ground</label>` : "");
+  }
+  if (kind === "com") map._optsSources = (force) => {   // the sources changed (each poll): the section shows them again
+    const body = panel && !panel.hidden && panel.querySelector('details[data-sec="sources"] .map-opts-body');
+    if (body && (force || !body.contains(document.activeElement))) body.innerHTML = srcHtml();
+  };
+  // the sections of the window open (remembered in the browser): Sources and Map open the first time
+  function secOpen() {
+    try { const v = JSON.parse(localStorage.getItem("mapOptsOpen") || "null"); return Array.isArray(v) ? v : ["sources", "map"]; } catch { return ["sources", "map"]; }
+  }
+  function fill() {
+    const o = mapOpts, pc = (x) => `${Math.round(x * 100)} %`, open = secOpen();
+    const sel = (list, name) => (k) => `<select data-o="${k}">${list.map((v) => `<option value="${v}"${v === o[k] ? " selected" : ""}>${name(v)}</option>`).join("")}</select>`;
+    const row = (name, k, cell) => `<tr><th>${name}</th><td>${cell(k + "Sel")}</td><td>${cell(k)}</td></tr>`;
+    const box = (k, id) => `<input type="checkbox" data-l="${k}" value="${id}"${o[k].includes(id) ? " checked" : ""}>`;
+    const color = (base) => (k) => `<span class="map-opts-c${o[k] ? "" : " auto"}"><input type="color" data-c="${k}" value="${o[k] || MAP_COLORS[base][k.endsWith("Sel") ? 1 : 0]}">` +
+      `<button type="button" data-cr="${k}" title="Automatic: the map's own colours">auto</button></span>`;
+    const sec = (id, title, hint, body) => `<details class="map-opts-sec" data-sec="${id}"${open.includes(id) ? " open" : ""}><summary>${title}` +
+      `${hint ? ` <small>${hint}</small>` : ""}</summary><div class="map-opts-body">${body}</div></details>`;
+    const sub = (t, hint) => `<div class="map-opts-sub2">${t}${hint ? ` <small>${hint}</small>` : ""}</div>`;
+    if (!mapLayList) mapLayListGet().then(() => { if (!panel.hidden) fill(); });
+    const lays = mapLayList || [];
+    const mapSec =
+      sub("Base map") +
+      `<label><select data-o="base">${Object.entries(MAP_BASES).map(([k, [n]]) => `<option value="${k}"${k === o.base ? " selected" : ""}>${n}</option>`).join("")}</select>` +
+      `<input type="checkbox" data-o="dark"${o.dark ? " checked" : ""}> darken</label>` +
+      (o.base === "solid" ? `<label>Colour <input type="color" class="map-opts-cp" data-o="baseColor" value="${o.baseColor}"></label>` : "") +
+      (o.base === "custom" ? `<label><input type="text" class="map-opts-url" data-o="baseUrl" value="${escHtml(o.baseUrl)}" placeholder="https://…/{z}/{x}/{y}.png" spellcheck="false"></label>` : "") +
+      `<label><input type="checkbox" data-o="sea"${o.sea ? " checked" : ""}> OpenSeaMap <small class="muted">(sea marks, waterways)</small></label>` +
+      `<label><input type="checkbox" data-o="aip"${o.aip ? " checked" : ""}> OpenAIP <small class="muted">(airspaces, airports, navaids)</small>` +
+      `<select data-o="aipOpa">${MAP_LAY_OPA.map((v) => `<option value="${v}"${v === o.aipOpa ? " selected" : ""}>${pc(v)}</option>`).join("")}</select></label>` +
+      (o.aip ? `<label>API key <input type="text" class="map-opts-url" data-key="openaip" value="${escHtml((mapKeys && mapKeys.openaip) || "")}" placeholder="from openaip.net (free account)" spellcheck="false"></label>` : "") +
+      sub("Own layers", "GeoJSON, KML, GPX") +
+      (lays.length ? `<table class="map-opts-t map-opts-lays">` + lays.map((it) => {
+        const lo = mapLayOpt(it.id), id = escHtml(it.id);
+        return `<tr><th><label title="${it.n} object${it.n === 1 ? "" : "s"}, ${Math.max(1, Math.round(it.size / 1024))} kB"><input type="checkbox" data-lay="${id}" data-k="on"${lo.on ? " checked" : ""}> ${escHtml(it.name)}</label></th>` +
+          `<td><input type="color" class="map-opts-cp" data-lay="${id}" data-k="c" value="${lo.c}"></td>` +
+          `<td><select data-lay="${id}" data-k="o">${MAP_LAY_OPA.map((v) => `<option value="${v}"${v === lo.o ? " selected" : ""}>${pc(v)}</option>`).join("")}</select></td>` +
+          `<td><button type="button" class="map-opts-del" data-laydel="${id}" title="Delete the layer (for all windows)">✕</button></td></tr>`;
+      }).join("") + `</table>` : `<p class="map-opts-note">${mapLayList ? "No layer yet." : "Loading…"}</p>`) +
+      `<label class="map-opts-up">Add <input type="file" data-up accept=".geojson,.json,.kml,.gpx"></label><p class="map-opts-note map-opts-msg"></p>` +
+      sub("A/D map", "azimuth / distance rings around the station") +
+      `<label><input type="checkbox" data-o="ad"${o.ad ? " checked" : ""}> Show the rings and azimuths</label>` +
+      `<label>Up to <select data-o="adMax">${MAP_AD_MAX.map((v) => `<option value="${v}"${v === o.adMax ? " selected" : ""}>${v}</option>`).join("")}</select>` +
+      `<select data-o="adUnit"><option value="km"${o.adUnit === "km" ? " selected" : ""}>km</option><option value="nm"${o.adUnit === "nm" ? " selected" : ""}>NM</option></select></label>` +
+      `<label><input type="checkbox" data-o="adFine"${o.adFine ? " checked" : ""}> Also every 10 km / NM and 10°</label>` +
+      `<table class="map-opts-t"><tr><th></th><th>50 · 30°</th><th>10 · 10°</th></tr>` +
+      `<tr><th>Colour</th><td><input type="color" class="map-opts-cp" data-o="cAd" value="${o.cAd}"></td><td><input type="color" class="map-opts-cp" data-o="cAdFine" value="${o.cAdFine}"></td></tr>` +
+      `<tr><th>Brightness</th><td>${sel(MAP_AD_OPA, pc)("adOpa")}</td><td>${sel(MAP_AD_OPA, pc)("adFineOpa")}</td></tr></table>` +
+      `<label class="map-opts-sub2" title="The farthest positions decoded by the ADS-B decoder, per altitude band"><input type="checkbox" data-o="rng"${o.rng ? " checked" : ""}> ADS-B range</label>` +
+      `<table class="map-opts-t"><tr><th></th><th colspan="2">Line</th><th colspan="2">Fill</th></tr>` +
+      ADSB_RANGE_BANDS.map(([, label], i) => `<tr><th>${label}</th><td><input type="color" class="map-opts-cp" data-o="cRng${i}" value="${o["cRng" + i]}"></td>` +
+        `<td><select data-o="oRng${i}" title="Brightness of the line">${MAP_RNG_OPA.map((v) => `<option value="${v}"${v === o["oRng" + i] ? " selected" : ""}>${v ? pc(v) : "none"}</option>`).join("")}</select></td>` +
+        `<td><input type="color" class="map-opts-cp" data-o="fRng${i}" value="${o["fRng" + i]}"></td>` +
+        `<td><select data-o="pRng${i}" title="Opacity of the fill">${MAP_LBL_BG.map((v) => `<option value="${v}"${v === o["pRng" + i] ? " selected" : ""}>${v ? pc(v) : "none"}</option>`).join("")}</select></td></tr>`).join("") +
+      `</table>` +
+      (extra.length ? sub("This map") + extra.map(([l, n], i) => `<label><input type="checkbox" data-x="${i}"${map.hasLayer(l) ? " checked" : ""}> ${escHtml(n)}</label>`).join("") : "");
+    const weatherSec =
+      sub("Precipitation", "RainViewer radar") +
+      `<label><input type="checkbox" data-o="precip"${o.precip ? " checked" : ""}> Show the precipitation</label>` +
+      `<label>Show <select data-o="span">${MAP_SPANS.map((s) => `<option value="${s}"${s === o.span ? " selected" : ""}>${s ? `loop of the last ${s} min` : "only the latest frame"}</option>`).join("")}</select></label>` +
+      `<label>Opacity <input type="range" data-o="opa" min="10" max="100" step="5" value="${Math.round(o.opa * 100)}"> <span class="map-opts-opa">${Math.round(o.opa * 100)} %</span></label>` +
+      sub("Clouds", "MTG satellite, infrared") +
+      `<label><input type="checkbox" data-o="cld"${o.cld ? " checked" : ""}> Show the clouds</label>` +
+      `<label>Opacity <input type="range" data-o="cldOpa" min="10" max="100" step="5" value="${Math.round(o.cldOpa * 100)}"> <span class="map-opts-opa" data-for="cldOpa">${Math.round(o.cldOpa * 100)} %</span></label>`;
+    // three columns: the selected object, the others of the local decoders, and the objects shared by other stations
+    const row3 = (name, k, cell) => `<tr><th>${name}</th><td>${cell(k + "Sel")}</td><td>${cell(k)}</td><td>${cell(k + "Shr")}</td></tr>`;
+    const row2 = (name, k, cell, selText, title) => `<tr><th${title ? ` title="${title}"` : ""}>${name}</th><td class="muted">${selText}</td><td>${cell(k)}</td><td>${cell(k + "Shr")}</td></tr>`;
+    const cp = (k) => `<input type="color" class="map-opts-cp" data-o="${k}" value="${o[k]}">`;
+    const symSel = sel(MAP_SYMS.map(([v]) => v), (v) => MAP_SYMS.find(([x]) => x === v)[1]);
+    const objSec = `<table class="map-opts-t"><tr><th></th><th>Selected</th><th title="Tracks from the local decoders">Local</th><th title="Tracks from shared sources (other stations, to come)">Sharing</th></tr>` +
+      (noTrails ? "" : row3("Trails", "trails", sel(MAP_TRAILS.map(([v]) => v), (v) => MAP_TRAILS.find(([x]) => x === v)[1]))) +
+      row3("Icon size", "icon", sel(MAP_ICON_K, pc)) +
+      `<tr><th>Aircraft symbol</th><td colspan="2">${symSel("sym")}</td><td>${symSel("symShr")}</td></tr>` +
+      row3("Prediction", "pred", sel(MAP_PRED, (v) => (v ? `${v} min` : "Off"))) +
+      row3("Icon colour", "cIcon", color("cIcon")) + (noTrails ? "" : row3("Trail colour", "cTrail", color("cTrail"))) +
+      row3("Prediction colour", "cPred", color("cPred")) +
+      row2("No position after", "stale", sel(MAP_STALE, (v) => (v ? `${v} min` : "auto")), "–", "An object without a new position for this long gets this colour (auto = 15 min); the selected one stays orange") +
+      row2("No position colour", "cStale", cp, "–") +
+      row2("Hide when no position for", "drop", sel(MAP_DROP, (v) => (v ? `${v} min` : "never")), "never", "An object without a new position for this long disappears from the map (the selected one stays)") +
+      `</table>` +
+      `<p class="map-opts-note">Squawk 7500 / 7600 / 7700: red icon 1.5× bigger, red trail.</p>`;
+    const lblSec = `<table class="map-opts-t"><tr><th></th><th>Selected</th><th title="Tracks from the local decoders">Local</th><th title="Tracks from shared sources (other stations, to come)">Sharing</th></tr>` +
+      row3("Without units", "noUnits", (k) => `<input type="checkbox" data-o="${k}"${o[k] ? " checked" : ""} title="The numbers alone: 350 instead of FL350, 431 instead of 431 kt, 123/45 instead of 123°/45km">`) +
+      row3("Font size", "font", sel(MAP_FONT_K, pc)) + row3("Background", "bg", sel(MAP_LBL_BG, pc)) + row3("Text colour", "cText", color("cText")) +
+      `<tr><th colspan="4" class="map-opts-sub">Show</th></tr>` +
+      MAP_LBL.map(([id, n]) => `<tr><th>${n}</th><td>${box("lblSel", id)}</td><td>${box("lbl", id)}</td><td>${box("lblShr", id)}</td></tr>`).join("") +
+      `</table><p class="map-opts-note">Drag a label to move it (this window only), a double click puts it back.</p>`;
+    panel.innerHTML = (kind === "com" ? sec("sources", "Sources", "local decoders, sharing", srcHtml()) : "") +
+      sec("map", "Map", "base map, layers, rings, range", mapSec) + sec("weather", "Weather", "precipitation, clouds", weatherSec) +
+      (rerender ? sec("objects", "Objects", "trails, icons, prediction", objSec) + sec("labels", "Labels", "font, colours, items", lblSec) : "") +
+      `<p class="map-opts-note">Remembered in the browser, the same in all windows.</p>`;
+  }
+  function onInput(e) {
+    const t = e.target;
+    if (t.dataset.x != null) {   // a switch of this map only: the map's own overlayadd / overlayremove handler keeps it
+      if (e.type !== "change") return;
+      const [l] = extra[+t.dataset.x];
+      if (t.checked) { l.addTo(map); map.fire("overlayadd", { layer: l }); } else { map.removeLayer(l); map.fire("overlayremove", { layer: l }); }
+      return;
+    }
+    if (t.dataset.lay) {   // one own layer: on / colour / opacity (this browser)
+      if (e.type !== "change") return;
+      const id = t.dataset.lay, k = t.dataset.k;
+      mapOptsSet({ lay: { ...mapOpts.lay, [id]: { ...mapLayOpt(id), [k]: k === "on" ? t.checked : k === "o" ? +t.value : t.value } } });
+      return;
+    }
+    if (t.dataset.up != null) {   // a new layer from a file: stored on the server for all windows
+      if (e.type !== "change" || !t.files.length) return;
+      const msg = panel.querySelector(".map-opts-msg");
+      msg.textContent = "Uploading…";
+      mapLayUpload(t.files[0]).then(async () => {
+        await mapLayListGet(true);
+        mapOptsSet({ layRev: Date.now() });
+        fill();
+      }).catch((err) => { msg.textContent = `Not added: ${err.message}`; t.value = ""; });
+      return;
+    }
+    if (t.dataset.src) {   // COMPOSITE: a source on / off (as a key of the SOURCES row)
+      if (e.type !== "change") return;
+      const k = t.dataset.src;
+      if (t.checked) comOff.delete(k); else comOff.add(k);
+      store("comOff", [...comOff].join(","));
+      renderComSrcs();
+      renderComMap();
+      return;
+    }
+    if (t.dataset.key) {   // a service key: stored on the server for all windows and computers
+      if (e.type !== "change") return;
+      mapLayApi("/api/mapkeys", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ [t.dataset.key]: t.value.trim() }) })
+        .then((j) => { mapKeys = j; mapOptsSet({ keyRev: Date.now() }); })
+        .catch((err) => { panel.querySelector(".map-opts-msg").textContent = `Key not stored: ${err.message}`; });
+      return;
+    }
+    if (t.dataset.o === "aip") {   // the key field shows with the switch
+      if (e.type !== "change") return;
+      mapOptsSet({ aip: t.checked });
+      mapKeysGet().then(() => fill());
+      return;
+    }
+    if (t.dataset.o === "base" || t.dataset.o === "baseUrl") {
+      if (e.type !== "change") return;
+      mapOptsSet({ [t.dataset.o]: t.value.trim() });
+      fill();
+      return;
+    }
+    if (t.dataset.c) {   // a colour (when the picker is closed)
+      if (e.type !== "change") return;
+      mapOptsSet({ [t.dataset.c]: t.value });
+      fill();
+      return;
+    }
+    if (t.dataset.l) {   // label items of one column
+      if (e.type !== "change") return;
+      const col = t.dataset.l, on = new Set([...panel.querySelectorAll(`input[data-l="${col}"]:checked`)].map((x) => x.value));
+      mapOptsSet({ [col]: MAP_LBL.map(([id]) => id).filter((id) => on.has(id)) });
+      return;
+    }
+    const k = t.dataset.o;
+    if (!k) return;
+    if (/^sh[A-Z]/.test(k) && kind === "com") {   // Sharing: applied at once (adsb.fi asked again when needed)
+      if (e.type !== "change") return;
+      mapOptsSet({ [k]: t.type === "checkbox" ? t.checked : +t.value });
+      comShareLoad(k === "shAfi" || k === "shDist").then(() => { renderComMap(); map._optsSources && map._optsSources(true); });
+      return;
+    }
+    if (k === "opa" || k === "cldOpa") {   // the opacity sliders: applied while moved
+      panel.querySelector(k === "opa" ? '.map-opts-opa:not([data-for])' : '.map-opts-opa[data-for="cldOpa"]').textContent = `${t.value} %`;
+      mapOptsSet({ [k]: t.value / 100 });
+    } else if (e.type === "change") {
+      mapOptsSet({ [k]: ["precip", "ad", "adFine", "rng", "dark", "sea", "cld", "shAfi", "shNotLocal", "shGround", "noUnits", "noUnitsSel", "noUnitsShr"].includes(k) ? t.checked : /^(span|icon|font|drop|bg|pred|adMax|adOpa|adFineOpa|stale|oRng|pRng|aipOpa|shDist|shInt|shAlt|shMax)/.test(k) && !/^(cStale)/.test(k) ? +t.value : t.value });
+    }
+  }
+  function apply(other) {   // other = changed in another tab / window
+    radar(mapOpts.precip);
+    if (layRevSeen !== mapOpts.layRev) { layRevSeen = mapOpts.layRev; mapLayListGet(true); }   // a layer added / removed
+    if (keyRevSeen !== mapOpts.keyRev) { keyRevSeen = mapOpts.keyRev; mapKeysGet(true); }   // a key changed
+    baseApply();
+    if (adShown !== adSig()) { adShown = adSig(); mapAdDraw(map, adLayer); }
+    rangeApply();
+    if (onMap && shownSpan !== mapOpts.span) build();
+    else if (onMap) show(cur);   // the opacity
+    if (rerender && objShown !== objSig()) { objShown = objSig(); rerender(); }
+    if (other && panel && !panel.hidden) fill();   // show what another window changed
+  }
+  const baseApply = mapBaseInit(map);
+  if (rerender) map.on("zoomend", () => { if ((mapOpts.trails + mapOpts.trailsSel + mapOpts.trailsShr).includes("e")) rerender(); });
+  let layRevSeen = mapOpts.layRev, keyRevSeen = mapOpts.keyRev;
+  const adLayer = L.layerGroup().addTo(map);
+  const rngLayer = kind === "adsb" ? null : L.layerGroup().addTo(map);   // the ADS-B map draws its range itself
+  const rngSig = () => JSON.stringify(Object.keys(mapOpts).filter((k) => /^(rng|cRng|oRng|fRng|pRng)/.test(k)).map((k) => mapOpts[k]));
+  let rngShown = null, rngTimer = null;
+  function rangeApply() {
+    if (kind === "adsb") {   // the ADS-B map: its own RANGE switch follows the settings
+      if (adsbRangeOn !== mapOpts.rng) { adsbRangeOn = mapOpts.rng; $("adsbRange").checked = adsbRangeOn; }
+      return;
+    }
+    if (mapOpts.rng && !rngTimer) rngTimer = setInterval(async () => mapRangeShapes(rngLayer, await mapRangeGet()), 60000);
+    if (!mapOpts.rng && rngTimer) { clearInterval(rngTimer); rngTimer = null; }
+    if (rngShown === rngSig()) return;
+    rngShown = rngSig();
+    if (mapOpts.rng) mapRangeGet().then((d) => mapRangeShapes(rngLayer, d)); else rngLayer.clearLayers();
+  }
+  if (rerender && !mapQthV) mapQth().then((q) => { if (q) rerender(); });   // labels with azimuth / distance
+  const adSig = () => JSON.stringify(["ad", "adMax", "adUnit", "adFine", "cAd", "adOpa", "cAdFine", "adFineOpa"].map((k) => mapOpts[k]));
+  let adShown = null;
+  new Ctl({ position: "topright" }).addTo(map);
+  map._optKind = kind;
+  mapLblDragInit(map);
+  mapOptSubs.add(apply);
+  apply();
+  return { addOverlay(layer, name) { extra.push([layer, name]); return this; } };
+}
+
+/** Label items of an aircraft of the VDL2 / HFDL maps. */
+function hfdlLblF(a) {
+  const ac = a.ac && a.ac.found ? a.ac : null;
+  return { name: a.flight || a.reg || a.hex, reg: a.reg, id: a.hex, type: ac && ac.type, alt: hfdlFl(ac), spd: hfdlSpd(ac), sq: ac && ac.squawk, at: hfdlPos(a) };
+}
+/** Label items of an AIS station. */
+const aisLblF = (s) => ({ at: s.lat != null ? s : null, name: aisLabel(s), id: s.mmsi, type: s.station !== "ship" ? s.station : s.shiptype, spd: s.sog != null && s.sog >= 0.3 ? aisKt(s.sog) : "" });
+/** Label items of a sonde. */
+const sondeLblF = (s) => ({ at: s.lat != null ? s : null, name: s.serial, type: s.type, freq: s.freq_hz ? `${fmtMHz(s.freq_hz, 3)} MHz` : "", alt: s.alt != null ? `${sondeAlt(s.alt)} m` : "",
+  vs: s.vv != null ? `${sondeClimb(s.vv)} m/s` : "", spd: s.vh != null ? `${sondeKmh(s.vh)} km/h` : "" });
 
 /** Precipitation radar overlay (RainViewer, the newest past frame, refreshed every 10 min) with a switch on the map,
  *  remembered per map. Only the tile requests go out, no position. */

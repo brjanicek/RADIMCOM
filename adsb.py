@@ -1041,7 +1041,7 @@ class AdsbDecoder:
             if a["_trail"] and now - a["_trail"][-1][2] < 120:
                 # range map: only a position confirmed by an earlier one of the same aircraft (a single bad decode cannot stretch it)
                 self.range.add(qth, pos[0], pos[1], a["alt"] if a["alt"] is not None else a["alt_geo"], now)
-        a["_trail"].append((a["lat"], a["lon"], round(now, 1), a["alt"]))
+        a["_trail"].append((a["lat"], a["lon"], round(now, 1), a["alt"], a["squawk"]))   # squawk: an emergency one makes the trail red
         return pos
 
     # ---------- adsb.fi / adsb.lol: aircraft without a position of their own ----------

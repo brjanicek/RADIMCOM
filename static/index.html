@@ -1069,13 +1069,16 @@
          Pages MAP and SETTINGS: on SETTINGS the block scheme of the sources of the wanted AZ / EL (SAT TRACKER, MEMORY RECALL, RCTRL MAP),
          each with a switch that disconnects it from the rotor (data\rotor.json, the whole station), and the rotor controller. -->
     <div class="set-pane com-pane" id="comPane" hidden aria-label="Composite map">
-      <div class="amsat-head">
-        <span class="com-label">SOURCES</span>
-        <div class="com-srcs" id="comSrcs" title="Decoders with positions running on the VFOs; a click shows / hides one on the map"></div>
-        <a id="comJson" class="key small" href="#" title="Download the merged feed (all shown sources, the same aircraft joined) as JSON – a test of the format for merging the feeds of more stations">JSON</a>
-        <span class="amsat-info" id="comInfo"></span>
-      </div>
+      <div class="com-srcs" id="comSrcs" hidden></div><!-- the sources: switched in the map settings (Sources) -->
       <div class="com-body"><div id="comMap"></div><div id="comSide" class="com-side"></div></div>
+      <div class="com-status" id="comStatus">
+        <span id="comInfo" title="Tracks on the map (of all with a position)"></span>
+        <span id="comStatRadar" hidden title="The time of the precipitation radar frame shown"></span>
+        <span id="comStatClouds" hidden title="The time of the satellite cloud image shown (a new one every 10 min)"></span>
+        <span id="comStatCursor" hidden title="The mouse: latitude, longitude, azimuth / distance from the station"></span>
+        <span class="com-status-gap"></span>
+        <a id="comJson" class="key small" href="#" title="Download the merged feed (all shown sources, the same aircraft joined) as JSON – a test of the format for merging the feeds of more stations">JSON</a>
+      </div>
       <div id="comNote" class="muted"></div>
     </div>
     <div class="set-pane rot-pane" id="rotPane" hidden aria-label="Rotor control">

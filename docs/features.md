@@ -77,7 +77,8 @@ and the country flag from the ICAO address; a click on a message pauses the list
 
 The maps of FT8, PACKET, ACARS / VDL2, HFDL, ADS-B, AIS and SONDE keep their **view** (centre and zoom, per map, in the
 browser): it comes back after a switch of the VFO or tab and after a reload, and new data no longer fits the map to the
-marks again. The VDL2, HFDL, ADS-B, SONDE and COMPOSITE maps have switches in the top right corner:
+marks again. The VDL2, HFDL, ADS-B and SONDE maps have switches in the top right corner (the COMPOSITE map has its own
+[map settings](composite.md#map-settings)):
 
 - **Precipitation:** the RainViewer radar (no position sent, only the map tiles), the last 30 minutes as an animation
   (frames every 10 minutes, the newest held a moment; its time in the bottom left corner with an opacity slider,
