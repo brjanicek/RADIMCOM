@@ -44,10 +44,11 @@ azimuth / distance from the station in the unit of the A/D map) and the **JSON**
 
 ## Map settings
 
-The **⚙** key in the top right corner of the map opens its settings (**Settings** shows beside it while open) in five
-sections that open and close with a click (which are open is remembered): **Sources** (**Local decoders**: one switch per VFO and
-decoder, with the number of objects; **Sharing**: objects from other stations, to come), **Map** (base map, OpenSeaMap, OpenAIP, own layers, A/D map, ADS-B range),
-**Weather** (precipitation, clouds), **Objects** and **Labels**. The settings are remembered in the browser (also from
+The **⚙** key in the top right corner of the map opens its settings (**Settings** shows beside it while open) in
+sections that open and close with a click (which are open is remembered): **Sources** (for **Aircraft**, **Radiosondes** and
+**Ships**: the local decoders, one switch per VFO and decoder with the number of objects, and **Sharing** from other
+stations), **Map** (base map, OpenSeaMap, OpenAIP, own layers, A/D map, ADS-B range),
+**Weather** (precipitation, clouds), **Aircraft**, **Radiosondes**, **Ships** and **Labels**. The settings are remembered in the browser (also from
 the map opened alone in a new tab) and applied at once in all open tabs and windows of the same address.
 
 - **Base map:** OpenStreetMap (the default), Esri dark grey, OpenTopoMap, Esri satellite, **Own tile address**
@@ -77,7 +78,8 @@ the map opened alone in a new tab) and applied at once in all open tabs and wind
   altitude, ≤ 30000, ≤ 20000, ≤ 10000 ft) from the ADS-B decoder (as RANGE on the ADS-B map); each band its own **line** colour and brightness (none, 10–100 %; 80 % by default) and
   **fill** colour and opacity (none, 5–100 %; 5 % by default).
   Asked again every minute.
-- **Objects:** a table with a column for the **Selected** object, one for **Local** (the tracks of the local decoders)
+- **Aircraft**, **Radiosondes** and **Ships:** each its own table (the same rows; the aircraft symbol only for aircraft),
+  with a column for the **Selected** object, one for **Local** (the tracks of the local decoders)
   and one for **Sharing** (the tracks of shared sources, other stations, to come):
   - **Trails:** **Full (line)**, small dots of the **last 1 / 2 /
     3 / 5 / 10 min** (fading with age, the oldest the faintest), **Echo 1 / 2 / 3 / 5 min** (as a primary radar

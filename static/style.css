@@ -3858,3 +3858,5 @@ label.map-opts-sub2 { display: flex; align-items: center; gap: 6px; cursor: poin
 .com-lt tr.com-ml.emerg, .com-lt tr.com-ml.emerg b, .com-lt tr.com-ml.emerg .stype { color: #ff4b3c; }
 .com-lt tr.com-ml.emerg { box-shadow: inset 3px 0 0 #ff2a2a; background: rgba(255, 60, 60, .14); }
 .com-lt th:nth-child(1) { width: 34%; }
+.map-opts-sub3 { margin: 4px 0 1px 2px; color: #8fa3bd; font-size: 11px; }
+.map-opts-sub3 small { color: #6b7a8c; }

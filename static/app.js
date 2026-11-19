@@ -16462,6 +16462,7 @@ async function renderComMap() {
   for (const m of comMerged) {
     const col = (COM_SRC[m.srcs[0]] || ["", "#fff"])[1], old = now - m.t > COM_OLD_S, sel = m.id === comSel;
     const g = sel ? true : m.srcs.every((x) => COM_SHARED.has(x)) ? "Shr" : false;   // selected / only from shared sources / local
+    mapKindPre = m.sonde ? "s_" : m.ship ? "w_" : "";   // the settings of its kind
     if (mapGone(m.t, g)) continue;
     mapTrail(comLayers.tracks, m.trail, { color: sel ? MAP_SEL_C : col, weight: sel ? 2.5 : 1.5, opacity: sel ? 0.9 : 0.6, interactive: false }, g);
     const pv = m.air ? [m.track ?? comHeading(m) ?? m.air.track, m.air.ground ? null : m.air.gs_kt] : m.ship ? [m.ship.cog, m.ship.sog]
@@ -16511,6 +16512,7 @@ async function renderComMap() {
     keepMk.add(id);
     mapSetLabel(mk, label, k, id, g);
   }
+  mapKindPre = "";
   for (const [id, mk] of comMarks) if (!keepMk.has(id)) { mk.remove(); comMarks.delete(id); }
   renderComSide();
   if (!comFitted && pts.length) {
@@ -16856,9 +16858,13 @@ const MAP_STALE = [0, 1, 2, 3, 5, 10];   // icon in the "no position" colour aft
 const MAP_LBL = [["name", "Name / flight"], ["reg", "Registration"], ["id", "ICAO / MMSI"], ["type", "Type"], ["alt", "Altitude"],
   ["spd", "Speed"], ["vs", "Climb"], ["sq", "Squawk"], ["freq", "Frequency"], ["az", "Azimuth"], ["dist", "Distance"], ["src", "Source"]];
 const MAP_LBL_DEF = { lbl: ["name", "type", "alt", "freq"], lblSel: ["name", "reg", "id", "type", "alt", "spd", "vs", "sq", "freq", "src"] };
-function mapOptsRead() {
+function mapOptsRead() { return mapOptsKinds(mapOptsRaw(), mapOptsRead0()); }
+let mapOptsRawV = {};
+function mapOptsRaw() { return mapOptsRawV; }
+function mapOptsRead0() {
   let o = null;
   try { o = JSON.parse(localStorage.getItem(MAP_OPT_KEY) || "null"); } catch { o = null; }
+  mapOptsRawV = o && typeof o === "object" ? o : {};
   if (!o || typeof o !== "object") {   // the first time: from the old per-map switches (any map with the radar on → on)
     o = {};
     try {
@@ -16907,6 +16913,25 @@ function mapOptsRead() {
     fontShr: k(MAP_FONT_K, o.fontShr), bgShr: MAP_LBL_BG.includes(+o.bgShr) ? +o.bgShr : 0.85, lblShr: lbl(o.lblShr, MAP_LBL_DEF.lbl),
   };
 }
+// the object settings of radiosondes (s_) and ships (w_): the same checks as those of the aircraft
+function mapOptsKinds(o, r) {
+  const trail = (v) => (MAP_TRAILS.some(([x]) => x === v) ? v : "full"), k = (list, v, d) => (list.includes(+v) ? +v : d);
+  for (const pre of ["s_", "w_"]) {
+    for (const suf of ["", "Sel", "Shr"]) {
+      const g = (x) => o[pre + x + suf];
+      r[pre + "trails" + suf] = trail(g("trails"));
+      r[pre + "icon" + suf] = k(MAP_ICON_K, g("icon"), 1);
+      r[pre + "pred" + suf] = k(MAP_PRED, g("pred"), suf === "Sel" ? 3 : 0);
+      for (const c of ["cIcon", "cTrail", "cPred"]) r[pre + c + suf] = /^#[0-9a-f]{6}$/i.test(g(c) || "") ? g(c) : "";
+      if (suf !== "Sel") {
+        r[pre + "stale" + suf] = k(MAP_STALE, g("stale"), 0);
+        r[pre + "cStale" + suf] = mapHex(g("cStale"), "#8a929c");
+        r[pre + "drop" + suf] = k(MAP_DROP, g("drop"), 0);
+      }
+    }
+  }
+  return r;
+}
 let mapOpts = mapOptsRead();
 const mapOptSubs = new Set();   // apply() of every map on this page
 function mapOptsSet(patch) {
@@ -16922,7 +16947,10 @@ window.addEventListener("storage", (e) => {   // changed in another tab / window
 
 // the column of the map settings an object takes: g = true (selected), "Shr" (only from shared sources) or false (local)
 const mapG = (g) => (g === true ? "Sel" : g === "Shr" ? "Shr" : "");
-const mapO = (k, g) => mapOpts[k + mapG(g)];
+// the object settings are per kind: aircraft (no prefix), radiosondes (s_), ships (w_); set while an object is drawn
+const MAP_KIND_KEYS = new Set(["trails", "icon", "pred", "cIcon", "cTrail", "cPred", "stale", "cStale", "drop"]);
+let mapKindPre = "";
+const mapO = (k, g) => mapOpts[(MAP_KIND_KEYS.has(k) ? mapKindPre : "") + k + mapG(g)];
 
 /** A trail as the map settings say (one setting for the selected object, one for the others): the whole line, small
  *  dots of the last minutes fading with age, or nothing. pts = [[lat, lon, t, squawk?]…] (t in UNIX seconds),
@@ -17080,7 +17108,7 @@ async function mapAdDraw(map, layer) {
 /** The icon in the size of the map settings (selected / others), an emergency squawk 1.5× and red. */
 function mapIcon(icon, sel, emerg, t) {
   const o = icon.options, k = mapO("icon", sel) * (emerg ? 1.5 : 1), c = mapO("cIcon", sel), sym = sel === "Shr" ? mapOpts.symShr : mapOpts.sym;
-  const stale = sel === "Shr" ? mapOpts.staleShr : mapOpts.stale, cStale = sel === "Shr" ? mapOpts.cStaleShr : mapOpts.cStale;
+  const gs = sel === "Shr" ? "Shr" : false, stale = mapO("stale", gs), cStale = mapO("cStale", gs);   // the selected one: as the local ones
   // "no position" (grey by default): after the time of the map settings, or the map's own time (auto)
   let cls = o.className, html = o.html;
   if (MAP_SYM_SVG[sym] && /\bhfdl-plane\b/.test(cls)) html = MAP_SYM_SVG[sym];   // an aircraft as another symbol
@@ -17374,7 +17402,7 @@ function comMapSettings(map, kind, rerender, noTrails) {
 
   // the settings window
   const extra = [];   // [layer, name] of more switches of this map (e.g. the sonde launch sites)
-  const objSig = () => JSON.stringify(["trails", "trailsSel", "icon", "iconSel", "font", "fontSel", "lbl", "lblSel", "drop",
+  const objSig = () => JSON.stringify(Object.keys(mapOpts).filter((k) => /^[sw]_/.test(k)).map((k) => mapOpts[k])) + JSON.stringify(["trails", "trailsSel", "icon", "iconSel", "font", "fontSel", "lbl", "lblSel", "drop",
     "trailsShr", "iconShr", "symShr", "predShr", "staleShr", "cStaleShr", "dropShr", "fontShr", "bgShr", "lblShr", "noUnits", "noUnitsSel", "noUnitsShr", "bg", "bgSel", "pred", "predSel", "adUnit", "stale", "cStale", "sym", ...(kind === "adsb" ? Object.keys(mapOpts).filter((k) => /^(rng|cRng|oRng|fRng|pRng)/.test(k)) : []), ...Object.keys(MAP_COLORS).flatMap((k) => [k, k + "Sel"])].map((k) => mapOpts[k]));
   let panel = null, objShown = objSig();
   const Ctl = L.Control.extend({
@@ -17427,18 +17455,22 @@ function comMapSettings(map, kind, rerender, noTrails) {
   });
   // COMPOSITE: one switch per VFO and decoder with positions (the SOURCES row above the map does the same)
   function srcHtml() {
-    const rows = [];
+    const rows = { air: [], sonde: [], ship: [] }, kindOf = (src) => (src === "sonde" ? "sonde" : src === "ais" ? "ship" : "air");
     for (const [vfo, d] of comFeeds) {
+      if (vfo === "~share") continue;
       for (const src of [...d.sources, ...(d.hist_sources || [])]) {
         const k = comKey(vfo, src), n = d.items.filter((i) => i.src === src).length, hist = !d.sources.includes(src);
         const [name, col] = COM_SRC[src] || [src.toUpperCase(), "#fff"];
-        rows.push(`<label title="${hist ? "This decoder does not run now: what it saw in the last 6 hours" : "Live positions + the last 6 hours"}">` +
+        rows[kindOf(src)].push(`<label title="${hist ? "This decoder does not run now: what it saw in the last 6 hours" : "Live positions + the last 6 hours"}">` +
           `<input type="checkbox" data-src="${escHtml(k)}"${comOff.has(k) ? "" : " checked"}> <span class="map-opts-dot" style="background: ${col}"></span>` +
           `${vfo ? `VFO ${escHtml(vfo)} · ` : ""}${escHtml(name)} <small class="muted">${n}${hist ? " · history" : ""}</small></label>`);
       }
     }
-    return '<div class="map-opts-sub2">Local decoders</div>' + (rows.join("") || '<p class="map-opts-note">No decoder with positions runs on any VFO.</p>') +
-      '<div class="map-opts-sub2">Sharing <small>from other stations</small></div>' + shareHtml();
+    const part = (title, k, share, none) => `<div class="map-opts-sub2">${title}</div>` +
+      '<div class="map-opts-sub3">Local decoders</div>' + (rows[k].join("") || `<p class="map-opts-note">${none}</p>`) +
+      '<div class="map-opts-sub3">Sharing <small>from other stations</small></div>' + (share || '<p class="map-opts-note">Nothing shared yet.</p>');
+    return part("Aircraft", "air", shareHtml(), "No ADS-B, VDL2 / ACARS or HFDL decoder runs on any VFO.") +
+      part("Radiosondes", "sonde", "", "No SONDE decoder runs on any VFO.") + part("Ships", "ship", "", "No AIS decoder runs on any VFO.");
   }
   function shareHtml() {
     const o = mapOpts, opt = (k, list, name) => `<select data-o="${k}">${list.map((v) => `<option value="${v}"${v === o[k] ? " selected" : ""}>${name(v)}</option>`).join("")}</select>`;
@@ -17520,27 +17552,28 @@ function comMapSettings(map, kind, rerender, noTrails) {
     const row2 = (name, k, cell, selText, title) => `<tr><th${title ? ` title="${title}"` : ""}>${name}</th><td class="muted">${selText}</td><td>${cell(k)}</td><td>${cell(k + "Shr")}</td></tr>`;
     const cp = (k) => `<input type="color" class="map-opts-cp" data-o="${k}" value="${o[k]}">`;
     const symSel = sel(MAP_SYMS.map(([v]) => v), (v) => MAP_SYMS.find(([x]) => x === v)[1]);
-    const objSec = `<table class="map-opts-t"><tr><th></th><th>Selected</th><th title="Tracks from the local decoders">Local</th><th title="Tracks from shared sources (other stations, to come)">Sharing</th></tr>` +
-      (noTrails ? "" : row3("Trails", "trails", sel(MAP_TRAILS.map(([v]) => v), (v) => MAP_TRAILS.find(([x]) => x === v)[1]))) +
-      row3("Icon size", "icon", sel(MAP_ICON_K, pc)) +
-      `<tr><th>Aircraft symbol</th><td colspan="2">${symSel("sym")}</td><td>${symSel("symShr")}</td></tr>` +
-      row3("Prediction", "pred", sel(MAP_PRED, (v) => (v ? `${v} min` : "Off"))) +
-      row3("Icon colour", "cIcon", color("cIcon")) + (noTrails ? "" : row3("Trail colour", "cTrail", color("cTrail"))) +
-      row3("Prediction colour", "cPred", color("cPred")) +
-      row2("No position after", "stale", sel(MAP_STALE, (v) => (v ? `${v} min` : "auto")), "–", "An object without a new position for this long gets this colour (auto = 15 min); the selected one stays orange") +
-      row2("No position colour", "cStale", cp, "–") +
-      row2("Hide when no position for", "drop", sel(MAP_DROP, (v) => (v ? `${v} min` : "never")), "never", "An object without a new position for this long disappears from the map (the selected one stays)") +
-      `</table>` +
-      `<p class="map-opts-note">Squawk 7500 / 7600 / 7700: red icon 1.5× bigger, red trail.</p>`;
+    // one table per kind (aircraft: no prefix, radiosondes s_, ships w_)
+    const kindSec = (p, air) => `<table class="map-opts-t"><tr><th></th><th>Selected</th><th title="Tracks from the local decoders">Local</th><th title="Tracks from shared sources (other stations)">Sharing</th></tr>` +
+      (noTrails ? "" : row3("Trails", p + "trails", sel(MAP_TRAILS.map(([v]) => v), (v) => MAP_TRAILS.find(([x]) => x === v)[1]))) +
+      row3("Icon size", p + "icon", sel(MAP_ICON_K, pc)) +
+      (air ? `<tr><th>Aircraft symbol</th><td colspan="2">${symSel("sym")}</td><td>${symSel("symShr")}</td></tr>` : "") +
+      row3("Prediction", p + "pred", sel(MAP_PRED, (v) => (v ? `${v} min` : "Off"))) +
+      row3("Icon colour", p + "cIcon", color("cIcon")) + (noTrails ? "" : row3("Trail colour", p + "cTrail", color("cTrail"))) +
+      row3("Prediction colour", p + "cPred", color("cPred")) +
+      row2("No position after", p + "stale", sel(MAP_STALE, (v) => (v ? `${v} min` : "auto")), "–", "An object without a new position for this long gets this colour (auto = 15 min); the selected one stays orange") +
+      row2("No position colour", p + "cStale", cp, "–") +
+      row2("Hide when no position for", p + "drop", sel(MAP_DROP, (v) => (v ? `${v} min` : "never")), "never", "An object without a new position for this long disappears from the map (the selected one stays)") +
+      `</table>` + (air ? `<p class="map-opts-note">Squawk 7500 / 7600 / 7700: red icon 1.5× bigger, red trail.</p>` : "");
     const lblSec = `<table class="map-opts-t"><tr><th></th><th>Selected</th><th title="Tracks from the local decoders">Local</th><th title="Tracks from shared sources (other stations, to come)">Sharing</th></tr>` +
       row3("Without units", "noUnits", (k) => `<input type="checkbox" data-o="${k}"${o[k] ? " checked" : ""} title="The numbers alone: 350 instead of FL350, 431 instead of 431 kt, 123/45 instead of 123°/45km">`) +
       row3("Font size", "font", sel(MAP_FONT_K, pc)) + row3("Background", "bg", sel(MAP_LBL_BG, pc)) + row3("Text colour", "cText", color("cText")) +
       `<tr><th colspan="4" class="map-opts-sub">Show</th></tr>` +
       MAP_LBL.map(([id, n]) => `<tr><th>${n}</th><td>${box("lblSel", id)}</td><td>${box("lbl", id)}</td><td>${box("lblShr", id)}</td></tr>`).join("") +
       `</table><p class="map-opts-note">Drag a label to move it (this window only), a double click puts it back.</p>`;
-    panel.innerHTML = (kind === "com" ? sec("sources", "Sources", "local decoders, sharing", srcHtml()) : "") +
+    panel.innerHTML = (kind === "com" ? sec("sources", "Sources", "aircraft, radiosondes, ships", srcHtml()) : "") +
       sec("map", "Map", "base map, layers, rings, range", mapSec) + sec("weather", "Weather", "precipitation, clouds", weatherSec) +
-      (rerender ? sec("objects", "Objects", "trails, icons, prediction", objSec) + sec("labels", "Labels", "font, colours, items", lblSec) : "") +
+      (rerender ? sec("objects", "Aircraft", "trails, icons, prediction", kindSec("", true)) + sec("sondes", "Radiosondes", "trails, icons, prediction", kindSec("s_", false)) +
+        sec("ships", "Ships", "trails, icons, prediction", kindSec("w_", false)) + sec("labels", "Labels", "font, colours, items", lblSec) : "") +
       `<p class="map-opts-note">Remembered in the browser, the same in all windows.</p>`;
   }
   function onInput(e) {
@@ -17620,7 +17653,7 @@ function comMapSettings(map, kind, rerender, noTrails) {
       panel.querySelector(k === "opa" ? '.map-opts-opa:not([data-for])' : '.map-opts-opa[data-for="cldOpa"]').textContent = `${t.value} %`;
       mapOptsSet({ [k]: t.value / 100 });
     } else if (e.type === "change") {
-      mapOptsSet({ [k]: ["precip", "ad", "adFine", "rng", "dark", "sea", "cld", "shAfi", "shNotLocal", "shGround", "noUnits", "noUnitsSel", "noUnitsShr"].includes(k) ? t.checked : /^(span|icon|font|drop|bg|pred|adMax|adOpa|adFineOpa|stale|oRng|pRng|aipOpa|shDist|shInt|shAlt|shMax)/.test(k) && !/^(cStale)/.test(k) ? +t.value : t.value });
+      mapOptsSet({ [k]: ["precip", "ad", "adFine", "rng", "dark", "sea", "cld", "shAfi", "shNotLocal", "shGround", "noUnits", "noUnitsSel", "noUnitsShr"].includes(k) ? t.checked : /^(?:[sw]_)?(span|icon|font|drop|bg|pred|adMax|adOpa|adFineOpa|stale|oRng|pRng|aipOpa|shDist|shInt|shAlt|shMax)/.test(k) && !/^(?:[sw]_)?(cStale)/.test(k) ? +t.value : t.value });
     }
   }
   function apply(other) {   // other = changed in another tab / window
