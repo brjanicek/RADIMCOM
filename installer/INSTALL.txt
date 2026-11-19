@@ -95,6 +95,9 @@ New
   AIS, SONDE) on one map; sources to pick, the same aircraft from more decoders joined into one (ICAO, registration,
   flight number, squawk), details with all sources on the right, 6 hours of history kept over a restart, also in a new tab.
 - Precipitation radar (animated, last 30 min, opacity slider) on the VDL2, HFDL, ADS-B, SONDE and COMPOSITE maps; Trails switch.
+- SETTINGS > LOGS: browse, read, delete, ZIP export and upload import of the logs and data files; LOGGING = which decoder
+  logs on which VFO (switch it there); HISTORY = export / import / clear of the COMPOSITE history and the ADS-B range.
+- Logs in day folders data\logs\<source>\YYYY\MM\DD (ACARS / VDL2 too); the old ones are moved at the first start.
 Changes
 - Decoder maps keep their zoom and position after a switch of the VFO or tab.
 - HUM without the echo: only the harmonics where the hum really is are notched (2-8 instead of all ~60); the hum goes
@@ -104,10 +107,33 @@ Changes
   4 dB of headroom (was ~15 dB), the floor's goal on HF 12 dB over the A/D's noise (was 8); clipping still cuts at once.
 - AGC+: only the former preset BOLD, now the default (the others set too little gain); a VFO saved with another one gets it.
 - AGC+ card: the warning and the "why" line keep their place, nothing jumps.
+- Hidden lower part (VIEW) pauses the spectrum and waterfall like PAUSE: the server sends no spectrum data meanwhile.
+- RF gain of the active VFO shown under the waterfall speed bar (WF).
+- Band keys remember the frequency and mode last tuned in their band; a press goes back there.
+- A VFO switch shows the waterfall (DECODERS when a decoder runs on it), never SETTINGS; a double click on a memory too.
+- RADIMCOM starts in full screen (F11 for the window; RADIMCOM.exe --window starts in the window).
+- A small window while RADIMCOM starts, full screen when it is ready.
+- POWER and FULL SCREEN keys at the top of the master section (RADIMCOM.exe).
+- SETTINGS: compact cards in the look of STATION; the explaining notes behind an "i" icon (bubble).
+- SETTINGS > VFO: SDR DONGLE (with the former ADVANCED) and AUDIO as chains of blocks in the order of the signal, like
+  STATION, with arrows; cards in the colours of STATION; the Dongles and VFOs table is gone.
+- AGC+ card: the numbers in fixed cells (no more jumping), no Why line.
+- Band keys are momentary: no lit key or LED after the click.
+- DNR distorts the voice less (the level works through the floor, much less over-subtraction), default level 3,
+  mouse wheel over the DNR key = level (in its tooltip).
+- ISM devices: a column per kind of device, the kind filter in the top line, a rough distance from the signal level.
+- A "Loading..." bubble over the tab while recordings, maps with history or decoder logs are read.
+- RECORDINGS: all recordings in day folders YYYY\MM\DD (IQ in iq), browse, sort, delete files and folders, play a day as
+  a playlist (AUTO-NEXT); the old ones are moved at the first start, the old WAV of the scan become MP3.
+- CPU / MEM indicator: RADIMCOM / the whole PC as Task Manager counts, split in the tooltip (server by VFO, window);
+  from another PC the numbers of the server PC (SRV).
+- SCAN: the squelch threshold of each channel as a line in the spectrum.
 Fixes
 - AGC+ no longer hunts on HF: with a strong station on 40 m / 80 m it went up and down every ~2.5 s (a line across the
   waterfall each time), because the low gain steps of the R820T are much bigger than they say. It now measures the real
   effect of each step and does not step up into a level it would have to leave again.
+- SCAN no longer stops on one block of noise: a channel opens after 2 blocks over its threshold, and a rise of the whole
+  band does not open its channels.
 
 Ver. 1.0
 (after the test betas 1.0beta1, 1.0beta2 and the release candidate 1.0rc1)

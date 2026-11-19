@@ -70,10 +70,12 @@ def main():
         print(f"Rotor: settings moved from {src} to rotor.json (the rotor is now run by VFO {vfos[0]['name']})")
 
     procs = []
+    labels = {}                 # pid of a VFO server → its name (the CPU / MEM indicator shows each VFO)
     # VFOs with their own dongle first, chained VFOs (sharing a dongle, "chain": "A") after them.
     for v in sorted(vfos, key=lambda v: bool(v.get("chain"))):
         procs.append(serverlog.spawn([sys.executable, os.path.join(BASE, "app.py"), "--vfo", v["name"]], v["name"],
                                      stdin=subprocess.PIPE, cwd=BASE))
+        labels[procs[-1].pid] = v["name"]
         # Dongles are opened one after another; opening them at the same time through libusb is unreliable.
         time.sleep(0.5 if v.get("chain") else 1.5)
 
@@ -85,8 +87,8 @@ def main():
 
     @app.route("/api/sysload")
     def api_sysload():
-        """CPU load and memory use of the PC (indicator under the S-meter)."""
-        return jsonify(sysload.load())
+        """CPU and memory of RADIMCOM (server by VFO, the window) and of the whole PC (indicator under the S-meter)."""
+        return jsonify(sysload.load(labels))
 
     @app.route("/api/vfos")
     def api_vfos():

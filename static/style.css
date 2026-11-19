@@ -125,8 +125,12 @@ body {
 .sys-load { display: flex; align-items: center; gap: 4px; font: 10px ui-monospace, Consolas, monospace; color: var(--muted); opacity: .8; }
 .sys-load b { font-weight: 400; width: 4ch; text-align: right; margin-right: 6px; }
 .sys-load b:last-child { margin-right: 0; }
-.sys-bar { display: inline-block; width: 34px; height: 4px; border-radius: 2px; background: var(--line2); overflow: hidden; }
-.sys-bar i { display: block; height: 100%; width: 0; background: var(--green); opacity: .7; transition: width .4s; }
+.sys-bar { position: relative; display: inline-block; width: 26px; height: 4px; border-radius: 2px; background: var(--line2); overflow: hidden; }
+.sys-bar i { position: absolute; left: 0; top: 0; display: block; height: 100%; width: 0; background: var(--green); opacity: .9; transition: width .4s; }
+.sys-bar i.pc { background: #7d8794; opacity: .45; }
+.sys-load .sys-remote { color: #6fb7ff; font-weight: 700; }
+.sys-load:has(.sys-remote:not([hidden])) .sys-bar { width: 18px; }   /* the whole PC under RADIMCOM's own part */
+.sys-load b { width: 8ch; flex: 0 0 8ch; overflow: hidden; white-space: nowrap; text-align: left; font-variant-numeric: tabular-nums; }   /* fixed: "100/100%", "12.3/32G" – nothing moves */
 .sys-bar i.warn { background: var(--amber); opacity: 1; }
 .sys-bar i.high { background: var(--red); opacity: 1; }
 
@@ -742,6 +746,11 @@ canvas.axis { height: 39px; background: #1c1e22; border-bottom: 1px solid #44474
 .wf-zoom-bar { top: 34px; z-index: 4; cursor: default; flex-direction: column-reverse; height: auto; width: 32px; gap: 4px; padding: 5px 0; }
 .wf-zoom-bar .zb-cells { flex-direction: column-reverse; }
 .wf-zoom-bar .zb-val { min-width: 0; text-align: center; }
+/* RF gain under the WF label (info only): RF and the tuner gain of the active VFO, AGC+ in green */
+.wf-gain { display: flex; flex-direction: column; align-items: center; gap: 1px; width: 100%; margin-top: 2px; padding-top: 4px;
+  border-top: 1px solid rgba(255, 255, 255, .12); }
+.wf-gain .zb-val { font-size: 10px; }
+.wf-gain.smart .zb-val { color: var(--green, #5fd35f); }
 .zb-lbl { font: 700 9px system-ui, sans-serif; letter-spacing: .12em; color: #8b95a1; }
 /* waterfall settings: gear in a square above the speed bar; the window opens to the left while the mouse is over it,
    half transparent like the bubbles in the spectrum so the waterfall stays visible behind it */
@@ -759,8 +768,7 @@ canvas.axis { height: 39px; background: #1c1e22; border-bottom: 1px solid #44474
 .wf-cfg-title { font: 700 10px system-ui, sans-serif; letter-spacing: .12em; color: var(--yellow); margin-bottom: 6px; }
 .wf-cfg-lbl { color: #8b95a1; font-size: 11px; margin-bottom: 3px; }
 .wf-cfg-row { display: flex; justify-content: space-between; margin-top: 6px; font-size: 11px; color: #cfd6df; }
-.wf-cfg-row .value { font: 700 11px ui-monospace, Consolas, monospace; color: var(--yellow); }
-.wf-cfg-panel input[type=range] { height: 18px; }
+.wf-cfg-row .value { font: 700 11px ui-monospace, Consolas, monospace; color: var(--yellow); }.wf-cfg-panel input[type=range] { height: 18px; }
 .wf-schemes { display: flex; flex-direction: column; gap: 3px; }
 .wf-schemes button { display: flex; align-items: center; gap: 8px; padding: 2px 4px; border-radius: 3px; cursor: pointer;
   background: transparent; border: 1px solid transparent; color: #cfd6df; font: 11px system-ui, sans-serif; text-align: left; }
@@ -798,12 +806,24 @@ canvas.axis { height: 39px; background: #1c1e22; border-bottom: 1px solid #44474
   background: #151a21; color: var(--muted); font: 700 11px system-ui, sans-serif; letter-spacing: .08em; cursor: pointer;
 }
 .body-tabs button.on { background: #050506; color: var(--yellow); border-color: #44474d; }
+/* "Loading…" bubble over a tab while a slow read runs (busy() in app.js) */
+.body-tabs button { position: relative; }
+.tab-busy {
+  position: absolute; left: 50%; bottom: calc(100% + 5px); transform: translateX(-50%); z-index: 50; pointer-events: none;
+  padding: 2px 8px; border: 1px solid #3a6ea5; border-radius: 9px; background: #10243a; color: #9fd0ff;
+  font: 600 10px system-ui, sans-serif; letter-spacing: .04em; white-space: nowrap; box-shadow: 0 2px 8px #0009;
+  animation: tabBusy 1s ease-in-out infinite alternate;
+}
+.tab-busy::after {
+  content: ""; position: absolute; left: 50%; top: 100%; margin-left: -4px;
+  border: 4px solid transparent; border-top-color: #3a6ea5;
+}
+@keyframes tabBusy { from { opacity: .55; } to { opacity: 1; } }
 .dec-count { color: var(--muted); font-weight: 600; }
 /* SATELLITES tab: covers the spectrum and waterfall like the decoders; only the list scrolls */
 .amsat-pane { position: absolute; inset: 0; z-index: 6; display: flex; flex-direction: column; gap: 8px; padding: 10px; background: #07090c; }
 .amsat-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 /* RECORDINGS: RECS / SCAN RECS, which folder is listed (one lit) */
-.recs-kind { display: flex; gap: 4px; }
 .amsat-pages { display: flex; gap: 4px; }
 .amsat-info { flex: 1 1 0; min-width: 120px; color: var(--muted); font-size: 12px; }
 .amsat-info.error { color: var(--red); }
@@ -1338,6 +1358,35 @@ body.map-only .ft8-map.map-only-box { flex-direction: column; }
 .ism-devs, .ism-tl { max-height: 520px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; background: #000; padding: 8px; }
 /* every row as high as the highest card: all cards equally high */
 .ism-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); grid-auto-rows: 1fr; gap: 8px; align-items: stretch; }
+/* 1.1beta1: a column for each type of device, compact cards in the look of the STATION blocks (tinted border and
+ * background in the colour of the type, the title of the column in small capitals) */
+#ismDevGrid { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px; }
+.ism-col { --cat: #8d97a5; flex: 0 0 228px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.ism-col.cat-weather { --cat: #ffb547; } .ism-col.cat-tpms { --cat: #6db3ff; } .ism-col.cat-remote { --cat: #b693ff; }
+.ism-col.cat-security { --cat: #4fd6c8; } .ism-col.cat-alarm { --cat: #ff6b5b; } .ism-col.cat-meter { --cat: #ffe066; }
+.ism-col-h { padding: 3px 8px; border: 1.5px solid color-mix(in srgb, var(--cat) 55%, transparent); border-radius: 6px;
+  background: color-mix(in srgb, var(--cat) 10%, transparent); font: 700 10.5px system-ui, sans-serif; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--cat); }
+.ism-col-h b { float: right; font-variant-numeric: tabular-nums; }
+#ismDevGrid .ism-dev { gap: 3px; padding: 5px 8px 6px; border: 1.5px solid color-mix(in srgb, var(--cat) 40%, transparent); border-radius: 6px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--cat) 8%, transparent), rgba(255, 255, 255, .015) 70%); }
+#ismDevGrid .ism-dev.pin { border-color: color-mix(in srgb, var(--yellow) 70%, transparent); }
+#ismDevGrid .ism-dh .ism-ico { display: none; }   /* the column says the type */
+#ismDevGrid .ism-dn b { font-size: 12px; color: var(--cat); }
+#ismDevGrid .ism-dn small { font-size: 10.5px; }
+#ismDevGrid .ism-big { height: 24px; }
+#ismDevGrid .ism-big .v { font-size: 19px; }
+#ismDevGrid .ism-big .wind { font-size: 15px; }
+#ismDevGrid .ism-compass { width: 20px; height: 20px; }
+#ismDevGrid .ism-more { height: 14px; font-size: 10.5px; }
+#ismDevGrid .ism-spark-box { height: 38px; }
+#ismDevGrid .ism-spark, #ismDevGrid .ism-act-svg { height: 28px; }
+#ismDevGrid .ism-df { font-size: 10.5px; }
+.ism-dist { color: var(--text); font-variant-numeric: tabular-nums; cursor: help; }
+/* the device types in the head row (after the frequencies); the info text gets the rest of the line, cut with … */
+#ismCard .ft8-head #ismBands, #ismCard .ft8-head #ismViews { flex: 0 0 auto; }
+#ismCard .ft8-head .ism-cats { flex: 0 1 auto; }
+#ismCard .ft8-head #ismInfo { flex: 1 1 120px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ism-dev { --cat: #8d97a5; position: relative; display: flex; flex-direction: column; gap: 6px; padding: 8px 10px;
   border: 1px solid var(--line2); border-left: 3px solid var(--cat); border-radius: 8px;
   background: linear-gradient(160deg, color-mix(in srgb, var(--cat) 10%, #11151b), #0b0e12); transition: opacity .6s; }
@@ -1861,6 +1910,28 @@ body.map-only .ft8-map.map-only-box { flex-direction: column; }
 #recsPlayKey .pp-ico { margin-right: 7px; }
 .recs-table .del { width: 20px; color: var(--muted); text-align: center; }
 .recs-table .del:hover { color: var(--red); }
+/* folder tree: path keys, up / TODAY, sortable header, tick boxes, folder rows, source badges, download */
+.recs-path { display: flex; align-items: center; gap: 3px; flex: 0 1 auto; min-width: 0; flex-wrap: wrap; }
+.recs-path .key { white-space: nowrap; }
+.recs-sep { color: var(--muted); font-size: 12px; }
+.recs-pos { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.recs-del:not(:disabled) { color: #ff8a80; border-color: #7a3030; }
+.recs-table th[data-k] { cursor: pointer; user-select: none; }
+.recs-table th[data-k]:hover { color: #fff; }
+.recs-table th[data-k].sorted::after { content: attr(data-dir); margin-left: 4px; font-size: 9px; }
+.recs-table .sel { width: 22px; padding-left: 8px; padding-right: 2px; }
+.recs-table .sel input { margin: 0; vertical-align: middle; accent-color: #b693ff; cursor: pointer; }
+.recs-table tbody tr.dir td { color: #cfd8e3; font-weight: 600; }
+.recs-table tbody tr.dir td.num { font-weight: 400; color: var(--muted); }
+.recs-table tbody tr.dir .recs-dir-ico { display: block; width: 15px; height: 11px; margin: 0 auto; fill: #b693ff; opacity: .85; }
+.recs-table tbody tr.dir:hover .recs-dir-ico { opacity: 1; }
+.recs-table tbody tr.noplay { cursor: default; }
+.recs-table .recs-src { display: inline-block; padding: 0 6px; border: 1px solid color-mix(in srgb, var(--sc) 55%, transparent);
+  border-radius: 8px; background: color-mix(in srgb, var(--sc) 14%, transparent); color: var(--sc);
+  font-size: 10px; font-weight: 700; letter-spacing: .05em; line-height: 15px; }
+.recs-table .dl { width: 18px; text-align: center; }
+.recs-table .dl a { color: var(--muted); text-decoration: none; }
+.recs-table .dl a:hover { color: #9fd0ff; }
 /* SCAN tab: keys and options in the head, the line of the channel heard now, the table of channels */
 /* SCAN tab. Tiles = what is scanned; the lit one points (arrow) at the card with its settings, in its colour. */
 .scan-pane { --tile: var(--yellow); --scan-card: #0e1319; }
@@ -2038,7 +2109,7 @@ body.map-only .ft8-map.map-only-box { flex-direction: column; }
     radial-gradient(closest-side, color-mix(in srgb, var(--led) 55%, transparent), transparent) var(--led-glow),
     linear-gradient(180deg, #3a3f47, #2a2e34); }
 @keyframes scan-key-blink { 0% { --led: var(--kc); } 50% { --led: color-mix(in srgb, var(--kc) 20%, #000); } }
-.set-panel { zoom: 1.1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; align-items: start; }
+.set-panel { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; align-items: start; }
 .set-subpanel.set-tx { grid-template-columns: minmax(0, 1fr); }
 /* pages with sub-pages (GENERAL, VFO): a row of sub-page keys, the open sub-page under it */
 .set-panel.has-sub { display: flex; flex-direction: column; gap: 8px; }
@@ -2162,6 +2233,47 @@ body.map-only .ft8-map.map-only-box { flex-direction: column; }
 .set-grid2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 /* SDR DONGLE › ADVANCED: list of dongles and VFOs, the one being set highlighted */
 .set-grid2 > .dongle-list-box { grid-column: 1 / -1; }
+/* compact width (1.1beta1): the sub-pages no wider than this on a wide screen (cards of ~320–550 px), the rest of
+ * the width stays empty; the antenna table and the STATION scheme keep the whole width */
+.set-subpanel { max-width: 1320px; }
+.set-subpanel.set-grid2, .set-subpanel.set-location, .set-subpanel.set-recs { max-width: 1100px; }
+.set-subpanel.set-ant, .set-subpanel#dongleBasic, .set-subpanel.set-audio { max-width: none; }   /* the chains: the whole width, the blocks keep their size */
+/* SETTINGS › VFO › SDR DONGLE (1.1beta1): the cards in the order of the signal, narrow blocks with an arrow before each,
+ * wrapping into the next line (the arrow then stands at the start of it), like the lanes of STATION */
+.set-chain { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 26px 28px; padding-left: 28px; }
+.set-chain > .setting { flex: 0 0 210px; min-width: 0; }
+.set-chain > .setting[hidden] { display: none; }
+/* the arrow belongs to the block after it: a block that starts a new line has its whole arrow at the start of that
+ * line (in the padding of the chain), nothing hangs at the end of the line before */
+.set-chain > .setting::before { content: "➜"; position: absolute; left: -24px; top: 6px; width: 18px; text-align: center; font-size: 15px; line-height: 1;
+  color: color-mix(in srgb, var(--bc) 70%, var(--muted)); pointer-events: none; }
+.set-chain > .setting:first-of-type::before { content: none; }   /* the wire svg is the first child */
+.set-chain > #antennaSetting, .set-chain > #upconvSetting { flex-basis: 250px; }
+.set-chain > #dcSetting { flex-basis: 240px; }
+.set-chain > #spurSetting { flex-basis: 380px; }
+.set-chain > #sagcSetting { flex-basis: 460px; }
+.set-chain > #s9Setting { flex-basis: 240px; }
+/* the AGC+ diagram right beside the AGC+ card, no arrow (it explains, it is no block of the path) */
+.set-chain > .agc-diagram { flex: 0 0 600px; margin-left: -18px; }
+.set-chain > .agc-diagram::before { content: none; }
+/* line from the end of a line of blocks to the arrow at the start of the next one (app.js chainWires) */
+.set-chain { position: relative; }
+.chain-wire { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; z-index: 0; }
+.chain-wire > path { fill: none; stroke: color-mix(in srgb, var(--muted) 75%, transparent); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; }
+.chain-wire marker path { fill: color-mix(in srgb, var(--muted) 75%, transparent); stroke: none; }
+/* the first block of a wrapped line: the wire brings its arrowhead, no arrow sign of its own */
+.set-chain > .setting.chain-start::before { content: none; }
+/* RESET beside the chain (not a block of the signal path): its own column at the right, no arrow, a dashed border */
+#dongleBasic { display: grid; grid-template-columns: minmax(0, 1fr) 200px; column-gap: 18px; align-items: start; }
+.set-aside { display: flex; flex-direction: column; gap: 10px; padding-left: 14px; border-left: 1px dashed var(--line2); }
+.set-aside > .setting { border-style: dashed; }
+@media (max-width: 900px) { #dongleBasic { grid-template-columns: minmax(0, 1fr); } .set-aside { padding-left: 0; border-left: 0; } }
+/* AUDIO: the same chain, the NTH and ALC blocks a little wider (more settings) */
+.set-audio > .bypass-note { margin-bottom: 8px; }
+.set-audio .set-chain > .set-dyn { flex-basis: 300px; }
+.set-audio .set-chain > .set-alc { flex-basis: 250px; }
+.no-blk .setting[data-blk] > .set-i { right: 6px; }
+.no-blk .setting[data-blk]:has(> .set-i) > :first-child { padding-right: 26px; }
 .dongle-list { width: 100%; border-collapse: collapse; font-size: 12px; }
 .dongle-list th { text-align: left; color: var(--muted); font-weight: normal; padding: 3px 6px; border-bottom: 1px solid var(--line); }
 .dongle-list td { padding: 4px 6px; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
@@ -2182,8 +2294,55 @@ body.map-only .ft8-map.map-only-box { flex-direction: column; }
 @media (max-width: 700px) { .set-grid3 > .set-dyn, .set-grid3 > .set-alc { grid-column: auto; grid-row: auto; } .set-grid4 { columns: 1; } .set-grid3, .set-grid2, .set-meter, .set-skins, .set-cols { grid-template-columns: minmax(0, 1fr); } }
 .meter-card .row small { color: var(--muted); font-size: 11px; font-weight: 400; }
 .meter-card .meter-picks { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-.set-panel .setting { padding: 10px; gap: 6px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255, 255, 255, .02); }
-.set-panel .setting { font-size: 13px; }
+/* setting cards in the look of the STATION blocks (1.1beta1): compact, thin border, the title small, in capitals and
+ * spaced; the explaining notes are behind an "i" icon (app.js setInfoIcons), shown in a bubble */
+.set-panel .setting { position: relative; padding: 6px 8px 8px; gap: 5px; border: 1.5px solid var(--line); border-radius: 6px; background: rgba(255, 255, 255, .02); }
+.set-panel .setting { font-size: 12px; }
+.set-panel .setting > .row:first-child > span:first-child { font: 700 10.5px system-ui, sans-serif; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.set-panel .setting > .row:first-child { min-height: 18px; }
+.set-panel .setting > .row.has-i { justify-content: flex-start; gap: 8px; }
+.set-panel .setting > .row.has-i > :first-child { margin-right: auto; }
+/* colour of each card (--bc, app.js setCardKinds): the kind of its block in the diagrams, else by its title – the same
+ * colours as the STATION scheme. Lit: a tinted border and background, the title in the colour; a card whose main
+ * switch is off is grey (like an off block of STATION). */
+.set-panel .setting { --bc: var(--accent); border-color: color-mix(in srgb, var(--bc) 40%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--bc) 8%, transparent), rgba(255, 255, 255, .015) 70%); }
+.set-panel .setting.blk-diagram { --bc: var(--line2); background: rgba(255, 255, 255, .015); }
+.set-panel .setting.k-ant { --bc: #b99bff; } .set-panel .setting.k-dev { --bc: #3fd6e6; } .set-panel .setting.k-up { --bc: #8c8cff; }
+.set-panel .setting.k-bias { --bc: #ffd84a; } .set-panel .setting.k-iq { --bc: #5aa9ff; } .set-panel .setting.k-xtal { --bc: #b6e36a; }
+.set-panel .setting.k-dc { --bc: #ffb547; } .set-panel .setting.k-sp { --bc: #f47fb0; } .set-panel .setting.k-agc { --bc: #6cc6ff; }
+.set-panel .setting.k-nb { --bc: #c58cff; } .set-panel .setting.k-aud { --bc: #ff8a65; } .set-panel .setting.k-sql { --bc: #ffd84a; }
+.set-panel .setting.k-sm { --bc: #d4e157; } .set-panel .setting.k-qth { --bc: #7fd88a; } .set-panel .setting.k-rec { --bc: #ff6b6b; }
+.set-panel .setting.k-skin { --bc: #e9a6ff; } .set-panel .setting.k-tune { --bc: #5ee0d0; } .set-panel .setting.k-tx { --bc: #ff4b3e; }
+.set-panel .setting > .row:first-child > span:first-child { color: var(--bc); }
+/* a switch first in the card is its title: small capitals in the colour of the card */
+.set-panel .setting > .switch:first-child { font: 700 10.5px system-ui, sans-serif; letter-spacing: .08em; text-transform: uppercase; color: var(--bc); }
+.set-panel .setting:has(> .switch:first-child input:not(:checked)) { border-color: var(--line); background: rgba(255, 255, 255, .015); }
+.set-panel .setting:has(> .switch:first-child input:not(:checked)) > .switch:first-child { color: var(--muted); }
+/* switches: a dark slot, the knob lights up in the colour of the card */
+.set-panel .switch span { width: 32px; height: 16px; background: rgba(0, 0, 0, .45); border: 1px solid var(--line2); box-shadow: inset 0 1px 2px rgba(0, 0, 0, .6); }
+.set-panel .switch span::after { top: 2px; left: 2px; width: 10px; height: 10px; background: #6b7480; }
+.set-panel .switch input:checked + span { background: color-mix(in srgb, var(--bc) 22%, #000); border-color: color-mix(in srgb, var(--bc) 70%, transparent); }
+.set-panel .switch input:checked + span::after { transform: translateX(16px); background: var(--bc); box-shadow: 0 0 6px var(--bc); }
+/* sliders and the block number in the colour of the card */
+.set-panel .setting input[type=range]::-webkit-slider-thumb { background: var(--bc); box-shadow: 0 0 0 3px color-mix(in srgb, var(--bc) 18%, transparent); }
+.set-panel .setting input[type=range]::-moz-range-thumb { background: var(--bc); }
+.set-panel .setting input[type=range]::-webkit-slider-runnable-track { background: color-mix(in srgb, var(--bc) 25%, var(--line2)); }
+.set-subpanel .setting[data-blk]::after { background: var(--bc); }
+/* the "i" left of the block number when the card has one */
+.setting[data-blk] > .set-i { right: 32px; }
+.set-panel .setting:has(> .set-i) > :first-child { padding-right: 26px; }
+.set-subpanel .setting[data-blk]:has(> .set-i) > :first-child { padding-right: 56px; }
+.set-i { flex: none; width: 16px; height: 16px; padding: 0; border: 1px solid var(--line2); border-radius: 50%; background: none; cursor: help;
+  font: italic 700 10px/14px Georgia, "Times New Roman", serif; color: var(--muted); text-align: center; }
+.set-i:hover, .set-i.open { color: var(--yellow); border-color: var(--yellow); }
+.setting > .set-i { position: absolute; top: 6px; right: 6px; }
+.set-i-notes { display: none; }
+.set-i-pop { position: fixed; z-index: 1000; max-width: 420px; padding: 8px 10px; border: 1px solid var(--line2); border-radius: 6px;
+  background: var(--set-card, #10161d); box-shadow: 0 6px 20px rgba(0, 0, 0, .6); font-size: 12px; line-height: 1.45; color: var(--text); }
+.set-i-pop[hidden] { display: none; }
+.set-i-pop .note { font-size: 12px; color: var(--text); }
+.set-i-pop .note + .note { margin-top: 6px; }
 .set-panel select, .set-panel input[type=number] { padding: 5px 9px; font-size: 13px; }
 .set-panel .setting .row { align-items: center; min-height: 22px; }
 .set-panel .setting .row:has(> label) { gap: 8px; align-items: flex-end; }
@@ -2543,9 +2702,7 @@ html.compact .r-keys .keys button { --led-at: left 3px top 2px / 6px 3px no-repe
   box-shadow: var(--key-lit);
 }
 #agcPlusKey.on.clip, #spurKey.on.learning, #satKey.on { box-shadow: var(--key-lit); }
-/* band keys have no LED: the lit band key is only pressed in with a yellow legend */
-.r-bands .bands button.active { background: linear-gradient(180deg, #3a3f47, #2a2e34);
-  box-shadow: inset 0 2px 3px rgba(0, 0, 0, .55), 0 1px 0 #08090a; }
+/* band keys are momentary (app.js sets no .active): no LED, no lit state, pressed in only while the mouse button is down */
 /* each group of function keys has its own colour of the LED and of the lit legend (--kc; the band and VFO keys stay yellow).
  * Red is left out: it means clipping (AGC+) and learning (SP). */
 .r-keys .kgroup { --kc: var(--yellow); }
@@ -3233,22 +3390,36 @@ body.map-only .pkt-map.map-only-box { flex-direction: column; gap: 4px; }
 .switch:has(input:disabled) { opacity: .45; cursor: default; }
 .set-field input:disabled { opacity: .45; cursor: default; }
 
-/* RADIMCOM.exe: full screen as a small icon engraved in the corner of the master section (amber glow while on);
- * MAIN is the green LED of the logo: under the mouse it stops pulsing, turns red and shows "MAIN OFF". */
+/* RADIMCOM.exe: the FULL SCREEN and POWER keys in a line at the top of the master section (below);
+ * MAIN is also the green LED of the logo: under the mouse it stops pulsing, turns red and shows "MAIN OFF". */
 .r-master { position: relative; }
-.app-fs { position: absolute; top: 4px; right: 2px; z-index: 2; width: 20px; height: 20px; padding: 0; border: 0; background: none;
-  display: grid; place-items: center; color: var(--ink); opacity: .5; cursor: pointer; transition: opacity .15s, color .15s;
-  filter: drop-shadow(0 -1px 0 rgba(0, 0, 0, .9)) drop-shadow(0 1px 0 rgba(255, 255, 255, .07)); }
-.app-fs[hidden] { display: none; }
-.app-fs:hover { opacity: 1; }
-.app-fs.on { opacity: 1; color: var(--orange); filter: drop-shadow(0 0 4px rgba(255, 140, 26, .8)); }
-.app-ico { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
 .r-logo-ledtip { display: none; font: 800 30px system-ui, sans-serif; letter-spacing: 4px; fill: var(--red); pointer-events: none;
   filter: drop-shadow(0 0 6px rgba(255, 75, 62, .7)); }
 html.app-shell .r-logo-led { cursor: pointer; }
 html.app-shell .r-logo-led:hover .r-logo-ring { animation: none; opacity: 1; filter: drop-shadow(0 0 12px rgba(255, 75, 62, .9)); }
 html.app-shell .r-logo-led:hover .r-logo-ring circle { stroke: url(#logoTubeRed); }
 html.app-shell .r-logo-led:hover .r-logo-ledtip { display: inline; }
+/* POWER key above the logo (RADIMCOM.exe): the size of the REC keys, a green LED while RADIMCOM runs, red under the
+ * mouse (a click asks, then switches RADIMCOM off); the logo moves a little lower to make room */
+/* POWER in the column of the MUTE / REC keys, the full screen icon in the middle above the faders, both in one line
+ * at the top (x and widths measured by app.js placePowerRow: --pwr-x / --pwr-w / --fs-x / --fs-w) */
+.rec.pwr { position: absolute; top: 8px; left: var(--pwr-x, 150px); width: var(--pwr-w, 112px); z-index: 2; --led: var(--green);
+  background: linear-gradient(var(--led), var(--led)) var(--led-at),
+    radial-gradient(closest-side, color-mix(in srgb, var(--led) 55%, transparent), transparent) var(--led-glow),
+    linear-gradient(180deg, #4a5059 0%, #30343b 50%, #24272c 100%); }
+.rec.pwr:hover { --led: var(--red); color: var(--red); }
+.rec.pwr[hidden] { display: none; }
+html.app-shell .r-master .r-brandline { padding-top: 30px; }   /* room for the POWER line */
+html.app-shell .r-master .r-logo { margin-top: 10px; }
+/* FULL SCREEN key: as wide as the faders below it, in the POWER line; amber LED while in full screen */
+.rec.fsk { position: absolute; top: 8px; left: var(--fs-x, 8px); width: var(--fs-w, 100px); z-index: 2; white-space: nowrap;
+  background: linear-gradient(180deg, #050607 2px, #2a1a06 2px) var(--led-at),
+    linear-gradient(180deg, #4a5059 0%, #30343b 50%, #24272c 100%); }
+.rec.fsk[hidden] { display: none; }
+.rec.fsk.on { --led: var(--orange); box-shadow: var(--key-lit); animation: none;   /* steady, no REC blinking */
+  background: linear-gradient(var(--led), var(--led)) var(--led-at),
+    radial-gradient(closest-side, color-mix(in srgb, var(--led) 55%, transparent), transparent) var(--led-glow),
+    linear-gradient(180deg, #3a3f47, #2a2e34); }
 /* FILTER with a single key (DSD: 12.5 kHz): one key in the upper row like ATU and DEC, not a tall one */
 .r-keys #bandwidths > button:only-child { grid-row: 1; height: 28px; }
 .r-keys .keys#bandwidths:has(> button:only-child) { grid-template-rows: 28px; }
@@ -3715,8 +3886,14 @@ html.app-shell .r-logo-led:hover .r-logo-ledtip { display: inline; }
 .agc-lamp { font-size: 10px; font-weight: 700; letter-spacing: .06em; padding: 1px 5px; border-radius: 3px;
   border: 1px solid var(--line); color: var(--dim); }
 .agc-lamp.on { background: var(--red); border-color: var(--red); color: #fff; }
-.agc-nums { font-size: 11px; color: var(--muted); line-height: 1.45; }
-.agc-nums b { color: var(--text); font-weight: 600; }
+/* AGC+ numbers: label | value (fixed width, tabular digits) | its target, one line each; the kind / band on the last
+ * line, cut with … (whole in the tooltip) – the card keeps its height whatever the numbers do */
+.agc-nums { display: grid; grid-template-columns: auto 7ch minmax(0, 1fr); gap: 1px 8px; align-items: baseline;
+  font-size: 11px; color: var(--muted); line-height: 1.45; }
+.agc-nums .k { font: 700 9.5px system-ui, sans-serif; letter-spacing: .08em; }
+.agc-nums b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.agc-nums > span:not(.k) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agc-nums .agc-kind { grid-column: 1 / -1; height: 1.45em; }
 /* fixed heights: the warning one line, the why two lines; the place stays when empty, so the keys below do not jump */
 .agc-warn { margin: 4px 0 0; font-size: 11px; line-height: 1.45; height: 1.45em; color: var(--amber);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -3751,3 +3928,81 @@ html.app-shell .r-logo-led:hover .r-logo-ledtip { display: inline; }
 .map-precip-time input[type=range] { width: 80px; height: 12px; margin: 0; accent-color: #6cb8ff; cursor: pointer; }
 .map-precip-opa { min-width: 32px; text-align: right; color: #8fa3bd; }
 .map-precip-time > span:first-child { display: inline-block; width: 25ch; white-space: nowrap; }   /* time text of a fixed width: the slider does not move */
+/* AD: DSD calls on air, one line per time slot (two lines when both DMR slots carry a call) */
+.ad-dsd[hidden] { display: none !important; }
+.ad-dsd { display: flex; flex-direction: column; justify-content: center; gap: 2px; height: 100%; padding: 0 6px; overflow: hidden; }
+.ad-dsd-row { display: flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap; overflow: hidden; font: 12px/16px system-ui, sans-serif; color: var(--text); }
+.ad-dsd.two .ad-dsd-row { font-size: 11px; line-height: 15px; }
+.ad-dsd-row .dsd-s, .ad-dsd-row .dsd-p { flex: 0 0 auto; }
+.ad-dsd.two .dsd-s, .ad-dsd.two .dsd-p { line-height: 14px; }
+.ad-dsd-to { flex: 0 0 auto; font-weight: 700; color: var(--yellow, #ffd84a); }
+.ad-dsd-to .dsd-tgn { margin-left: 4px; font-weight: 400; }
+.ad-dsd-from { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ad-dsd-from em { font-style: normal; color: var(--dim, var(--muted)); font-size: 10px; }
+.ad-dsd-al { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
+.ad-dsd-dur { margin-left: auto; flex: 0 0 auto; font-weight: 700; color: var(--green, #3cf07c); font-variant-numeric: tabular-nums; }
+.ad-dsd-row.enc .ad-dsd-to { color: #ff8a6b; }
+.ad-dsd-tag { flex: 0 0 auto; padding: 0 5px; border: 1px solid var(--line); border-radius: 3px; font: 700 10px/14px system-ui, sans-serif; color: var(--muted); }
+/* AD DSD: small and basic only (slot, TG, caller, time) */
+.ad-dsd-row, .ad-dsd.two .ad-dsd-row { font-size: 10px; line-height: 13px; gap: 5px; }
+.ad-dsd-row .dsd-s, .ad-dsd.two .dsd-s { width: 13px; font-size: 9px; line-height: 11px; }
+.ad-dsd-from { color: var(--muted); }
+.ad-dsd-row .dsd-p, .ad-dsd.two .dsd-p { min-width: 0; padding: 0 3px; font-size: 8px; line-height: 11px; letter-spacing: .02em; }
+/* RUN / PAUSE of the spectrum and waterfall, under the dB bar of the spectrum (the bar is column-reverse: first = lowest) */
+.wf-run-btn { width: 20px; height: 14px; margin-top: 3px; padding: 0; border: 1px solid #5a5e66; border-radius: 3px; background: #2a2d33; color: #8b95a1;
+  font: 8px/12px system-ui, sans-serif; cursor: pointer; }
+.wf-run-btn:hover { border-color: var(--yellow); color: var(--yellow); }
+.wf-run-btn.on { border-color: #ff9a3c; color: #111; background: #ff9a3c; }   /* paused */
+
+/* PAUSED beside the RUN / PAUSE key, left of the dB bar (the key is the lowest item of the bar) */
+.wf-paused-tag { position: absolute; right: calc(100% + 4px); bottom: 3px; padding: 0 6px; border: 1px solid #ff9a3c; border-radius: 3px;
+  background: rgba(0, 0, 0, .65); color: #ff9a3c; font: 700 9px/14px system-ui, sans-serif; letter-spacing: .12em; pointer-events: none; white-space: nowrap; }
+.wf-paused-tag[hidden] { display: none; }
+
+/* SETTINGS › LOGS: FILES (folder tree + viewer), LOGGING (switch table), HISTORY (cards) */
+.set-subpanel.set-logs { max-width: none; width: 100%; box-sizing: border-box; }   /* the whole tab, not the width of what is shown */
+.set-panel:has(> .set-logs) { width: 100%; box-sizing: border-box; }
+.lg-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+.lg-roots { display: flex; gap: 4px; flex-wrap: wrap; }
+.lg-root-size { color: var(--muted); font-weight: 400; margin-left: 4px; }
+.lg-grow { flex: 1 1 auto; }
+.lg-up-key { cursor: pointer; }
+.lg-split { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; align-items: start; min-width: 0; }
+/* the viewer beside the list (the list keeps room for the names), never wider than the page; both as high as the
+   room left down to the bottom of the window (--lg-h, set by the script), each scrolls by itself */
+.lg-split:has(.lg-view:not([hidden])) { grid-template-columns: minmax(500px, 1fr) minmax(0, 1fr); }
+.lg-table.no-dirs th:nth-child(4), .lg-table.no-dirs td:nth-child(4) { display: none; }   /* Files: only for folders */
+.lg-split:has(.lg-view:not([hidden])) .lg-table :is(th, td):nth-child(6) { display: none; }   /* Changed: in the viewer's head */
+.lg-table td, .lg-table th { padding-left: 6px; padding-right: 6px; }
+.lg-view-meta { color: var(--muted); font-size: 11px; white-space: nowrap; }
+@media (max-width: 1100px) { .lg-split:has(.lg-view:not([hidden])) { grid-template-columns: minmax(0, 1fr); } }
+.lg-list { min-width: 0; overflow: auto; max-height: var(--lg-h, 60vh); border: 1px solid var(--line); border-radius: 4px; }
+.lg-table td.file { max-width: 0; width: 100%; min-width: 35ch; }   /* the room left, at least the longest names
+   (sstv_YYYYMMDD_HHMMSS_ScottieS2.png = 34); longer ones cut with … (whole in the tooltip) */
+.lg-table td:nth-child(6) { font-size: 11px; }
+.lg-table td.play { color: var(--muted); text-align: center; }
+.lg-view { min-width: 0; max-height: var(--lg-h, 60vh); display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 4px; background: #050608; }
+.lg-view-head { display: flex; align-items: center; gap: 6px; padding: 5px 6px; border-bottom: 1px solid var(--line); }
+.lg-view-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--yellow); font-size: 12px; }
+.lg-view-head .recs-filter { width: 180px; }
+.lg-view-head a.key { text-decoration: none; }
+.lg-view-note { color: var(--muted); font-size: 11px; padding: 0 8px; }
+.lg-view-note:empty { display: none; }
+.lg-view-text { flex: 1 1 auto; margin: 0; padding: 6px 8px; overflow: auto; min-height: 120px;
+  font: 11px/1.45 ui-monospace, Consolas, monospace; color: #cfd8e3; white-space: pre-wrap; overflow-wrap: anywhere; }
+.lg-view-img { max-width: 100%; min-height: 0; flex: 1 1 auto; object-fit: contain; margin: 6px auto; display: block; }
+.lg-log-scroll { overflow: auto; }
+.lg-log-table { width: auto; }
+.lg-log-table th.c, .lg-log-table td.c { text-align: center; }
+.lg-log-table td { cursor: default; }
+.lg-log-table .lg-sw { display: inline-flex; vertical-align: middle; }
+.lg-run { color: var(--green); font-size: 9px; margin-left: 4px; vertical-align: middle; }
+.lg-log-table tr.lg-sep td { padding: 0; border-bottom: 2px solid var(--line2); }
+.lg-badge { display: inline-block; padding: 0 6px; border: 1px solid #3a6ea5; border-radius: 8px; color: #9fd0ff; font-size: 10px; font-weight: 700; letter-spacing: .05em; }
+.lg-hist { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
+.lg-hist > .setting { flex: 0 1 560px; }
+.lg-hist-table { width: 100%; }
+.lg-hist-table td { cursor: default; }
+.lg-acts { display: flex; gap: 4px; justify-content: flex-end; }
+.lg-acts a.key, .lg-hist a.key { text-decoration: none; }
+.lg-hist-msg { flex: 1 1 100%; color: #9fd0ff; }

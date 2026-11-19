@@ -17,7 +17,7 @@ import time
 import wave
 
 import numpy as np
-from flask import Flask, Response, jsonify, request, send_from_directory
+from flask import Flask, Response, jsonify, request, send_file, send_from_directory
 
 from paths import BASE, data
 
@@ -42,6 +42,7 @@ import antennas
 import memories
 import scanner as scanner_mod
 import satellites
+import datafiles
 import sysload
 import update_check
 try:
@@ -114,6 +115,7 @@ class Hub:
         self.lock = threading.Lock()
         self.events = []
         self.audio = []
+        self.paused = set()     # browser tabs (their id) with the spectrum / waterfall paused: no "wf" events to them
 
     def _add(self, lst, maxsize):
         q = queue.Queue(maxsize=maxsize)
@@ -129,6 +131,8 @@ class Hub:
     @staticmethod
     def _put(qs, item):
         for q in qs:
+            if isinstance(item, tuple) and item[0] in getattr(q, "skip", ()):
+                continue                 # PAUSE of the spectrum / waterfall: this client gets no rows (saves the link)
             try:
                 q.put_nowait(item)
             except queue.Full:
@@ -138,6 +142,11 @@ class Hub:
                     q.put_nowait(item)
                 except (queue.Empty, queue.Full):
                     pass
+
+    def wants(self, kind):
+        """Does any connected browser take events of this kind (not paused for it)?"""
+        with self.lock:
+            return any(kind not in getattr(q, "skip", ()) for q in self.events)
 
     def event(self, kind, data):
         with self.lock:
@@ -473,7 +482,7 @@ def on_baseband(base, fs, dial_hz):
 
 recorder = Recorder()
 # REC IQ: the raw samples of the dongle to WAV (SDR# style) in the subfolder iq of the recordings folder (iqrec.py)
-iq_recorder = IqRecorder(lambda: os.path.join(recorder.folder, "iq"), (VFO or {}).get("name", ""))
+iq_recorder = IqRecorder(lambda: os.path.join(recorder_mod.day_folder(recorder.folder), "iq"), (VFO or {}).get("name", ""))
 
 
 def _dab_recording():
@@ -530,6 +539,7 @@ receiver = Receiver(
     on_meter=lambda db: hub.event("meter", {"db": round(db, 1)}),
     on_dsd=dsd.process,
 )
+receiver.want_rows = lambda: hub.wants("wf")   # no spectrum / waterfall rows built while no browser takes them
 dsd.set_enabled(cfg["mode"] == DSD_MODE)
 # one decoder on the IQ (IQ_ONE): a config from an older version may have several on (e.g. DAB with SONDE); the first of
 # this order stays, the others are left off
@@ -1491,6 +1501,200 @@ def api_adsb_range():
     return jsonify(adsb.range.info())
 
 
+# ---------- SETTINGS › LOGS: the file tree of the logs and data (datafiles.py), the histories of the maps ----------
+
+@app.route("/api/data/roots")
+def api_data_roots():
+    """The folders of SETTINGS › LOGS › FILES with their size."""
+    return jsonify(datafiles.roots())
+
+
+@app.route("/api/data/list")
+def api_data_list():
+    """One folder: ?root=logs&dir=hfdl/2026/11 → its subfolders and files."""
+    try:
+        return jsonify(datafiles.list_dir(request.args.get("root", ""), request.args.get("dir", "")))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.route("/api/data/text")
+def api_data_text():
+    """The end of a text file for the viewer (?root, ?path)."""
+    try:
+        return jsonify(datafiles.read_text(request.args.get("root", ""), request.args.get("path", "")))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except OSError as e:
+        return jsonify({"error": e.strerror or str(e)}), 500
+
+
+@app.route("/api/data/file")
+def api_data_file():
+    """One file (?root, ?path); ?dl=1 downloads it. Text as text/plain (UTF-8), images as images."""
+    try:
+        _, path = datafiles.resolve(request.args.get("root", ""), request.args.get("path", ""))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    if not os.path.isfile(path):
+        return jsonify({"error": "no such file"}), 404
+    low = path.lower()
+    mime = "text/plain; charset=utf-8" if low.endswith(datafiles.TEXT_EXT) else None
+    return send_from_directory(os.path.dirname(path), os.path.basename(path), mimetype=mime, conditional=True,
+                               as_attachment=request.args.get("dl") == "1")
+
+
+@app.route("/api/data/zip")
+def api_data_zip():
+    """A folder as a ZIP (?root, ?dir): the export of logs, sonde flights, images … to another PC."""
+    import tempfile
+    import zipfile
+    try:
+        root, folder = datafiles.resolve(request.args.get("root", ""), request.args.get("dir", ""))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    if not os.path.isdir(folder):
+        return jsonify({"error": "no such folder"}), 404
+    tmp = tempfile.SpooledTemporaryFile(max_size=64 << 20)
+    with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as z:
+        for top, _, names in os.walk(folder):
+            for n in names:
+                if not n.startswith("."):
+                    p = os.path.join(top, n)
+                    try:
+                        z.write(p, os.path.relpath(p, os.path.dirname(folder)))
+                    except OSError:
+                        pass                   # a file being written by another VFO: left out
+    tmp.seek(0)
+    rel = os.path.relpath(folder, os.path.dirname(root)).replace(os.sep, "_").replace("/", "_")
+    return send_file(tmp, mimetype="application/zip", as_attachment=True,
+                     download_name=f"RADIMCOM_{rel}_{time.strftime('%Y%m%d')}.zip")
+
+
+@app.route("/api/data/delete", methods=["POST"])
+def api_data_delete():
+    """{"root": key, "paths": [files and folders]} → deleted (a folder with all in it)."""
+    body = request.get_json(force=True, silent=True) or {}
+    paths = body.get("paths")
+    if not isinstance(paths, list) or not paths or not all(isinstance(p, str) and p for p in paths):
+        return jsonify({"error": "paths must be a list of paths"}), 400
+    try:
+        return jsonify(datafiles.delete_paths(str(body.get("root", "")), paths))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.route("/api/data/upload", methods=["POST"])
+def api_data_upload():
+    """Files into a folder (form: root, dir, file …): the import of logs, sonde flights … from another PC. A sonde
+    flight (<YYYY-MM-DD>_<serial>.jsonl) uploaded anywhere under logs/radiosonde goes to its day folder."""
+    key, rel = request.form.get("root", ""), request.form.get("dir", "")
+    out, errors = [], []
+    for f in request.files.getlist("file"):
+        name = os.path.basename((f.filename or "").replace("\\", "/"))
+        r = rel
+        m = datafiles.SONDE_RE.match(name)
+        if key == "logs" and m and (rel == "radiosonde" or rel.startswith("radiosonde/")):
+            r = os.path.relpath(datafiles.date_dir("radiosonde", m.group("d"), "."), ".").replace(os.sep, "/")
+        try:
+            out.append(datafiles.save_upload(key, r, name, f.stream)["saved"])
+        except (ValueError, OSError) as e:
+            errors.append(f"{name}: {e}")
+    return jsonify({"saved": out, "errors": errors}), (200 if out or not errors else 400)
+
+
+@app.route("/api/history")
+def api_history():
+    """The histories this VFO keeps (SETTINGS › LOGS › HISTORY): the COMPOSITE map (its own, data/composite_<VFO>.json)
+    and the ADS-B range (one for the station)."""
+    with _com_lock:
+        by_src = {}
+        for it in _com_items.values():
+            by_src[it.get("src", "?")] = by_src.get(it.get("src", "?"), 0) + 1
+    try:
+        size = os.path.getsize(COM_FILE)
+    except OSError:
+        size = 0
+    rng = adsb.range.info()
+    try:
+        rsize = os.path.getsize(data("adsb_range.json"))
+    except OSError:
+        rsize = 0
+    return jsonify({"vfo": _tag, "composite": {"file": COM_FILE, "size": size, "items": sum(by_src.values()),
+                                               "by_src": by_src, "keep_h": COM_KEEP_S // 3600},
+                    "adsb_range": {"file": data("adsb_range.json"), "size": rsize, "since": rng["since"],
+                                   "sectors": len(rng["bands"].get("all", {})), "max_km": rng["max_km"].get("all")}})
+
+
+@app.route("/api/history/<store>", methods=["GET"])
+def api_history_export(store):
+    """Export: the history as JSON to download (composite = the map of this VFO, adsb_range = the range)."""
+    if store == "composite":
+        with _com_lock:
+            d = {"radimcom": "composite", "vfo": _tag, "t": round(time.time(), 1), "sources": dict(_com_srcs),
+                 "items": list(_com_items.values()), "gs": list(_com_gs.values())}
+    elif store == "adsb_range":
+        d = dict(adsb.range.info(), radimcom="adsb_range")
+        d.pop("max_km", None)
+    else:
+        return jsonify({"error": "unknown history"}), 404
+    resp = jsonify(d)
+    resp.headers["Content-Disposition"] = (f'attachment; filename="RADIMCOM_{store}{"_" + _tag if store == "composite" and _tag else ""}'
+                                           f'_{time.strftime("%Y%m%d_%H%M")}.json"')
+    return resp
+
+
+@app.route("/api/history/<store>", methods=["POST"])
+def api_history_cmd(store):
+    """{"action": "clear"} or {"action": "import", "data": <an exported JSON>} (merged: the newer record of an object,
+    the farther point of a range sector; the composite keeps only what is younger than its 6 h)."""
+    body = request.get_json(force=True, silent=True) or {}
+    action, d = body.get("action"), body.get("data")
+    if store == "composite":
+        if action == "clear":
+            with _com_lock:
+                _com_items.clear()
+                _com_gs.clear()
+                _com_srcs.clear()
+            _com_save()
+            return jsonify({"ok": True})
+        if action == "import" and isinstance(d, dict) and isinstance(d.get("items"), list):
+            now, n = time.time(), 0
+            with _com_lock:
+                for it in d["items"]:
+                    if not (isinstance(it, dict) and it.get("src") and it.get("id") is not None):
+                        continue
+                    if now - (it.get("t") or 0) >= COM_KEEP_S:
+                        continue
+                    k = f'{it["src"]}:{it["id"]}'
+                    old = _com_items.get(k)
+                    if old is None or (it.get("t") or 0) > (old.get("t") or 0):
+                        _com_items[k] = it
+                        n += 1
+                for g in d.get("gs") or []:
+                    if isinstance(g, dict) and g.get("src") and g.get("id") is not None:
+                        _com_gs.setdefault(f'{g["src"]}:{g["id"]}', g)
+                for s, t in (d.get("sources") or {}).items():
+                    if isinstance(t, (int, float)) and now - t < COM_KEEP_S:
+                        _com_srcs[s] = max(_com_srcs.get(s, 0), t)
+            _com_save()
+            return jsonify({"ok": True, "imported": n,
+                            "old": len(d["items"]) - n})
+    elif store == "adsb_range":
+        if action == "clear":
+            adsb.range.clear()
+            return jsonify({"ok": True})
+        if action == "import" and isinstance(d, dict):
+            try:
+                n = adsb.range.merge(d)
+            except ValueError as e:
+                return jsonify({"error": str(e)}), 400
+            return jsonify({"ok": True, "imported": n})
+    else:
+        return jsonify({"error": "unknown history"}), 404
+    return jsonify({"error": "bad action or data"}), 400
+
+
 def set_adsb(on, changes):
     """ADS-B on: the VFO goes to 1090 MHz at 2.4 MS/s (2.5 MS/s stays on an Airspy) and the Mode S / ADS-B messages are
     decoded from the raw samples (adsb.py); the audio of the VFO is muted and the decoders that need the dongle elsewhere
@@ -1585,7 +1789,7 @@ def api_dab_audio(sid):
 
 @app.route("/api/sysload")
 def api_sysload():
-    """CPU load and memory use of the PC (indicator under the S-meter)."""
+    """CPU and memory of RADIMCOM and of the whole PC (indicator under the S-meter; the launcher also splits it by VFO)."""
     return jsonify(sysload.load())
 
 
@@ -1903,7 +2107,12 @@ def scan_session(opts=None, new=False):
 def scan_prune():
     """Activities and WAV recordings of the scan older than keep_days (⚙ of the SCAN tab) are deleted."""
     days = scanner_mod.norm_opts(None, cfg.get("scan"))["keep_days"]
-    threading.Thread(target=scanner_mod.prune, args=(days,), name="scan-prune", daemon=True).start()
+
+    def run():
+        datafiles.migrate()             # flat logs before 1.1 → logs/<source>/YYYY/MM/DD (once)
+        recorder_mod.migrate()          # recordings of the flat folders before 1.1 → YYYY/MM/DD (once; then nothing to do)
+        scanner_mod.prune(days)
+    threading.Thread(target=run, name="scan-prune", daemon=True).start()
 
 
 scan_prune()
@@ -1946,12 +2155,12 @@ def api_scan_heatmap():
 
 @app.route("/api/scan/rec/<name>")
 def api_scan_rec(name):
-    """A recording of the scan (MP3, older ones WAV; subfolder "scan" of the recordings folder)."""
-    low = name.lower()
-    if not low.endswith((".wav", ".mp3")) or "/" in name or "\\" in name:
-        return jsonify({"error": "bad name"}), 400
-    return send_from_directory(scanner_mod.rec_folder(), name, mimetype="audio/mpeg" if low.endswith(".mp3") else "audio/wav",
-                               conditional=True)
+    """A recording of the scan by its name in the log: found in its day folder (recorder.find; older ones moved there)."""
+    path = recorder.find(name) if name.lower().endswith((".wav", ".mp3")) else None
+    if not path:
+        return jsonify({"error": "No such recording (deleted?)"}), 404
+    return send_from_directory(os.path.dirname(path), os.path.basename(path), conditional=True,
+                               mimetype="audio/mpeg" if path.lower().endswith(".mp3") else "audio/wav")
 
 
 @app.route("/api/scan", methods=["POST"])
@@ -1999,28 +2208,51 @@ def api_scan_cmd():
     return jsonify({"ok": True})
 
 
-def _recs_kind():
-    """?kind= of the RECORDINGS tab: "rec" (MP3 of REC / REC SQ, default) or "scan" (WAV of the scanner)."""
-    kind = request.args.get("kind", "rec")
-    if kind not in ("rec", "scan"):
-        raise ValueError("kind must be rec or scan")
-    return kind
-
-
-def _scan_writing():
-    """The WAV file the scan of this VFO writes now (it may not be deleted)."""
-    f = getattr(receiver.scan, "rec_file", "") if getattr(receiver.scan, "rec_wav", None) is not None else ""
-    return {f} if f else set()
+def _others_writing():
+    """Full paths the scan and REC IQ of this VFO write now (REC / REC SQ: recorder.writing); never deleted."""
+    out = set()
+    if getattr(receiver.scan, "rec_wav", None) is not None and getattr(receiver.scan, "rec_path", ""):
+        out.add(receiver.scan.rec_path)
+    if iq_recorder.out is not None and iq_recorder.path:
+        out.add(iq_recorder.path)
+    return out
 
 
 @app.route("/api/recordings", methods=["GET"])
 def api_recordings():
-    """The recordings (RECORDINGS tab), newest first: ?kind=rec the MP3 of REC / REC SQ, ?kind=scan the WAV of the scan."""
+    """One folder of the recordings tree (RECORDINGS tab): ?dir=YYYY/MM/DD[/iq] ("" = the root) → its subfolders
+    (count and size of the recordings in them) and its recordings (REC, REC SQ, SCAN, DAB, IQ)."""
     try:
-        kind = _recs_kind()
+        return jsonify(recorder.list_dir(request.args.get("dir", ""), _others_writing()))
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
-    return jsonify(recorder.files(kind, _scan_writing()))
+
+
+@app.route("/api/recordings/file", methods=["GET"])
+def api_recording_file():
+    """One recording, ?path=YYYY/MM/DD/<name>; Range requests work, so the browser can seek while playing."""
+    try:
+        path = recorder.resolve(request.args.get("path", ""))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    if not os.path.isfile(path) or not path.lower().endswith(recorder_mod.AUDIO_EXT):
+        return jsonify({"error": "No such recording"}), 404
+    return send_from_directory(os.path.dirname(path), os.path.basename(path), conditional=True,
+                               mimetype="audio/wav" if path.lower().endswith(".wav") else "audio/mpeg",
+                               as_attachment=request.args.get("dl") == "1")
+
+
+@app.route("/api/recordings/delete", methods=["POST"])
+def api_recordings_delete():
+    """{"paths": [relative paths of files and folders]} → deleted (folders with all inside; files being written stay)."""
+    body = request.get_json(force=True, silent=True) or {}
+    paths = body.get("paths")
+    if not isinstance(paths, list) or not paths or not all(isinstance(p, str) and p for p in paths):
+        return jsonify({"error": "paths must be a list of paths"}), 400
+    try:
+        return jsonify(recorder.delete_paths(paths, _others_writing()))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
 
 
 @app.route("/api/recording_folder", methods=["GET", "POST"])
@@ -2041,26 +2273,6 @@ def api_recording_folder():
         except OSError as e:
             return jsonify({"error": f"cannot save: {e}"}), 500
     return jsonify(recorder_mod.settings())
-
-
-@app.route("/api/recordings/<name>", methods=["GET"])
-def api_recording_file(name):
-    """One recording (?kind=rec / scan); Range requests work, so the browser can seek while playing."""
-    try:
-        kind = _recs_kind()
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 400
-    return send_from_directory(recorder.kind_folder(kind), name, mimetype="audio/wav" if kind == "scan" else "audio/mpeg",
-                               conditional=True)
-
-
-@app.route("/api/recordings/<name>", methods=["DELETE"])
-def api_recording_delete(name):
-    try:
-        recorder.delete(name, _recs_kind(), _scan_writing())
-    except (ValueError, OSError) as e:
-        return jsonify({"error": str(e)}), 400
-    return jsonify({"deleted": name})
 
 
 @app.route("/api/memory_groups", methods=["GET"])
@@ -2796,9 +3008,28 @@ def api_mpx():
     return jsonify({"hz_per_bin": r[0], "db": r[1]} if r else {"hz_per_bin": 0, "db": []})
 
 
+@app.route("/api/events/pause", methods=["POST"])
+def api_events_pause():
+    """{"cid": tab id, "paused": bool}: PAUSE / RUN of the spectrum and waterfall of one browser tab – while paused
+    the server sends it no "wf" rows (they are most of the data of the event stream)."""
+    body = request.get_json(force=True, silent=True) or {}
+    cid, paused = str(body.get("cid", ""))[:40], bool(body.get("paused"))
+    if not cid:
+        return jsonify({"error": "cid missing"}), 400
+    with hub.lock:
+        (hub.paused.add if paused else hub.paused.discard)(cid)
+        for q in hub.events:
+            if getattr(q, "cid", None) == cid:
+                q.skip = {"wf"} if paused else set()
+    return jsonify({"paused": paused})
+
+
 @app.route("/api/events")
 def api_events():
     q = hub._add(hub.events, 60)
+    q.cid = request.args.get("cid", "")[:40]
+    # paused tab, or a map tab (?nowf=1) that draws no waterfall
+    q.skip = {"wf"} if (q.cid and q.cid in hub.paused) or request.args.get("nowf") else set()
 
     def gen():
         try:

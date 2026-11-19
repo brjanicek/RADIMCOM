@@ -1,4 +1,4 @@
-"""Daily decoder logs: logs/<decoder>_YYYY-MM-DD.txt (UTC), one line per message.
+"""Daily decoder logs: logs/<decoder>/YYYY/MM/DD/<decoder>_YYYY-MM-DD.txt (UTC, datafiles.py), one line per message.
 
 The log is shared by all VFOs (each runs in its own process), so every line carries the VFO name
 and is written in one piece. Text decoders (CW, RTTY) send characters one by one; they are joined
@@ -8,6 +8,7 @@ import os
 import threading
 import time
 
+import datafiles
 from paths import data
 
 LOG_DIR = data("logs")
@@ -27,12 +28,13 @@ class DayLog:
         self.lock = threading.Lock()
 
     def path(self, t=None):
-        return os.path.join(self.log_dir, f"{self.name}_{time.strftime('%Y-%m-%d', time.gmtime(t))}.txt")
+        return datafiles.day_file(self.name, t, "txt", self.log_dir)
 
     def write(self, line, t=None):
         try:
-            os.makedirs(self.log_dir, exist_ok=True)
-            with self.lock, open(self.path(t), "a", encoding="utf-8") as f:
+            path = self.path(t)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with self.lock, open(path, "a", encoding="utf-8") as f:
                 f.write(f"{stamp(t)} {self.tag} {line}\n")
         except OSError:
             pass            # a full disk / locked file must not stop the receiver
@@ -76,8 +78,9 @@ class TextLog(DayLog):
         if not text:
             return
         try:
-            os.makedirs(self.log_dir, exist_ok=True)
-            with open(self.path(self.start), "a", encoding="utf-8") as f:
+            path = self.path(self.start)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "a", encoding="utf-8") as f:
                 f.write(f"{stamp(self.start)} {self.tag} {self.prefix} | {text}\n")
         except OSError:
             pass

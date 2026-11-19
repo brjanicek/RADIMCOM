@@ -57,17 +57,17 @@ class ScannerTest(unittest.TestCase):
         self.sc = Scanner()
         self.tmp = tempfile.mkdtemp()
         self._log_dir, scanner.LOG_DIR = scanner.LOG_DIR, self.tmp
-        self._rec_folder, scanner.rec_folder = scanner.rec_folder, lambda: os.path.join(self.tmp, "scan")
+        self._rec_root, scanner.rec_root = scanner.rec_root, lambda: os.path.join(self.tmp, "recs")
 
     def tearDown(self):
         scanner.time.monotonic = self._mono
-        scanner.LOG_DIR, scanner.rec_folder = self._log_dir, self._rec_folder
+        scanner.LOG_DIR, scanner.rec_root = self._log_dir, self._rec_root
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def spectrum(self, tones):
         n = sdr.WF_SEGMENTS * sdr.WF_FFT
         t = np.arange(n)
-        iq = (self.rng.normal(size=n) + 1j * self.rng.normal(size=n)) * 1e-3
+        iq = (self.rng.normal(size=n) + 1j * self.rng.normal(size=n)) * getattr(self, "noise", 1e-3)
         for tone in tones:
             f, a = tone[:2]
             off = f - self.rx.cfg["center_hz"]
@@ -122,6 +122,25 @@ class ScannerTest(unittest.TestCase):
         self.assertFalse(self.sc.audio_open)
         self.assertEqual(self.run_blocks(20, [])["state"], "search")
         self.assertEqual(self.rx.cfg["tune_hz"], 118.1e6)  # next window
+
+    def test_one_block_of_noise_or_a_band_rise_does_not_stop(self):
+        mems = [{"id": "a", "name": "A", "freq_hz": 118.1e6, "mode": "AM", "bw": 8000, "groups": []},
+                {"id": "b", "name": "B", "freq_hz": 118.5e6, "mode": "AM", "bw": 8000, "groups": []}]
+        self.sc.start(mems, norm_opts({}), self.rx)          # both in one window
+        self.run_blocks(30, [])                            # own floors learned
+        self.run_blocks(1, [(118.5e6, 0.05)])              # one block (a click): not a transmission
+        self.assertEqual(self.run_blocks(5, [])["state"], "search")
+        self.assertEqual(int(self.sc.hits.sum()), 0)
+        self.noise = 3e-3                                  # the whole band 9.5 dB up (a burst of interference)
+        self.assertEqual(self.run_blocks(4, [])["state"], "search")
+        self.noise = 1e-3
+        self.run_blocks(5, [])
+        self.assertEqual(self.run_blocks(3, [(118.5e6, 0.05)])["state"], "listen")   # a real one: after 2 blocks
+        self.assertEqual(self.cur(), "B")
+        levels = self.sc.info()["levels"]                  # the threshold line of the spectrum
+        self.assertEqual(len(levels), 2)
+        self.assertTrue(levels[1][3] and not levels[0][3])
+        self.assertLess(abs(levels[0][2] - levels[1][2]), 20)
 
     def test_priority_skip_own_squelch_step(self):
         mems = [{"id": "a", "name": "A", "freq_hz": 118.1e6, "mode": "AM", "bw": 8000, "groups": []},
@@ -186,8 +205,8 @@ class ScannerTest(unittest.TestCase):
         rows = scanner.read_log(1)
         self.assertEqual(int(rows[0]["freq_hz"]), 127700000)
         self.assertGreater(float(rows[0]["duration_s"]), 2.0)
-        wav = os.path.join(self.tmp, "scan", rows[0]["file"])
-        self.assertTrue(rows[0]["file"].endswith(".mp3") and os.path.getsize(wav) > 400)   # MP3 since 1.0beta1
+        mp3 = os.path.join(scanner.rec_folder(), rows[0]["file"])      # the day folder YYYY/MM/DD
+        self.assertTrue(rows[0]["file"].endswith("_SCAN.mp3") and os.path.getsize(mp3) > 400)   # MP3, tagged SCAN
         hm = scanner.heatmap(1)
         self.assertEqual(hm["rows"][0]["freq_hz"], 127700000)
 
@@ -195,6 +214,7 @@ class ScannerTest(unittest.TestCase):
         """THIS SCAN shows only its session; rows of older files (no session column) are read; old files are pruned."""
         import time
         now = time.time()
+        os.makedirs(os.path.dirname(scanner.log_path(now)), exist_ok=True)
         with open(scanner.log_path(now), "w", encoding="utf-8", newline="") as f:
             f.write("time_utc,vfo,freq_hz,name,mode,duration_s,max_dbfs,snr_db,file,note\n"
                     "2026-11-11 10:00:00Z,D,145500000,old,FM,2.0,-40,20,,\n")
@@ -214,6 +234,7 @@ class ScannerTest(unittest.TestCase):
         self.assertNotEqual(scanner.signature(norm_opts({"source": "view", "from_hz": 145e6, "to_hz": 146e6})),
                             scanner.signature(norm_opts({"source": "view", "from_hz": 145e6, "to_hz": 147e6})))
         old = scanner.log_path(now - 40 * 86400)
+        os.makedirs(os.path.dirname(old))
         open(old, "w").close()
         self.assertEqual(scanner.prune(31, now=now), 1)
         self.assertFalse(os.path.exists(old))
@@ -289,7 +310,7 @@ class ScannerTest(unittest.TestCase):
         self.run_blocks(30, [(121.5e6, 0.05)])
         self.assertTrue(self.sc.opts["rec"])
         self.assertEqual(self.sc.opts["source"], "all")    # what is scanned changes only with START
-        self.assertTrue(self.sc.rec_file and os.listdir(os.path.join(self.tmp, "scan")))
+        self.assertTrue(self.sc.rec_file and os.listdir(scanner.rec_folder()))
 
     def test_fm_bcast_finds_the_stations_again_in_every_pass(self):
         # the core power of a station goes up and down with its audio (loud music spreads it): those dips must not be

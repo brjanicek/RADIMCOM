@@ -30,6 +30,21 @@ Test beta (GitHub branch `1.1beta1`; continues the release 1.0).
   has under-voltage or overheats.
 ### New
 
+- **SETTINGS › LOGS** (new page): one place for the logs and data files. **FILES** browses the folders LOGS, WEFAX,
+  SSTV, DAB (songs), SERVER (server logs), WIND (GFS cache) and SONDE IQ with their sizes – folder rows first (month by
+  name, day with its weekday), a click on a file shows it on the right (the end of a text file, up to 1 MB, with a line
+  filter; an image), ⤓ downloads it; tick + **DELETE** removes files and whole folders, **⇩ ZIP** exports a folder,
+  **⇧ UPLOAD** imports files into it (a sonde flight `*.jsonl` goes to its day folder by itself). **LOGGING** is the
+  crosscheck: a table decoder × VFO with the LOG switch of each (on / off from here, ● = the decoder runs now) and the
+  logs that are always written (scan activities, radiosonde flights, COMPOSITE history, ADS-B range, server log) with
+  how long they are kept. **HISTORY**: the COMPOSITE history of each VFO (objects by source, size) and the ADS-B range
+  with **EXPORT** (JSON), **IMPORT** (merged: the newer record of an object / the farther point of a range sector wins;
+  the COMPOSITE keeps only what is younger than its 6 h, a range only from the same place) and **CLEAR**; the sonde
+  flights and DAB songs lead to FILES. New API `/api/data/*` (roots, list, text, file, zip, delete, upload) and
+  `/api/history/<composite | adsb_range>` (export, import, clear).
+- **Logs in day folders:** `data\logs\<source>\YYYY\MM\DD\<source>_YYYY-MM-DD.txt` (UTC) for the decoders, ACARS / VDL2
+  (before in `data\acars`), the scan (`.csv`) and the radiosonde flights (`<date>_<serial>.jsonl`). The flat logs of older
+  versions are moved there once at the first start (datafiles.py; `data\acars` is removed when empty).
 - **NTH › EXP › FAST** (SETTINGS › AUDIO, on by default together with AUTO) for weak signals, where the expander often turned the speech down:
   the voice detector smooths less (a syllable is caught one step sooner), the audio goes out ~8 ms later so the opening
   comes before the syllable (look-ahead), it stays open down to 1/3 of the threshold (normally 1/2), holds at least 250 ms
@@ -89,6 +104,84 @@ Test beta (GitHub branch `1.1beta1`; continues the release 1.0).
   offered. A VFO saved with one of them gets the defaults; DEFAULT sets them. The sliders stay.
 - **AGC+ card does not jump:** the warning (one line) and the *why* line (two lines) keep their place when empty or longer,
   the whole text is in the tooltip; before, the keys below moved with every message and BOLD was hard to click.
+- **Hidden lower part pauses the spectrum and waterfall:** with the lower part hidden (VIEW key) the servers of all VFOs
+  stop sending this tab the spectrum rows, as with the PAUSE key (❚❚), but without the key lit or PAUSED shown and without
+  changing the remembered PAUSE; audio, S-meter and decoders go on. Opening the lower part runs them again (unless PAUSE
+  is on); the waterfall has a gap for that time. Before, only the drawing stopped and the data kept coming. A hidden
+  browser tab still only stops the drawing.
+- **RF gain under the waterfall speed bar:** under the WF label the tuner gain of the active VFO (*RF*, the number in dB,
+  AUTO, green with AGC+; the full text in the tooltip), so it is seen without opening SETTINGS.
+- **Band keys remember where you were (band stacking):** each band key keeps the frequency and mode last tuned inside its
+  band (edges per key, e.g. 40 m 7.0–7.2 MHz, 41 m 7.2–7.45 MHz) and a press goes back there; the first press tunes its
+  default as before. Keys sharing a band (2 m SSB / FM / RPT / APRS, 70 cm) – the one pressed last gets it, else the one
+  of the same mode. Kept in the browser, common to all VFOs; FM BCAST as before (the last FM station).
+- **A VFO switch shows the waterfall:** a switch to another VFO (its key, its window, or by itself for a band / memory
+  out of its range) no longer restores the tab that VFO had last (SETTINGS too); it shows SPECTRUM, or DECODERS when a
+  decoder runs on it (decided once its decoders are loaded), the DAB / DSD tab in those modes. A VFO picked under
+  SETTINGS › VFO stays on SETTINGS. At start-up the last tab is restored as before.
+- **Double click on a memory → waterfall:** recalling a channel in MEMORIES by a double click switches to SPECTRUM,
+  unless the channel opened its own tab (DAB, a decoder, ROTOR CONTROL).
+- **RADIMCOM.exe starts in full screen:** always, not only when it was closed in full screen; F11 or the key beside the
+  logo goes to the window (its place and size remembered as before). `RADIMCOM.exe --window` starts in the window.
+- **Small start-up window:** while the server starts ("The receivers open their SDR dongles"), RADIMCOM.exe shows a
+  small window without a frame in the middle of the screen; when the page (or the SDR setup) is ready, it grows to full
+  screen (`--window`: to the remembered window). An error shows in the remembered window, so its text has room.
+- **POWER and FULL SCREEN keys** (RADIMCOM.exe): a line at the top of the master section – FULL SCREEN over the faders
+  (amber LED while in full screen, F11 the same) and POWER over the MUTE / REC keys (green LED, red under the mouse; a
+  click asks and switches RADIMCOM off, like the LED of the logo). The logo moved a little lower; the small full screen
+  icon in the corner is gone.
+- **DNR: less rough voice, level 3 by default, mouse wheel on the key.** The strength of a level now comes mostly from
+  the floor (5.7–30 dB, was 6–24 dB) and much less from overestimating the noise (1.0–1.45 ×, was 1.0–2.35 ×), which
+  took the weak harmonics of the voice. At the same noise reduction in the pauses the voice is 1.3–1.9 dB cleaner
+  (speech-to-distortion ratio, synthetic SSB speech at 6 dB SNR), e.g. −16 dB of noise: level 7 with 10.1 dB instead of
+  8.2 dB; level 10 still lowers the noise by 16–18 dB. The default level is 3 (was 5; a level saved on a VFO stays).
+  The mouse wheel over the DNR key changes the level (1–10); the level is in the key's tooltip.
+- **SETTINGS: compact cards in the look of STATION, notes behind an "i":** all setting cards are smaller (less padding,
+  thin border, 12 px text, no 10 % zoom of the page), the card title small, in capitals and spaced like the STATION
+  blocks. The explaining notes of each card moved behind an **i** icon at the right of its title; mouse over or a click
+  shows them in a bubble (Esc or a click outside closes it). Status texts, warnings, errors and notes with a control in
+  them stay in the card.
+- **SETTINGS › VFO: SDR DONGLE and AUDIO as chains of blocks, cards in colour.** SDR DONGLE and ADVANCED are one page
+  (the VFO name beside the tabs is gone, the *Dongles and VFOs* table and the *Settings for* card too). Its cards stand
+  in the order of the signal like the STATION scheme – antenna, upconverter, LO, bias-tee, dongle, tuner gain, RTL2832
+  gain, bandwidth, ppm, DC, SP, S-meter, AGC+ with its diagram beside it – as narrow blocks with an arrow before each,
+  using the whole width; where a line wraps, a wire leads from its end to an arrowhead at the start of the next line.
+  RESET SDR DONGLE stands aside (dashed, no arrow). AUDIO the same in the order of the audio chain: NB, HUM, DNR, ALC,
+  NTH, AFI, HPF / LPF, ASQ, tone squelch. Every setting card has the colour of its kind as in STATION (tinted border and
+  background, the title in the colour), a card whose main switch is off is grey; switches, sliders and block numbers
+  are in the colour of the card. The AGC+ card lost its *Why* line (the why is in the tooltip of the AGC+ key) and its
+  numbers stand in fixed cells, refreshed twice a second (the running sentence jumped with every status).
+- **Band keys are momentary:** pressed only while clicked, no lit key and no LED afterwards (they tune a band, they are
+  not a state).
+- **ISM devices in columns, distance estimate:** the DEVICES view has a column per kind of device (weather, TPMS, remote,
+  sensor, …) with a coloured header and compact cards in the look of STATION. The kind filter moved to the top line
+  after the frequency keys; INFO and the message count stand after TIMELINE (no overlap with the keys). Each card shows
+  a rough distance (≈ m / km) estimated from its SNR – log-distance path loss (exponent 3.3) from a ~3 mW (5 dBm) transmitter at
+  the device's frequency, e.g. 30 dB ≈ 85 m, 20 dB ≈ 170 m, 10 dB ≈ 350 m; only a guide (walls, antenna and power vary).
+- **"Loading…" bubble over the tab:** a read that takes over a quarter of a second (the RECORDINGS list, the first read
+  of the COMPOSITE map with its 6 h history, sonde history and logs, the history of the decoders – ADS-B, AIS, HFDL,
+  ISM, PACKET, POCSAG, WEFAX, SSTV –, the satellite map, DAB song history) shows a small pulsing *Loading…* bubble over
+  its tab until the data come; quick reads and polls never show it.
+- **RECORDINGS: day folders, browse, sort, delete, playlist.** Every recording goes to `<recordings>\YYYY\MM\DD` of
+  its start – REC, REC SQ, the scan and DAB as MP3, REC IQ as WAV in its `iq` subfolder; the source is in the name
+  (`_SQ`, `_SCAN`). The scan records MP3 only (no WAV without the encoder: the recording does not start). The tab browses
+  the tree (path keys, ↑, TODAY; folders with their number of recordings and size, the month by name, the day with its
+  weekday), a **Source** column (REC, REC SQ, SCAN, DAB, IQ in colour), sorting by any column (header click, remembered;
+  Start ascending by default), ticks + **DELETE** for files and whole folders (files being written stay), ⤓ download,
+  and the folder as a **playlist**: PLAY starts at the top of the list as sorted, **AUTO-NEXT** (was NEXT) goes on with
+  the next row, `3 / 17` shows the place. IQ files are listed but not played (download them for SDR#, SDR++ …). The
+  recordings of the flat folders before 1.1 are moved into the day folders once at the first start and the old WAV of
+  the scan become MP3 (in the background; an interrupted run goes on at the next start). ACTIVITY ▶ of the scan still
+  finds them.
+- **CPU / MEM indicator: RADIMCOM against the whole PC, as Task Manager counts.** It showed the whole PC only. Now
+  `CPU 9/21%` = RADIMCOM / the PC (all cores = 100 %, as Task Manager's Details tab; its Processes tab scales by the
+  turbo clock and shows more) and `MEM 0.5/14G` = the private working set of RADIMCOM / the memory used on the PC; the
+  bars bright = RADIMCOM, dim = the PC, fixed width (nothing moves). The tooltip splits it: the server (launcher and
+  each VFO with its helper programs) and the window (RADIMCOM.exe + WebView2 with the page), and the PC; it stays open
+  while the mouse is on it. Opened from another PC the numbers are of the server PC (**SRV** before them), the window
+  there is not counted and this browser shows only its JS memory (Chrome / Edge).
+- **SCAN: the squelch threshold in the spectrum:** while scanning, each channel measured gets a short line at its
+  threshold on the scale of the spectrum (green, red when open): a signal whose curve reaches over it opens the channel.
 
 ### Fixes
 
@@ -98,6 +191,11 @@ Test beta (GitHub branch `1.1beta1`; continues the release 1.0).
   how far each step really moved the headroom (per band, also a chain of steps) and steps up only when that keeps it in the
   dead band; a step down within 10 s of a step up holds the gain for 30 s while it learns. Test with such a front end in
   `tests/test_sagc.py`.
+- **SCAN stopped too often on noise (ASQ):** a channel opened on one block (85 ms) over its threshold, so a click, a
+  burst or a rise of the whole band stopped the scan for nothing (the log had many activities of 0.1 s at 4–6 dB SNR,
+  several neighbours at once). A channel now opens only after 2 blocks in a row over its threshold (the window is looked
+  at once more; ~85 ms later for a real signal), and its own learned floor never counts below the noise of the band in
+  the current block, so a rise of the whole band does not open its channels. Test in `tests/test_scanner.py`.
 
 ## Ver. 1.0
 

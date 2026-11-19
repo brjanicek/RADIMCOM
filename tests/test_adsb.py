@@ -167,6 +167,21 @@ class Range(unittest.TestCase):
         r.add((50.0, 14.4), 50.1, 14.4, 5000, now)  # the station moved: starts again
         self.assertLess(r.info()["max_km"]["max"], 20)
 
+    def test_import(self):
+        """SETTINGS › LOGS › HISTORY: an exported range merged in (the farther point wins), not from another place."""
+        qth, now = (48.15, 17.1), time.time()
+        a, b = adsb.RangeMap(), adsb.RangeMap()
+        a.add(qth, 49.5, 17.1, 9000, now)
+        b.add(qth, 48.3, 17.1, 9000, now)
+        self.assertGreater(b.merge(a.info()), 0)
+        self.assertGreater(b.info()["max_km"]["10000"], 140)
+        far = adsb.RangeMap()
+        far.add((50.0, 14.4), 50.5, 14.4, 5000, now)
+        with self.assertRaises(ValueError):
+            b.merge(far.info())
+        with self.assertRaises(ValueError):
+            b.merge({"nothing": 1})
+
 
 class NetLookup(unittest.TestCase):
     def test_parse_adsb_fi_answer(self):

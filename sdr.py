@@ -686,7 +686,7 @@ class NoiseBlanker:
             self._acc = [0, 0, 0]
 
 
-DNR_LEVEL_DEFAULT = 5     # DNR key: level 1 (gentle) … 10 (strong)
+DNR_LEVEL_DEFAULT = 3     # DNR key: level 1 (gentle) … 10 (strong); 1.1beta1: was 5, the voice got rough
 DNR_LEVEL_MIN, DNR_LEVEL_MAX = 1, 10
 DNR_MODES = ("AM", "LSB", "USB", "CW")
 
@@ -698,8 +698,13 @@ class SpectralNR:
     and gaps between harmonics, the noise does not), times a bias; the gain is a Wiener gain from the a-priori SNR of
     the decision-directed estimate (Ephraim–Malah 1984), which keeps the residual noise smooth instead of
     "musical" (warbling tones), with a floor so the rest of the noise is lowered, not removed, and smoothed over
-    neighbouring bins. Level 1–10: floor 6–24 dB below the input, noise overestimated 1.0–2.35 ×.
-    Delay N samples (27 ms at 37.5 kHz)."""
+    neighbouring bins. Level 1–10: floor 5.7–30 dB below the input, noise overestimated 1.0–1.45 ×.
+    Delay N samples (27 ms at 37.5 kHz).
+
+    1.1beta1: the strength comes mostly from the floor, much less from overestimating the noise (was 1.0–2.35 ×,
+    floor 6–24 dB). Overestimation is what takes the weak harmonics of the voice and makes it rough: at the same noise
+    reduction in the pauses the voice is 1.3–1.9 dB cleaner (speech-to-distortion ratio, synthetic SSB speech at 6 dB
+    SNR, tests/test_dnr.py), e.g. −16 dB of noise in the pauses: before level 7 with 8.2 dB, now level 7 with 10.1 dB."""
 
     N, H = 1024, 256
     SMOOTH = 0.7           # power smoothing per hop (~20 ms)
@@ -732,7 +737,7 @@ class SpectralNR:
 
     def _params(self):
         lv = min(max(float(self.level), DNR_LEVEL_MIN), DNR_LEVEL_MAX)
-        return 10 ** (-(4.0 + 2.0 * lv) / 20), 1.0 + 0.15 * (lv - 1)
+        return 10 ** (-(3.0 + 2.7 * lv) / 20), 1.0 + 0.05 * (lv - 1)
 
     def _frame(self, X):
         p = X.real ** 2 + X.imag ** 2
@@ -1643,6 +1648,7 @@ class Receiver:
         self.on_demod = on_demod
         self.on_dsd = on_dsd      # DSD mode: gets the discriminator, returns the voice
         self.on_raw = None        # raw dongle samples (VDL2), set by app.py
+        self.want_rows = None     # () -> bool, set by app.py: False = no browser takes the waterfall rows (all paused / none)
         self.on_spurs = None      # LEARN finished: the settings have to be saved, set by app.py
         self.spur_learning = False
         self.spur_found = None    # lines found by the last LEARN
@@ -2154,6 +2160,10 @@ class Receiver:
             power = power * self.spur_mask
         else:
             self.spur_ema_key = None                # measured afresh when switched on again
+        # The FFT above is needed anyway (auto squelch, AGC+, SP, scanner); the rows for the browsers (section, fine FFT
+        # when zoomed in, encoding) only while a browser takes them: all paused (RUN / PAUSE) or none connected = skipped.
+        if self.want_rows is not None and not self.want_rows():
+            return
         def to_row(p):
             db = 10 * np.log10(p.reshape(WF_BINS, -1).mean(axis=1) + 1e-20)
             return np.clip((db - WF_DB_MIN) / WF_DB_STEP, 0, 255).astype(np.uint8).tobytes()
