@@ -1524,6 +1524,244 @@ def api_share_adsbfi():
     return jsonify(out)
 
 
+# ----- COMPOSITE sharing: radiosondes around the station from SondeHub (open API, no key) -----
+_share_sh = {"t": 0.0, "key": None, "data": None, "trails": {}}
+_share_sh_lock = threading.Lock()
+SHARE_SH_KEEP = ("serial", "type", "subtype", "manufacturer", "lat", "lon", "alt", "vel_v", "vel_h", "heading", "datetime",
+                 "frequency", "temp", "humidity", "uploader_callsign", "frame")
+
+
+@app.route("/api/share/sondehub", methods=["GET"])
+def api_share_sondehub():
+    """The radiosondes SondeHub heard within ?dist= km (10–800) of the station in the last ?last= s (600–86400):
+    {"t", "sondes": [the newest record of each (fields of SHARE_SH_KEEP), "t" = its time, "trail": [[lat, lon, alt, t]…]]}.
+    Asked from SondeHub at most every 15 s; the trails are made here from the records asked (the last 6 h)."""
+    import calendar, gzip, urllib.request
+    try:
+        dist = max(10, min(800, int(request.args.get("dist", 300))))
+        last = max(600, min(86400, int(request.args.get("last", 10800))))
+    except ValueError:
+        dist, last = 300, 10800
+    loc = location.load()
+    lat, lon = loc.get("lat"), loc.get("lon")
+    if lat is None or lon is None or (not lat and not lon):
+        return jsonify(error="the station location is not set (MENU › SETUP › LOCATION)"), 400
+    key = (round(lat, 3), round(lon, 3), dist, last)
+    with _share_sh_lock:
+        if _share_sh["key"] == key and time.time() - _share_sh["t"] < 15:
+            return jsonify(_share_sh["data"])
+        url = f"https://api.v2.sondehub.org/sondes?lat={lat:.4f}&lon={lon:.4f}&distance={dist * 1000}&last={last}"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "RADIMCOM", "Accept-Encoding": "gzip"})
+            with urllib.request.urlopen(req, timeout=15) as r:
+                raw = r.read()
+                if r.headers.get("Content-Encoding") == "gzip" or raw[:2] == b"\x1f\x8b":
+                    raw = gzip.decompress(raw)
+                d = json.loads(raw)
+        except Exception as e:      # no internet or SondeHub busy
+            return jsonify(error=f"SondeHub: {e}"), 502
+        now, out, trails = time.time(), [], _share_sh["trails"]
+        for serial, rec in (d.items() if isinstance(d, dict) else []):
+            if not isinstance(rec, dict) or rec.get("lat") is None or rec.get("lon") is None:
+                continue
+            try:
+                t = calendar.timegm(time.strptime(str(rec.get("datetime", ""))[:19], "%Y-%m-%dT%H:%M:%S"))
+            except ValueError:
+                t = now
+            item = {k: rec[k] for k in SHARE_SH_KEEP if k in rec}
+            item["t"] = t
+            tr = trails.setdefault(serial, [])
+            if not tr or tr[-1][3] < t:
+                tr.append([round(rec["lat"], 5), round(rec["lon"], 5), round(rec.get("alt") or 0), t])
+            while tr and now - tr[0][3] > 6 * 3600:
+                tr.pop(0)
+            item["trail"] = tr[-400:]
+            out.append(item)
+        for serial in [k for k, tr in trails.items() if not tr or now - tr[-1][3] > 6 * 3600]:
+            del trails[serial]
+        data = {"t": round(now, 1), "sondes": out}
+        _share_sh.update(t=now, key=key, data=data)
+    return jsonify(data)
+
+
+# ----- COMPOSITE sharing: ships around the station from aisstream.io (WebSocket, free API key in data\mapkeys.json) -----
+class ShareAis:
+    """One WebSocket to aisstream.io while windows ask (stops 5 min after the last request): the position reports and
+    static data of the ships in a box around the station, kept 30 min. A plain stdlib WebSocket client (no extra package)."""
+    HOST, PATH, KEEP_S, IDLE_S = "stream.aisstream.io", "/v0/stream", 1800, 300
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.ships = {}            # mmsi -> record (+ "trail": [[lat, lon, t]…])
+        self.box = None            # (lat, lon, dist NM) subscribed
+        self.want = None
+        self.asked = 0.0
+        self.status = "off"
+        self.thread = None
+
+    def get(self, lat, lon, dist):
+        with self.lock:
+            self.asked = time.time()
+            self.want = (round(lat, 3), round(lon, 3), dist)
+            if not self.thread or not self.thread.is_alive():
+                self.thread = threading.Thread(target=self._run, daemon=True, name="aisstream")
+                self.thread.start()
+            now = time.time()
+            for m in [m for m, r in self.ships.items() if now - r["t"] > self.KEEP_S]:
+                del self.ships[m]
+            return {"t": round(now, 1), "status": self.status, "ships": list(self.ships.values())}
+
+    # --- the WebSocket ---
+    def _connect(self):
+        import base64, socket, ssl
+        sock = socket.create_connection((self.HOST, 443), timeout=60)   # the handshake can take many seconds
+        sock = ssl.create_default_context().wrap_socket(sock, server_hostname=self.HOST)
+        key = base64.b64encode(os.urandom(16)).decode()
+        sock.sendall((f"GET {self.PATH} HTTP/1.1\r\nHost: {self.HOST}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+                      f"Sec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\nUser-Agent: RADIMCOM\r\n\r\n").encode())
+        buf = b""
+        while b"\r\n\r\n" not in buf:
+            c = sock.recv(4096)
+            if not c:
+                raise OSError("closed during the handshake")
+            buf += c
+        head, rest = buf.split(b"\r\n\r\n", 1)
+        if b" 101 " not in head.split(b"\r\n")[0]:
+            raise OSError(head.split(b"\r\n")[0].decode(errors="replace"))
+        return sock, rest
+
+    @staticmethod
+    def _send(sock, data, op=1):
+        import struct
+        p = data.encode() if isinstance(data, str) else data
+        n = len(p)
+        h = bytes([0x80 | op]) + (bytes([0x80 | n]) if n < 126 else bytes([0xFE]) + struct.pack(">H", n) if n < 65536
+                                  else bytes([0xFF]) + struct.pack(">Q", n))
+        m = os.urandom(4)
+        sock.sendall(h + m + bytes(b ^ m[i % 4] for i, b in enumerate(p)))
+
+    def _frames(self, sock, buf):
+        import struct
+
+        def need(n):
+            nonlocal buf
+            while len(buf) < n:
+                c = sock.recv(65536)
+                if not c:
+                    raise OSError("closed")
+                buf += c
+            out, buf = buf[:n], buf[n:]
+            return out
+        msg = b""
+        while True:
+            b0, b1 = need(2)
+            op, n = b0 & 15, b1 & 127
+            if n == 126:
+                n = struct.unpack(">H", need(2))[0]
+            elif n == 127:
+                n = struct.unpack(">Q", need(8))[0]
+            mask = need(4) if b1 & 0x80 else None
+            p = need(n)
+            if mask:
+                p = bytes(b ^ mask[i % 4] for i, b in enumerate(p))
+            if op == 9:
+                self._send(sock, p, 10)      # ping -> pong
+            elif op == 8:
+                raise OSError("closed by aisstream " + p[2:].decode(errors="replace"))
+            elif op in (0, 1, 2):
+                msg += p
+                if b0 & 0x80:
+                    yield msg
+                    msg = b""
+
+    def _run(self):
+        import math
+        while time.time() - self.asked < self.IDLE_S:
+            try:
+                with open(MAPKEYS_PATH, encoding="utf-8") as f:
+                    key = (json.load(f) or {}).get("aisstream", "")
+            except (OSError, ValueError):
+                key = ""
+            if not key:
+                self.status = "no API key"
+                time.sleep(10)
+                continue
+            box = self.want
+            lat, lon, dist = box
+            dlat = dist / 60.0
+            dlon = dlat / max(0.2, math.cos(math.radians(lat)))
+            try:
+                self.status = "connecting"
+                sock, rest = self._connect()
+                self._send(sock, json.dumps({"APIKey": key, "BoundingBoxes": [[[lat - dlat, lon - dlon], [lat + dlat, lon + dlon]]],
+                                             "FilterMessageTypes": ["PositionReport", "StandardClassBPositionReport",
+                                                                    "ExtendedClassBPositionReport", "ShipStaticData"]}))
+                sock.settimeout(90)
+                self.box, self.status = box, "connected"
+                for raw in self._frames(sock, rest):
+                    if self.want != self.box or time.time() - self.asked > self.IDLE_S:
+                        break                 # another box wanted / nobody asks: close, maybe open again
+                    self._take(json.loads(raw))
+                sock.close()
+            except Exception as e:           # no internet, aisstream busy or a bad key
+                self.status = f"error: {e}"
+                time.sleep(15)
+        self.status = "off"
+
+    def _take(self, d):
+        if "error" in d:
+            raise OSError(str(d["error"]))
+        md, kind = d.get("MetaData") or {}, d.get("MessageType")
+        mmsi = md.get("MMSI")
+        if not mmsi or kind == "SubscriptionConfirmation":
+            return
+        msg = (d.get("Message") or {}).get(kind) or {}
+        now = time.time()
+        with self.lock:
+            r = self.ships.setdefault(mmsi, {"mmsi": mmsi, "name": "", "callsign": "", "shiptype_n": None, "destination": "",
+                                             "lat": None, "lon": None, "sog": None, "cog": None, "hdg": None, "status_n": None,
+                                             "t": now, "trail": []})
+            name = (md.get("ShipName") or "").strip()
+            if name:
+                r["name"] = name
+            if kind == "ShipStaticData":
+                r["callsign"] = (msg.get("CallSign") or "").strip() or r["callsign"]
+                r["shiptype_n"] = msg.get("Type", r["shiptype_n"])
+                r["destination"] = (msg.get("Destination") or "").strip() or r["destination"]
+                return
+            lat, lon = msg.get("Latitude", md.get("latitude")), msg.get("Longitude", md.get("longitude"))
+            if lat is None or lon is None or abs(lat) > 90 or abs(lon) > 180:
+                return
+            sog, cog, hdg = msg.get("Sog"), msg.get("Cog"), msg.get("TrueHeading")
+            r.update(lat=round(lat, 5), lon=round(lon, 5), t=now, sog=sog if sog is not None and sog < 102.2 else None,
+                     cog=cog if cog is not None and cog < 360 else None, hdg=hdg if hdg is not None and hdg < 360 else None,
+                     status_n=msg.get("NavigationalStatus", r["status_n"]))
+            tr = r["trail"]
+            if not tr or tr[-1][0] != r["lat"] or tr[-1][1] != r["lon"]:
+                tr.append([r["lat"], r["lon"], round(now, 1)])
+            while tr and now - tr[0][2] > 900:
+                tr.pop(0)
+
+
+share_ais = ShareAis()
+
+
+@app.route("/api/share/aisstream", methods=["GET"])
+def api_share_aisstream():
+    """The ships aisstream.io reported within ?dist= NM (10–250) of the station in the last 30 min:
+    {"t", "status", "ships": [{"mmsi", "name", "callsign", "shiptype_n", "destination", "lat", "lon", "sog", "cog", "hdg",
+    "status_n", "t", "trail"}]}. The WebSocket runs while windows ask (it closes 5 min after the last request)."""
+    try:
+        dist = max(10, min(250, int(request.args.get("dist", 50))))
+    except ValueError:
+        dist = 50
+    loc = location.load()
+    lat, lon = loc.get("lat"), loc.get("lon")
+    if lat is None or lon is None or (not lat and not lon):
+        return jsonify(error="the station location is not set (MENU › SETUP › LOCATION)"), 400
+    return jsonify(share_ais.get(lat, lon, dist))
+
+
 # ----- keys of map services (OpenAIP), one file for the station: every window and computer has them -----
 MAPKEYS_PATH = data("mapkeys.json")
 
@@ -1540,14 +1778,15 @@ def api_mapkeys():
         keys = {}
     if request.method == "POST":
         d = request.get_json(silent=True) or {}
-        if "openaip" in d:
-            k = str(d.get("openaip") or "").strip()
-            if k and not re.fullmatch(r"[A-Za-z0-9_-]{8,128}", k):
-                return jsonify(error="the key has letters, digits, - and _ only"), 400
-            keys["openaip"] = k
+        for name in ("openaip", "aisstream"):
+            if name in d:
+                k = str(d.get(name) or "").strip()
+                if k and not re.fullmatch(r"[A-Za-z0-9_-]{8,128}", k):
+                    return jsonify(error="the key has letters, digits, - and _ only"), 400
+                keys[name] = k
         with open(MAPKEYS_PATH, "w", encoding="utf-8") as f:
             json.dump(keys, f)
-    return jsonify(openaip=keys.get("openaip", ""))
+    return jsonify(openaip=keys.get("openaip", ""), aisstream=keys.get("aisstream", ""))
 
 
 # ----- own map layers (GeoJSON; KML / GPX are turned into GeoJSON in the browser): one folder for all VFOs -----

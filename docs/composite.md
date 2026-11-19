@@ -26,6 +26,19 @@ aircraft the local decoders do not hear** (on by default; with it off they are j
 aircraft on the ground** (off by default). Positions older than a minute are left out; the trails of the last 15 minutes
 are made from the positions asked. Aircraft only from shared sources take the **Sharing** column of Objects and Labels.
 
+Ships under **Sharing**: **aisstream**, the ships the aisstream.io network reports around the station (a free API key
+from aisstream.io, typed into the **API key** field and stored on the server in `data\mapkeys.json`). The server keeps
+one WebSocket to aisstream while windows ask (closed 5 minutes after the last request) and keeps a ship 30 minutes after
+its last report (positions come every few minutes). Filter: **Radius** 25–250 NM (50 by default), **At most** the
+nearest N, **only ships the local AIS decoder does not hear** (on by default) and **only moving ships**. New
+`GET /api/share/aisstream?dist=`.
+
+Radiosondes under **Sharing**: **SondeHub**, the sondes the SondeHub network heard around the station (open data, no
+key). Filter: **Radius** 50–400 NM (150 by default), **Heard within** 1 / 3 / 6 / 24 h (3 by default), **only sondes the
+local SONDE decoder does not hear** (on by default) and **only sondes in flight** (a frame in the last 10 minutes). The
+server asks SondeHub at most every 15 s and makes the trails (the last 6 h) from the records asked; a sonde falling
+after the burst gets the parachute icon. New `GET /api/share/sondehub?dist=&last=`.
+
 ## Status row
 
 Under the map: **Tracks** (the objects on the map, `of n` when some are hidden, and how many are joined from more
@@ -45,9 +58,9 @@ azimuth / distance from the station in the unit of the A/D map) and the **JSON**
 ## Map settings
 
 The **⚙** key in the top right corner of the map opens its settings (**Settings** shows beside it while open) in
-sections that open and close with a click (which are open is remembered): **Sources** (for **Aircraft**, **Radiosondes** and
-**Ships**: the local decoders, one switch per VFO and decoder with the number of objects, and **Sharing** from other
-stations), **Map** (base map, OpenSeaMap, OpenAIP, own layers, A/D map, ADS-B range),
+sections that open and close with a click (which are open is remembered): **Sources** (**Aircraft**, **Radiosondes** and **Ships**,
+each a part that opens with a click, one at a time: the local decoders, one switch per VFO and decoder with the number of
+objects, and **Sharing** from other stations), **Map** (base map, OpenSeaMap, OpenAIP, own layers, A/D map, ADS-B range),
 **Weather** (precipitation, clouds), **Aircraft**, **Radiosondes**, **Ships** and **Labels**. The settings are remembered in the browser (also from
 the map opened alone in a new tab) and applied at once in all open tabs and windows of the same address.
 

@@ -16124,13 +16124,23 @@ function mapViewKeep(map, kind) {
 const COM_SRC = {   // source key → name and colour
   adsb: ["ADS-B", "#ffd84a"], acars: ["ACARS", "#6cb8ff"], vdl2: ["VDL2", "#6cb8ff"], hfdl: ["HFDL", "#ff9a3c"],
   ais: ["AIS", "#6cff9c"], sonde: ["SONDE", "#ff6cd2"], adsbfi: ["adsb.fi", "#9ad0ff"],
+  aisstream: ["aisstream", "#7affd0"], sondehub: ["SondeHub", "#ffa0e6"],
 };
-const COM_SHARED = new Set(["adsbfi"]);   // sources from other stations (Sharing)
+const COM_SHARED = new Set(["adsbfi", "aisstream", "sondehub"]);
+let comShareSh = { sondes: [], t: 0, err: "", got: 0, shown: 0 }, comShareShAt = 0;   // sources from other stations (Sharing)
+// AIS ship types (the tens) and navigational status, for the ships from aisstream
+const COM_AIS_TYPE = { 2: "WIG", 3: "Special", 4: "HSC", 5: "Special", 6: "Passenger", 7: "Cargo", 8: "Tanker", 9: "Other" };
+const COM_AIS_TYPE_3 = { 30: "Fishing", 31: "Towing", 32: "Towing", 33: "Dredging", 34: "Diving", 35: "Military", 36: "Sailing", 37: "Pleasure craft" };
+const COM_AIS_NAV = ["under way using engine", "at anchor", "not under command", "restricted manoeuvrability", "constrained by draught",
+  "moored", "aground", "engaged in fishing", "under way sailing"];
+let comShareAis = { ships: [], t: 0, err: "", status: "", got: 0, shown: 0 }, comShareAisAt = 0;
 
 // ----- Sharing: aircraft around the station from adsb.fi, filtered as the map settings say -----
 let comShare = { ac: [], t: 0, err: "", got: 0, shown: 0 }, comShareAt = 0;
 const comShareTr = new Map();   // hex -> [[lat, lon, t]…] of the last 15 minutes (adsb.fi gives positions only, the trails are made here)
 async function comShareLoad(force) {
+  await comShareAisLoad(force);
+  await comShareShLoad(force);
   if (!mapOpts.shAfi) return;
   if (!force && Date.now() - comShareAt < mapOpts.shInt * 1000) return;
   comShareAt = Date.now();
@@ -16151,6 +16161,64 @@ async function comShareLoad(force) {
       if (!tr.length) comShareTr.delete(hex);
     }
   } catch (e) { comShare = { ...comShare, err: e.message }; }
+}
+/** Ships around the station from aisstream.io (the server keeps the WebSocket while windows ask). */
+async function comShareAisLoad(force) {
+  if (!mapOpts.shAis) return;
+  if (!force && Date.now() - comShareAisAt < 10000) return;
+  comShareAisAt = Date.now();
+  try {
+    const d = await mapLayApi(`/api/share/aisstream?dist=${mapOpts.shAisDist}`);
+    comShareAis = { ...comShareAis, ships: d.ships || [], t: d.t || Date.now() / 1000, status: d.status || "", err: /^error|no API key/.test(d.status || "") ? d.status : "", got: (d.ships || []).filter((x) => x.lat != null).length };
+  } catch (e) { comShareAis = { ...comShareAis, err: e.message }; }
+}
+/** Radiosondes around the station from SondeHub (open data; the server asks at most every 15 s). */
+async function comShareShLoad(force) {
+  if (!mapOpts.shSh) return;
+  if (!force && Date.now() - comShareShAt < 20000) return;
+  comShareShAt = Date.now();
+  try {
+    const d = await mapLayApi(`/api/share/sondehub?dist=${Math.round(mapOpts.shShDist * 1.852)}&last=${mapOpts.shShAge * 3600}`);
+    comShareSh = { ...comShareSh, sondes: d.sondes || [], t: d.t || Date.now() / 1000, err: "", got: (d.sondes || []).length };
+  } catch (e) { comShareSh = { ...comShareSh, err: e.message }; }
+}
+/** The SondeHub radiosondes that pass the filter, as items of the COMPOSITE feed (records as the SONDE decoder makes them). */
+function comShareShItems() {
+  if (!mapOpts.shSh) return [];
+  const o = mapOpts, local = new Set(), now = Date.now() / 1000;
+  if (o.shShNotLocal) for (const [vfo, d] of comFeeds) if (vfo !== "~share") for (const i of d.items) if (i.sonde && i.sonde.serial) local.add(String(i.sonde.serial));
+  const list = comShareSh.sondes.filter((x) => !local.has(String(x.serial)) && (!o.shShFlying || (now - x.t < 600 && (x.alt || 0) > 500)));
+  comShareSh.shown = list.length;
+  return list.map((x) => {
+    const tr = x.trail || [], top = tr.reduce((m, p) => (p[2] > m ? p[2] : m), x.alt || 0);
+    const falling = x.vel_v != null && x.vel_v < -2 && top - (x.alt || 0) > 300;
+    const sonde = { serial: x.serial, type: x.subtype || x.type || "", freq_hz: x.frequency ? x.frequency * 1e6 : null, alt: x.alt, vv: x.vel_v, vh: x.vel_h,
+      dir: x.heading, lat: x.lat, lon: x.lon, pos_time: x.t, last: x.t, burst: falling, burst_alt: falling ? top : null, max_alt: top,
+      temp: x.temp, rh: x.humidity, src: "SondeHub", uploader: x.uploader_callsign };
+    return { src: "sondehub", id: String(x.serial), label: `${x.serial} ${x.type || ""}`.trim(), lat: x.lat, lon: x.lon, t: x.t,
+      alt_m: x.alt == null ? null : Math.round(x.alt), trail: tr.map((p) => [p[0], p[1], p[3]]), sonde };
+  });
+}
+/** The aisstream ships that pass the filter, as items of the COMPOSITE feed (ship records as the AIS decoder makes them). */
+function comShareAisItems() {
+  if (!mapOpts.shAis) return [];
+  const o = mapOpts, q = mapQthV, local = new Set(), now = Date.now() / 1000;
+  if (o.shAisNotLocal) for (const [vfo, d] of comFeeds) if (vfo !== "~share") for (const i of d.items) if (i.ship && i.ship.mmsi) local.add(String(i.ship.mmsi));
+  let list = comShareAis.ships.filter((x) => x.lat != null && !local.has(String(x.mmsi)) && (!o.shAisMoving || (x.sog != null && x.sog >= 0.5)));
+  if (q) {
+    const lim = o.shAisDist * 1.852;
+    list = list.map((x) => [mapAzDist(q, x)[1], x]).filter((v) => v[0] <= lim).sort((a, b) => a[0] - b[0]).map((v) => v[1]);
+  }
+  if (o.shAisMax) list = list.slice(0, o.shAisMax);
+  comShareAis.shown = list.length;
+  return list.map((x) => {
+    const tn = x.shiptype_n, type = tn == null ? "" : COM_AIS_TYPE_3[tn] || COM_AIS_TYPE[Math.floor(tn / 10)] || "";
+    const ship = { mmsi: x.mmsi, name: x.name || "", callsign: x.callsign || "", station: "ship", shiptype: type, destination: x.destination || "",
+      lat: x.lat, lon: x.lon, sog: x.sog, cog: x.cog, hdg: x.hdg, status: x.status_n != null ? COM_AIS_NAV[x.status_n] || "" : "",
+      last: x.t, pos_time: x.t, src: "aisstream" };
+    return { src: "aisstream", id: String(x.mmsi), label: x.name || String(x.mmsi), lat: x.lat, lon: x.lon, t: x.t, trail: x.trail || [],
+      track: x.hdg ?? x.cog, ship };
+  });
 }
 /** The adsb.fi aircraft that pass the filter, as items of the COMPOSITE feed. */
 function comShareItems() {
@@ -16274,6 +16342,8 @@ function comMerge() {
   const list = [];
   for (const [vfo, d] of comFeeds) for (const i of d.items) if (!comOff.has(comKey(vfo, i.src))) list.push({ vfo, i });
   for (const i of comShareItems()) list.push({ vfo: "~share", i });   // Sharing (adsb.fi), filtered
+  for (const i of comShareAisItems()) list.push({ vfo: "~share", i });   // Sharing (aisstream), filtered
+  for (const i of comShareShItems()) list.push({ vfo: "~share", i });   // Sharing (SondeHub), filtered
   // union-find over the items: each identifier seen joins the items that have it
   const up = list.map((_, k) => k), why = list.map(() => new Set()), gHex = list.map(() => "");
   const root = (k) => { while (up[k] !== k) k = up[k] = up[up[k]]; return k; };
@@ -16520,7 +16590,7 @@ async function renderComMap() {
     comMap.fitBounds(pts, { padding: [30, 30], maxZoom: 8 });
   }
   const joined = comMerged.filter((m) => m.keys.length > 1).length;
-  const shown = comLayers.marks.getLayers().length;   // the status row under the map
+  const shown = comDrawn.length;   // the status row under the map
   $("comInfo").textContent = `Tracks ${shown}${shown !== comMerged.length ? ` of ${comMerged.length}` : ""}${joined ? ` · ${joined} joined` : ""}`;
   $("comNote").textContent = "a click on an aircraft, ship or sonde = its details on the right (orange = selected, red = emergency squawk, grey = no position for 15 min) · aircraft, ships and sondes as on their own maps · ▲ ground stations · trail colour = source · one object heard by more VFOs / decoders = one mark";
 }
@@ -16530,7 +16600,7 @@ async function renderComMap() {
  *  selects it and centres the map. An aircraft with an emergency squawk opens Aircraft, is scrolled into view and its
  *  row stays red while the squawk lasts and a minute after. */
 const COM_LISTS = [
-  ["air", "Aircraft", [["name", "Flight"], ["type", "Type"], ["alt", "FL"], ["spd", "kt"], ["dist", "Dist"], ["age", "Age"]]],
+  ["air", "Aircrafts", [["name", "Flight"], ["type", "Type"], ["alt", "FL"], ["spd", "kt"], ["dist", "Dist"], ["age", "Age"]]],
   ["sonde", "Radiosondes", [["name", "Serial"], ["type", "Type"], ["alt", "Alt m"], ["vs", "m/s"], ["dist", "Dist"], ["age", "Age"]]],
   ["ship", "Ships", [["name", "Name"], ["type", "Type"], ["spd", "kt"], ["dist", "Dist"], ["age", "Age"]]],
 ];
@@ -16845,6 +16915,7 @@ const MAP_COLORS = { cIcon: ["#ffd84a", "#ff8c1a"], cTrail: ["#ffffff", "#ff8c1a
 const MAP_DROP = [0, 1, 2, 3, 5, 10];
 // Sharing (adsb.fi): radius (NM), refresh (s), altitude band (ft; 0 = any), at most the nearest (0 = all)
 const MAP_SH_DIST = [25, 50, 100, 150, 200, 250], MAP_SH_INT = [5, 10, 30, 60];
+const MAP_SH_SH_DIST = [50, 100, 150, 200, 300, 400], MAP_SH_SH_AGE = [1, 3, 6, 24];   // SondeHub: radius (NM), heard within (h)
 const MAP_SH_ALT_MIN = [0, 1000, 5000, 10000, 20000, 30000], MAP_SH_ALT_MAX = [0, 5000, 10000, 20000, 30000, 45000], MAP_SH_MAX = [25, 50, 100, 200, 0];
 // aircraft symbols: the icon, or an outline only (square, circle, triangle) or an asterisk
 const MAP_SYMS = [["icon", "aircraft"], ["box", "square □"], ["circle", "circle ○"], ["tri", "triangle △"], ["star", "asterisk *"]];
@@ -16909,6 +16980,10 @@ function mapOptsRead0() {
     shAfi: !!o.shAfi, shDist: MAP_SH_DIST.includes(+o.shDist) ? +o.shDist : 100, shInt: MAP_SH_INT.includes(+o.shInt) ? +o.shInt : 10,
     shAltMin: MAP_SH_ALT_MIN.includes(+o.shAltMin) ? +o.shAltMin : 0, shAltMax: MAP_SH_ALT_MAX.includes(+o.shAltMax) ? +o.shAltMax : 0,
     shMax: MAP_SH_MAX.includes(+o.shMax) ? +o.shMax : 100, shNotLocal: o.shNotLocal != null ? !!o.shNotLocal : true, shGround: !!o.shGround,
+    shSh: !!o.shSh, shShDist: MAP_SH_SH_DIST.includes(+o.shShDist) ? +o.shShDist : 150, shShAge: MAP_SH_SH_AGE.includes(+o.shShAge) ? +o.shShAge : 3,
+    shShNotLocal: o.shShNotLocal != null ? !!o.shShNotLocal : true, shShFlying: !!o.shShFlying,
+    shAis: !!o.shAis, shAisDist: MAP_SH_DIST.includes(+o.shAisDist) ? +o.shAisDist : 50, shAisMax: MAP_SH_MAX.includes(+o.shAisMax) ? +o.shAisMax : 100,
+    shAisNotLocal: o.shAisNotLocal != null ? !!o.shAisNotLocal : true, shAisMoving: !!o.shAisMoving,
     noUnits: !!o.noUnits, noUnitsSel: !!o.noUnitsSel, noUnitsShr: !!o.noUnitsShr,
     fontShr: k(MAP_FONT_K, o.fontShr), bgShr: MAP_LBL_BG.includes(+o.bgShr) ? +o.bgShr : 0.85, lblShr: lbl(o.lblShr, MAP_LBL_DEF.lbl),
   };
@@ -17424,6 +17499,13 @@ function comMapSettings(map, kind, rerender, noTrails) {
       panel.addEventListener("input", onInput);
       panel.addEventListener("change", onInput);
       panel.addEventListener("toggle", (e) => {   // a section opened / closed: remembered
+        if (e.target.matches && e.target.matches("details[data-srcsec]")) {   // Sources: one kind open at a time
+          const d = e.target;
+          if (d.open) panel.querySelectorAll("details[data-srcsec][open]").forEach((x) => { if (x !== d) x.open = false; });
+          const o = panel.querySelector("details[data-srcsec][open]");
+          try { localStorage.setItem("comSrcOpen", o ? o.dataset.srcsec : ""); } catch { /* this page only */ }
+          return;
+        }
         if (!e.target.matches || !e.target.matches("details[data-sec]")) return;
         const open = [...panel.querySelectorAll("details[data-sec][open]")].map((d) => d.dataset.sec);
         try { localStorage.setItem("mapOptsOpen", JSON.stringify(open)); } catch { /* this page only */ }
@@ -17466,11 +17548,39 @@ function comMapSettings(map, kind, rerender, noTrails) {
           `${vfo ? `VFO ${escHtml(vfo)} · ` : ""}${escHtml(name)} <small class="muted">${n}${hist ? " · history" : ""}</small></label>`);
       }
     }
-    const part = (title, k, share, none) => `<div class="map-opts-sub2">${title}</div>` +
-      '<div class="map-opts-sub3">Local decoders</div>' + (rows[k].join("") || `<p class="map-opts-note">${none}</p>`) +
-      '<div class="map-opts-sub3">Sharing <small>from other stations</small></div>' + (share || '<p class="map-opts-note">Nothing shared yet.</p>');
-    return part("Aircraft", "air", shareHtml(), "No ADS-B, VDL2 / ACARS or HFDL decoder runs on any VFO.") +
-      part("Radiosondes", "sonde", "", "No SONDE decoder runs on any VFO.") + part("Ships", "ship", "", "No AIS decoder runs on any VFO.");
+    // one part per kind, opening and closing with a click; only one open at a time (remembered)
+    let open = "air";
+    try { open = localStorage.getItem("comSrcOpen") ?? "air"; } catch { /* the default */ }
+    const part = (title, k, share, none) => {
+      const n = rows[k].length;
+      return `<details class="map-opts-subsec" data-srcsec="${k}"${open === k ? " open" : ""}><summary>${title} <small>${n ? `${n} local` : "no local decoder"}${k === "air" && mapOpts.shAfi ? " · adsb.fi" : ""}</small></summary>` +
+        '<div class="map-opts-sub3">Local decoders</div>' + (rows[k].join("") || `<p class="map-opts-note">${none}</p>`) +
+        '<div class="map-opts-sub3">Sharing <small>from other stations</small></div>' + (share || '<p class="map-opts-note">Nothing shared yet.</p>') + "</details>";
+    };
+    return part("Aircrafts", "air", shareHtml(), "No ADS-B, VDL2 / ACARS or HFDL decoder runs on any VFO.") +
+      part("Radiosondes", "sonde", shareShHtml(), "No SONDE decoder runs on any VFO.") + part("Ships", "ship", shareAisHtml(), "No AIS decoder runs on any VFO.");
+  }
+  function shareShHtml() {
+    const o = mapOpts, opt = (k, list, name) => `<select data-o="${k}">${list.map((v) => `<option value="${v}"${v === o[k] ? " selected" : ""}>${name(v)}</option>`).join("")}</select>`;
+    const a = comShareSh, st = !o.shSh ? "" : a.err ? `<span class="map-opts-err">${escHtml(a.err)}</span>` : a.t ? `${a.got} received · ${a.shown} shown` : "asking…";
+    return `<label title="Radiosondes heard by the SondeHub network around the station (open data)"><input type="checkbox" data-o="shSh"${o.shSh ? " checked" : ""}> ` +
+      `<span class="map-opts-dot" style="background: ${COM_SRC.sondehub[1]}"></span>SondeHub <small class="muted">${st}</small></label>` +
+      (o.shSh ? `<table class="map-opts-t map-opts-filter"><tr><th>Radius</th><td>${opt("shShDist", MAP_SH_SH_DIST, (v) => `${v} NM`)}</td>` +
+        `<th>Heard within</th><td>${opt("shShAge", MAP_SH_SH_AGE, (v) => `${v} h`)}</td></tr></table>` +
+        `<label><input type="checkbox" data-o="shShNotLocal"${o.shShNotLocal ? " checked" : ""}> only sondes the local SONDE decoder does not hear</label>` +
+        `<label><input type="checkbox" data-o="shShFlying"${o.shShFlying ? " checked" : ""}> only sondes in flight (a frame in the last 10 min)</label>` : "");
+  }
+  function shareAisHtml() {
+    const o = mapOpts, opt = (k, list, name) => `<select data-o="${k}">${list.map((v) => `<option value="${v}"${v === o[k] ? " selected" : ""}>${name(v)}</option>`).join("")}</select>`;
+    const a = comShareAis, st = !o.shAis ? "" : a.err ? `<span class="map-opts-err">${escHtml(a.err)}</span>` : a.t ? `${a.got} received · ${a.shown} shown${a.status && a.status !== "connected" ? ` · ${escHtml(a.status)}` : ""}` : "asking…";
+    return `<label title="Ships around the station seen by the aisstream.io network (a free API key, stored on the server)"><input type="checkbox" data-o="shAis"${o.shAis ? " checked" : ""}> ` +
+      `<span class="map-opts-dot" style="background: ${COM_SRC.aisstream[1]}"></span>aisstream <small class="muted">${st}</small></label>` +
+      (o.shAis ? `<label>API key <input type="text" class="map-opts-url" data-key="aisstream" value="${escHtml((mapKeys && mapKeys.aisstream) || "")}" placeholder="from aisstream.io (free account)" spellcheck="false"></label>` +
+        `<table class="map-opts-t map-opts-filter"><tr><th>Radius</th><td>${opt("shAisDist", MAP_SH_DIST, (v) => `${v} NM`)}</td>` +
+        `<th>At most</th><td>${opt("shAisMax", MAP_SH_MAX, (v) => (v ? `${v} nearest` : "all"))}</td></tr></table>` +
+        `<label><input type="checkbox" data-o="shAisNotLocal"${o.shAisNotLocal ? " checked" : ""}> only ships the local AIS decoder does not hear</label>` +
+        `<label><input type="checkbox" data-o="shAisMoving"${o.shAisMoving ? " checked" : ""}> only moving ships</label>` +
+        `<p class="map-opts-note">Positions come every few minutes; a ship stays 30 min after its last report.</p>` : "");
   }
   function shareHtml() {
     const o = mapOpts, opt = (k, list, name) => `<select data-o="${k}">${list.map((v) => `<option value="${v}"${v === o[k] ? " selected" : ""}>${name(v)}</option>`).join("")}</select>`;
@@ -17570,9 +17680,9 @@ function comMapSettings(map, kind, rerender, noTrails) {
       `<tr><th colspan="4" class="map-opts-sub">Show</th></tr>` +
       MAP_LBL.map(([id, n]) => `<tr><th>${n}</th><td>${box("lblSel", id)}</td><td>${box("lbl", id)}</td><td>${box("lblShr", id)}</td></tr>`).join("") +
       `</table><p class="map-opts-note">Drag a label to move it (this window only), a double click puts it back.</p>`;
-    panel.innerHTML = (kind === "com" ? sec("sources", "Sources", "aircraft, radiosondes, ships", srcHtml()) : "") +
+    panel.innerHTML = (kind === "com" ? sec("sources", "Sources", "aircrafts, radiosondes, ships", srcHtml()) : "") +
       sec("map", "Map", "base map, layers, rings, range", mapSec) + sec("weather", "Weather", "precipitation, clouds", weatherSec) +
-      (rerender ? sec("objects", "Aircraft", "trails, icons, prediction", kindSec("", true)) + sec("sondes", "Radiosondes", "trails, icons, prediction", kindSec("s_", false)) +
+      (rerender ? sec("objects", "Aircrafts", "trails, icons, prediction", kindSec("", true)) + sec("sondes", "Radiosondes", "trails, icons, prediction", kindSec("s_", false)) +
         sec("ships", "Ships", "trails, icons, prediction", kindSec("w_", false)) + sec("labels", "Labels", "font, colours, items", lblSec) : "") +
       `<p class="map-opts-note">Remembered in the browser, the same in all windows.</p>`;
   }
@@ -17646,14 +17756,15 @@ function comMapSettings(map, kind, rerender, noTrails) {
     if (/^sh[A-Z]/.test(k) && kind === "com") {   // Sharing: applied at once (adsb.fi asked again when needed)
       if (e.type !== "change") return;
       mapOptsSet({ [k]: t.type === "checkbox" ? t.checked : +t.value });
-      comShareLoad(k === "shAfi" || k === "shDist").then(() => { renderComMap(); map._optsSources && map._optsSources(true); });
+      if (k === "shAis" && t.checked) mapKeysGet();
+      comShareLoad(["shAfi", "shDist", "shAis", "shAisDist", "shSh", "shShDist", "shShAge"].includes(k)).then(() => { renderComMap(); map._optsSources && map._optsSources(true); });
       return;
     }
     if (k === "opa" || k === "cldOpa") {   // the opacity sliders: applied while moved
       panel.querySelector(k === "opa" ? '.map-opts-opa:not([data-for])' : '.map-opts-opa[data-for="cldOpa"]').textContent = `${t.value} %`;
       mapOptsSet({ [k]: t.value / 100 });
     } else if (e.type === "change") {
-      mapOptsSet({ [k]: ["precip", "ad", "adFine", "rng", "dark", "sea", "cld", "shAfi", "shNotLocal", "shGround", "noUnits", "noUnitsSel", "noUnitsShr"].includes(k) ? t.checked : /^(?:[sw]_)?(span|icon|font|drop|bg|pred|adMax|adOpa|adFineOpa|stale|oRng|pRng|aipOpa|shDist|shInt|shAlt|shMax)/.test(k) && !/^(?:[sw]_)?(cStale)/.test(k) ? +t.value : t.value });
+      mapOptsSet({ [k]: ["precip", "ad", "adFine", "rng", "dark", "sea", "cld", "shAfi", "shNotLocal", "shGround", "noUnits", "noUnitsSel", "noUnitsShr"].includes(k) ? t.checked : /^(?:[sw]_)?(span|icon|font|drop|bg|pred|adMax|adOpa|adFineOpa|stale|oRng|pRng|aipOpa|shDist|shInt|shAlt|shMax|shAisDist|shAisMax|shShDist|shShAge)/.test(k) && !/^(?:[sw]_)?(cStale)/.test(k) ? +t.value : t.value });
     }
   }
   function apply(other) {   // other = changed in another tab / window

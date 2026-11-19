@@ -3860,3 +3860,11 @@ label.map-opts-sub2 { display: flex; align-items: center; gap: 6px; cursor: poin
 .com-lt th:nth-child(1) { width: 34%; }
 .map-opts-sub3 { margin: 4px 0 1px 2px; color: #8fa3bd; font-size: 11px; }
 .map-opts-sub3 small { color: #6b7a8c; }
+/* Sources: a part per kind (one open at a time) */
+.map-opts-subsec { margin: 2px 0; border-left: 2px solid #2a3546; padding-left: 8px; }
+.map-opts-subsec > summary { cursor: pointer; list-style: none; color: #cfd6df; font-weight: 600; font-size: 12px; padding: 3px 0; user-select: none; }
+.map-opts-subsec > summary::-webkit-details-marker { display: none; }
+.map-opts-subsec > summary::before { content: "▸"; display: inline-block; width: 12px; color: #8fa3bd; transition: transform .15s; }
+.map-opts-subsec[open] > summary::before { transform: rotate(90deg); }
+.map-opts-subsec > summary small { color: #8fa3bd; font-weight: 400; margin-left: 4px; }
+.map-opts-subsec[open] { border-left-color: #6cb8ff; }
