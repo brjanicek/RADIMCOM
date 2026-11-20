@@ -17128,6 +17128,13 @@ function comMerge() {
 let comSel = null;   // the selected aircraft (red, its popup open; a click on the map drops it)
 
 /** Heading from the last two trail points (when the source gives no track). */
+/** The course of an aircraft (track over the ground, degrees): sent by the aircraft (local ADS-B decoder or adsb.fi),
+ *  else from its last two positions; null when not known. comCrsTxt: as 245° ("" when not known). */
+function comCrs(m) {
+  const c = m.track ?? (m.air && m.air.track) ?? comHeading(m);
+  return c == null || !Number.isFinite(+c) ? null : ((Math.round(+c) % 360) + 360) % 360;
+}
+const comCrsTxt = (m) => { const c = comCrs(m); return c == null ? "" : `${String(c).padStart(3, "0")}°`; };
 function comHeading(m) {
   const t = m.trail, p = t[t.length - 1], q = t[t.length - 2];
   if (!p || !q) return null;
@@ -17574,7 +17581,7 @@ async function renderComMap() {
       const fl = a.ground ? "GND" : a.alt_ft != null ? `FL${String(Math.round(a.alt_ft / 100)).padStart(3, "0")}` : "";
       emerg = mapEmerg(a.squawk);
       label = (emerg ? mapLabelEmerg : mapLabel)({ at: m, name: a.flight || a.reg || a.hex || m.label, reg: a.reg, id: a.hex, type: a.type, alt: fl,
-        spd: a.gs_kt != null && !a.ground ? `${Math.round(a.gs_kt)} kt` : "", sq: a.squawk, desc: a.desc, src }, g);
+        spd: a.gs_kt != null && !a.ground ? `${Math.round(a.gs_kt)} kt` : "", crs: comCrsTxt(m), sq: a.squawk, desc: a.desc, src }, g);
       icon = L.divIcon({ className: `hfdl-plane${sel ? " sel" : ""}${old ? " old" : ""}`, html: svg, iconSize: [22, 22], iconAnchor: [11, 11] });
       cls = "hfdl-label";
     } else if (m.ship) {   // as on the AIS map
@@ -17649,6 +17656,7 @@ const COM_LIST_ITEMS = (() => {
       I("type", "Type", (m) => `<span class="stype">${esc(m.air.type || "")}</span>`), I("desc", "Model", (m) => esc(m.air.desc || "")),
       I("alt", "FL", (m) => (m.air.ground ? "GND" : m.air.alt_ft != null ? String(Math.round(m.air.alt_ft / 100)).padStart(3, "0") : ""), (m) => (m.air.ground ? -1 : m.air.alt_ft ?? -2)),
       I("spd", "kt", (m) => (m.air.gs_kt != null && !m.air.ground ? Math.round(m.air.gs_kt) : ""), (m) => m.air.gs_kt ?? -1),
+      I("crs", "HDG", (m) => comCrsTxt(m), (m) => comCrs(m) ?? 999),
       I("sq", "Sq", (m) => esc(m.air.squawk || "")), ad, age, src,
     ],
     s_: [
@@ -18038,7 +18046,7 @@ const MAP_STALE = [0, 1, 2, 3, 5, 10];   // icon in the "no position" colour aft
 // the items a label can show, per kind (aircrafts: no prefix, radiosondes s_, ships w_)
 const MAP_LBL_KIND = {
   "": [["name", "Flight / callsign"], ["reg", "Registration"], ["id", "ICAO address"], ["type", "Type"], ["desc", "Aircraft model"],
-    ["alt", "Altitude (FL)"], ["spd", "Speed"], ["vs", "Climb"], ["sq", "Squawk"], ["ad", "A/D (azimuth / distance)"], ["src", "Source"], ["note", "Note"]],
+    ["alt", "Altitude (FL)"], ["spd", "Speed"], ["crs", "Heading (HDG)"], ["vs", "Climb"], ["sq", "Squawk"], ["ad", "A/D (azimuth / distance)"], ["src", "Source"], ["note", "Note"]],
   s_: [["name", "Serial"], ["type", "Type"], ["freq", "Frequency"], ["alt", "Altitude"], ["vs", "Climb"], ["spd", "Speed"],
     ["temp", "Temperature"], ["rh", "Humidity"], ["state", "State"], ["land", "Predicted landing"], ["ad", "A/D (azimuth / distance)"], ["src", "Source"], ["note", "Note"]],
   w_: [["name", "Name"], ["id", "MMSI"], ["call", "Call sign"], ["type", "Type"], ["spd", "Speed"], ["crs", "Course"], ["nav", "Navigation status"],
@@ -18373,7 +18381,10 @@ function mapTokNorm(tok, ids, nLines) {
   tok = tok.filter((t, i) => (t[0] === "|" ? ++seen < nLines : tok.indexOf(t) === i));   // at most nLines - 1 line marks
   let marks = tok.filter((t) => t[0] === "|").length;
   while (marks < nLines - 1) { tok.push("|"); marks++; }
-  for (const id of ids) if (!tok.includes(id)) tok.push(id);
+  for (const id of ids) if (!tok.includes(id)) {   // a new item: at the end, but before the note (the note stays last)
+    const at = id !== "note" ? tok.indexOf("note") : -1;
+    if (at >= 0) tok.splice(at, 0, id); else tok.push(id);
+  }
   let n = 1;
   return tok.map((t) => (t[0] === "|" ? `|${++n}` : t));
 }

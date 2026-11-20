@@ -141,7 +141,7 @@ at once in all open tabs and windows of the same address.
   list 2); the items and the marks are dragged with the mouse (the grip ⠿ at the right), an item shows in the line of
   the mark above it; the items are shaded in turn.
 - **Label** of each kind (the same three columns; the items differ: aircrafts flight, registration, ICAO, type, model,
-  FL, speed, climb, squawk; radiosondes serial, type, frequency, altitude, climb, speed, temperature, humidity, state,
+  FL, speed, heading (HDG), climb, squawk; radiosondes serial, type, frequency, altitude, climb, speed, temperature, humidity, state,
   predicted landing; ships name, MMSI, call sign, type, speed, course, navigation status, destination; all azimuth,
   distance, source, note): **Show label** (on by default: the label of a new track; one track: its Track menu),
   **Font size** 80–200 %, **Background** opacity 0–100 % by 5 % (85 % by default; a
@@ -168,7 +168,9 @@ The border between the map and this panel can be dragged with the mouse (the wid
 remembered; an emergency squawk is always shown) and the counts as in the status row
 (`Total 45 (44/1) · Local … · Sharing …`, live / no position). The first column is always the
 name (flight, serial, ship; with the flag unless switched off), over all lines of the object; the other columns are those
-chosen in **List** of the map settings (by default aircrafts: type, FL, speed, distance, age of the position;
+chosen in **List** of the map settings (aircrafts can also show the **heading** (HDG): the track over the ground sent by the
+aircraft, from the local ADS-B decoder or adsb.fi, else from its last two positions; by default aircrafts: type, FL,
+speed, distance, age of the position;
 radiosondes: type, altitude, climb, distance, age; ships: type, speed, distance, age) in one or two lines. The objects
 are shaded in turn. A click on a column sorts by it, again the other way (remembered); the colour bar on the left is the
 source. A click on a row selects the
