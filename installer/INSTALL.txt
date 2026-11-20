@@ -92,6 +92,10 @@ New
 - SETTINGS > SDR SOURCES: the SDR setup inside RADIMCOM (no longer in the tray menu). Drag the sources onto VFO A-D; network
   servers are recognised by themselves; DIRECTORY lists the public SpyServers. APPLY restarts only the VFOs that change,
   the others keep running, and a VFO keeps its settings with its source.
+- COMPOSITE map: tracks, Track menu, tracker bars (by Brano, brjanicek): counts per kind (local / sharing) and a Show
+  switch in the lists, a Track menu per track (label, font, prediction, trail, note, Lock), Tracks and Tracker bars over
+  the map (labels, Center, clouds, precipitation, A/D map, Find track), more map settings with Restore default, and fixes
+  (settings no longer reset on page load, labels in a scaled page, aisstream after an error).
 Changes
 - SETTINGS > VFO > RX CHAIN (was SDR DONGLE) with a Source card; settings a network source cannot use are greyed.
   SETTINGS > LOGS is now DATA/LOG.

@@ -30,6 +30,19 @@ Test beta (GitHub branch `1.1beta2`; continues 1.1beta1).
   distance from the QTH, filters, a click adds one). **APPLY restarts only the VFOs that change** (a bubble shows them
   starting), the others keep running; a VFO keeps its settings with its source, also when it moves to another letter.
   EEPROM serial numbers with STOP USB VFOs.
+- **COMPOSITE map: tracks, Track menu, tracker bars** *(by Brano, [brjanicek](https://github.com/brjanicek), PR #23)*:
+  - **Lists:** counts Total / Local / Sharing (live / no position) per kind and in the status row, a **Show** checkbox per
+    kind, the selected track kept in view, flags of shared ships, a label for an emergency squawk and its handling in the list.
+  - **Track menu** per track: label, font, prediction, trail, note, **Lock** display; it opens at the mouse, also in the
+    small map of a tab.
+  - **Tracks** and **Tracker** bars over the map: show / hide all labels, Center, clouds, precipitation, A/D map,
+    **Find track**, Unlock.
+  - **Map settings:** Show label, Note item, the colours of the radiosonde trail (ascent / descent) and landing prediction,
+    the station icon and its colour, **Restore default** (`static/com_defaults.js`, also used the first time the map opens
+    in a browser).
+  - **Fixes:** the radiosonde / ship settings no longer reset on every page load, leader lines and label drag work in a
+    scaled page, ship and sonde labels are centred, the aisstream socket is closed after an error, the data of tracks gone
+    for an hour are dropped.
 
 ### Changes
 
