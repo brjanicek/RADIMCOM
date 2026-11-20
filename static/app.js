@@ -7759,11 +7759,11 @@ function sondePredict(s) {
       lon += (ve * DT) / (R * Math.cos((lat * Math.PI) / 180));
       if (goingUp) {
         h += prm.up * DT;
-        if (h >= prm.burst) { h = prm.burst; goingUp = false; if (keep) marks.push({ lat, lon, t: t + DT, h, burst: true }); }
+        if (h >= prm.burst) { h = prm.burst; goingUp = false; if (keep) { marks.push({ lat, lon, t: t + DT, h, burst: true }); path.push([lat, lon]); path.iBurst = path.length - 1; } }
       } else h -= prm.v0 * Math.pow(sondeRhoRatio(h), -prm.a) * DT;
       t += DT;
       if (keep && n % 3 === 0) path.push([lat, lon]);
-      if (h <= prm.ground) { path.push([lat, lon]); return { path, marks, land: { lat, lon, t } }; }
+      if (h <= prm.ground) { path.push([lat, lon]); return { path, marks, land: { lat, lon, t }, iBurst: path.iBurst ?? (rising ? null : 0) }; }
       if (keep && next <= 3 && t >= launch + next * 3600) { marks.push({ lat, lon, t, h, hour: next }); next++; }
     }
     return null;
@@ -7799,22 +7799,30 @@ function sondePredict(s) {
   return res;
 }
 
-function sondeDrawPrediction(s, layer) {
+function sondeDrawPrediction(s, layer, cols) {
   const p = sondePredict(s);
   if (!p) return;
-  const c = "#ff4b3c", o = { color: c, weight: 2, opacity: 0.8, dashArray: "6 6", interactive: false };   // red dashed
-  L.polyline(p.path, o).addTo(layer);
+  const c = cols ? cols.down : "#ff4b3c", o = { color: c, weight: 2, opacity: 0.8, dashArray: "6 6", interactive: false };   // red dashed
+  if (cols && p.iBurst != null) {   // COMPOSITE: the ascent and the descent in their own colours
+    if (p.iBurst > 0) L.polyline(p.path.slice(0, p.iBurst + 1), { ...o, color: cols.up }).addTo(layer);
+    L.polyline(p.path.slice(p.iBurst), o).addTo(layer);
+  } else L.polyline(p.path, o).addTo(layer);
   const lbl = () => ({ permanent: true, direction: "right", offset: [6, 0], className: "ais-label sonde-pred-lbl" });
   for (const m of p.marks) {
+    if (cols && m.burst) {   // COMPOSITE: the burst as a star
+      L.marker([m.lat, m.lon], { icon: L.divIcon({ className: "sonde-burst", html: `<span style="color:${cols.burst}">✱</span>`, iconSize: [16, 16], iconAnchor: [8, 8] }) })
+        .bindTooltip(`burst ≈ ${aisUtc(m.t)} UTC, ${sondeAlt(m.h)} m`, { opacity: 0.8 }).addTo(layer);
+      continue;
+    }
     const mk = L.circleMarker([m.lat, m.lon], { radius: m.burst ? 5 : 4, color: m.burst ? "#ffd84a" : c, weight: 1.5, opacity: 0.55, fill: false });
     mk.bindTooltip(m.burst ? `burst ≈ ${aisUtc(m.t)} UTC` : `+${m.hour} h ${sondeAlt(m.h)} m`, m.burst ? { opacity: 0.8 } : lbl());
     mk.addTo(layer);
   }
   const km = (m) => (m < 1000 ? `${Math.round(m / 50) * 50} m` : `${(m / 1000).toFixed(1)} km`);
   if (p.radius)
-    L.circle([p.land.lat, p.land.lon], { radius: p.radius, color: c, weight: 1.5, opacity: 0.7, dashArray: "3 5", fillColor: c, fillOpacity: 0.08, interactive: false }).addTo(layer);
+    L.circle([p.land.lat, p.land.lon], { radius: p.radius, color: cols ? cols.land : c, weight: 1.5, opacity: 0.7, dashArray: "3 5", fillColor: cols ? cols.land : c, fillOpacity: cols ? 0.12 : 0.08, interactive: false }).addTo(layer);
   const span = p.tSpan ? ` (${aisUtc(p.tSpan[0]).slice(0, 5)}–${aisUtc(p.tSpan[1]).slice(0, 5)})` : "";
-  L.marker([p.land.lat, p.land.lon], { icon: L.divIcon({ className: "sonde-land", html: "✕", iconSize: [16, 16], iconAnchor: [8, 8] }) })
+  L.marker([p.land.lat, p.land.lon], { icon: L.divIcon({ className: "sonde-land", html: cols ? `<span style="color:${cols.land}">✕</span>` : "✕", iconSize: [16, 16], iconAnchor: [8, 8] }) })
     .bindTooltip(`landing ≈ ${aisUtc(p.land.t)} UTC${span}${p.radius ? ` ± ${km(p.radius)}` : ""}${p.model ? " · GFS wind" : " · own winds only"}`, lbl())
     .addTo(layer);
 }
@@ -16882,7 +16890,7 @@ function comShareShItems() {
     const falling = x.vel_v != null && x.vel_v < -2 && top - (x.alt || 0) > 300;
     const sonde = { serial: x.serial, type: x.subtype || x.type || "", freq_hz: x.frequency ? x.frequency * 1e6 : null, alt: x.alt, vv: x.vel_v, vh: x.vel_h,
       dir: x.heading, lat: x.lat, lon: x.lon, pos_time: x.t, last: x.t, burst: falling, burst_alt: falling ? top : null, max_alt: top,
-      temp: x.temp, rh: x.humidity, src: "SondeHub", uploader: x.uploader_callsign };
+      temp: x.temp, rh: x.humidity, src: "SondeHub", uploader: x.uploader_callsign, pts: tr.map((p) => [p[0], p[1], p[2], p[3]]) };
     return { src: "sondehub", id: String(x.serial), label: `${x.serial} ${x.type || ""}`.trim(), lat: x.lat, lon: x.lon, t: x.t,
       alt_m: x.alt == null ? null : Math.round(x.alt), trail: tr.map((p) => [p[0], p[1], p[3]]), sonde };
   });
@@ -16901,7 +16909,7 @@ function comShareAisItems() {
   comShareAis.shown = list.length;
   return list.map((x) => {
     const tn = x.shiptype_n, type = tn == null ? "" : COM_AIS_TYPE_3[tn] || COM_AIS_TYPE[Math.floor(tn / 10)] || "";
-    const ship = { mmsi: x.mmsi, name: x.name || "", callsign: x.callsign || "", station: "ship", shiptype: type, destination: x.destination || "",
+    const ship = { mmsi: x.mmsi, cc: x.cc || "", country: x.country || "", name: x.name || "", callsign: x.callsign || "", station: x.station || "ship", shiptype: type, destination: x.destination || "",
       lat: x.lat, lon: x.lon, sog: x.sog, cog: x.cog, hdg: x.hdg, status: x.status_n != null ? COM_AIS_NAV[x.status_n] || "" : "",
       last: x.t, pos_time: x.t, src: "aisstream" };
     return { src: "aisstream", id: String(x.mmsi), label: x.name || String(x.mmsi), lat: x.lat, lon: x.lon, t: x.t, trail: x.trail || [],
@@ -16935,7 +16943,15 @@ function comShareItems() {
 const COM_POLL_MS = 5000, COM_OLD_S = 900;
 let comMap = null, comLayers = null, comTimer = null, comFeeds = new Map(), comFitted = !!mapViewSaved("com");
 let comOff = new Set((recall("comOff") || "").split(",").filter(Boolean));   // "A:vdl2" … switched off by the user
-let comMerged = [], comDrawn = [], comMarks = new Map();   // … and the marks on the map by object id   // all joined objects / those on the map now
+let comMerged = [], comDrawn = [], comMarks = new Map();
+// the sources switched off: kept in the browser for every window of the address (also the map alone in a new tab)
+function comOffSave() { try { localStorage.setItem("comOff", [...comOff].join(",")); } catch { /* this page only */ } }
+window.addEventListener("storage", (e) => {   // switched in another window
+  if (e.key !== "comOff") return;
+  comOff = new Set((e.newValue || "").split(",").filter(Boolean));
+  renderComSrcs();
+  renderComMap();
+});   // … and the marks on the map by object id   // all joined objects / those on the map now
 
 function comShown(open) {
   if (open && !comTimer) {
@@ -16990,7 +17006,7 @@ $("comSrcs").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-k]");
   if (!b) return;
   if (comOff.has(b.dataset.k)) comOff.delete(b.dataset.k); else comOff.add(b.dataset.k);
-  store("comOff", [...comOff].join(","));
+  comOffSave();
   renderComSrcs();
   renderComMap();
 });
@@ -17152,6 +17168,298 @@ function comAirPopup(m) {
 }
 
 /** The panel right of the map: details of the selected aircraft, ship or sonde (the same lines as the popups of their own maps). */
+// ----- Track menu: a right click on an object opens a small floating window with what can be done with it -----
+// the settings of single tracks from the Track menu: per window (sessionStorage, also over a reload of the tab), as the
+// labels moved by hand. id -> { lbl: true / false, font, pred, trails, note }; what is not set: the map settings
+const comTrk = new Map((() => {
+  try {
+    const o = JSON.parse(sessionStorage.getItem("comTrk") || "{}") || {}, old = JSON.parse(sessionStorage.getItem("comLblHidden") || "[]");
+    for (const id of Array.isArray(old) ? old : []) o[id] = { ...(o[id] || {}), lbl: false };   // the hidden labels of before
+    return Object.entries(o).filter(([, v]) => v && typeof v === "object");
+  } catch { return []; }
+})());
+let comLock = null;   // the track the map follows (Lock display): one at a time, this window only
+function comTrkSave() {
+  try { sessionStorage.setItem("comTrk", JSON.stringify(Object.fromEntries(comTrk))); sessionStorage.removeItem("comLblHidden"); } catch { /* this page only */ }
+}
+function comTrkSet(id, patch) {
+  const v = { ...(comTrk.get(id) || {}), ...patch };
+  for (const k of Object.keys(v)) if (v[k] == null || v[k] === "") delete v[k];
+  if (Object.keys(v).length) comTrk.set(id, v); else comTrk.delete(id);
+  comTrkSave();
+}
+const comName = (m) => (m.air ? m.air.flight || m.air.reg || m.air.hex || m.label : m.ship ? aisLabel(m.ship) : m.sonde ? m.sonde.serial : m.label);
+function comLockSet(id) {
+  comLock = id;
+  const m = id && comMerged.find((x) => x.id === id);
+  if (m && comMap) { comLockAt = [m.lat, m.lon]; comMap.panTo(comLockAt); }
+  renderComMap();
+}
+let comLockAt = null;
+
+/** Track menu: a right click on an object (map or list) opens a small floating window with the settings of this
+ *  track only: label shown or not, its font, prediction, trail, a short note in the label, and Lock display. */
+function comTrackMenu(id, ev) {
+  comTrackMenuClose();
+  const m = comMerged.find((x) => x.id === id), box = document.fullscreenElement || (document.body.classList.contains("map-only") && $("comPane")) || document.body;   // fixed to the window (a tab: the page, a pane with a transform would move it; the map alone: its box, the rest of the page is hidden)
+  if (!m) return;
+  const t = comTrk.get(id) || {}, pre = m.sonde ? "s_" : m.ship ? "w_" : "";
+  const g = id === comSel ? true : m.srcs.every((x) => COM_SHARED.has(x)) ? "Shr" : false, def = (k) => mapOpts[pre + k + mapG(g)];
+  const lblOn = t.lbl != null ? t.lbl : def("lblShow") !== false;
+  const opt = (list, cur, txt, d) => `<option value=""${cur == null ? " selected" : ""}>default (${escHtml(txt(d))})</option>` +
+    list.map((v) => `<option value="${escHtml(String(v))}"${cur != null && String(cur) === String(v) ? " selected" : ""}>${escHtml(txt(v))}</option>`).join("");
+  const fontT = (v) => `${Math.round(v * 100)} %`, predT = (v) => (v === "land" ? "landing" : v ? `${v} min` : "Off");
+  const trailT = (v) => (MAP_TRAILS.find(([x]) => x === v) || [v, v])[1];
+  const preds = pre === "s_" ? ["land", ...MAP_PRED] : MAP_PRED;
+  const menu = document.createElement("div");
+  menu.className = "com-tmenu";
+  menu.innerHTML = `<div class="com-tmenu-h">Track menu <small>${escHtml(String(comName(m) || id))}</small></div>` +
+    `<button type="button" data-act="label">${lblOn ? "Hide label" : "Show label"}</button>` +
+    `<label>Font <select data-k="font">${opt(MAP_FONT_K, t.font, fontT, def("font"))}</select></label>` +
+    `<label>Prediction <select data-k="pred">${opt(preds, t.pred, predT, def("pred"))}</select></label>` +
+    `<label>Trail <select data-k="trails">${opt(MAP_TRAILS.map(([v]) => v), t.trails, trailT, def("trails"))}</select></label>` +
+    `<label title="A short note shown in the label (its last line; Label › Note in the map settings)">Note <input type="text" data-k="note" maxlength="20" value="${escHtml(t.note || "")}" placeholder="up to 20 characters"></label>` +
+    `<button type="button" data-act="lock" title="The map follows this track (the zoom stays); one track at a time">${comLock === id ? "Unlock display" : "Lock display"}</button>` +
+    (Object.keys(t).length ? `<button type="button" data-act="reset" class="com-tmenu-dim">Reset this track</button>` : "");
+  box.appendChild(menu);
+  const w = menu.offsetWidth, h = menu.offsetHeight;
+  const vw = innerWidth || document.documentElement.clientWidth || 1e5, vh = innerHeight || document.documentElement.clientHeight || 1e5;
+  menu.style.left = `${Math.max(4, Math.min(vw - w - 4, ev.clientX + 6))}px`;   // at the mouse, inside the window
+  menu.style.top = `${Math.max(4, Math.min(vh - h - 4, ev.clientY + 6))}px`;
+  L.DomEvent.disableClickPropagation(menu);
+  L.DomEvent.disableScrollPropagation(menu);
+  menu.addEventListener("contextmenu", (e) => e.preventDefault());
+  menu.addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-act]");
+    if (!b) return;
+    if (b.dataset.act === "label") comTrkSet(id, { lbl: !lblOn });
+    else if (b.dataset.act === "lock") { comTrackMenuClose(); comLockSet(comLock === id ? null : id); return; }
+    else if (b.dataset.act === "reset") comTrkSet(id, { lbl: null, font: null, pred: null, trails: null, note: null });
+    comTrackMenuClose();
+    renderComMap();
+  });
+  menu.addEventListener("change", (e) => {   // a setting of this track: at once, the menu stays open
+    const k = e.target.dataset.k;
+    if (!k || k === "note") return;
+    const v = e.target.value;
+    comTrkSet(id, { [k]: v === "" ? null : k === "trails" || v === "land" ? v : +v });
+    renderComMap();
+  });
+  let noteT = null;
+  const note = menu.querySelector('input[data-k="note"]');
+  note.addEventListener("input", () => {   // the note: kept as typed, drawn after a short pause
+    comTrkSet(id, { note: note.value.trim().slice(0, 20) || null });
+    clearTimeout(noteT);
+    noteT = setTimeout(renderComMap, 400);
+  });
+  note.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); comTrackMenuClose(); renderComMap(); } });
+  setTimeout(() => {   // closes with a click elsewhere, Esc or a move of the map by hand
+    document.addEventListener("pointerdown", comTrackMenuOut, true);
+    document.addEventListener("keydown", comTrackMenuKey, true);
+    if (comMap) comMap.on("dragstart zoomstart", comTrackMenuClose);
+  });
+}
+/** Find track: a small window; the text is looked for in the names and identifiers of the tracks (whole first, then a
+ *  part); found = selected, its label shown, the map on it; else an error in the window. */
+function comFindOpen(btn) {
+  comTrackMenuClose();
+  const box = document.fullscreenElement || (document.body.classList.contains("map-only") && $("comPane")) || document.body;
+  const w = document.createElement("div");
+  w.className = "com-tmenu com-find";
+  w.innerHTML = `<div class="com-tmenu-h">Find track</div><label><input type="text" maxlength="40" placeholder="flight, reg, ICAO, ship, MMSI, serial…" spellcheck="false">` +
+    `<button type="button" data-act="find">Find</button></label><div class="com-find-err" hidden></div>`;
+  box.appendChild(w);
+  const r = btn.getBoundingClientRect(), vw = innerWidth || 1e5, vh = innerHeight || 1e5;
+  w.style.left = `${Math.max(4, Math.min(vw - w.offsetWidth - 4, r.left))}px`;
+  w.style.top = `${Math.max(4, Math.min(vh - w.offsetHeight - 4, r.top - w.offsetHeight - 6))}px`;   // above the key
+  L.DomEvent.disableClickPropagation(w);
+  L.DomEvent.disableScrollPropagation(w);
+  const inp = w.querySelector("input"), err = w.querySelector(".com-find-err");
+  const go = () => {
+    const q = inp.value.trim().toLowerCase();
+    if (!q) return;
+    const keys = (m) => [m.label, m.id.replace(/^\w+:/, ""), ...(m.air ? [m.air.flight, m.air.reg, m.air.hex] : []),
+      ...(m.ship ? [aisLabel(m.ship), m.ship.name, m.ship.mmsi, m.ship.callsign] : []), ...(m.sonde ? [m.sonde.serial] : [])]
+      .filter((x) => x != null && x !== "").map((x) => String(x).trim().toLowerCase());
+    const list = comMerged || [];
+    const m = list.find((x) => keys(x).includes(q)) || list.find((x) => keys(x).some((k) => k.includes(q)));
+    if (!m) { err.textContent = `No track "${inp.value.trim()}" on the map.`; err.hidden = false; inp.select(); return; }
+    comTrackMenuClose();
+    const k = m.air ? "air" : m.ship ? "ship" : m.sonde ? "sonde" : "";
+    if (!comKindOn(k)) {   // its kind switched off in the list: on again
+      comKindOff.delete(k);
+      try { localStorage.setItem("comKindOff", JSON.stringify([...comKindOff])); } catch { /* this page only */ }
+      const cb = document.querySelector(`input[data-kshow="${k}"]`);
+      if (cb) cb.checked = true;
+    }
+    comSelect(m.id, true);
+  };
+  w.querySelector("button").addEventListener("click", go);
+  inp.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); go(); } else err.hidden = true; });
+  inp.focus();
+  setTimeout(() => {
+    document.addEventListener("pointerdown", comTrackMenuOut, true);
+    document.addEventListener("keydown", comTrackMenuKey, true);
+  });
+}
+
+function comTrackMenuOut(e) { if (!e.target.closest || !e.target.closest(".com-tmenu")) comTrackMenuClose(); }
+function comTrackMenuKey(e) { if (e.key === "Escape") comTrackMenuClose(); }
+function comTrackMenuClose() {
+  if (comMap) comMap.off("dragstart zoomstart", comTrackMenuClose);
+  document.querySelectorAll(".com-tmenu").forEach((x) => x.remove());
+  document.removeEventListener("pointerdown", comTrackMenuOut, true);
+  document.removeEventListener("keydown", comTrackMenuKey, true);
+}
+
+// tracks gone from the map for an hour: their Track menu settings and moved labels are dropped (sessionStorage stays small)
+const comGoneAt = new Map();
+let comPruneAt = 0;
+function comPrune() {
+  const now = Date.now();
+  if (now - comPruneAt < 60000 || !comMap) return;
+  comPruneAt = now;
+  const ids = new Set(comMerged.map((m) => m.id)), offs = mapLblOffs(comMap);
+  let trk = false, off = false;
+  for (const k of new Set([...comTrk.keys(), ...Object.keys(offs)])) {
+    if (ids.has(k) || k === comLock) { comGoneAt.delete(k); continue; }
+    if (!comGoneAt.has(k)) { comGoneAt.set(k, now); continue; }
+    if (now - comGoneAt.get(k) < 3600e3) continue;
+    comGoneAt.delete(k);
+    if (comTrk.delete(k)) trk = true;
+    if (k in offs) { delete offs[k]; off = true; }
+  }
+  if (trk) comTrkSave();
+  if (off) mapLblSave(comMap);
+  if (sondePredCache.size > 200) sondePredCache.clear();   // many SondeHub sondes over days: the predictions are made again when needed
+}
+
+// ----- the bars over the bottom of the map: Tracks (the labels of all tracks) above Tracker (the view); each folds to
+// the left into its name and opens over the whole width of the map (remembered)
+const COM_BARS = [["tracks", "Tracks"], ["tracker", "Tracker"]];
+try { localStorage.removeItem("comTbarOpen"); } catch { /* the former single bar */ }
+function comBarOpen(k) {
+  try { const v = JSON.parse(localStorage.getItem("comBarsOpen") || "{}") || {}; return v[k] !== false; } catch { return true; }
+}
+function renderComTbar() {
+  if (!comMap) return;
+  let wrap = comMap._bars;
+  if (!wrap) {
+    wrap = comMap._bars = L.DomUtil.create("div", "com-bars", comMap.getContainer());
+    L.DomEvent.disableClickPropagation(wrap);
+    L.DomEvent.disableScrollPropagation(wrap);
+    wrap.addEventListener("contextmenu", (e) => e.stopPropagation());
+  }
+  const lk = comLock && comMerged.find((x) => x.id === comLock);
+  const body = {
+    tracks: `<button type="button" data-tb="show" title="The labels of all tracks on the map shown">Show all labels</button>` +
+      `<button type="button" data-tb="hide" title="The labels of all tracks on the map hidden (an emergency keeps its label)">Hide all labels</button>`,
+    tracker: `<button type="button" data-tb="center" title="The station in the middle of the map, the zoom stays">Center</button>` +
+      `<button type="button" data-tb="cld" title="The satellite clouds on the map (Weather in the map settings)">${mapOpts.cld ? "Hide" : "Show"} clouds</button>` +
+      `<button type="button" data-tb="precip" title="The precipitation radar on the map (Weather in the map settings)">${mapOpts.precip ? "Hide" : "Show"} precipitations</button>` +
+      `<button type="button" data-tb="ad" title="The azimuth / distance rings around the station (Map in the map settings)">${mapOpts.ad ? "Hide" : "Show"} A/D map</button>` +
+      `<button type="button" data-tb="find" title="Find a track by its name, flight, registration, ICAO, MMSI, call sign or serial">Find track</button>` +
+      (lk ? `<button type="button" data-tb="unlock" title="The map stops following the track">Unlock ${escHtml(String(comName(lk)))}</button>` : ""),
+  };
+  const html = COM_BARS.map(([k, name]) => {
+    const open = comBarOpen(k);
+    return `<div class="com-bar${open ? " open" : ""}" data-bar="${k}"><button type="button" class="com-bar-fold" data-tb="fold" title="${open ? "Fold" : "Open"} ${name}">${open ? "◀" : "▶"} ${name}</button>${open ? body[k] : ""}</div>`;
+  }).join("");
+  if (wrap._html !== html) { wrap._html = html; wrap.innerHTML = html; }
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest && e.target.closest(".com-bars button[data-tb]");
+  if (!b) return;
+  const a = b.dataset.tb;
+  if (a === "fold") {
+    const k = b.closest(".com-bar").dataset.bar;
+    try {
+      const v = JSON.parse(localStorage.getItem("comBarsOpen") || "{}") || {};
+      v[k] = !comBarOpen(k);
+      localStorage.setItem("comBarsOpen", JSON.stringify(v));
+    } catch { /* this page only */ }
+    renderComTbar();
+  } else if (a === "center") {
+    mapQth().then((q) => { if (q && comMap) comMap.panTo([q.lat, q.lon]); });
+  } else if (a === "find") {
+    comFindOpen(b);
+  } else if (a === "cld" || a === "precip" || a === "ad") {
+    mapOptsSet({ [a]: !mapOpts[a] });
+    renderComTbar();
+  } else if (a === "show" || a === "hide") {
+    for (const m of comDrawn || []) comTrk.set(m.id, { ...(comTrk.get(m.id) || {}), lbl: a === "show" });
+    comTrkSave();
+    renderComMap();
+  } else if (a === "unlock") comLockSet(null);
+});
+
+// the border between the map and the lists beside it: dragged with the mouse, the width of the lists remembered
+(() => {
+  const side = $("comSide"), body = side && side.parentElement;
+  if (!body) return;
+  const bar = document.createElement("div");
+  bar.className = "com-split";
+  bar.title = "Drag to make the map / the lists wider";
+  body.insertBefore(bar, side);
+  const setW = (w) => { side.style.flex = `0 0 ${w}px`; if (comMap) comMap.invalidateSize(); };
+  try { const w = +localStorage.getItem("comSideW"); if (w >= 200) setW(w); } catch { /* the default width */ }
+  bar.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    try { bar.setPointerCapture(e.pointerId); } catch { /* an older browser */ }
+    bar.classList.add("on");
+    const x0 = e.clientX, w0 = side.getBoundingClientRect().width, max = body.getBoundingClientRect().width - 250;
+    const move = (ev) => setW(Math.max(200, Math.min(max, w0 - (ev.clientX - x0))));
+    const up = () => {
+      bar.removeEventListener("pointermove", move);
+      bar.removeEventListener("pointerup", up);
+      bar.classList.remove("on");
+      try { localStorage.setItem("comSideW", String(Math.round(side.getBoundingClientRect().width))); } catch { /* this page only */ }
+    };
+    bar.addEventListener("pointermove", move);
+    bar.addEventListener("pointerup", up);
+  });
+})();
+
+/** Counts of the objects on the map: all / from a local decoder / only from sharing, each split into live and
+ *  "no position" (no new position for the No position time of its kind in the map settings, auto = 15 min). */
+function comCounts(list) {
+  const now = Date.now() / 1000, c = { tot: [0, 0], loc: [0, 0], shr: [0, 0] }, pre0 = mapKindPre;
+  for (const m of list) {
+    const shr = m.srcs.every((x) => COM_SHARED.has(x));
+    mapKindPre = m.sonde ? "s_" : m.ship ? "w_" : "";
+    const st = mapO("stale", shr ? "Shr" : false), old = now - m.t > (st ? st * 60 : COM_OLD_S) ? 1 : 0;
+    c.tot[old]++;
+    c[shr ? "shr" : "loc"][old]++;
+  }
+  mapKindPre = pre0;
+  return c;
+}
+function comCountTxt(c) {
+  const f = (t, [a, b]) => `${t} ${a + b} (${a}/${b})`;
+  return `${f("Total", c.tot)} · ${f("Local", c.loc)} · ${f("Sharing", c.shr)}`;
+}
+const COM_COUNT_TIP = "number of tracks (live / no position): all, from a local decoder, only from sharing";
+
+/** The time of the highest point of a radiosonde that is falling after the burst (UNIX s), else null. */
+function comSondeTop(s) {
+  const P = Array.isArray(s.pts) ? s.pts : [];
+  if (P.length < 2) return null;
+  let top = P[0];
+  for (const q of P) if (q[2] > top[2]) top = q;
+  const last = P[P.length - 1];
+  return s.burst || top[2] - last[2] > 300 ? top[3] : null;
+}
+
+/** Selects a track (from the list or Find track): its label shown, the map on it; zoom = at least 8. */
+function comSelect(id, zoom) {
+  comSel = id;
+  if (!id) { renderComMap(); return; }
+  comTrkSet(id, { lbl: true });   // its label shown
+  const m = comMerged.find((x) => x.id === id);
+  if (m && comMap) comMap.setView([m.lat, m.lon], zoom ? Math.max(comMap.getZoom(), 8) : comMap.getZoom());
+  renderComMap();
+}
+
 function renderComSide() {
   const side = $("comSide");
   if (!$("comDetail")) side.innerHTML = '<div id="comDetail" class="com-detail"></div><div id="comList" class="com-list"></div>';
@@ -17166,6 +17474,22 @@ function renderComSide() {
     : `<b>${escHtml(m.label)}</b><br>position ${m.lat.toFixed(4)}, ${m.lon.toFixed(4)} (${hfdlAge(m.t)} ago)`;
   box.innerHTML = `<div class="com-kind">${kind}${m.hist ? " · FROM HISTORY" : ""}</div>${body}${m.air ? "" : `<br>${comPartsHtml(m)}`}`;
 }
+
+// the station on the COMPOSITE map: the icon and colour of Map › Station in the settings
+let comStation = null;
+const MAP_ST_ICONS = [["circle", "Circle ●"], ["square", "Square ■"], ["triangle", "Triangle ▲"], ["diamond", "Diamond ◆"], ["star", "Star ★"], ["cross", "Cross ✚"], ["house", "House ⌂"]];
+function comStationIcon() {
+  const c = mapOpts.cSt || "#ff5a3c", st = `fill="${c}" stroke="#000" stroke-width="1.5" stroke-linejoin="round"`;
+  const shape = {
+    circle: `<circle cx="9" cy="9" r="6" ${st}/>`, square: `<rect x="3" y="3" width="12" height="12" ${st}/>`,
+    triangle: `<polygon points="9,2 16,15 2,15" ${st}/>`, diamond: `<polygon points="9,1.5 16.5,9 9,16.5 1.5,9" ${st}/>`,
+    star: `<polygon points="9,1 11.2,6.4 17,6.8 12.5,10.5 14,16.3 9,13.2 4,16.3 5.5,10.5 1,6.8 6.8,6.4" ${st}/>`,
+    cross: `<polygon points="6.5,2 11.5,2 11.5,6.5 16,6.5 16,11.5 11.5,11.5 11.5,16 6.5,16 6.5,11.5 2,11.5 2,6.5 6.5,6.5" ${st}/>`,
+    house: `<polygon points="9,1.5 16.5,8 14.5,8 14.5,16 3.5,16 3.5,8 1.5,8" ${st}/>`,
+  }[mapOpts.stIcon] || `<circle cx="9" cy="9" r="6" ${st}/>`;
+  return L.divIcon({ className: "com-station", html: `<svg viewBox="0 0 18 18" width="18" height="18">${shape}</svg>`, iconSize: [18, 18], iconAnchor: [9, 9] });
+}
+function comStationApply() { if (comStation && comStation._st !== mapOpts.stIcon + mapOpts.cSt) { comStation._st = mapOpts.stIcon + mapOpts.cSt; comStation.setIcon(comStationIcon()); } }
 
 async function comMapOpen() {
   if (comMap) return true;
@@ -17188,7 +17512,9 @@ async function comMapOpen() {
   try {
     const s = await satFetch("/api/location");
     if (s && Number.isFinite(s.lat) && Number.isFinite(s.lon)) {
-      L.circleMarker([s.lat, s.lon], { radius: 6, color: "#000", weight: 2, fillColor: "#ff5a3c", fillOpacity: 1 }).bindTooltip("QTH").addTo(comMap);
+      comStation = L.marker([s.lat, s.lon], { icon: comStationIcon(), zIndexOffset: 500, keyboard: false }).bindTooltip("QTH").addTo(comMap);   // icon and colour: Map › Station
+      comStation._st = mapOpts.stIcon + mapOpts.cSt;
+      mapOptSubs.add(comStationApply);
       if (!mapViewSaved("com") && !comFitted) comMap.setView([s.lat, s.lon], 6);
     }
   } catch { /* server unreachable */ }
@@ -17222,11 +17548,22 @@ async function renderComMap() {
     const col = (COM_SRC[m.srcs[0]] || ["", "#fff"])[1], old = now - m.t > COM_OLD_S, sel = m.id === comSel;
     const g = sel ? true : m.srcs.every((x) => COM_SHARED.has(x)) ? "Shr" : false;   // selected / only from shared sources / local
     mapKindPre = m.sonde ? "s_" : m.ship ? "w_" : "";   // the settings of its kind
+    mapTrkOv = comTrk.get(m.id) || null;   // and those of this track (Track menu)
+    const kindOff = !comKindOn(m.air ? "air" : m.ship ? "ship" : m.sonde ? "sonde" : "");
+    if (kindOff && !(m.air && mapEmerg(m.air.squawk))) continue;   // the kind switched off in the list (an emergency stays)
     if (mapGone(m.t, g)) continue;
-    mapTrail(comLayers.tracks, m.trail, { color: sel ? MAP_SEL_C : col, weight: sel ? 2.5 : 1.5, opacity: sel ? 0.9 : 0.6, interactive: false }, g);
+    const tline = { color: sel ? MAP_SEL_C : col, weight: sel ? 2.5 : 1.5, opacity: sel ? 0.9 : 0.6, interactive: false };
+    const tTop = m.sonde ? comSondeTop(m.sonde) : null;   // a radiosonde after the burst: ascent and descent in their colours
+    if (tTop == null) mapTrail(comLayers.tracks, m.trail, tline, g);
+    else {
+      mapTrail(comLayers.tracks, m.trail.filter((q) => q[2] <= tTop), tline, g);
+      const dn = m.trail.filter((q) => q[2] >= tTop), last = m.trail.filter((q) => q[2] <= tTop).pop();
+      mapTrail(comLayers.tracks, last && mapO("trails", g) === "full" ? [last, ...dn] : dn, tline, g, "cTrailDn");
+    }
     const pv = m.air ? [m.track ?? comHeading(m) ?? m.air.track, m.air.ground ? null : m.air.gs_kt] : m.ship ? [m.ship.cog, m.ship.sog]
       : m.sonde ? [m.sonde.dir, m.sonde.vh != null ? m.sonde.vh * 1.94384 : null] : [null, null];
     mapPredict(comLayers.tracks, m, pv[0], pv[1], m.t, g, sel ? MAP_SEL_C : col);
+    if (m.sonde && m.sonde.pts && mapO("pred", g) === "land") { try { sondeDrawPrediction(m.sonde, comLayers.tracks, { up: mapOpts.s_cUp, down: mapOpts.s_cDown, land: mapOpts.s_cLand, burst: mapOpts.s_cBurst }); } catch { /* not enough data */ } }
     const src = m.srcs.map((x) => (COM_SRC[x] || [x.toUpperCase()])[0]).join(" + ");
     let emerg = false;
     pts.push([m.lat, m.lon]);
@@ -17236,8 +17573,8 @@ async function renderComMap() {
       const a = m.air, svg = `<svg viewBox="0 0 24 24" style="transform: rotate(${Math.round(m.track ?? comHeading(m) ?? a.track ?? 0)}deg)"><path d="M12 2c.6 0 1 .9 1 2v5.2l8 4.6v2l-8-2.5v4.9l2.2 1.6V21L12 20.2 8.8 21v-1.2L11 18.2v-4.9l-8 2.5v-2l8-4.6V4c0-1.1.4-2 1-2z"/></svg>`;
       const fl = a.ground ? "GND" : a.alt_ft != null ? `FL${String(Math.round(a.alt_ft / 100)).padStart(3, "0")}` : "";
       emerg = mapEmerg(a.squawk);
-      label = mapLabel({ at: m, name: a.flight || a.reg || a.hex || m.label, reg: a.reg, id: a.hex, type: a.type, alt: fl,
-        spd: a.gs_kt != null && !a.ground ? `${Math.round(a.gs_kt)} kt` : "", sq: a.squawk, src }, g);
+      label = (emerg ? mapLabelEmerg : mapLabel)({ at: m, name: a.flight || a.reg || a.hex || m.label, reg: a.reg, id: a.hex, type: a.type, alt: fl,
+        spd: a.gs_kt != null && !a.ground ? `${Math.round(a.gs_kt)} kt` : "", sq: a.squawk, desc: a.desc, src }, g);
       icon = L.divIcon({ className: `hfdl-plane${sel ? " sel" : ""}${old ? " old" : ""}`, html: svg, iconSize: [22, 22], iconAnchor: [11, 11] });
       cls = "hfdl-label";
     } else if (m.ship) {   // as on the AIS map
@@ -17252,7 +17589,7 @@ async function renderComMap() {
       icon = L.divIcon({ className: `com-mark${old ? " old" : ""}`, html: `<span style="--sc:${col}">●</span>`, iconSize: [16, 16], iconAnchor: [8, 8] });
       label = mapLabel({ name: m.label, src, at: m }, g);
     }
-    const k = mapIconK(g, emerg), ic = mapIcon(icon, g, emerg, m.t), id = m.id;
+    const k = mapIconK(g, emerg), ic = mapIcon(icon, g, emerg, m.t, m.srcs.every((x) => COM_SHARED.has(x))), id = m.id;
     const isig = `${ic.options.className}|${ic.options.html}|${ic.options.iconSize}|${cls}`;
     let mk = comMarks.get(id);
     if (mk && mk._isig && mk._isig.split("|").pop() !== cls) { mk.remove(); mk = null; }   // another kind of label: made again
@@ -17260,6 +17597,7 @@ async function renderComMap() {
       mk = L.marker([m.lat, m.lon], { icon: ic }).addTo(comLayers.marks);
       mk.bindTooltip("", { permanent: true, direction: "bottom", offset: [0, m.sonde ? 2 : 8], className: cls });
       mk.on("click", (e) => { L.DomEvent.stopPropagation(e); comSel = id; renderComMap(); });
+      mk.on("contextmenu", (e) => { L.DomEvent.stop(e); comTrackMenu(id, e.originalEvent); });   // right click: the Track menu
       comMarks.set(id, mk);
     } else {
       const ll = mk.getLatLng();
@@ -17269,10 +17607,16 @@ async function renderComMap() {
     mk._isig = isig;
     mk.setZIndexOffset(emerg ? 2000 : sel ? 1000 : 0);
     keepMk.add(id);
-    mapSetLabel(mk, label, k, id, g);
+    const lblOn = mapTrkOv && mapTrkOv.lbl != null ? mapTrkOv.lbl : mapO("lblShow", g) !== false;   // Track menu, else the map settings
+    mapSetLabel(mk, lblOn || emerg ? label : "", k, id, g);   // an emergency always has a label
   }
   mapKindPre = "";
+  mapTrkOv = null;
   for (const [id, mk] of comMarks) if (!keepMk.has(id)) { mk.remove(); comMarks.delete(id); }
+  const lk = comLock && comMerged.find((x) => x.id === comLock);   // Lock display: the map follows the track, the zoom stays
+  if (lk && (!comLockAt || comLockAt[0] !== lk.lat || comLockAt[1] !== lk.lon)) { comLockAt = [lk.lat, lk.lon]; comMap.panTo(comLockAt); }
+  renderComTbar();
+  comPrune();
   renderComSide();
   if (!comFitted && pts.length) {
     comFitted = true;
@@ -17280,7 +17624,9 @@ async function renderComMap() {
   }
   const joined = comMerged.filter((m) => m.keys.length > 1).length;
   const shown = comDrawn.length;   // the status row under the map
-  $("comInfo").textContent = `Tracks ${shown}${shown !== comMerged.length ? ` of ${comMerged.length}` : ""}${joined ? ` · ${joined} joined` : ""}`;
+  $("comInfo").textContent = `Tracks: ${comCountTxt(comCounts(comDrawn))}${joined ? ` · ${joined} joined` : ""}${shown !== comMerged.length ? ` · ${comMerged.length - shown} hidden` : ""}` +
+    `${lk ? ` · locked on ${comName(lk)}` : ""}`;
+  $("comInfo").title = `${COM_COUNT_TIP}; joined = one object heard by more VFOs / decoders; hidden = dropped by the map settings`;
   $("comNote").textContent = "a click on an aircraft, ship or sonde = its details on the right (orange = selected, red = emergency squawk, grey = no position for 15 min) · aircraft, ships and sondes as on their own maps · ▲ ground stations · trail colour = source · one object heard by more VFOs / decoders = one mark";
 }
 
@@ -17288,13 +17634,69 @@ async function renderComMap() {
  *  table sorted by a click on a column (again = the other way, remembered). Only what is on the map. A click on a row
  *  selects it and centres the map. An aircraft with an emergency squawk opens Aircraft, is scrolled into view and its
  *  row stays red while the squawk lasts and a minute after. */
-const COM_LISTS = [
-  ["air", "Aircrafts", [["name", "Flight"], ["type", "Type"], ["alt", "FL"], ["spd", "kt"], ["dist", "Dist"], ["age", "Age"]]],
-  ["sonde", "Radiosondes", [["name", "Serial"], ["type", "Type"], ["alt", "Alt m"], ["vs", "m/s"], ["dist", "Dist"], ["age", "Age"]]],
-  ["ship", "Ships", [["name", "Name"], ["type", "Type"], ["spd", "kt"], ["dist", "Dist"], ["age", "Age"]]],
-];
+// the kinds of the lists, their settings prefix and the items a list can show: [id, header, cell(m, ctx), sort value(m, ctx)]
+const COM_LISTS = [["air", "Aircrafts", ""], ["sonde", "Radiosondes", "s_"], ["ship", "Ships", "w_"]];
+const COM_LIST_ITEMS = (() => {
+  const esc = escHtml, flag = (cc, name) => (cc ? `<img src="${flagUrl(cc)}" alt="" title="${esc(name || "")}">` : '<span class="noflag"></span>');
+  const ad = { id: "ad", h: "A/D", cell: (m) => esc(mapAdTxt(m, mapO("noUnits", false))), v: (m, c) => c.dkm ?? 1e9 };
+  const age = { id: "age", h: "Age", cell: (m) => hfdlAge(m.t), v: (m) => Date.now() / 1000 - m.t };
+  const src = { id: "src", h: "Source", cell: (m) => esc(m.srcs.map((x) => (COM_SRC[x] || [x])[0]).join(" + ")), v: (m) => m.srcs.join(",") };
+  const I = (id, h, cell, v) => ({ id, h, cell, v: v || ((m) => String(cell(m)).replace(/<[^>]*>/g, "")) });
+  return {
+    "": [
+      I("name", "Flight", (m) => { const a = m.air, c = a.hex ? icaoCountry(a.hex) : null; return `${flag(c && c.cc, c && c.name)}<b>${esc(a.flight || a.reg || a.hex || m.label)}</b>`; }),
+      I("reg", "Reg", (m) => esc(m.air.reg || "")), I("id", "ICAO", (m) => esc(m.air.hex || "")),
+      I("type", "Type", (m) => `<span class="stype">${esc(m.air.type || "")}</span>`), I("desc", "Model", (m) => esc(m.air.desc || "")),
+      I("alt", "FL", (m) => (m.air.ground ? "GND" : m.air.alt_ft != null ? String(Math.round(m.air.alt_ft / 100)).padStart(3, "0") : ""), (m) => (m.air.ground ? -1 : m.air.alt_ft ?? -2)),
+      I("spd", "kt", (m) => (m.air.gs_kt != null && !m.air.ground ? Math.round(m.air.gs_kt) : ""), (m) => m.air.gs_kt ?? -1),
+      I("sq", "Sq", (m) => esc(m.air.squawk || "")), ad, age, src,
+    ],
+    s_: [
+      I("name", "Serial", (m) => `<b>${esc(m.sonde.serial)}</b>`), I("type", "Type", (m) => `<span class="stype">${esc(m.sonde.type || "")}</span>`),
+      I("freq", "MHz", (m) => (m.sonde.freq_hz ? fmtMHz(m.sonde.freq_hz, 3) : ""), (m) => m.sonde.freq_hz || 0),
+      I("alt", "Alt m", (m) => (m.sonde.alt != null ? sondeAlt(m.sonde.alt) : ""), (m) => m.sonde.alt ?? -1),
+      I("vs", "m/s", (m) => (m.sonde.vv != null ? sondeClimb(m.sonde.vv) : ""), (m) => m.sonde.vv ?? -99),
+      I("spd", "km/h", (m) => (m.sonde.vh != null ? sondeKmh(m.sonde.vh) : ""), (m) => m.sonde.vh ?? -1),
+      I("temp", "°C", (m) => (m.sonde.temp != null ? m.sonde.temp.toFixed(1) : ""), (m) => m.sonde.temp ?? -999),
+      I("rh", "RH %", (m) => (m.sonde.rh != null ? Math.round(m.sonde.rh) : ""), (m) => m.sonde.rh ?? -1),
+      I("state", "State", (m) => esc(sondeState(m.sonde))), I("land", "Landing", (m) => esc(sondeLandTxt(m.sonde).replace(/^land ≈ /, ""))),
+      ad, age, src,
+    ],
+    w_: [
+      I("name", "Name", (m) => `${flag(m.ship.cc, m.ship.country)}<b>${esc(aisLabel(m.ship))}</b>`), I("id", "MMSI", (m) => esc(String(m.ship.mmsi || ""))),
+      I("call", "Call", (m) => esc(m.ship.callsign || "")), I("type", "Type", (m) => `<span class="stype">${esc(m.ship.station !== "ship" ? m.ship.station : m.ship.shiptype || "")}</span>`),
+      I("spd", "kt", (m) => (m.ship.sog != null ? m.ship.sog.toFixed(1) : ""), (m) => m.ship.sog ?? -1),
+      I("crs", "Crs", (m) => (m.ship.cog != null ? `${Math.round(m.ship.cog)}°` : ""), (m) => m.ship.cog ?? 999),
+      I("nav", "Status", (m) => esc(m.ship.status || "")), I("dest", "Dest", (m) => esc(m.ship.destination || "")),
+      ad, age, src,
+    ],
+  };
+})();
+// the list settings of a kind: the order of the items as tokens (with the mark "|2" of the second line) and the items shown;
+// the name (flight / serial / ship) is always the first column, over all lines, with its flag (can be switched off)
+const COM_LIST_DEF = { "": ["type", "alt", "spd", "ad", "age"], s_: ["type", "alt", "vs", "ad", "age"], w_: ["type", "spd", "ad", "age"] };
+const comListIds = (p) => COM_LIST_ITEMS[p].map((x) => x.id).filter((id) => id !== "name");
+function comListTok(p) {
+  const ids = comListIds(p), v = mapOpts[p + "listTok"];
+  if (Array.isArray(v)) return mapTokNorm(mapAdIds(v), ids, 2);
+  const old = Array.isArray(mapOpts[p + "list"]) ? mapOpts[p + "list"].filter((x) => Array.isArray(x) && ids.includes(x[0])) : null;   // the former settings
+  const l1 = old ? old.filter((x) => +x[1] === 1).map((x) => x[0]) : COM_LIST_DEF[p];
+  const l2 = old ? old.filter((x) => +x[1] === 2).map((x) => x[0]) : [];
+  return mapTokNorm([...l1, "|", ...l2], ids, 2);
+}
+function comListOn(p) {
+  const v = mapOpts[p + "listOn"];
+  if (Array.isArray(v)) return new Set(mapAdIds(v));
+  const old = Array.isArray(mapOpts[p + "list"]) ? mapOpts[p + "list"] : null;
+  return new Set(old ? old.filter((x) => +x[1] > 0).map((x) => x[0]) : COM_LIST_DEF[p]);
+}
+/** [[id, line]…] of the items shown (without the name), in their order. */
+function comListCfg(p) { const on = comListOn(p); return mapTokLines(comListTok(p)).filter(([id]) => on.has(id)); }
+const comListFlag = (p) => mapOpts[p + "listFlag"] !== false;
 const comEmerg = new Map();   // aircraft id -> the last time it had an emergency squawk (s)
 let comListSort = (() => { try { return JSON.parse(localStorage.getItem("comListSort") || "{}") || {}; } catch { return {}; } })();
+let comKindOff = (() => { try { const v = JSON.parse(localStorage.getItem("comKindOff") || "[]"); return new Set(Array.isArray(v) ? v : []); } catch { return new Set(); } })();
+const comKindOn = (k) => !comKindOff.has(k);
 function comListOpen() {
   try { const v = JSON.parse(localStorage.getItem("comListOpen") || "null"); return Array.isArray(v) ? v : ["air"]; } catch { return ["air"]; }
 }
@@ -17302,72 +17704,80 @@ function comListSave() {
   const open = [...document.querySelectorAll("#comList details[data-list][open]")].map((d) => d.dataset.list);
   try { localStorage.setItem("comListOpen", JSON.stringify(open)); localStorage.setItem("comListSort", JSON.stringify(comListSort)); } catch { /* this page only */ }
 }
-/** One row of a list: [cells for the columns (html), values to sort by]. */
-function comListRow(kind, m, q, unit) {
-  const esc = escHtml, now = Date.now() / 1000;
-  let dkm = null;
-  if (q) dkm = mapAzDist(q, m)[1];
-  const dist = dkm == null ? "" : `${Math.round(unit === "NM" ? dkm / 1.852 : dkm)}`, age = hfdlAge(m.t);
-  if (kind === "air") {
-    const a = m.air, c = a.hex ? icaoCountry(a.hex) : null;
-    const fl = a.ground ? "GND" : a.alt_ft != null ? String(Math.round(a.alt_ft / 100)).padStart(3, "0") : "";
-    const name = a.flight || a.reg || a.hex || m.label;
-    return [[`${c && c.cc ? `<img src="${flagUrl(c.cc)}" alt="" title="${esc(c.name)}">` : '<span class="noflag"></span>'}<b>${esc(name)}</b>`,
-      `<span class="stype">${esc(a.type || "")}</span>`, fl, a.gs_kt != null && !a.ground ? Math.round(a.gs_kt) : "", dist, age],
-      { name, type: a.type || "", alt: a.ground ? -1 : a.alt_ft ?? -2, spd: a.gs_kt ?? -1, dist: dkm ?? 1e9, age: now - m.t }];
-  }
-  if (kind === "sonde") {
-    const s = m.sonde;
-    return [[`<b>${esc(s.serial)}</b>`, `<span class="stype">${esc(s.type || "")}</span>`, s.alt != null ? sondeAlt(s.alt) : "", s.vv != null ? sondeClimb(s.vv) : "", dist, age],
-      { name: s.serial, type: s.type || "", alt: s.alt ?? -1, vs: s.vv ?? -99, dist: dkm ?? 1e9, age: now - m.t }];
-  }
-  const s = m.ship, type = s.station !== "ship" ? s.station : s.shiptype || "";
-  return [[`${s.cc ? `<img src="${flagUrl(s.cc)}" alt="" title="${esc(s.country || "")}">` : '<span class="noflag"></span>'}<b>${esc(aisLabel(s))}</b>`,
-    `<span class="stype">${esc(type)}</span>`, s.sog != null ? s.sog.toFixed(1) : "", dist, age],
-    { name: aisLabel(s), type, spd: s.sog ?? -1, dist: dkm ?? 1e9, age: now - m.t }];
-}
+/** The lists beside the map: Aircrafts, Radiosondes and Ships, each a section that opens and closes (remembered) with a
+ *  table of the items chosen in the map settings (List), in one or two lines per object, the objects shaded in turn;
+ *  sorted by a click on a column header (again = the other way, remembered). Only what is on the map. A click on an
+ *  object selects it and centres the map. An aircraft with an emergency squawk opens Aircrafts, is scrolled into view
+ *  and stays red while the squawk lasts and a minute after. */
 function renderComList() {
   const box = $("comList");
   if (!box) return;
   const now = Date.now() / 1000, q = mapQthV, unit = mapOpts.adUnit === "nm" ? "NM" : "km";
   if (!box.querySelector("details[data-list]")) {   // the sections once: they keep open / closed and the scroll
     const open = comListOpen();
-    box.innerHTML = COM_LISTS.map(([k, title, cols]) => `<details class="map-opts-sec com-lsec" data-list="${k}"${open.includes(k) ? " open" : ""}>` +
-      `<summary>${title} <small class="com-lcount"></small></summary><table class="com-lt"><thead><tr>` +
-      cols.map(([c, h]) => `<th data-sort="${c}">${h}</th>`).join("") + `</tr></thead><tbody></tbody></table></details>`).join("");
+    box.innerHTML = COM_LISTS.map(([k, title]) => `<details class="map-opts-sec com-lsec" data-list="${k}"${open.includes(k) ? " open" : ""}>` +
+      `<summary>${title} <label class="com-lshow" title="Show this kind on the map (remembered)"><input type="checkbox" data-kshow="${k}"${comKindOn(k) ? " checked" : ""}> Show</label> <small class="com-lcount"></small></summary><table class="com-lt"><thead></thead></table></details>`).join("");
   }
-  // emergencies: the time each was last seen; a new one opens Aircraft and is scrolled into view
-  let fresh = null;
+  let fresh = null;   // emergencies: the time each was last seen; a new one opens Aircrafts and is scrolled into view
   for (const m of comDrawn || []) {
     if (!m.air || !mapEmerg(m.air.squawk)) continue;
     if (!comEmerg.has(m.id) || now - comEmerg.get(m.id) > 60) fresh = m.id;
     comEmerg.set(m.id, now);
   }
   for (const [id, t] of comEmerg) if (now - t > 120) comEmerg.delete(id);
-  for (const [k, , cols] of COM_LISTS) {
+  for (const [k, , p] of COM_LISTS) {
     const sec = box.querySelector(`details[data-list="${k}"]`), list = (comDrawn || []).filter((m) => m[k]);
-    const srt = comListSort[k] || { key: "age", dir: 1 };
-    const rows = list.map((m) => ({ m, r: comListRow(k, m, q, unit), red: k === "air" && comEmerg.has(m.id) && now - comEmerg.get(m.id) <= 60 }));
-    rows.sort((x, y) => (y.red - x.red) || (() => {
-      const a = x.r[1][srt.key], b = y.r[1][srt.key];
-      return (typeof a === "string" ? a.localeCompare(b, "en", { numeric: true, sensitivity: "base" }) : a - b) * srt.dir;
-    })());
-    sec.querySelector(".com-lcount").textContent = `${list.length}${k === "air" && rows.some((x) => x.red) ? " · EMERGENCY" : ""}`;
-    sec.querySelectorAll("th[data-sort]").forEach((th) => { th.classList.toggle("desc", th.dataset.sort === srt.key && srt.dir < 0); th.classList.toggle("sorted", th.dataset.sort === srt.key); });
-    sec.querySelector("tbody").innerHTML = rows.map(({ m, r, red }) => {
+    const items = new Map(COM_LIST_ITEMS[p].map((x) => [x.id, x])), cfg = comListCfg(p), flag = comListFlag(p);
+    const l1 = cfg.filter((x) => x[1] === 1).map((x) => items.get(x[0])), l2 = cfg.filter((x) => x[1] === 2).map((x) => items.get(x[0]));
+    const ncol = Math.max(1, l1.length, l2.length), nl = l2.length ? 2 : 1, nameIt = items.get("name");
+    const srt = comListSort[k] && items.has(comListSort[k].key) ? comListSort[k] : { key: "age", dir: 1 };
+    const th = (it) => `<th data-sort="${it.id}" class="${it.id === srt.key ? `sorted${srt.dir < 0 ? " desc" : ""}` : ""}">${it.h}</th>`;
+    const pad = (n) => (n < ncol ? `<th colspan="${ncol - n}"></th>` : "");
+    sec.querySelector("thead").innerHTML = `<tr>${th(nameIt).replace("<th ", `<th rowspan="${nl}" `)}${l1.map(th).join("")}${pad(l1.length)}</tr>` +
+      (l2.length ? `<tr class="l2">${l2.map(th).join("")}${pad(l2.length)}</tr>` : "");
+    const sortIt = items.get(srt.key) || items.get("age");
+    const rows = list.map((m) => {
+      const c = { unit, dkm: q ? mapAzDist(q, m)[1] : null, az: q ? mapAzDist(q, m)[0] : null };
+      return { m, c, red: k === "air" && comEmerg.has(m.id) && now - comEmerg.get(m.id) <= 60, sv: sortIt.v(m, c) };
+    });
+    rows.sort((x, y) => (y.red - x.red) || ((typeof x.sv === "string" ? String(x.sv).localeCompare(String(y.sv), "en", { numeric: true, sensitivity: "base" }) : x.sv - y.sv) * srt.dir));
+    const cnt = sec.querySelector(".com-lcount");
+    cnt.textContent = `${comCountTxt(comCounts(list))}${rows.some((x) => x.red) ? " · EMERGENCY" : ""}`;
+    cnt.title = COM_COUNT_TIP;
+    sec.querySelectorAll("tbody").forEach((b) => b.remove());
+    const tb = (line, m, c) => line.map((it) => `<td class="c-${it.id}">${it.cell(m, c)}</td>`).join("") + (line.length < ncol ? `<td colspan="${ncol - line.length}"></td>` : "");
+    sec.querySelector("table").insertAdjacentHTML("beforeend", rows.map(({ m, c, red }, i) => {
       const col = (COM_SRC[m.srcs[0]] || ["", "#fff"])[1];
       const title = m.air ? [m.air.hex, m.air.reg, m.air.desc || m.air.type, m.air.squawk && `squawk ${m.air.squawk}`] : m.ship ? [m.ship.mmsi && `MMSI ${m.ship.mmsi}`] : m.sonde ? [m.sonde.freq_hz && `${fmtMHz(m.sonde.freq_hz, 3)} MHz`] : [];
-      return `<tr class="com-ml${m.id === comSel ? " sel" : ""}${now - m.t > COM_OLD_S ? " old" : ""}${red ? " emerg" : ""}" data-id="${escHtml(m.id)}" style="--sc: ${col}" ` +
-        `title="${escHtml([...title, `${unit} from the station`, m.srcs.map((x) => (COM_SRC[x] || [x])[0]).join(" + ")].filter(Boolean).join(" · "))}">` +
-        r[0].map((c, i) => `<td class="c-${cols[i][0]}">${c}</td>`).join("") + "</tr>";
-    }).join("");
+      return `<tbody class="com-ml${i % 2 ? " odd" : ""}${m.id === comSel ? " sel" : ""}${now - m.t > COM_OLD_S ? " old" : ""}${red ? " emerg" : ""}" data-id="${escHtml(m.id)}" style="--sc: ${col}" ` +
+        `title="${escHtml([...title, `distance in ${unit}`, m.srcs.map((x) => (COM_SRC[x] || [x])[0]).join(" + ")].filter(Boolean).join(" · "))}">` +
+        `<tr><td class="c-name" rowspan="${nl}">${flag ? nameIt.cell(m, c) : nameIt.cell(m, c).replace(/^<(img|span class="noflag")[^>]*>(<\/span>)?/, "")}</td>${tb(l1, m, c)}</tr>` +
+        `${l2.length ? `<tr class="l2">${tb(l2, m, c)}</tr>` : ""}</tbody>`;
+    }).join(""));
   }
-  if (fresh) {   // a new emergency: Aircraft open, its row in view
+  if (fresh) {   // a new emergency: Aircrafts open, its row in view
     const sec = box.querySelector('details[data-list="air"]');
     if (!sec.open) { sec.open = true; comListSave(); }
-    const row = sec.querySelector(`tr[data-id="${CSS.escape(fresh)}"]`);
+    const row = sec.querySelector(`tbody[data-id="${CSS.escape(fresh)}"]`);
     if (row) row.scrollIntoView({ block: "center", behavior: "smooth" });
-  }
+  } else if (comSel) {   // the selected track: its section open (once per selection), its row kept in view
+    const m = comMerged.find((x) => x.id === comSel), k = m && (m.air ? "air" : m.sonde ? "sonde" : m.ship ? "ship" : "");
+    const sec = k && box.querySelector(`details[data-list="${k}"]`);
+    if (sec && comListShown !== comSel && !sec.open) { sec.open = true; comListSave(); }
+    comListShown = comSel;
+    const row = sec && sec.open && sec.querySelector(`tbody[data-id="${CSS.escape(comSel)}"]`);
+    if (row) comKeepInView(row);
+  } else comListShown = null;
+}
+let comListShown = null;   // the selected track whose section was opened
+/** Scrolls the list (only the list, not the page) so that the row is in view. */
+function comKeepInView(row) {
+  let sc = row.parentElement;
+  while (sc && sc !== document.body && !(sc.scrollHeight > sc.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(sc).overflowY))) sc = sc.parentElement;
+  if (!sc || sc === document.body) return;
+  const a = sc.getBoundingClientRect(), r = row.getBoundingClientRect(), k = a.height / (sc.offsetHeight || a.height) || 1;   // k: a scaled page
+  if (r.top < a.top) sc.scrollTop -= (a.top - r.top) / k + 4;
+  else if (r.bottom > a.bottom) sc.scrollTop += (r.bottom - a.bottom) / k + 4;
 }
 $("comSide").addEventListener("click", (e) => {
   const th = e.target.closest("#comList th[data-sort]");
@@ -17380,9 +17790,19 @@ $("comSide").addEventListener("click", (e) => {
   }
   const row = e.target.closest(".com-ml[data-id]");   // a row: select it, show it on the map
   if (!row) return;
-  comSel = row.dataset.id;
-  const m = comMerged.find((x) => x.id === comSel);
-  if (m && comMap) comMap.setView([m.lat, m.lon], Math.max(comMap.getZoom(), 8));
+  comSelect(row.dataset.id, true);
+});
+$("comSide").addEventListener("contextmenu", (e) => {   // right click on an object of the list: its Track menu
+  const row = e.target.closest(".com-ml[data-id]");
+  if (!row) return;
+  e.preventDefault();
+  comTrackMenu(row.dataset.id, e);
+});
+$("comSide").addEventListener("change", (e) => {   // Show of a kind in the list: on / off on the map
+  const k = e.target.dataset && e.target.dataset.kshow;
+  if (!k) return;
+  if (e.target.checked) comKindOff.delete(k); else comKindOff.add(k);
+  try { localStorage.setItem("comKindOff", JSON.stringify([...comKindOff])); } catch { /* this page only */ }
   renderComMap();
 });
 $("comSide").addEventListener("toggle", (e) => { if (e.target.matches && e.target.matches("details[data-list]")) comListSave(); }, true);
@@ -17600,7 +18020,7 @@ const MAP_AD_OPA = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1];   // bright
 const mapHex = (v, d) => (/^#[0-9a-f]{6}$/i.test(v || "") ? v : d);
 const MAP_RNG_OPA = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1];   // brightness of an ADS-B range band (0 = hidden)
 // colours (selected / others; "" = automatic, the map's own colours); the swatch shown while automatic
-const MAP_COLORS = { cIcon: ["#ffd84a", "#ff8c1a"], cTrail: ["#ffffff", "#ff8c1a"], cPred: ["#ffffff", "#ff8c1a"], cText: ["#ffffff", "#ffffff"] };   // prediction line: minutes ahead (0 = none)
+const MAP_COLORS = { cIcon: ["#ffd84a", "#ff8c1a"], cTrail: ["#ffffff", "#ff8c1a"], cTrailDn: ["#ffffff", "#ff8c1a"], cPred: ["#ffffff", "#ff8c1a"], cText: ["#ffffff", "#ffffff"] };   // prediction line: minutes ahead (0 = none)
 const MAP_DROP = [0, 1, 2, 3, 5, 10];
 // Sharing (adsb.fi): radius (NM), refresh (s), altitude band (ft; 0 = any), at most the nearest (0 = all)
 const MAP_SH_DIST = [25, 50, 100, 150, 200, 250], MAP_SH_INT = [5, 10, 30, 60];
@@ -17615,10 +18035,23 @@ const MAP_SYM_SVG = {
   star: '<svg viewBox="0 0 24 24"><rect x="10.9" y="5" width="2.2" height="14"/><rect x="10.9" y="5" width="2.2" height="14" transform="rotate(60 12 12)"/><rect x="10.9" y="5" width="2.2" height="14" transform="rotate(-60 12 12)"/></svg>',
 };
 const MAP_STALE = [0, 1, 2, 3, 5, 10];   // icon in the "no position" colour after so many minutes (0 = the map's own time)   // hide an object without a new position for so many minutes (0 = always shown)
-const MAP_LBL = [["name", "Name / flight"], ["reg", "Registration"], ["id", "ICAO / MMSI"], ["type", "Type"], ["alt", "Altitude"],
-  ["spd", "Speed"], ["vs", "Climb"], ["sq", "Squawk"], ["freq", "Frequency"], ["az", "Azimuth"], ["dist", "Distance"], ["src", "Source"]];
+// the items a label can show, per kind (aircrafts: no prefix, radiosondes s_, ships w_)
+const MAP_LBL_KIND = {
+  "": [["name", "Flight / callsign"], ["reg", "Registration"], ["id", "ICAO address"], ["type", "Type"], ["desc", "Aircraft model"],
+    ["alt", "Altitude (FL)"], ["spd", "Speed"], ["vs", "Climb"], ["sq", "Squawk"], ["ad", "A/D (azimuth / distance)"], ["src", "Source"], ["note", "Note"]],
+  s_: [["name", "Serial"], ["type", "Type"], ["freq", "Frequency"], ["alt", "Altitude"], ["vs", "Climb"], ["spd", "Speed"],
+    ["temp", "Temperature"], ["rh", "Humidity"], ["state", "State"], ["land", "Predicted landing"], ["ad", "A/D (azimuth / distance)"], ["src", "Source"], ["note", "Note"]],
+  w_: [["name", "Name"], ["id", "MMSI"], ["call", "Call sign"], ["type", "Type"], ["spd", "Speed"], ["crs", "Course"], ["nav", "Navigation status"],
+    ["dest", "Destination"], ["ad", "A/D (azimuth / distance)"], ["src", "Source"], ["note", "Note"]],
+};
+const MAP_LBL_DEF_KIND = {
+  s_: { lbl: ["name", "alt", "freq"], lblSel: ["name", "type", "freq", "alt", "vs", "spd", "state", "land", "src"] },
+  w_: { lbl: ["name", "spd"], lblSel: ["name", "id", "call", "type", "spd", "crs", "nav", "dest", "src"] },
+};
+// all items (to check what is stored and to keep the order)
+const MAP_LBL = [...new Map(Object.values(MAP_LBL_KIND).flat().filter((x) => x[0] !== "note").map((x) => [x[0], x])).values()];
 const MAP_LBL_DEF = { lbl: ["name", "type", "alt", "freq"], lblSel: ["name", "reg", "id", "type", "alt", "spd", "vs", "sq", "freq", "src"] };
-function mapOptsRead() { return mapOptsKinds(mapOptsRaw(), mapOptsRead0()); }
+function mapOptsRead() { const r = mapOptsRead0(); return mapOptsKinds(mapOptsRaw(), r); }   // mapOptsRead0 first: it reads the stored settings that mapOptsRaw gives
 let mapOptsRawV = {};
 function mapOptsRaw() { return mapOptsRawV; }
 function mapOptsRead0() {
@@ -17648,6 +18081,7 @@ function mapOptsRead0() {
     stale: MAP_STALE.includes(+o.stale) ? +o.stale : 0, cStale: mapHex(o.cStale, "#8a929c"),
     base: MAP_BASES[o.base] ? o.base : "osm", baseColor: mapHex(o.baseColor, "#000000"), dark: o.dark != null ? !!o.dark : true, baseUrl: typeof o.baseUrl === "string" ? o.baseUrl.slice(0, 500) : "",
     sea: !!o.sea, layRev: +o.layRev || 0,
+    stIcon: MAP_ST_ICONS.some(([v]) => v === o.stIcon) ? o.stIcon : "circle", cSt: mapHex(o.cSt, "#ff5a3c"),   // COMPOSITE: the station
     aip: !!o.aip, aipOpa: MAP_LAY_OPA.includes(+o.aipOpa) ? +o.aipOpa : 0.8, keyRev: +o.keyRev || 0,
     sym: MAP_SYMS.some(([v]) => v === o.sym) ? o.sym : "icon", cld: !!o.cld, cldOpa: Math.min(1, Math.max(0.1, +o.cldOpa || 0.7)),
     lay: Object.fromEntries(Object.entries(o.lay && typeof o.lay === "object" ? o.lay : {}).filter(([id, v]) => /^[\w-]{1,64}$/.test(id) && v && typeof v === "object")
@@ -17674,19 +18108,33 @@ function mapOptsRead0() {
     shAis: !!o.shAis, shAisDist: MAP_SH_DIST.includes(+o.shAisDist) ? +o.shAisDist : 50, shAisMax: MAP_SH_MAX.includes(+o.shAisMax) ? +o.shAisMax : 100,
     shAisNotLocal: o.shAisNotLocal != null ? !!o.shAisNotLocal : true, shAisMoving: !!o.shAisMoving,
     noUnits: !!o.noUnits, noUnitsSel: !!o.noUnitsSel, noUnitsShr: !!o.noUnitsShr,
+    ...Object.fromEntries(["lblShow", "lblNote"].flatMap((x) => ["", "Sel", "Shr"].map((suf) => [x + suf, o[x + suf] !== false]))),   // label shown / its note (default on)
+    lblLine: o.lblLine, list: o.list, lblTok: o.lblTok, listTok: o.listTok, listOn: o.listOn, listFlag: o.listFlag,   // aircrafts: label / list order (checked when used)
     fontShr: k(MAP_FONT_K, o.fontShr), bgShr: MAP_LBL_BG.includes(+o.bgShr) ? +o.bgShr : 0.85, lblShr: lbl(o.lblShr, MAP_LBL_DEF.lbl),
   };
 }
+// the colours of the landing prediction of the radiosondes (COMPOSITE): ascent, descent, landing area, burst
+const SONDE_PRED_C = { cUp: "#4fb6ff", cDown: "#ff4b3c", cLand: "#ff4b3c", cBurst: "#ffd84a" };
 // the object settings of radiosondes (s_) and ships (w_): the same checks as those of the aircraft
 function mapOptsKinds(o, r) {
   const trail = (v) => (MAP_TRAILS.some(([x]) => x === v) ? v : "full"), k = (list, v, d) => (list.includes(+v) ? +v : d);
+  for (const [x, d] of Object.entries(SONDE_PRED_C)) r["s_" + x] = mapHex(o["s_" + x], d);   // landing prediction of the radiosondes
   for (const pre of ["s_", "w_"]) {
     for (const suf of ["", "Sel", "Shr"]) {
       const g = (x) => o[pre + x + suf];
       r[pre + "trails" + suf] = trail(g("trails"));
       r[pre + "icon" + suf] = k(MAP_ICON_K, g("icon"), 1);
-      r[pre + "pred" + suf] = k(MAP_PRED, g("pred"), suf === "Sel" ? 3 : 0);
-      for (const c of ["cIcon", "cTrail", "cPred"]) r[pre + c + suf] = /^#[0-9a-f]{6}$/i.test(g(c) || "") ? g(c) : "";
+      // radiosondes: the landing predictor of the SONDE decoder by default, or the line of the aircrafts
+      r[pre + "pred" + suf] = pre === "s_" && (g("pred") === "land" || g("pred") == null) ? "land" : k(MAP_PRED, g("pred"), suf === "Sel" ? 3 : 0);
+      for (const c of ["cIcon", "cTrail", "cTrailDn", "cPred", "cText"]) r[pre + c + suf] = /^#[0-9a-f]{6}$/i.test(g(c) || "") ? g(c) : "";
+      const ids = MAP_LBL_KIND[pre].map(([id]) => id), lv = g("lbl");
+      r[pre + "lbl" + suf] = Array.isArray(lv) ? ids.filter((id) => lv.includes(id)) : MAP_LBL_DEF_KIND[pre][suf === "Sel" ? "lblSel" : "lbl"];
+      r[pre + "font" + suf] = k(MAP_FONT_K, g("font"), 1);
+      r[pre + "bg" + suf] = MAP_LBL_BG.includes(+g("bg")) ? +g("bg") : 0.85;
+      r[pre + "noUnits" + suf] = !!g("noUnits");
+      r[pre + "lblShow" + suf] = g("lblShow") !== false;
+      r[pre + "lblNote" + suf] = g("lblNote") !== false;
+      if (!suf) for (const x of ["lblLine", "list", "lblTok", "listTok", "listOn", "listFlag"]) r[pre + x] = o[pre + x];
       if (suf !== "Sel") {
         r[pre + "stale" + suf] = k(MAP_STALE, g("stale"), 0);
         r[pre + "cStale" + suf] = mapHex(g("cStale"), "#8a929c");
@@ -17697,10 +18145,14 @@ function mapOptsKinds(o, r) {
   return r;
 }
 let mapOpts = mapOptsRead();
-const mapOptSubs = new Set();   // apply() of every map on this page
+const mapOptSubs = new Set([() => { if (typeof renderComTbar === "function") renderComTbar(); }]);   // apply() of every map on this page (and the COMPOSITE bars)
 function mapOptsSet(patch) {
   mapOpts = { ...mapOpts, ...patch };
-  try { localStorage.setItem(MAP_OPT_KEY, JSON.stringify(mapOpts)); } catch { /* no storage: this page only */ }
+  try {   // over what is stored: keys this page does not know (a window with an older page) are kept, not dropped
+    let old = null;
+    try { old = JSON.parse(localStorage.getItem(MAP_OPT_KEY) || "null"); } catch { old = null; }
+    localStorage.setItem(MAP_OPT_KEY, JSON.stringify({ ...(old && typeof old === "object" ? old : {}), ...mapOpts }));
+  } catch { /* no storage: this page only */ }
   mapOptSubs.forEach((f) => f(false));
 }
 window.addEventListener("storage", (e) => {   // changed in another tab / window
@@ -17712,16 +18164,17 @@ window.addEventListener("storage", (e) => {   // changed in another tab / window
 // the column of the map settings an object takes: g = true (selected), "Shr" (only from shared sources) or false (local)
 const mapG = (g) => (g === true ? "Sel" : g === "Shr" ? "Shr" : "");
 // the object settings are per kind: aircraft (no prefix), radiosondes (s_), ships (w_); set while an object is drawn
-const MAP_KIND_KEYS = new Set(["trails", "icon", "pred", "cIcon", "cTrail", "cPred", "stale", "cStale", "drop"]);
+const MAP_KIND_KEYS = new Set(["trails", "icon", "pred", "cIcon", "cTrail", "cTrailDn", "cPred", "stale", "cStale", "drop", "lbl", "font", "bg", "cText", "noUnits", "lblShow", "lblNote"]);
 let mapKindPre = "";
-const mapO = (k, g) => mapOpts[(MAP_KIND_KEYS.has(k) ? mapKindPre : "") + k + mapG(g)];
+let mapTrkOv = null;   // COMPOSITE: the settings of the track drawn now (Track menu) over the map settings
+const mapO = (k, g) => (mapTrkOv && mapTrkOv[k] != null && k !== "note" && k !== "lbl" ? mapTrkOv[k] : mapOpts[(MAP_KIND_KEYS.has(k) ? mapKindPre : "") + k + mapG(g)]);
 
 /** A trail as the map settings say (one setting for the selected object, one for the others): the whole line, small
  *  dots of the last minutes fading with age, or nothing. pts = [[lat, lon, t, squawk?]…] (t in UNIX seconds),
  *  line = the polyline options (its colour also colours the dots). Positions sent with an emergency squawk are red
  *  (dots; on the full line a red line over them). */
-function mapTrail(layer, pts, line, sel) {
-  const m = mapO("trails", sel), c = mapO("cTrail", sel);
+function mapTrail(layer, pts, line, sel, cKey) {
+  const m = mapO("trails", sel), c = mapO(cKey || "cTrail", sel);   // cKey: radiosondes after the burst "cTrailDn"
   if (c) line = { ...line, color: c };   // the colour chosen in the map settings
   if (m === "off" || !pts.length) return;
   if (m === "full") {
@@ -17774,6 +18227,7 @@ const mapGone = (t, sel) => sel !== true && mapO("drop", sel) > 0 && t > 0 && Da
  *  t = the time of the position (an older one than 5 min, or a stop, gets no line). */
 function mapPredict(layer, at, brg, kt, t, sel, color) {
   const n = mapO("pred", sel);
+  if (typeof n !== "number") return;   // radiosondes: the landing predictor is drawn instead
   color = mapO("cPred", sel) || color;
   if (!n || !at || brg == null || !(brg >= 0 && brg < 360) || !(kt >= 1) || !(Date.now() / 1000 - t < 300)) return;
   const km = (kt * 1.852) / 60, R = 6371, b = (brg * Math.PI) / 180, la = (at.lat * Math.PI) / 180, lo = (at.lon * Math.PI) / 180;
@@ -17870,41 +18324,99 @@ async function mapAdDraw(map, layer) {
 }
 
 /** The icon in the size of the map settings (selected / others), an emergency squawk 1.5× and red. */
-function mapIcon(icon, sel, emerg, t) {
+/** The colour an icon would be filled with (for the outline of a shared object). */
+function mapOutlineColor(cls, c, cStale, emerg) {
+  const has = (x) => cls.split(/\s+/).includes(x);
+  if (emerg) return MAP_EMERG_C;
+  if (has("sel")) return MAP_SEL_C;
+  if (has("old")) return cStale;
+  if (c) return c;
+  if (has("sonde-mk")) return has("fall") ? "#ffd84a" : "#4fd8ff";
+  if (has("ais-ship")) return has("base") ? "#6cb8ff" : has("aton") ? "#6cff9c" : has("sar") ? "#ff8a6b" : has("stop") ? "#c9a227" : "#ffd84a";
+  return "#ffd84a";
+}
+/** The icon as the map settings say; shared = an object only from shared sources: the outline of the icon, not filled. */
+function mapIcon(icon, sel, emerg, t, shared) {
   const o = icon.options, k = mapO("icon", sel) * (emerg ? 1.5 : 1), c = mapO("cIcon", sel), sym = sel === "Shr" ? mapOpts.symShr : mapOpts.sym;
   const gs = sel === "Shr" ? "Shr" : false, stale = mapO("stale", gs), cStale = mapO("cStale", gs);   // the selected one: as the local ones
   // "no position" (grey by default): after the time of the map settings, or the map's own time (auto)
   let cls = o.className, html = o.html;
   if (MAP_SYM_SVG[sym] && /\bhfdl-plane\b/.test(cls)) html = MAP_SYM_SVG[sym];   // an aircraft as another symbol
   if (stale && t > 0) cls = cls.replace(/\bold\b/g, "").trim() + (Date.now() / 1000 - t > stale * 60 ? " old" : "");
-  return L.divIcon({ ...o, className: `${cls} map-scaled${emerg ? " map-emerg" : ""}${c ? " map-colored" : ""}`,
-    html: `<span class="map-cwrap" style="${c ? `--mc: ${c}; ` : ""}--oc: ${cStale}">${html}</span>`,   // the colours of the map settings
+  const outline = shared && html === o.html;   // the other symbols (square, circle …) are outlines already
+  const oc = outline ? mapOutlineColor(cls, c, cStale, emerg) : "";
+  return L.divIcon({ ...o, className: `${cls} map-scaled${emerg ? " map-emerg" : ""}${c ? " map-colored" : ""}${outline ? " map-outline" : ""}`,
+    html: `<span class="map-cwrap" style="${c ? `--mc: ${c}; ` : ""}--oc: ${cStale}${oc ? `; --sc2: ${oc}` : ""}">${html}</span>`,   // the colours of the map settings
     iconSize: o.iconSize.map((v) => Math.round(v * k)), iconAnchor: o.iconAnchor.map((v) => Math.round(v * k)) });
 }
 const mapIconK = (sel, emerg) => mapO("icon", sel) * (emerg ? 1.5 : 1);
 
+/** Azimuth / distance of a place from the station as 090°/123km (the unit of the A/D map), without units 090/123. */
+function mapAdTxt(at, bare) {
+  const q = mapQthV;
+  if (!q || (q.lat === at.lat && q.lon === at.lon)) return "";
+  const d = mapAzDist(q, at), v = mapOpts.adUnit === "nm" ? d[1] / 1.852 : d[1];
+  const az = String(Math.round(d[0]) % 360).padStart(3, "0"), dist = v < 10 ? v.toFixed(1) : String(Math.round(v));
+  return bare ? `${az}/${dist}` : `${az}°/${dist}${mapOpts.adUnit === "nm" ? "NM" : "km"}`;
+}
+
+/** The order of the label items of a kind and the line (1–5) of each: [[id, line]…]. */
+const MAP_LBL_LINE_DEF = { name: 1, reg: 1, call: 1, id: 2, type: 2, desc: 2, alt: 3, spd: 3, vs: 3, sq: 3, freq: 3, crs: 3,
+  temp: 4, rh: 4, state: 4, land: 4, nav: 4, dest: 4, ad: 5, src: 5, note: 5 };
+// the former separate items azimuth and distance are the one item A/D now
+const mapAdIds = (a) => { const out = []; for (const x of a) { const y = x === "az" || x === "dist" ? "ad" : x; if (!out.includes(y) || y[0] === "|") out.push(y); } return out; };
+// the order of the items as tokens: item ids and the marks of the lines "|2", "|3" … (line 1 is the start): the items after
+// a mark are in its line. The marks are numbered again by their place, so moving one only moves the break.
+function mapTokNorm(tok, ids, nLines) {
+  tok = tok.filter((t) => ids.includes(t) || /^\|\d?$/.test(t));
+  let seen = 0;
+  tok = tok.filter((t, i) => (t[0] === "|" ? ++seen < nLines : tok.indexOf(t) === i));   // at most nLines - 1 line marks
+  let marks = tok.filter((t) => t[0] === "|").length;
+  while (marks < nLines - 1) { tok.push("|"); marks++; }
+  for (const id of ids) if (!tok.includes(id)) tok.push(id);
+  let n = 1;
+  return tok.map((t) => (t[0] === "|" ? `|${++n}` : t));
+}
+const mapTokLines = (tok) => { let line = 1; const out = []; for (const t of tok) { if (t[0] === "|") line = +t.slice(1); else out.push([t, line]); } return out; };
+function mapLblTok(p) {
+  const ids = MAP_LBL_KIND[p].map(([id]) => id), v = mapOpts[p + "lblTok"];
+  if (Array.isArray(v)) return mapTokNorm(mapAdIds(v), ids, 5);
+  const old = Array.isArray(mapOpts[p + "lblLine"]) ? mapOpts[p + "lblLine"] : [];   // the former order / lines, else the default lines
+  const line = (id) => +((old.find((x) => x[0] === id) || [])[1] || MAP_LBL_LINE_DEF[id] || 1);
+  const order = [...old.map((x) => x[0]).filter((id) => ids.includes(id)), ...ids.filter((id) => !old.some((x) => x[0] === id))];
+  const tok = [];
+  for (let l = 1; l <= 5; l++) { if (l > 1) tok.push("|"); tok.push(...order.filter((id) => Math.min(5, Math.max(1, line(id))) === l)); }
+  return mapTokNorm(tok, ids, 5);
+}
+function mapLblCfg(p) { return mapTokLines(mapLblTok(p)); }
+
 /** Label text from the items chosen in the map settings. f = {name, reg, id, type, alt, spd, vs, sq, freq, src}
  *  (already formatted, empty = not known). "" = no label. */
 function mapLabel(f, sel) {
-  const on = new Set(mapO("lbl", sel)), bare = mapO("noUnits", sel);
+  const on = new Set(mapAdIds(mapO("lbl", sel) || [])), bare = mapO("noUnits", sel);
   // "without units": the numbers alone (FL350 → 350, 34975 ft → 34975, 431 kt → 431, 403.000 MHz → 403.000 …)
-  const strip = (v) => (bare ? v.replace(/^FL(?=\d)/, "").replace(/\s*(ft\/min|ft|kt|km\/h|m\/s|MHz|km|NM|m)$/, "") : v);
-  const g = (k) => (on.has(k) && f[k] != null && f[k] !== "" ? escHtml(["alt", "spd", "vs", "freq"].includes(k) ? strip(String(f[k])) : String(f[k])) : "");
+  const strip = (v) => (bare ? v.replace(/^FL(?=\d)/, "").replace(/\s*(ft\/min|ft|kt|km\/h|m\/s|MHz|km|NM|m|°C|%|°)$/, "") : v);
+  const g = (k) => (on.has(k) && f[k] != null && f[k] !== "" ? escHtml(["alt", "spd", "vs", "freq", "crs", "temp", "rh"].includes(k) ? strip(String(f[k])) : String(f[k])) : "");
   const sq = g("sq") && (mapEmerg(f.sq) ? `<span class="sq-emerg">${g("sq")}</span>` : bare ? g("sq") : `sq ${g("sq")}`);
   // azimuth / distance from the station (MENU › SETUP › LOCATION), in the unit of the A/D map: 123°/45km
   let ad = "";
-  if (f.at && mapQthV && (on.has("az") || on.has("dist"))) {
-    const d = mapQthV.lat === f.at.lat && mapQthV.lon === f.at.lon ? null : mapAzDist(mapQthV, f.at);
-    if (d) {
-      const v = mapOpts.adUnit === "nm" ? d[1] / 1.852 : d[1];
-      const az = on.has("az") ? `${Math.round(d[0]) % 360}${bare ? "" : "°"}` : "";
-      const dist = on.has("dist") ? `${v < 10 ? v.toFixed(1) : Math.round(v)}${bare ? "" : mapOpts.adUnit === "nm" ? "NM" : "km"}` : "";
-      ad = [az, dist].filter(Boolean).join("/");
-    }
-  }
-  const lines = [[g("name"), g("reg") !== g("name") ? g("reg") : ""], [g("id") !== g("name") ? g("id") : "", g("type")],
-    [g("alt"), g("spd"), g("vs"), sq, g("freq")], [ad], [g("src")]].map((l) => l.filter(Boolean).join(" · ")).filter(Boolean);
+  if (f.at && mapQthV && (on.has("ad") || on.has("az") || on.has("dist"))) ad = mapAdTxt(f.at, bare);
+  // the items in the order and lines of the settings; azimuth and distance side by side as 123°/45km
+  const val = { ...Object.fromEntries(MAP_LBL.map(([id]) => [id, g(id)])), sq, reg: g("reg") !== g("name") ? g("reg") : "", id: g("id") !== g("name") ? g("id") : "" };
+  val.ad = ad;
+  val.note = mapTrkOv && mapTrkOv.note && mapO("lblNote", sel) !== false ? `<i class="map-lbl-note">${escHtml(mapTrkOv.note)}</i>` : "";   // COMPOSITE: the note of the Track menu
+  const rows = [[], [], [], [], [], []];
+  for (const [id, line] of mapLblCfg(mapKindPre)) if (val[id]) rows[line].push([id, val[id]]);
+  const lines = rows.map((r) => r.map(([id, v], i) => (i && id === "dist" && r[i - 1][0] === "az" ? "/" : i ? " · " : "") + v).join("")).filter(Boolean);
   return lines.length ? `<span style="font-size:${mapO("font", sel)}em">${lines.join("<br>")}</span>` : "";
+}
+
+/** The label of an aircraft with an emergency squawk: always shown (also when hidden by hand or with no items chosen),
+ *  bigger and red while the squawk lasts; after it the label of the settings again. */
+function mapLabelEmerg(f, sel) {
+  let html = mapLabel(f, sel) || escHtml(f.name || "");
+  if (!html.includes("sq-emerg")) html += `${html ? "<br>" : ""}<span class="sq-emerg">${escHtml(String(f.sq))}</span>`;   // the squawk always
+  return `<span class="map-lbl-emerg">${html}</span>`;
 }
 
 /** Puts the label on a mark (bound with a permanent tooltip): hidden when empty, moved below a bigger icon. */
@@ -17967,7 +18479,8 @@ function mapLeaderCalc(tt, box) {
   box = box || map.getContainer().getBoundingClientRect();
   const r = el.getBoundingClientRect();
   if (!box.width || !r.width) return undefined;   // the map or the label is not shown now
-  const x = r.left - box.left, y = r.top - box.top, w = r.width, h = r.height;
+  const c = map.getContainer(), sx = box.width / (c.offsetWidth || box.width), sy = box.height / (c.offsetHeight || box.height);   // a scaled page (the small map of a tab): back to map pixels
+  const x = (r.left - box.left) / sx, y = (r.top - box.top) / sy, w = r.width / sx, h = r.height / sy;
   const a = map.latLngToContainerPoint(mk.getLatLng());
   const mid = w >= h ? [[w / 2, 0], [w / 2, h]] : [[0, h / 2], [w, h / 2]];
   const best = [[0, 0], [w, 0], [0, h], [w, h], ...mid].map(([dx, dy]) => L.point(x + dx, y + dy))
@@ -18020,12 +18533,13 @@ function mapLblDragInit(map) {
     e.preventDefault();
     e.stopPropagation();
     const tt = el._tt, key = tt._lbl.key, offs = mapLblOffs(map), o0 = offs[key] || [0, 0], x0 = e.clientX, y0 = e.clientY;
+    const br = box.getBoundingClientRect(), sx = br.width / (box.offsetWidth || br.width) || 1, sy = br.height / (box.offsetHeight || br.height) || 1;   // a scaled page: mouse pixels -> map pixels
     mapLblDrag = true;
     if (map.dragging) map.dragging.disable();
     el.classList.add("dragging");
     try { el.setPointerCapture(e.pointerId); } catch { /* older browser */ }
     const move = (ev) => {
-      offs[key] = [o0[0] + ev.clientX - x0, o0[1] + ev.clientY - y0];
+      offs[key] = [o0[0] + (ev.clientX - x0) / sx, o0[1] + (ev.clientY - y0) / sy];
       mapLblPlace(tt, map);
       tt.update();
       mapLeader(tt);
@@ -18166,7 +18680,7 @@ function comMapSettings(map, kind, rerender, noTrails) {
 
   // the settings window
   const extra = [];   // [layer, name] of more switches of this map (e.g. the sonde launch sites)
-  const objSig = () => JSON.stringify(Object.keys(mapOpts).filter((k) => /^[sw]_/.test(k)).map((k) => mapOpts[k])) + JSON.stringify(["trails", "trailsSel", "icon", "iconSel", "font", "fontSel", "lbl", "lblSel", "drop",
+  const objSig = () => JSON.stringify(Object.keys(mapOpts).filter((k) => /^[sw]_|^(lbl|font|bg|cText|noUnits|list)/.test(k)).map((k) => mapOpts[k])) + JSON.stringify(["trails", "trailsSel", "icon", "iconSel", "font", "fontSel", "lbl", "lblSel", "drop",
     "trailsShr", "iconShr", "symShr", "predShr", "staleShr", "cStaleShr", "dropShr", "fontShr", "bgShr", "lblShr", "noUnits", "noUnitsSel", "noUnitsShr", "bg", "bgSel", "pred", "predSel", "adUnit", "stale", "cStale", "sym", ...(kind === "adsb" ? Object.keys(mapOpts).filter((k) => /^(rng|cRng|oRng|fRng|pRng)/.test(k)) : []), ...Object.keys(MAP_COLORS).flatMap((k) => [k, k + "Sel"])].map((k) => mapOpts[k]));
   let panel = null, objShown = objSig();
   const Ctl = L.Control.extend({
@@ -18183,11 +18697,22 @@ function comMapSettings(map, kind, rerender, noTrails) {
         L.DomEvent.preventDefault(e);
         panel.hidden = !panel.hidden;
         box.classList.toggle("open", !panel.hidden);   // the name shows beside the gear while open
-        if (!panel.hidden) fill();
+        map.getContainer().classList.toggle("opts-open", !panel.hidden);   // the full screen / new tab keys hidden meanwhile
+        if (!panel.hidden) { fill(); fitPanel(); }
       });
       panel.addEventListener("input", onInput);
       panel.addEventListener("change", onInput);
       panel.addEventListener("toggle", (e) => {   // a section opened / closed: remembered
+        if (e.target.matches && e.target.matches("details[data-subsec]")) {   // Symbol / Label of a kind: one open at a time
+          const d = e.target, k = d.dataset.kind;
+          if (d.open) panel.querySelectorAll(`details[data-subsec][data-kind="${k}"][open]`).forEach((x) => { if (x !== d) x.open = false; });
+          let so = {};
+          try { so = JSON.parse(localStorage.getItem("mapOptsSub") || "{}") || {}; } catch { so = {}; }
+          const o = panel.querySelector(`details[data-subsec][data-kind="${k}"][open]`);
+          so[k] = o ? o.dataset.subsec : "";
+          try { localStorage.setItem("mapOptsSub", JSON.stringify(so)); } catch { /* this page only */ }
+          return;
+        }
         if (e.target.matches && e.target.matches("details[data-srcsec]")) {   // Sources: one kind open at a time
           const d = e.target;
           if (d.open) panel.querySelectorAll("details[data-srcsec][open]").forEach((x) => { if (x !== d) x.open = false; });
@@ -18199,7 +18724,54 @@ function comMapSettings(map, kind, rerender, noTrails) {
         const open = [...panel.querySelectorAll("details[data-sec][open]")].map((d) => d.dataset.sec);
         try { localStorage.setItem("mapOptsOpen", JSON.stringify(open)); } catch { /* this page only */ }
       }, true);
+      // the items / line marks of Label and List: dragged with the mouse within their table
+      let dragging = null;
+      const dropRow = (e) => { const tr = e.target.closest && e.target.closest("tr[data-dk]"); return tr && dragging && tr.dataset.dk === dragging.dk && tr.dataset.p === dragging.p ? tr : null; };
+      const clearMarks = () => panel.querySelectorAll(".drop-before, .drop-after, .dragging").forEach((x) => x.classList.remove("drop-before", "drop-after", "dragging"));
+      panel.addEventListener("dragstart", (e) => {
+        const tr = e.target.closest && e.target.closest("tr[draggable][data-dk]");
+        if (!tr) return;
+        dragging = { dk: tr.dataset.dk, p: tr.dataset.p, i: +tr.dataset.i };
+        tr.classList.add("dragging");
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", tr.dataset.i);
+      });
+      panel.addEventListener("dragover", (e) => {
+        const tr = dropRow(e);
+        if (!tr) return;
+        e.preventDefault();
+        const r = tr.getBoundingClientRect(), after = tr.dataset.i === "-1" || e.clientY > r.top + r.height / 2;
+        panel.querySelectorAll(".drop-before, .drop-after").forEach((x) => x.classList.remove("drop-before", "drop-after"));
+        tr.classList.add(after ? "drop-after" : "drop-before");
+      });
+      panel.addEventListener("drop", (e) => {
+        const tr = dropRow(e);
+        if (!tr) return;
+        e.preventDefault();
+        const lbl = dragging.dk === "lbl", p = dragging.p, tok = lbl ? mapLblTok(p) : comListTok(p);
+        const ti = +tr.dataset.i, after = tr.classList.contains("drop-after") || ti < 0, from = dragging.i;
+        let to = ti < 0 ? 0 : after ? ti + 1 : ti;
+        const [t] = tok.splice(from, 1);
+        if (from < to) to--;
+        tok.splice(to, 0, t);
+        const ids = lbl ? MAP_LBL_KIND[p].map(([id]) => id) : comListIds(p);
+        mapOptsSet(lbl ? { [p + "lblTok"]: mapTokNorm(tok, ids, 5) } : { [p + "listTok"]: mapTokNorm(tok, ids, 2), [p + "listOn"]: [...comListOn(p)] });
+        dragging = null;
+        fill();
+      });
+      panel.addEventListener("dragend", () => { dragging = null; clearMarks(); });
       panel.addEventListener("click", (e) => {   // "auto" next to a colour: back to the map's own colours
+        const mv = e.target.closest("button[data-lmove], button[data-limove]");
+        if (mv) {   // an item or a line break of a label / of the list one place up or down
+          const lbl = mv.dataset.lmove != null, p = lbl ? mv.dataset.lmove : mv.dataset.limove;
+          const tok = lbl ? mapLblTok(p) : comListTok(p), i = +mv.dataset.i, j = i + +mv.dataset.d;
+          if (j < 0 || j >= tok.length) return;
+          [tok[i], tok[j]] = [tok[j], tok[i]];
+          const ids = lbl ? MAP_LBL_KIND[p].map(([id]) => id) : comListIds(p);
+          mapOptsSet(lbl ? { [p + "lblTok"]: mapTokNorm(tok, ids, 5) } : { [p + "listTok"]: mapTokNorm(tok, ids, 2), [p + "listOn"]: [...comListOn(p)] });
+          fill();
+          return;
+        }
         const del = e.target.closest("button[data-laydel]");
         if (del) {   // delete an own layer (from the server: all windows lose it)
           const id = del.dataset.laydel, it = (mapLayList || []).find((x) => x.id === id);
@@ -18238,8 +18810,8 @@ function comMapSettings(map, kind, rerender, noTrails) {
       }
     }
     // one part per kind, opening and closing with a click; only one open at a time (remembered)
-    let open = "air";
-    try { open = localStorage.getItem("comSrcOpen") ?? "air"; } catch { /* the default */ }
+    let open = "";
+    try { open = localStorage.getItem("comSrcOpen") ?? ""; } catch { /* the default: all closed */ }
     const part = (title, k, share, none) => {
       const n = rows[k].length;
       return `<details class="map-opts-subsec" data-srcsec="${k}"${open === k ? " open" : ""}><summary>${title} <small>${n ? `${n} local` : "no local decoder"}${k === "air" && mapOpts.shAfi ? " · adsb.fi" : ""}</small></summary>` +
@@ -18289,13 +18861,13 @@ function comMapSettings(map, kind, rerender, noTrails) {
   };
   // the sections of the window open (remembered in the browser): Sources and Map open the first time
   function secOpen() {
-    try { const v = JSON.parse(localStorage.getItem("mapOptsOpen") || "null"); return Array.isArray(v) ? v : ["sources", "map"]; } catch { return ["sources", "map"]; }
+    try { const v = JSON.parse(localStorage.getItem("mapOptsOpen") || "null"); return Array.isArray(v) ? v : []; } catch { return []; }   // the first time: all closed
   }
   function fill() {
     const o = mapOpts, pc = (x) => `${Math.round(x * 100)} %`, open = secOpen();
     const sel = (list, name) => (k) => `<select data-o="${k}">${list.map((v) => `<option value="${v}"${v === o[k] ? " selected" : ""}>${name(v)}</option>`).join("")}</select>`;
     const row = (name, k, cell) => `<tr><th>${name}</th><td>${cell(k + "Sel")}</td><td>${cell(k)}</td></tr>`;
-    const box = (k, id) => `<input type="checkbox" data-l="${k}" value="${id}"${o[k].includes(id) ? " checked" : ""}>`;
+    const box = (k, id) => `<input type="checkbox" data-l="${k}" value="${id}"${mapAdIds(o[k] || []).includes(id) ? " checked" : ""}>`;
     const color = (base) => (k) => `<span class="map-opts-c${o[k] ? "" : " auto"}"><input type="color" data-c="${k}" value="${o[k] || MAP_COLORS[base][k.endsWith("Sel") ? 1 : 0]}">` +
       `<button type="button" data-cr="${k}" title="Automatic: the map's own colours">auto</button></span>`;
     const sec = (id, title, hint, body) => `<details class="map-opts-sec" data-sec="${id}"${open.includes(id) ? " open" : ""}><summary>${title}` +
@@ -18322,6 +18894,9 @@ function comMapSettings(map, kind, rerender, noTrails) {
           `<td><button type="button" class="map-opts-del" data-laydel="${id}" title="Delete the layer (for all windows)">✕</button></td></tr>`;
       }).join("") + `</table>` : `<p class="map-opts-note">${mapLayList ? "No layer yet." : "Loading…"}</p>`) +
       `<label class="map-opts-up">Add <input type="file" data-up accept=".geojson,.json,.kml,.gpx"></label><p class="map-opts-note map-opts-msg"></p>` +
+      (kind === "com" ? sub("Station", "your location (MENU › SETUP › LOCATION)") +
+        `<label>Icon <select data-o="stIcon">${MAP_ST_ICONS.map(([v, n]) => `<option value="${v}"${v === o.stIcon ? " selected" : ""}>${n}</option>`).join("")}</select>` +
+        `<input type="color" class="map-opts-cp" data-o="cSt" value="${o.cSt}" title="Colour of the station"></label>` : "") +
       sub("A/D map", "azimuth / distance rings around the station") +
       `<label><input type="checkbox" data-o="ad"${o.ad ? " checked" : ""}> Show the rings and azimuths</label>` +
       `<label>Up to <select data-o="adMax">${MAP_AD_MAX.map((v) => `<option value="${v}"${v === o.adMax ? " selected" : ""}>${v}</option>`).join("")}</select>` +
@@ -18352,16 +18927,57 @@ function comMapSettings(map, kind, rerender, noTrails) {
     const cp = (k) => `<input type="color" class="map-opts-cp" data-o="${k}" value="${o[k]}">`;
     const symSel = sel(MAP_SYMS.map(([v]) => v), (v) => MAP_SYMS.find(([x]) => x === v)[1]);
     // one table per kind (aircraft: no prefix, radiosondes s_, ships w_)
-    const kindSec = (p, air) => `<table class="map-opts-t"><tr><th></th><th>Selected</th><th title="Tracks from the local decoders">Local</th><th title="Tracks from shared sources (other stations)">Sharing</th></tr>` +
+    const subOpen = (() => { try { return JSON.parse(localStorage.getItem("mapOptsSub") || "{}") || {}; } catch { return {}; } })();
+    const sub2 = (p, id, title, hint, body) => `<details class="map-opts-subsec" data-subsec="${id}" data-kind="${p || "a_"}"${subOpen[p || "a_"] === id ? " open" : ""}>` +
+      `<summary>${title} <small>${hint}</small></summary>${body}</details>`;
+    const predSel = (p) => (p === "s_" ? sel(["land", ...MAP_PRED], (v) => (v === "land" ? "landing (SONDE)" : v ? `${v} min` : "Off")) : sel(MAP_PRED, (v) => (v ? `${v} min` : "Off")));
+    // an item or a line mark: a row dragged with the mouse (the grip at the right); "Line 1:" stays at the top
+    const mvBtns = (attr, p, i) => `<td class="map-opts-grip" title="Drag to move">⠿</td>`;
+    const drag = (dk, p, i) => ` draggable="true" data-dk="${dk}" data-p="${p}" data-i="${i}"`;
+    const lineRow = (n, cols, dk, p, i) => `<tr class="map-opts-line"${n > 1 ? drag(dk, p, i) : ` data-dk="${dk}" data-p="${p}" data-i="-1"`}><th colspan="${cols}">Line ${n}:</th>` +
+      `${n > 1 ? mvBtns() : "<td></td>"}</tr>`;
+    const lblTable = (p) => `<table class="map-opts-t map-opts-lbl"><tr><th></th><th>Selected</th><th title="Tracks from the local decoders">Local</th><th title="Tracks from shared sources (other stations)">Sharing</th><th></th></tr>` +
+      row3("Show label", p + "lblShow", (k) => `<input type="checkbox" data-o="${k}"${o[k] !== false ? " checked" : ""} title="Shown for a new track; one track: its Track menu (right click)">`) +
+      row3("Without units", p + "noUnits", (k) => `<input type="checkbox" data-o="${k}"${o[k] ? " checked" : ""} title="The numbers alone: 350 instead of FL350, 431 instead of 431 kt, 123/45 instead of 123°/45km">`) +
+      row3("Font size", p + "font", sel(MAP_FONT_K, pc)) + row3("Background", p + "bg", sel(MAP_LBL_BG, pc)) + row3("Text colour", p + "cText", color("cText")) +
+      `<tr><th colspan="5" class="map-opts-sub">Show <small>(drag ⠿ to move the items and the line marks)</small></th></tr>` + lineRow(1, 4, "lbl", p) +
+      mapLblTok(p).map((t, i, all) => {
+        if (t[0] === "|") return lineRow(+t.slice(1), 4, "lbl", p, i);
+        const n = (MAP_LBL_KIND[p].find((x) => x[0] === t) || [t, t])[1];
+        if (t === "note") {   // the note of the Track menu: shown or not per column
+          const nb = (k) => `<input type="checkbox" data-o="${k}"${o[k] !== false ? " checked" : ""} title="The note of the track from its Track menu (right click)">`;
+          return `<tr class="map-opts-it${all.slice(0, i).filter((x) => x[0] !== "|").length % 2 ? " odd" : ""}"${drag("lbl", p, i)}><th>${n}</th><td>${nb(p + "lblNoteSel")}</td><td>${nb(p + "lblNote")}</td><td>${nb(p + "lblNoteShr")}</td>${mvBtns()}</tr>`;
+        }
+        return `<tr class="map-opts-it${all.slice(0, i).filter((x) => x[0] !== "|").length % 2 ? " odd" : ""}"${drag("lbl", p, i)}><th>${n}</th><td>${box(p + "lblSel", t)}</td><td>${box(p + "lbl", t)}</td><td>${box(p + "lblShr", t)}</td>${mvBtns()}</tr>`;
+      }).join("") +
+      `</table><p class="map-opts-note">Drag a label to move it (this window only), a double click puts it back.</p>`;
+    const listTable = (p) => {
+      const on = comListOn(p), nameN = (MAP_LBL_KIND[p].find((x) => x[0] === "name") || ["", "Name"])[1];
+      return `<table class="map-opts-t map-opts-lbl"><tr><th></th><th>Show</th><th></th></tr>` +
+        (p !== "s_" ? `<tr><th>Flag</th><td><input type="checkbox" data-lflag="${p}"${comListFlag(p) ? " checked" : ""}></td><td></td></tr>` : "") +
+        `<tr><th>${nameN} <small class="muted">(always first)</small></th><td><input type="checkbox" checked disabled></td><td></td></tr>` +
+        `<tr><th colspan="3" class="map-opts-sub">Columns <small>(drag ⠿ to move the items and the line mark)</small></th></tr>` + lineRow(1, 2, "list", p) +
+        comListTok(p).map((t, i, all) => {
+          if (t[0] === "|") return lineRow(+t.slice(1), 2, "list", p, i);
+          const it = COM_LIST_ITEMS[p].find((x) => x.id === t), n = (MAP_LBL_KIND[p].find((x) => x[0] === t) || [t, t === "age" ? "Age of the position" : it.h])[1];
+          return `<tr class="map-opts-it${all.slice(0, i).filter((x) => x[0] !== "|").length % 2 ? " odd" : ""}"${drag("list", p, i)}><th>${n}</th><td><input type="checkbox" data-lishow="${p}" data-id="${t}"${on.has(t) ? " checked" : ""}></td>${mvBtns()}</tr>`;
+        }).join("") + `</table><p class="map-opts-note">The list beside the map: one or two lines per object; a click on a column sorts.</p>`;
+    };
+    const kindSec = (p, air) => sub2(p, "sym", "Symbol", "trails, icon, prediction", symTable(p, air)) + sub2(p, "lbl", "Label", "font, colours, items", lblTable(p)) +
+      (kind === "com" ? sub2(p, "list", "List", "the list beside the map", listTable(p)) : "");
+    const symTable = (p, air) => `<table class="map-opts-t"><tr><th></th><th>Selected</th><th title="Tracks from the local decoders">Local</th><th title="Tracks from shared sources (other stations)">Sharing</th></tr>` +
       (noTrails ? "" : row3("Trails", p + "trails", sel(MAP_TRAILS.map(([v]) => v), (v) => MAP_TRAILS.find(([x]) => x === v)[1]))) +
       row3("Icon size", p + "icon", sel(MAP_ICON_K, pc)) +
-      (air ? `<tr><th>Aircraft symbol</th><td colspan="2">${symSel("sym")}</td><td>${symSel("symShr")}</td></tr>` : "") +
-      row3("Prediction", p + "pred", sel(MAP_PRED, (v) => (v ? `${v} min` : "Off"))) +
-      row3("Icon colour", p + "cIcon", color("cIcon")) + (noTrails ? "" : row3("Trail colour", p + "cTrail", color("cTrail"))) +
-      row3("Prediction colour", p + "cPred", color("cPred")) +
-      row2("No position after", p + "stale", sel(MAP_STALE, (v) => (v ? `${v} min` : "auto")), "–", "An object without a new position for this long gets this colour (auto = 15 min); the selected one stays orange") +
-      row2("No position colour", p + "cStale", cp, "–") +
-      row2("Hide when no position for", p + "drop", sel(MAP_DROP, (v) => (v ? `${v} min` : "never")), "never", "An object without a new position for this long disappears from the map (the selected one stays)") +
+      (air ? `<tr><th>Symbol</th><td colspan="2">${symSel("sym")}</td><td>${symSel("symShr")}</td></tr>` : "") +
+      row3("Prediction", p + "pred", predSel(p)) +
+      row2("No position", p + "stale", sel(MAP_STALE, (v) => (v ? `${v} min` : "auto")), "–", "An object without a new position for this long gets the No position colour (auto = 15 min); the selected one stays orange") +
+      row2("Hide", p + "drop", sel(MAP_DROP, (v) => (v ? `${v} min` : "never")), "never", "An object without a new position for this long disappears from the map (the selected one stays)") +
+      `<tr><th colspan="4" class="map-opts-sub">Colours</th></tr>` +
+      row3("Icon", p + "cIcon", color("cIcon")) +
+      (noTrails ? "" : p === "s_" ? row3("Trail ascent", p + "cTrail", color("cTrail")) + row3("Trail descent", p + "cTrailDn", color("cTrailDn")) : row3("Trail", p + "cTrail", color("cTrail"))) +
+      row3("Prediction", p + "cPred", color("cPred")) + row2("No position", p + "cStale", cp, "–") +
+      (p === "s_" ? `<tr><th colspan="4" class="map-opts-sub" title="Prediction = landing (SONDE)">Landing prediction</th></tr>` +
+        [["Ascent", "cUp"], ["Descent", "cDown"], ["Landing area", "cLand"], ["Burst ✱", "cBurst"]].map(([n, x]) => `<tr><th>${n}</th><td colspan="3">${cp("s_" + x)}</td></tr>`).join("") : "") +
       `</table>` + (air ? `<p class="map-opts-note">Squawk 7500 / 7600 / 7700: red icon 1.5× bigger, red trail.</p>` : "");
     const lblSec = `<table class="map-opts-t"><tr><th></th><th>Selected</th><th title="Tracks from the local decoders">Local</th><th title="Tracks from shared sources (other stations, to come)">Sharing</th></tr>` +
       row3("Without units", "noUnits", (k) => `<input type="checkbox" data-o="${k}"${o[k] ? " checked" : ""} title="The numbers alone: 350 instead of FL350, 431 instead of 431 kt, 123/45 instead of 123°/45km">`) +
@@ -18371,8 +18987,8 @@ function comMapSettings(map, kind, rerender, noTrails) {
       `</table><p class="map-opts-note">Drag a label to move it (this window only), a double click puts it back.</p>`;
     panel.innerHTML = (kind === "com" ? sec("sources", "Sources", "aircrafts, radiosondes, ships", srcHtml()) : "") +
       sec("map", "Map", "base map, layers, rings, range", mapSec) + sec("weather", "Weather", "precipitation, clouds", weatherSec) +
-      (rerender ? sec("objects", "Aircrafts", "trails, icons, prediction", kindSec("", true)) + sec("sondes", "Radiosondes", "trails, icons, prediction", kindSec("s_", false)) +
-        sec("ships", "Ships", "trails, icons, prediction", kindSec("w_", false)) + sec("labels", "Labels", "font, colours, items", lblSec) : "") +
+      (rerender ? sec("objects", "Aircrafts", "symbol, label", kindSec("", true)) + sec("sondes", "Radiosondes", "symbol, label", kindSec("s_", false)) +
+        sec("ships", "Ships", "symbol, label", kindSec("w_", false)) : "") +
       `<p class="map-opts-note">Remembered in the browser, the same in all windows.</p>`;
   }
   function onInput(e) {
@@ -18404,9 +19020,21 @@ function comMapSettings(map, kind, rerender, noTrails) {
       if (e.type !== "change") return;
       const k = t.dataset.src;
       if (t.checked) comOff.delete(k); else comOff.add(k);
-      store("comOff", [...comOff].join(","));
+      comOffSave();
       renderComSrcs();
       renderComMap();
+      return;
+    }
+    if (t.dataset.lishow != null) {   // a list item shown or not
+      if (e.type !== "change") return;
+      const p = t.dataset.lishow, on = comListOn(p);
+      if (t.checked) on.add(t.dataset.id); else on.delete(t.dataset.id);
+      mapOptsSet({ [p + "listOn"]: [...on], [p + "listTok"]: comListTok(p) });
+      return;
+    }
+    if (t.dataset.lflag != null) {   // the flag in the list
+      if (e.type !== "change") return;
+      mapOptsSet({ [t.dataset.lflag + "listFlag"]: t.checked });
       return;
     }
     if (t.dataset.key) {   // a service key: stored on the server for all windows and computers
@@ -18437,7 +19065,8 @@ function comMapSettings(map, kind, rerender, noTrails) {
     if (t.dataset.l) {   // label items of one column
       if (e.type !== "change") return;
       const col = t.dataset.l, on = new Set([...panel.querySelectorAll(`input[data-l="${col}"]:checked`)].map((x) => x.value));
-      mapOptsSet({ [col]: MAP_LBL.map(([id]) => id).filter((id) => on.has(id)) });
+      const kl = MAP_LBL_KIND[(/^([sw]_)/.exec(col) || [""])[0]] || MAP_LBL;
+      mapOptsSet({ [col]: kl.map(([id]) => id).filter((id) => on.has(id)) });
       return;
     }
     const k = t.dataset.o;
@@ -18453,7 +19082,8 @@ function comMapSettings(map, kind, rerender, noTrails) {
       panel.querySelector(k === "opa" ? '.map-opts-opa:not([data-for])' : '.map-opts-opa[data-for="cldOpa"]').textContent = `${t.value} %`;
       mapOptsSet({ [k]: t.value / 100 });
     } else if (e.type === "change") {
-      mapOptsSet({ [k]: ["precip", "ad", "adFine", "rng", "dark", "sea", "cld", "shAfi", "shNotLocal", "shGround", "noUnits", "noUnitsSel", "noUnitsShr"].includes(k) ? t.checked : /^(?:[sw]_)?(span|icon|font|drop|bg|pred|adMax|adOpa|adFineOpa|stale|oRng|pRng|aipOpa|shDist|shInt|shAlt|shMax|shAisDist|shAisMax|shShDist|shShAge)/.test(k) && !/^(?:[sw]_)?(cStale)/.test(k) ? +t.value : t.value });
+      if (/^(?:[sw]_)?pred/.test(k) && t.value === "land") { mapOptsSet({ [k]: "land" }); return; }
+      mapOptsSet({ [k]: ["precip", "ad", "adFine", "rng", "dark", "sea", "cld", "shAfi", "shNotLocal", "shGround", "noUnits", "noUnitsSel", "noUnitsShr"].includes(k) || /^(?:[sw]_)?(noUnits|lblShow|lblNote)/.test(k) ? t.checked : /^(?:[sw]_)?(span|icon|font|drop|bg|pred|adMax|adOpa|adFineOpa|stale|oRng|pRng|aipOpa|shDist|shInt|shAlt|shMax|shAisDist|shAisMax|shShDist|shShAge)/.test(k) && !/^(?:[sw]_)?(cStale)/.test(k) ? +t.value : t.value });
     }
   }
   function apply(other) {   // other = changed in another tab / window
@@ -18489,7 +19119,75 @@ function comMapSettings(map, kind, rerender, noTrails) {
   if (rerender && !mapQthV) mapQth().then((q) => { if (q) rerender(); });   // labels with azimuth / distance
   const adSig = () => JSON.stringify(["ad", "adMax", "adUnit", "adFine", "cAd", "adOpa", "cAdFine", "adFineOpa"].map((k) => mapOpts[k]));
   let adShown = null;
-  new Ctl({ position: "topright" }).addTo(map);
+  const gearCtl = new Ctl({ position: "topright" }).addTo(map);
+  // the window is never taller than the map under it (a small map in a tab: the scroll reaches the bottom)
+  function fitPanel() {
+    if (!panel || panel.hidden) return;
+    const c = map.getContainer().getBoundingClientRect(), t = panel.getBoundingClientRect().top;
+    panel.style.maxHeight = `${Math.max(120, Math.floor(c.bottom - t - 12))}px`;
+  }
+  map.on("resize", fitPanel);
+  window.addEventListener("resize", fitPanel);
+  document.addEventListener("fullscreenchange", () => setTimeout(fitPanel, 150));
+  // the sections open in another window: the same here
+  window.addEventListener("storage", (e) => {
+    if (!panel || panel.hidden) return;
+    if (e.key === "mapOptsOpen") { const o = secOpen(); panel.querySelectorAll("details[data-sec]").forEach((d) => { d.open = o.includes(d.dataset.sec); }); }
+    if (e.key === "comSrcOpen") panel.querySelectorAll("details[data-srcsec]").forEach((d) => { d.open = d.dataset.srcsec === (e.newValue || ""); });
+  });
+  if (kind === "com") {   // full screen: the COMPOSITE pane (map, lists, status row) over the whole screen (Esc or the key again leaves it)
+    const Fs = L.Control.extend({
+      onAdd() {
+        const bar = L.DomUtil.create("div", "leaflet-bar map-fs");
+        const a = L.DomUtil.create("a", "", bar);
+        a.href = "#";
+        a.title = "Full screen";
+        a.setAttribute("role", "button");
+        const icon = () => {
+          const on = !!document.fullscreenElement && document.fullscreenElement.contains(map.getContainer());
+          a.innerHTML = on ? '<svg viewBox="0 0 16 16"><path d="M6 2v4H2M10 2v4h4M6 14v-4H2M10 14v-4h4"/></svg>'
+            : '<svg viewBox="0 0 16 16"><path d="M2 6V2h4M14 6V2h-4M2 10v4h4M14 10v4h-4"/></svg>';
+          a.title = on ? "Leave full screen (Esc)" : "Full screen";
+        };
+        icon();
+        L.DomEvent.disableClickPropagation(bar);
+        L.DomEvent.on(a, "click", (e) => {
+          L.DomEvent.preventDefault(e);
+          if (document.fullscreenElement) document.exitFullscreen(); else ($("comPane") || map.getContainer()).requestFullscreen().catch(() => {});   // the map with its lists and status row
+        });
+        document.addEventListener("fullscreenchange", () => { icon(); setTimeout(() => map.invalidateSize(), 100); });
+        return bar;
+      },
+    });
+    // one bar with one background: settings, full screen, new tab (the last two hide while the settings are open)
+    const fsEl = new Fs({ position: "topright" }).addTo(map).getContainer(), gearEl = gearCtl.getContainer();
+    const head = L.DomUtil.create("div", "map-opts-head");
+    gearEl.insertBefore(head, gearEl.firstChild);
+    head.appendChild(gearEl.querySelector(".map-opts-btn"));
+    if (window.COM_DEFAULTS) {   // the default settings (static/com_defaults.js) back, in all windows
+      const r = L.DomUtil.create("a", "map-opts-restore", head);
+      r.href = "#";
+      r.textContent = "Restore default";
+      r.title = "All map settings and the layout of this map back to the defaults (the same in all windows)";
+      L.DomEvent.on(r, "click", async (e) => {
+        L.DomEvent.preventDefault(e);
+        if (!confirm("Restore the default map settings? Your own settings are replaced.")) return;
+        try { new Function(await (await fetch("/static/com_defaults.js", { cache: "no-store" })).text())(); } catch { /* the defaults loaded with the page */ }   // the newest defaults, also in a page open for long
+        try {
+          for (const [k, v] of Object.entries(window.COM_DEFAULTS.local)) localStorage.setItem(k, v);
+          localStorage.setItem(MAP_OPT_KEY, JSON.stringify(window.COM_DEFAULTS.mapOpts));   // last: the other windows follow (storage event)
+        } catch { /* no storage */ }
+        location.reload();
+      });
+    }
+    for (const bar of [fsEl, map.getContainer().querySelector(".leaflet-control.map-popout")]) {
+      if (!bar) continue;
+      const a = bar.querySelector("a");
+      a.classList.add("map-opts-key");
+      head.appendChild(a);
+      bar.remove();
+    }
+  }
   map._optKind = kind;
   mapLblDragInit(map);
   mapOptSubs.add(apply);
@@ -18497,16 +19195,18 @@ function comMapSettings(map, kind, rerender, noTrails) {
   return { addOverlay(layer, name) { extra.push([layer, name]); return this; } };
 }
 
-/** Label items of an aircraft of the VDL2 / HFDL maps. */
-function hfdlLblF(a) {
-  const ac = a.ac && a.ac.found ? a.ac : null;
-  return { name: a.flight || a.reg || a.hex, reg: a.reg, id: a.hex, type: ac && ac.type, alt: hfdlFl(ac), spd: hfdlSpd(ac), sq: ac && ac.squawk, at: hfdlPos(a) };
-}
 /** Label items of an AIS station. */
-const aisLblF = (s) => ({ at: s.lat != null ? s : null, name: aisLabel(s), id: s.mmsi, type: s.station !== "ship" ? s.station : s.shiptype, spd: s.sog != null && s.sog >= 0.3 ? aisKt(s.sog) : "" });
+const aisLblF = (s) => ({ at: s.lat != null ? s : null, name: aisLabel(s), id: s.mmsi, type: s.station !== "ship" ? s.station : s.shiptype, spd: s.sog != null && s.sog >= 0.3 ? aisKt(s.sog) : "",
+  call: s.callsign || "", crs: s.cog != null ? `${Math.round(s.cog)}°` : "", nav: s.status || "", dest: s.destination || "" });
 /** Label items of a sonde. */
 const sondeLblF = (s) => ({ at: s.lat != null ? s : null, name: s.serial, type: s.type, freq: s.freq_hz ? `${fmtMHz(s.freq_hz, 3)} MHz` : "", alt: s.alt != null ? `${sondeAlt(s.alt)} m` : "",
-  vs: s.vv != null ? `${sondeClimb(s.vv)} m/s` : "", spd: s.vh != null ? `${sondeKmh(s.vh)} km/h` : "" });
+  vs: s.vv != null ? `${sondeClimb(s.vv)} m/s` : "", spd: s.vh != null ? `${sondeKmh(s.vh)} km/h` : "",
+  temp: s.temp != null ? `${s.temp.toFixed(1)} °C` : "", rh: s.rh != null ? `${Math.round(s.rh)} %` : "", state: sondeState(s), land: sondeLandTxt(s) });
+/** The predicted landing time of a sonde (the predictor of the SONDE decoder), "" when it cannot be predicted. */
+function sondeLandTxt(s) {
+  if (!s.pts || s.pts.length < 10) return "";
+  try { const p = sondePredict(s); return p ? `land ≈ ${aisUtc(p.land.t).slice(0, 5)} UTC` : ""; } catch { return ""; }
+}
 
 /** Precipitation radar overlay (RainViewer, the newest past frame, refreshed every 10 min) with a switch on the map,
  *  remembered per map. Only the tile requests go out, no position. */

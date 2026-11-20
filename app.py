@@ -1307,6 +1307,15 @@ def _emerg_sq(sq):
     return [sq] if sq in ("7500", "7600", "7700") else []
 
 
+def _sonde_pts(pts):
+    """The points of a sonde's flight for the COMPOSITE map: [lat, lon, alt, t], at most ~600, the newest always kept
+    (the landing predictor starts from it)."""
+    out = [p[:4] for p in pts[::max(1, len(pts) // 600)]]
+    if pts and (not out or out[-1] != pts[-1][:4]):
+        out.append(pts[-1][:4])
+    return out
+
+
 def _positions_live():
     """COMPOSITE map: everything with a position from the decoders running on this VFO, in one shape for all
     sources (also a test of a format to merge the feeds of several stations):
@@ -1369,7 +1378,9 @@ def _positions_live():
             item("sonde", s["serial"], f'{s["serial"]} {s.get("type", "")}'.strip(), s.get("lat"), s.get("lon"),
                  s.get("pos_time") or s.get("last"), None if s.get("alt") is None else round(s["alt"]),
                  [[p[0], p[1], p[3]] for p in s.get("pts", [])], burst=bool(s.get("burst")),
-                 sonde={k: v for k, v in s.items() if k != "pts" and not k.startswith("_")})
+                 sonde={**{k: v for k, v in s.items() if k != "pts" and not k.startswith("_")},
+                        # the points of the flight [lat, lon, alt, t] (at most ~600): the landing predictor on the map
+                        "pts": _sonde_pts(s.get("pts") or [])})
     if hfdl.enabled:
         srcs.append("hfdl")
         acs = {}
@@ -1734,6 +1745,7 @@ class ShareAis:
             lat, lon, dist = box
             dlat = dist / 60.0
             dlon = dlat / max(0.2, math.cos(math.radians(lat)))
+            sock = None
             try:
                 self.status = "connecting"
                 sock, rest = self._connect()
@@ -1746,10 +1758,15 @@ class ShareAis:
                     if self.want != self.box or time.time() - self.asked > self.IDLE_S:
                         break                 # another box wanted / nobody asks: close, maybe open again
                     self._take(json.loads(raw))
-                sock.close()
             except Exception as e:           # no internet, aisstream busy or a bad key
                 self.status = f"error: {e}"
                 time.sleep(15)
+            finally:
+                if sock is not None:         # also after an error: the socket is not left open
+                    try:
+                        sock.close()
+                    except OSError:
+                        pass
         self.status = "off"
 
     def _take(self, d):
@@ -1762,9 +1779,12 @@ class ShareAis:
         msg = (d.get("Message") or {}).get(kind) or {}
         now = time.time()
         with self.lock:
-            r = self.ships.setdefault(mmsi, {"mmsi": mmsi, "name": "", "callsign": "", "shiptype_n": None, "destination": "",
-                                             "lat": None, "lon": None, "sog": None, "cog": None, "hdg": None, "status_n": None,
-                                             "t": now, "trail": []})
+            r = self.ships.get(mmsi)
+            if r is None:
+                cc, country, station = ais_mod.mmsi_info(int(mmsi))   # the flag from the MID of the MMSI, as the AIS decoder
+                r = self.ships[mmsi] = {"mmsi": mmsi, "name": "", "callsign": "", "shiptype_n": None, "destination": "",
+                                        "lat": None, "lon": None, "sog": None, "cog": None, "hdg": None, "status_n": None,
+                                        "t": now, "trail": [], "cc": cc, "country": country, "station": station}
             name = (md.get("ShipName") or "").strip()
             if name:
                 r["name"] = name

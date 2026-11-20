@@ -3963,7 +3963,6 @@ html.app-shell .r-master .r-logo { margin-top: 10px; }
 .map-opts-opa { color: #8fa3bd; min-width: 34px; }
 .map-opts-panel { max-height: 70vh; overflow-y: auto; }
 .map-opts-t { border-collapse: collapse; margin-top: 2px; }
-.map-opts-hr { border: 0; border-top: 1px solid #3a4a60; margin: 8px 0 6px; }
 .map-opts-t td.muted { color: #6b7a8c; font-size: 11px; }
 .map-opts-t th, .map-opts-t td { padding: 1px 4px; text-align: center; font-weight: 400; }
 .map-opts-t tr > th:first-child { text-align: left; color: #cfd6df; padding-left: 0; }
@@ -4114,9 +4113,6 @@ label.map-opts-sub2 { display: flex; align-items: center; gap: 6px; cursor: poin
 /* COMPOSITE: the details of the selected object above the list of the objects on the map */
 .com-detail { flex: 0 0 auto; max-height: 55%; overflow: auto; padding-bottom: 6px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
 .com-list { flex: 1 1 0; overflow: auto; margin: 0 -10px; min-height: 80px; }
-.com-ml { grid-template-columns: 22px 1fr 44px 46px 58px 42px; box-shadow: inset 3px 0 0 var(--sc); }
-.com-ml.sel { background: rgba(255, 140, 26, .22); }
-.com-ml.emerg { box-shadow: inset 3px 0 0 #d83a2e; background: rgba(255, 60, 60, .14); }
 /* COMPOSITE: the lists beside the map (Aircraft, Radiosondes, Ships), sortable tables */
 .com-list { padding: 0 6px; }
 .com-lsec > summary .com-lcount { color: #8fa3bd; font-weight: 400; letter-spacing: 0; text-transform: none; }
@@ -4128,12 +4124,6 @@ label.map-opts-sub2 { display: flex; align-items: center; gap: 6px; cursor: poin
 .com-lt td { padding: 1px 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .com-lt td.c-name { width: 34%; }
 .com-lt td img, .com-lt td .noflag { width: 18px; height: 12px; object-fit: cover; border-radius: 2px; margin-right: 5px; vertical-align: -1px; display: inline-block; }
-.com-lt tr.com-ml { cursor: pointer; box-shadow: inset 3px 0 0 var(--sc); }
-.com-lt tr.com-ml:hover { background: rgba(255, 255, 255, .06); }
-.com-lt tr.com-ml.sel { background: rgba(255, 140, 26, .22); }
-.com-lt tr.com-ml.old { opacity: .55; }
-.com-lt tr.com-ml.emerg, .com-lt tr.com-ml.emerg b, .com-lt tr.com-ml.emerg .stype { color: #ff4b3c; }
-.com-lt tr.com-ml.emerg { box-shadow: inset 3px 0 0 #ff2a2a; background: rgba(255, 60, 60, .14); }
 .com-lt th:nth-child(1) { width: 34%; }
 .map-opts-sub3 { margin: 4px 0 1px 2px; color: #8fa3bd; font-size: 11px; }
 .map-opts-sub3 small { color: #6b7a8c; }
@@ -4145,6 +4135,12 @@ label.map-opts-sub2 { display: flex; align-items: center; gap: 6px; cursor: poin
 .map-opts-subsec[open] > summary::before { transform: rotate(90deg); }
 .map-opts-subsec > summary small { color: #8fa3bd; font-weight: 400; margin-left: 4px; }
 .map-opts-subsec[open] { border-left-color: #6cb8ff; }
+/* COMPOSITE: the full screen key beside the settings (the two side by side) */
+.leaflet-top.leaflet-right .map-opts, .leaflet-top.leaflet-right .map-fs { clear: none; }
+.map-fs a { display: flex; align-items: center; justify-content: center; background: rgba(10, 13, 18, .78); }
+.map-fs a:hover { background: #1c2533; }
+.map-fs svg { width: 16px; height: 16px; fill: none; stroke: #dfe4ea; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+#comPane:fullscreen { inset: 0; width: 100vw; height: 100vh; box-sizing: border-box; }   /* full screen: the map, its lists and the status row */
 
 /* ===== PROPAGATION (PROP key): space weather and the HF bands, in the look of the STATION scheme ===== */
 .r-keys .kgroup[data-g="PROP"] { --kc: #ffb84d; }
@@ -4284,6 +4280,70 @@ label.map-opts-sub2 { display: flex; align-items: center; gap: 6px; cursor: poin
 .clk-chip.ok { color: var(--green); border-color: color-mix(in srgb, var(--green) 50%, transparent); }
 .clk-chip.warn { color: var(--amber); border-color: var(--amber); }
 .clk-chip.bad { color: #ff8a80; border-color: var(--red); background: color-mix(in srgb, var(--red) 14%, transparent); }
+/* COMPOSITE: narrow scroll bars (a third of the usual width) in the settings window, the lists and the details */
+#comPane, #comPane * { scrollbar-width: thin; scrollbar-color: #3a424d transparent; }
+#comPane ::-webkit-scrollbar { width: 5px; height: 5px; }
+#comPane ::-webkit-scrollbar-thumb { background: #3a424d; border-radius: 3px; }
+#comPane ::-webkit-scrollbar-thumb:hover { background: #56606d; }
+#comPane ::-webkit-scrollbar-track { background: transparent; }
+#comPane ::-webkit-scrollbar-button { display: none; }
+/* COMPOSITE: with the settings open the other keys hide (the window at the very right); dark keys like the gear */
+#comMap.opts-open .map-fs, #comMap.opts-open .map-popout { display: none; }
+#comMap .map-fs a, #comMap .map-popout a { background-color: rgba(10, 13, 18, .78) !important; }
+#comMap .map-fs a:hover, #comMap .map-popout a:hover { background-color: #1c2533 !important; }
+#comMap .map-popout svg, #comMap .map-fs svg { stroke: #dfe4ea; }
+/* the status row only in full screen and in the map alone in a new tab, not in the small map of the tab */
+#comStatus { display: none; }
+body.map-only #comStatus, #comPane:fullscreen #comStatus { display: flex; }
+/* COMPOSITE: the keys at the top right in one bar (settings, full screen, new tab), one background, centred */
+.map-opts-head { display: flex; align-items: stretch; }
+.map-opts-head > a { display: flex !important; align-items: center; justify-content: center; height: 30px; line-height: 30px; box-sizing: border-box; border: 0 !important; border-radius: 0 !important; background: transparent !important; }
+.map-opts-head > a.map-opts-btn { width: auto; min-width: 30px; }
+.map-opts-head > a.map-opts-key { width: 30px; border-left: 1px solid #2a3546 !important; }
+.map-opts-head > a:hover { background: #1c2533 !important; }
+.map-opts-head > a svg { width: 15px; height: 15px; fill: none; stroke: #dfe4ea; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.map-opts.open .map-opts-head > a.map-opts-key { display: none !important; }
+.map-opts.open .map-opts-head > a.map-opts-btn { flex: 1; justify-content: flex-start; padding: 0 10px 0 8px; }
+/* settings: line and order of the label / list items */
+.map-opts-lbl td select { padding: 0 1px; }
+/* the lists: an object = one or two lines, the objects shaded in turn */
+.com-lt tbody.com-ml { cursor: pointer; box-shadow: inset 3px 0 0 var(--sc); }
+.com-lt tbody.com-ml:hover { background: rgba(255, 255, 255, .09); }
+.com-lt tbody.com-ml.sel { background: rgba(255, 140, 26, .22); }
+.com-lt tbody.com-ml.old { opacity: .55; }
+.com-lt tbody.com-ml.emerg, .com-lt tbody.com-ml.emerg b, .com-lt tbody.com-ml.emerg .stype { color: #ff4b3c; }
+.com-lt tbody.com-ml.emerg { box-shadow: inset 3px 0 0 #ff2a2a; background: rgba(255, 60, 60, .14); }
+.com-lt tr.l2 td { padding-top: 0; color: #a9b4c2; font-size: 11px; }
+.com-lt thead tr.l2 th { font-size: 10px; padding-top: 0; }
+.com-lt td.c-name { width: auto; }
+/* settings: the line marks among the items; the list: the name over all lines, stronger shading of every other object */
+.map-opts-lbl tr.map-opts-line th { color: #6cb8ff; font-weight: 600; text-align: left; padding-top: 4px; border-top: 1px dashed #2a3546; }
+.com-lt td.c-name, .com-lt thead th[rowspan] { vertical-align: middle; }
+.com-lt tbody.com-ml.odd { background: rgba(255, 255, 255, .085); }
+.com-lt tbody.com-ml + tbody.com-ml td { border-top: 1px solid rgba(255, 255, 255, .05); }
+/* settings: the items of Label / List dragged with the mouse, shaded in turn as the list beside the map */
+.map-opts-lbl tr[draggable] { cursor: grab; }
+.map-opts-lbl tr.map-opts-it.odd { background: rgba(255, 255, 255, .085); }
+.map-opts-lbl tr.map-opts-it > * { border-top: 1px solid rgba(255, 255, 255, .05); }
+.map-opts-grip { color: #6b7a8c; font-size: 13px; text-align: center; cursor: grab; user-select: none; width: 18px; }
+.map-opts-lbl tr[draggable]:hover .map-opts-grip { color: #dfe4ea; }
+.map-opts-lbl tr.dragging { opacity: .4; }
+.map-opts-lbl tr.drop-before > * { box-shadow: inset 0 2px 0 #6cb8ff; }
+.map-opts-lbl tr.drop-after > * { box-shadow: inset 0 -2px 0 #6cb8ff; }
+/* COMPOSITE: the border between the map and the lists, dragged with the mouse */
+.com-body { gap: 0; }
+.com-split { flex: 0 0 8px; cursor: col-resize; position: relative; touch-action: none; }
+.com-split::after { content: ""; position: absolute; top: 50%; left: 2px; width: 4px; height: 40px; margin-top: -20px; border-radius: 2px; background: #3a424d; }
+.com-split:hover::after, .com-split.on::after { background: #6cb8ff; }
+@media (max-width: 760px) { .com-split { display: none; } }
+/* COMPOSITE: objects only from shared sources (other stations): the outline of the icon in its colour, not filled */
+.map-outline svg, .map-outline svg * { fill: none !important; stroke: var(--sc2) !important; stroke-width: 1.8px; stroke-linejoin: round; }
+/* COMPOSITE: the Track menu (right click on an object) */
+.com-tmenu { position: fixed; z-index: 2000; left: 0; top: 0; width: max-content; min-width: 150px; max-width: 280px; padding: 4px 0; background: rgba(10, 13, 18, .92); backdrop-filter: blur(4px); border: 1px solid #3a4a60; border-radius: 6px; box-shadow: 0 4px 14px rgba(0, 0, 0, .5); font: 12px/1.5 system-ui, sans-serif; color: #dfe4ea; }
+.com-tmenu-h { padding: 2px 10px 4px; color: #6cb8ff; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid #2a3546; margin-bottom: 2px; }
+.com-tmenu-h small { color: #8fa3bd; font-weight: 400; text-transform: none; letter-spacing: 0; margin-left: 4px; }
+.com-tmenu button { display: block; width: 100%; text-align: left; padding: 4px 12px; font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+.com-tmenu button:hover { background: #1c2533; }
 
 /* ---------- SETTINGS › SDR SOURCES (the former SDR setup window): sources dragged onto VFO A–D, in the STATION style ---------- */
 .set-panel.srcs-panel { display: block; }      /* one card over the whole width, not the 3-column grid of the settings */
@@ -4377,3 +4437,39 @@ label.map-opts-sub2 { display: flex; align-items: center; gap: 6px; cursor: poin
 .srcs-dir-tbl tr.mine td { color: #6fb7ff; }
 .srcs-dir-tbl tr.full td { opacity: .55; }
 .srcs-dir-tbl td.bad { color: var(--red); }
+/* COMPOSITE: the labels of ships and radiosondes centred as those of the aircraft */
+#comMap .leaflet-tooltip.ais-label { text-align: center; }
+/* COMPOSITE: the label of an emergency squawk, bigger and red */
+.leaflet-tooltip .map-lbl-emerg { display: inline-block; font-size: 1.35em; font-weight: 600; color: #ff3b30; }
+.leaflet-tooltip .map-lbl-emerg .sq-emerg { color: #fff; }
+/* COMPOSITE: the burst of the landing prediction of a radiosonde */
+.sonde-burst { font: bold 16px/16px system-ui, sans-serif; text-align: center; text-shadow: 0 0 3px #000; }
+/* COMPOSITE: Track menu settings of one track */
+.com-tmenu label { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 2px 12px; }
+.com-tmenu select, .com-tmenu input[type=text] { font: inherit; color: inherit; background: #141a22; border: 1px solid #3a4a60; border-radius: 4px; padding: 1px 4px; }
+.com-tmenu input[type=text] { width: 13em; }
+.com-tmenu .com-tmenu-dim { color: #8fa3bd; border-top: 1px solid #2a3546; margin-top: 2px; }
+.leaflet-tooltip .map-lbl-note { color: #ffd84a; }
+/* COMPOSITE: Show of a kind in the list */
+.com-lsec > summary .com-lshow { font-weight: 400; text-transform: none; letter-spacing: 0; color: #cfd6df; margin-left: 6px; cursor: pointer; }
+.com-lsec > summary .com-lshow input { vertical-align: -2px; margin: 0 2px 0 0; }
+/* COMPOSITE: the bars over the bottom of the map (Tracks, Tracker): folded = the name only, open = the whole width */
+.com-bars { position: absolute; left: 6px; right: 6px; bottom: 0; z-index: 900; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; pointer-events: none; }
+.com-bar { pointer-events: auto; display: flex; align-items: center; gap: 6px; padding: 3px 6px; border: 1px solid #3a4a60; border-radius: 6px; background: rgba(10, 13, 18, .82); backdrop-filter: blur(3px); font: 12px/1.4 system-ui, sans-serif; }
+.com-bar.open { align-self: stretch; }
+.com-bar button { font: inherit; color: #dfe4ea; background: #18202b; border: 1px solid #3a4a60; border-radius: 4px; padding: 2px 9px; cursor: pointer; }
+.com-bar button:hover { background: #22303f; }
+.com-bar .com-bar-fold { color: #6cb8ff; background: none; border-color: transparent; padding: 2px 4px; min-width: 6.5em; text-align: left; }
+/* map settings: a small gap under Selected / Local / Sharing */
+.map-opts-t tr:first-child th { padding-bottom: 4px; }
+/* map settings bar: Restore default at the right end, only while the settings are open (COMPOSITE) */
+.map-opts-head > a.map-opts-restore { display: none !important; }
+.map-opts.open .map-opts-head > a.map-opts-restore { display: flex !important; width: auto; padding: 0 10px; color: #8fa3bd; font: 11px system-ui, sans-serif; border-left: 1px solid #2a3546 !important; white-space: nowrap; }
+.map-opts.open .map-opts-head > a.map-opts-restore:hover { color: #dfe4ea; }
+/* COMPOSITE: the station icon (Map › Station) and Find track */
+.com-station { background: none; border: 0; }
+.com-station svg { display: block; filter: drop-shadow(0 0 2px rgba(0, 0, 0, .6)); }
+.com-find label { justify-content: flex-start; padding: 4px 10px; }
+.com-find input[type=text] { width: 16em; }
+.com-find label button { width: auto; display: inline-block; padding: 1px 10px; border: 1px solid #3a4a60; border-radius: 4px; background: #18202b; }
+.com-find-err { padding: 2px 10px 4px; color: #ff6b5e; }
