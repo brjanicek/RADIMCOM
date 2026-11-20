@@ -283,7 +283,7 @@ namespace Radimcom
             menu.Items.Add("Data folder", null, (s, e) => OpenPath(Path.Combine(Program.Base, "data")));
             menu.Items.Add("Server log", null, (s, e) => OpenLog());
             menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add("SDR setup…", null, (s, e) => EnterSetup());
+            // 1.1beta2: no "SDR setup…" here any more, it is SETTINGS › SDR SOURCES of the page (RADIMCOM.exe --setup stays)
             var miStart = menu.Items.Add("Start server", null, (s, e) => StartServer());
             var miStop = menu.Items.Add("Stop server", null, (s, e) => StopServer());
             var miRestart = menu.Items.Add("Restart server", null, (s, e) => RestartServer());
@@ -411,6 +411,14 @@ namespace Radimcom
         {
             if (exiting) return;
             if (setupMode) { ShowWindow(); return; }
+            // 1.1beta2: with RADIMCOM running, the SDR setup is SETTINGS › SDR SOURCES of the page (sources.py: only the
+            // changed VFOs restart); this window with setup_web.py stays for a start without a working setup
+            if (ready && webOk && web.CoreWebView2 != null)
+            {
+                ShowWindow();
+                web.CoreWebView2.Navigate(Url + "?settings=src");
+                return;
+            }
             int p = port;
             if (!ownServer && (ready || await Task.Run(() => Answers(p, 800))))
             {
@@ -459,7 +467,7 @@ namespace Radimcom
             if (!setupMode) return;
             setupMode = false;
             setupReady = false;
-            Page(Html("Starting RADIMCOM…", "The receivers open their SDR dongles.", true));
+            Page(StartingHtml());
             await Task.Run(() => setupServer.Stop(3000));
             if (exiting) return;
             ReadPort();
@@ -503,7 +511,7 @@ namespace Radimcom
                 else if (m == "power-off") ExitAll();
                 else if (m == "setup-done") LeaveSetup();
                 else if (m == "start-server") StartServer();
-                else if (m == "hello") TellFullScreen();
+                else if (m == "hello") { SplashPageReady(); TellFullScreen(); }
                 else if (m.StartsWith("aspect:")) SetAspect(m.Substring(7));
             };
         }
@@ -542,6 +550,38 @@ namespace Radimcom
         // window without a frame in the middle of the screen; when the page is ready (or the SDR setup), it grows to
         // full screen (--window: to the remembered window). An error page shows in the remembered window.
         bool splash;
+        Label splashLabel;                  // in place of the hidden web view while the page loads behind the splash
+        System.Windows.Forms.Timer splashTimer;
+
+        void SplashWaitPage()
+        {
+            splashLabel = new Label();
+            splashLabel.Dock = DockStyle.Fill;
+            splashLabel.BackColor = BackColor;
+            splashLabel.ForeColor = Color.FromArgb(255, 216, 74);
+            splashLabel.Font = new Font("Segoe UI", 16f, FontStyle.Regular);
+            splashLabel.TextAlign = ContentAlignment.MiddleCenter;
+            splashLabel.Text = "Starting RADIMCOM…";
+            Controls.Add(splashLabel);
+            splashLabel.BringToFront();         // covers the web view, which keeps loading and laying out the page
+            // the page does not say "hello" (an old page, a script error): full screen after a while anyway
+            splashTimer = new System.Windows.Forms.Timer();
+            splashTimer.Interval = 10000;
+            splashTimer.Tick += (s, e) => SplashPageReady();
+            splashTimer.Start();
+        }
+
+        void SplashPageReady()
+        {
+            if (splashLabel == null) return;
+            splashTimer.Stop();
+            splashTimer.Dispose();
+            splashTimer = null;
+            EndSplash(true);
+            Controls.Remove(splashLabel);
+            splashLabel.Dispose();
+            splashLabel = null;
+        }
         FormWindowState splashState = FormWindowState.Normal;   // the remembered state (maximized) for after the splash
         static readonly Size SplashSize = new Size(520, 230);
 
@@ -657,7 +697,7 @@ namespace Radimcom
         async Task StartOrAttach()
         {
             ready = false;
-            Page(Html("Starting RADIMCOM…", "The receivers open their SDR dongles.", true));
+            Page(StartingHtml());
             int p = port;
             if (await Task.Run(() => Answers(p, 800)))
             {
@@ -689,6 +729,14 @@ namespace Radimcom
                 tray.Text = "RADIMCOM";
             }
             ready = true;
+            if (splash && webOk && Visible)
+            {
+                // the page loads behind the splash (a label covers the web view); the window grows to full
+                // screen only when the page says "hello" – no splash text and no half-built page in full screen
+                SplashWaitPage();
+                Home();
+                return;
+            }
             EndSplash(true);
             if (webOk) { if (Visible) Home(); }
             else if (initDoneWeb && !startHidden) OpenUrl(Url);
@@ -714,6 +762,27 @@ namespace Radimcom
         static string Esc(string s)
         {
             return (s ?? "").Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
+        }
+
+        /// <summary>The start-up splash: "Starting RADIMCOM…" with the animated RADIMCOM icon after it, nothing more.</summary>
+        string StartingHtml()
+        {
+            string img = "";
+            try
+            {
+                img = "data:image/png;base64," + Convert.ToBase64String(File.ReadAllBytes(Path.Combine(Program.Base, "static", "favicon.png")));
+            }
+            catch (Exception) { }
+            return "<!doctype html><html><head><meta charset='utf-8'><style>"
+                + "html,body{margin:0;height:100%;background:#0a1422;color:#dfe8f3;font:15px system-ui,Segoe UI,sans-serif}"
+                + "main{height:100%;display:flex;align-items:center;justify-content:center;gap:16px}"
+                + "h1{margin:0;font-weight:600;font-size:22px;color:#ffd84a}"
+                + "img{width:44px;height:44px;animation:p 1.6s ease-in-out infinite}"
+                + "@keyframes p{0%,100%{transform:scale(.88);filter:drop-shadow(0 0 2px rgba(255,216,74,.2)) brightness(.85)}"
+                + "50%{transform:scale(1.06);filter:drop-shadow(0 0 12px rgba(255,216,74,.75)) brightness(1.25)}}"
+                + "</style></head><body><main><h1>Starting RADIMCOM…</h1>"
+                + (img != "" ? "<img src='" + img + "' alt=''>" : "")
+                + "</main></body></html>";
         }
 
         string Html(string title, string text, bool busy)

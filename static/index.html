@@ -219,7 +219,7 @@
     <div class="kgroup" data-g="FILTER"><span class="klabel">FILTER</span><div class="keys" id="bandwidths"></div></div>
     <div class="kgroup" data-g="GAIN"><span class="klabel">GAIN</span><div class="keys">
       <button id="agcKey" class="key" title="Automatic tuner gain on/off for this VFO (manual gain in SETTINGS)">AGC</button>
-      <button id="agcPlusKey" class="key" title="AGC+ (AUTO): the tuner gain keeps the A/D headroom of the signal kind and band, cuts at once on clipping, stops climbing when more gain buys nothing (SETTINGS › VFO › SDR DONGLE)">AGC+</button>
+      <button id="agcPlusKey" class="key" title="AGC+ (AUTO): the tuner gain keeps the A/D headroom of the signal kind and band, cuts at once on clipping, stops climbing when more gain buys nothing (SETTINGS › VFO › RX CHAIN)">AGC+</button>
     </div></div>
     <div class="kgroup" data-g="STEP"><span class="klabel">STEP</span><div class="keys" id="steps"></div></div>
     <div class="kgroup" data-g="TUNE"><span class="klabel">TUNE</span><div class="keys">
@@ -228,7 +228,7 @@
     <div class="kgroup" data-g="AUDIO"><span class="klabel">AUDIO</span><div class="keys">
       <button id="stereoKey" class="key" title="S/M: WFM stereo / mono (mono = less noise on weak stations)">S/M</button>
       <button id="notchKey" class="key" title="NF: automatic notch filter, removes steady tones (whistles, carriers) in AM/LSB/USB">NF</button>
-      <button id="spurKey" class="key" title="SP: remove spurs from local sources, such as a switching power supply. A press forgets the stored spurs, learns the band received now (blinking red) and switches the removal on; another press switches it off. Band-stop settings in SETTINGS › VFO › SDR DONGLE">SP</button>
+      <button id="spurKey" class="key" title="SP: remove spurs from local sources, such as a switching power supply. A press forgets the stored spurs, learns the band received now (blinking red) and switches the removal on; another press switches it off. Band-stop settings in SETTINGS › VFO › RX CHAIN">SP</button>
       <button id="hpfKey" class="key pass-key" aria-label="HPF"><svg class="pass-icon" viewBox="60 180 680 440" aria-hidden="true"><path d="M100 576H150Q190 576 215 535L390 265Q415 228 460 228H695"/></svg><span id="hpfVal" class="pass-val"></span></button>
       <button id="lpfKey" class="key pass-key" aria-label="LPF"><svg class="pass-icon" viewBox="60 180 680 440" aria-hidden="true"><path d="M100 228H340Q390 228 415 270L580 540Q610 576 650 576H695"/></svg><span id="lpfVal" class="pass-val"></span></button>
       <button id="alcKey" class="key" title="Audio ALC (automatic audio level) in AM/LSB/USB/CW; off = fixed gain, set the level with MAIN">ALC</button>
@@ -659,6 +659,7 @@
       <div class="wspr-prog" id="wsprProg" hidden><div class="wp-bar"><span class="wp-fill"></span></div><span class="wp-txt"></span></div>
       <p class="note">Records the USB passband from each even UTC minute for 114 s and decodes it with wsprd (WSJT-X) at the end of the
         cycle: the spots come every 2 minutes. The PC clock must be accurate to ±1 s. A cycle during which the VFO is retuned is skipped.</p>
+      <div class="ft8-split">
       <div class="ft8-table">
         <table class="ft8-tbl wspr-tbl">
           <colgroup><col class="c-utc"><col class="c-snr"><col class="c-dt"><col class="c-dr"><col class="c-f"><col class="c-call"><col class="c-grid"><col class="c-pwr"><col></colgroup>
@@ -668,6 +669,17 @@
           <tbody id="wsprRows"></tbody>
         </table>
         <div id="wsprEmpty" class="ft8-empty">No spots yet.</div>
+      </div>
+      <div class="ft8-map" id="wsprMapBox">
+        <div class="ft8-map-bar">
+          <b>STATIONS</b>
+          <span id="wsprMapInfo" class="muted"></span>
+        </div>
+        <div class="ft8-map-body">
+          <div class="ais-map-main"><div id="wsprMap"></div><div id="wsprMapNote" class="muted"></div></div>
+          <div class="ais-map-list ft8-ml-box" id="wsprMapList"></div>
+        </div>
+      </div>
       </div>
     </section>
 
@@ -1598,9 +1610,10 @@
         <div class="amsat-pages set-tabs" id="setTabs" role="tablist">
           <button class="key small on" data-set-tab="gen" role="tab" aria-selected="true">GENERAL</button>
           <button class="key small" data-set-tab="sta" role="tab" aria-selected="false">STATION</button>
+          <button class="key small" data-set-tab="src" role="tab" aria-selected="false" title="Which source each VFO receives from: a local dongle, an rtl_tcp server, a SpyServer or the dongle of another VFO (the former SDR setup)">SDR SOURCES</button>
           <button class="key small" data-set-tab="vfo" role="tab" aria-selected="false">VFO</button>
           <button class="key small" data-set-tab="rtl" role="tab" aria-selected="false">RTL_TCP SERVER</button>
-          <button class="key small" data-set-tab="logs" role="tab" aria-selected="false" title="Logs and data files: browse, read, delete, export, import; which logs run; the histories of the maps">LOGS</button>
+          <button class="key small" data-set-tab="logs" role="tab" aria-selected="false" title="Logs and data files: browse, read, delete, export, import; which logs run; the histories of the maps">DATA/LOG</button>
         </div>
       </div>
       <div class="set-body">
@@ -1672,7 +1685,7 @@
                 Latitude and longitude give an exact point. A new installation starts at 0.0 / 0.0: set your own place.</p>
             </div>
           </div>
-          <!-- ===== ANTENNAS: list of the antennas of the station (data\antennas.json); each VFO picks one in SDR DONGLE › ANTENNA ===== -->
+          <!-- ===== ANTENNAS: list of the antennas of the station (data\antennas.json); each VFO picks one in RX CHAIN › ANTENNA ===== -->
           <div class="set-subpanel set-ant" data-set-subpanel="gen:ant" role="tabpanel" hidden>
             <div class="setting">
               <div class="row"><span>Antennas of the station</span><span class="value" id="antCount"></span></div>
@@ -1689,7 +1702,7 @@
                 <span class="note" id="antMsg"></span></div>
               <p class="note">The VFO keys in a row choose which VFOs receive on that antenna (a VFO has one antenna: lighting it
                 in one row clears it in the others); SAVE saves the list and the choice. The same can be set for one VFO in
-                <b>SETTINGS › VFO › SDR DONGLE › ANTENNA</b>. While the VFO is tuned
+                <b>SETTINGS › VFO › RX CHAIN › ANTENNA</b>. While the VFO is tuned
                 within the range of its antenna, <b>ANT</b> in its window is lit; outside the range it is amber (wrong antenna or a switch to turn).
                 Without a range ANT only shows the antenna name. The list is shared by all VFOs (<code>data\antennas.json</code>).</p>
             </div>
@@ -1717,7 +1730,7 @@
           <div class="set-vfo-card has-sub" id="setVfoCard" role="tabpanel">
             <div class="set-subtabs" role="tablist">
               <!-- 1.1beta1: SDR DONGLE and ADVANCED are one page; the VFO name is gone (the lit VFO key says it) -->
-              <button class="key small on" data-set-sub="vfo:dongle" role="tab" aria-selected="true">SDR DONGLE</button>
+              <button class="key small on" data-set-sub="vfo:dongle" role="tab" aria-selected="true">RX CHAIN</button>
               <button class="key small" data-set-sub="vfo:audio" role="tab" aria-selected="false">AUDIO</button>
               <button class="key small" data-set-sub="vfo:tx" id="setTabTx" role="tab" aria-selected="false" hidden>TX</button>
             </div>
@@ -1726,12 +1739,6 @@
                  reset – as blocks with arrows between them, wrapping into the next line; the AGC+ diagram at the end -->
             <div class="set-subpanel no-blk" id="dongleBasic" data-set-subpanel="vfo:dongle" role="tabpanel">
               <div class="set-chain">
-              <!-- network source (rtl_tcp / SpyServer): where the samples come from; settings it cannot use are greyed -->
-              <div class="setting src-setting" id="srcSetting" hidden>
-                <div class="row"><span>Source</span><span class="value" id="srcKind"></span></div>
-                <div class="mono src-addr" id="srcAddr"></div>
-                <p class="note" id="srcNote"></p>
-              </div>
               <div class="setting" id="antennaSetting" data-blk="0">
                 <div class="row"><span>Antenna</span><span class="value" id="antVfoRange"></span></div>
                 <select id="antVfo"></select>
@@ -1753,6 +1760,13 @@
               <div class="setting" id="biasTeeSetting" data-blk="3">
                 <label class="switch"><input id="biasTee" type="checkbox"><span></span> Bias-tee 4.5 V</label>
                 <p class="note warn">Only if the upconverter or LNA is powered by the dongle through the antenna connector.</p>
+              </div>
+              <!-- SOURCE: where the samples come from (local dongle, rtl_tcp, SpyServer), after the bias-tee in the order of the
+                   signal; with a network source the antenna, upconverter and bias-tee before it are greyed -->
+              <div class="setting src-setting" id="srcSetting">
+                <div class="row"><span>Source</span><span class="value" id="srcKind"></span></div>
+                <div class="mono src-addr" id="srcAddr"></div>
+                <p class="note" id="srcNote"></p>
               </div>
               <div class="setting" id="deviceSetting" data-blk="1">
                 <div class="row"><span>Dongle</span><button id="devRefresh" class="key small" title="Search for connected dongles again">⟳</button></div>
@@ -2181,6 +2195,65 @@
         </div>
         <!-- ===== RTL_TCP: the servers with remote dongles (rpi/install_rtltcp.sh), live: link, ping, CPU, RAM,
              power, dongles and who uses them, REBOOT / SHUTDOWN. Filled by the script. ===== -->
+        <!-- ===== SDR SOURCES (sources.py, the former SDR setup window): the sources are dragged onto VFO A–D; APPLY restarts
+             only the VFOs that change, the others keep running with all their settings ===== -->
+        <div class="set-panel srcs-panel" data-set-panel="src" role="tabpanel" hidden>
+          <div class="setting sdg srcs">
+            <div class="row"><span>Sources of the VFOs</span><span class="muted" id="srcsInfo"></span></div>
+            <div class="srcs-top">
+              <span class="sdg-sec">SOURCES · DRAG ONE ONTO A VFO, OR CLICK IT AND THEN A VFO</span>
+              <span class="grow"></span>
+              <input type="text" class="mono" id="srcsServers" spellcheck="false" placeholder="network servers: 192.168.1.50, 10.0.0.7:1234, host:5555 …"
+                title="host:port: RADIMCOM asks the server and tells rtl_tcp from SpyServer by itself (a SpyServer then shows as sdr://host:port). A host alone = the rtltcp-manager list of its dongles. Separate several with commas; both kinds can be in the list.">
+              <button class="key small" id="srcsFind" title="Look for the dongles of these network servers">FIND</button>
+              <button class="key small" id="srcsDirKey" title="Public SpyServers of the Airspy directory (airspy.com/directory): click one to add it">DIRECTORY</button>
+              <button class="key small" id="srcsRefresh" title="Look for the sources again (USB and network)">⟳</button>
+            </div>
+            <!-- DIRECTORY: the public SpyServers (airspy.com/directory, sources.directory); a click adds one to the servers -->
+            <div class="srcs-dir" id="srcsDir" hidden>
+              <div class="srcs-dir-bar">
+                <input type="text" id="srcsDirQ" spellcheck="false" placeholder="filter: call, device, antenna, host…">
+                <select id="srcsDirDev"><option value="">all devices</option></select>
+                <select id="srcsDirBand" title="Only servers that receive this band">
+                  <option value="">any band</option><option value="0.1-30">HF 0–30 MHz</option><option value="50-54">6 m</option>
+                  <option value="144-146">2 m</option><option value="430-440">70 cm</option><option value="1090-1090">1090 MHz</option></select>
+                <label class="switch"><input type="checkbox" id="srcsDirFree" checked><span></span> free slot</label>
+                <label class="switch"><input type="checkbox" id="srcsDirCtl"><span></span> full control</label>
+                <span class="grow"></span><span class="muted" id="srcsDirInfo"></span>
+              </div>
+              <div class="srcs-dir-scroll"><table class="srcs-dir-tbl"><thead><tr><th>CALL / OWNER</th><th>DEVICE</th><th>RANGE MHz</th>
+                <th>IQ</th><th>CLIENTS</th><th>CTL</th><th>KM</th><th>ANTENNA</th><th>ADDRESS</th></tr></thead><tbody id="srcsDirRows"></tbody></table></div>
+            </div>
+            <div class="srcs-pool" id="srcsPool"><span class="muted">looking for the sources…</span></div>
+            <div id="srcsMsg"></div>
+            <span class="sdg-sec">VFO</span>
+            <div class="srcs-slots" id="srcsSlots"></div>
+            <div id="srcsIdent"></div>
+            <div class="srcs-foot">
+              <button class="key accent" id="srcsApply" title="Save; only the VFOs whose source, ppm or upconverter changes restart">APPLY</button>
+              <button class="key" id="srcsRevert" title="Back to what runs now">REVERT</button>
+              <button class="key small" id="srcsSerialKey" title="Serial numbers of the RTL-SDR dongles (EEPROM)">SERIAL NUMBERS</button>
+              <span class="grow"></span>
+              <span class="muted small">A VFO that keeps its source keeps its settings (also when it moves to another letter); a new
+                source starts from the defaults, the old settings go to <span class="mono">data\config_backup</span>.</span>
+            </div>
+            <div id="srcsSaveMsg"></div>
+            <div class="srcs-serial" id="srcsSerial" hidden>
+              <span class="sdg-sec">SERIAL NUMBERS OF THE RTL-SDR DONGLES (EEPROM)</span>
+              <p class="note" id="srcsSerialDup">Some RTL-SDR dongles have the same (or an empty) serial number, so they cannot be told
+                apart: after replugging they could swap VFOs. A unique number is offered (marked <b>SAME</b>).</p>
+              <p class="note">Type a new number (up to the length of the old one, letters, digits and - _ . only) and WRITE; the
+                EEPROM is backed up to <span class="mono">data\eeprom_backup</span>. A dongle open in a running VFO cannot be
+                written: STOP USB VFOs first (APPLY starts them again).</p>
+              <table class="srcs-tbl"><thead><tr><th>#</th><th>NOW</th><th>NEW SERIAL</th><th></th></tr></thead><tbody id="srcsSerialRows"></tbody></table>
+              <div class="srcs-foot">
+                <button class="key" id="srcsStopUsb" title="Stop the VFOs with a USB dongle (and the ones sharing it), so the dongles are free">STOP USB VFOs</button>
+                <button class="key accent" id="srcsWrite">WRITE TO EEPROM</button>
+              </div>
+              <div id="srcsSerialMsg"></div>
+            </div>
+          </div>
+        </div>
         <div class="set-panel rtl-panel" data-set-panel="rtl" role="tabpanel" hidden>
           <div class="setting">
             <div class="row"><span>rtl_tcp servers (remote dongles)</span><span class="muted" id="rtlInfo"></span></div>

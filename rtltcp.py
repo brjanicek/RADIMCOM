@@ -69,6 +69,29 @@ def clean_server(server):
     return server.split("/", 1)[0].strip()
 
 
+def server_kind(server, timeout=2.0):
+    """"spyserver" or "rtltcp" by the address: sdr:// = SpyServer, a host alone = rtltcp-manager; host:port without a
+    scheme is asked – an rtl_tcp server sends its "RTL0" header at once, a SpyServer is silent until the client's HELLO
+    (any port: SpyServers are not only on 5555)."""
+    if (server or "").strip().lower().startswith(SPYSERVER):
+        return "spyserver"
+    try:
+        host, port = split_server(server)
+    except ValueError:
+        return "rtltcp"
+    if port is None or port == LIST_PORT:
+        return "rtltcp"
+    try:
+        with socket.create_connection((host, port), timeout=timeout) as s:
+            s.settimeout(1.2)
+            hdr = s.recv(4)
+    except socket.timeout:
+        return "spyserver"           # connected, but nothing comes: waits for the client
+    except OSError:
+        return "rtltcp"              # not reachable: the error is shown by the rtl_tcp check
+    return "rtltcp"                  # "RTL0" header (or closed at once: the rtl_tcp check tells why)
+
+
 def split_server(server):
     """'host' -> (host, None), 'host:1234' -> (host, 1234); also 'rtl_tcp://host:1234/'."""
     server = clean_server(server)

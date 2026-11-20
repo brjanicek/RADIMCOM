@@ -82,7 +82,21 @@ Change log
 
 Ver. 1.1beta2
 (test beta, GitHub branch 1.1beta2; continues 1.1beta1)
+New
+- PROPAGATION tab (PROP key): space weather (NOAA SWPC), Kp, X-ray and the Kiruna magnetogram, and the HF bands at the
+  station for the next 24 h, corrected by the GIRO ionosondes and by what FT8 and WSPR hear; FT8 BAND TEST checks the
+  bands and returns the VFO afterwards. A chip under the S-meter shows SFI, Kp, A and the NOAA scales.
+- WSPR decoder (DECODERS > WSPR, wsprd of WSJT-X): band keys, recording progress, table, log and a station map.
+- PC clock against NTP in FT8 and WSPR with SYNC (sets the Windows clock).
+- SpyServer as a source of a VFO; a click on the network icon of a SpyServer VFO pauses it (disconnects) and connects again.
+- SETTINGS > SDR SOURCES: the SDR setup inside RADIMCOM (no longer in the tray menu). Drag the sources onto VFO A-D; network
+  servers are recognised by themselves; DIRECTORY lists the public SpyServers. APPLY restarts only the VFOs that change,
+  the others keep running, and a VFO keeps its settings with its source.
 Changes
+- SETTINGS > VFO > RX CHAIN (was SDR DONGLE) with a Source card; settings a network source cannot use are greyed.
+  SETTINGS > LOGS is now DATA/LOG.
+- Decoder band keys stay lit on the band of the VFO; the log switches of other VFOs no longer flicker; no strip of the
+  waterfall under the bottom tabs; the start window goes to full screen only when the page is ready.
 - Development: rules for working on the code together without git conflicts (CONTRIBUTING.md, CLAUDE.md).
 
 Ver. 1.1beta1

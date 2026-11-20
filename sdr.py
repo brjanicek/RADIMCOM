@@ -298,11 +298,18 @@ class RtlSdr:
         # the USB strings can be read only before opening; RTL-SDR Blog V4 receives HF without a converter
         bufs = [ctypes.create_string_buffer(256) for _ in range(3)]
         product = bufs[1].value.decode(errors="replace") if lib.rtlsdr_get_device_usb_strings(index, *bufs) == 0 else ""
+        self.usb_name = f"{bufs[0].value.decode(errors='replace')} {product}".strip()   # SETTINGS › SDR SOURCES
+        self.usb_index = index
         self.tuner_min_hz = V4_MIN_HZ if "Blog V4" in product else TUNER_MIN_HZ
         self.dev = ctypes.c_void_p()
         rc = lib.rtlsdr_open(ctypes.byref(self.dev), index)
         if rc != 0:
             raise RuntimeError(f"cannot open dongle {index} (code {rc}, maybe another program is using it)")
+        try:
+            from rtltcp import TUNERS
+            self.tuner_name = TUNERS.get(lib.rtlsdr_get_tuner_type(self.dev), "?")
+        except Exception:
+            self.tuner_name = None
         n = lib.rtlsdr_get_tuner_gains(self.dev, None)
         arr = (ctypes.c_int * max(n, 0))()
         lib.rtlsdr_get_tuner_gains(self.dev, arr)
@@ -1684,6 +1691,7 @@ class Receiver:
         self.dev_tuner_max = None   # upper limit reported by the device (SpyServer)
         self.thread = None
         self._stop = threading.Event()
+        self._wake = threading.Event()      # SpyServer pause: wakes the receiver thread to connect again
         # VFO chaining (iqshare.py): the owner of the dongle sends its blocks to iq_server (set by app.py);
         # a chained VFO (cfg["chain"]) follows the owner's centre, LO and sample rate.
         self.iq_server = None
@@ -1703,7 +1711,21 @@ class Receiver:
 
     # --- control from the web page (applied in the receiver thread between reads) ---
 
+    def net_pausable(self):
+        """SpyServer VFO with its own connection: can be paused (disconnected) from the network icon of the VFO display."""
+        return self.cfg.get("driver", "rtl") == "spyserver" and not self.chained
+
     def update(self, changes):
+        if "net_pause" in changes:
+            changes = dict(changes)                 # (the caller's dict stays whole: app.py saves the settings by it)
+            # pause = disconnect from the SpyServer (frees its client slot, no data); kept in the settings
+            pause = bool(changes.pop("net_pause")) and self.net_pausable()
+            with self.lock:
+                self.cfg["net_pause"] = pause
+                if pause and self.status not in ("paused", "error"):
+                    self.pending["reset"] = True    # the loop closes the connection, then waits (_run)
+            self._log("SpyServer paused (disconnected)" if pause else "SpyServer resumed")
+            self._wake.set()
         with self.lock:
             self.pending.update(changes)
             if changes.get("autotune_go"):
@@ -1770,6 +1792,7 @@ class Receiver:
 
     def stop(self):
         self._stop.set()
+        self._wake.set()
         if self.thread:
             self.thread.join(timeout=3)
 
@@ -1809,6 +1832,18 @@ class Receiver:
     def _run(self):
         self.fail_streak, self.fail_last, self.fail_hint = 0, None, False
         while not self._stop.is_set():
+            if self.cfg.get("net_pause") and self.net_pausable():
+                # SpyServer paused: no connection until the network icon is clicked again
+                with self.lock:
+                    self.pending.pop("reset", None)
+                self.sdr = None
+                self.error = None
+                self.status = "paused"
+                self.on_status()
+                while self.cfg.get("net_pause") and not self._stop.is_set():
+                    self._wake.wait(1)
+                    self._wake.clear()
+                continue
             sdr = None
             reader = None
             failed = None
@@ -1857,7 +1892,8 @@ class Receiver:
                     sdr.close()
             if failed and not self._stop.is_set():
                 self._failed(failed)                # after close: a USB reset needs the dongle closed
-                self._stop.wait(5)
+                self._wake.clear()
+                self._wake.wait(5)                  # (a pause from the network icon ends the wait)
 
     def _configure(self, sdr):
         c = self.cfg
@@ -2609,6 +2645,32 @@ class Receiver:
         wfm = getattr(self, "wfm", None) if self.cfg["mode"] == "WFM" else None
         return wfm.mpx_spectrum() if isinstance(wfm, Wfm) else None
 
+    def _net_bps(self):
+        """Data rate of the network source in bytes/s (SpyServer counts what it receives), else None."""
+        s = self.sdr
+        n = getattr(s, "rx_bytes", None) if s is not None and self.status == "running" else None
+        if n is None:
+            self._bps_last = None
+            return None
+        now = time.monotonic()
+        last = getattr(self, "_bps_last", None)
+        if last is None or last[2] is not s or n < last[1]:
+            self._bps_last = (now, n, s, None)
+            return None
+        if now - last[0] >= 2:
+            bps = (n - last[1]) / (now - last[0])
+            self._bps_last = (now, n, s, bps)
+            return round(bps)
+        return last[3] and round(last[3])
+
+    def _dev_info(self):
+        """The opened local device for SETTINGS › SDR SOURCES (its USB data cannot be read while it is open)."""
+        s = self.sdr
+        if s is None or getattr(s, "where", None):
+            return None
+        return {"usb": getattr(s, "usb_name", None), "index": getattr(s, "usb_index", None),
+                "tuner": getattr(s, "tuner_name", None)}
+
     def _src_info(self):
         """Network source (rtl_tcp, SpyServer) of the opened device for SETTINGS › VFO, else None."""
         s = self.sdr
@@ -2696,10 +2758,14 @@ class Receiver:
             "chained_vfos": self.iq_server.count if self.iq_server else 0,
             "driver": c.get("driver", "rtl"),
             "net_ratio": self._net_ratio(),         # rtl_tcp: share of the samples that arrive over the network
+            "net_pause": bool(self.cfg.get("net_pause")) and self.net_pausable(),   # SpyServer paused (network icon)
+            "net_pausable": self.net_pausable(),
+            "net_bps": self._net_bps(),             # SpyServer: bytes/s received
             "net_warn": getattr(self.sdr, "server_warn", None) if self.status == "running" else None,   # rtl_tcp server
             "has_bias_tee": self.has_bias_tee,
             "has_rtl_agc": self.has_rtl_agc,
             "src": self._src_info(),                # network source (rtl_tcp / SpyServer): address, device, control
+            "dev_info": self._dev_info(),           # local device: USB name, index, tuner (SETTINGS › SDR SOURCES)
             "range": self.tune_range(),
             "tune_hz": c["tune_hz"],
             "center_hz": c["center_hz"],

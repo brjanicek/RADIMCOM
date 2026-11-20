@@ -90,4 +90,7 @@ that release, for at least three years after it was published. The source packag
 - The magnetogram in the same tab shows the 1-minute values of the magnetometer of the Kiruna geophysical observatory of the
   Swedish Institute of Space Physics (IRF, <https://www2.irf.se/maggraphs/>), downloaded by the running program into
   `data\spacewx` for its own use only; they are not in the repository or the release packages.
+- The DIRECTORY list in SETTINGS › SDR SOURCES shows the public SpyServers of the Airspy receiver directory
+  (<https://airspy.com/directory/>), downloaded by the running program only while that list is used (at most every 5 minutes)
+  and kept in memory only; the owners' e-mail addresses are not shown. Nothing of it is in the repository or the release packages.
 - The map for choosing the station place (SATELLITES tab, SETUP, CHOOSE ON MAP) shows tiles of OpenStreetMap (<https://www.openstreetmap.org/copyright>), © OpenStreetMap contributors, loaded by the browser from tile.openstreetmap.org only while that map is open; nothing of it is in the package.

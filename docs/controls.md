@@ -41,7 +41,8 @@ browser – and the **CUE** key of that VFO (orange LED): that VFO stays audible
 
 - **Top row:** VFO-x (boxed and yellow on the active VFO, green on an inactive one with an open squelch), the name of the
   memory / band plan / satellite transponder (lit on the active VFO; a memory with its own tag colour shows its name in that colour), a red struck-through speaker
-  when a decoder (ACARS, VDL2, HFDL, AIS or ISM) has muted the audio of this VFO, and the connection state as a USB icon: green = SDR running,
+  when a decoder (ACARS, VDL2, HFDL, AIS or ISM) has muted the audio of this VFO, and the connection state as a USB icon (a network icon for rtl_tcp
+  and SpyServer; on a SpyServer VFO a click on it pauses / connects, amber with ⏸ while paused): green = SDR running,
   blinking orange = connecting (waiting, opening the dongle, LimeSDR calibration), grey = disconnected or error
   (hover for details). A chained VFO shows CHAIN, one out of the range of its dongle owner OOR.
 - **Frequency** in the middle.
@@ -181,7 +182,7 @@ browser – and the **CUE** key of that VFO (orange LED): that VFO stays audible
     (300 Hz high-pass). Tone / code: mouse wheel over the key, or SETTINGS › VFO › AUDIO (the DCS polarity only there).
     As in every radio, a DCS code is the same as its cyclic shifts, so e.g. 023N also opens on 047I.
   - ALC: automatic audio level in AM/LSB/USB/CW; off = fixed gain. Its gain rises smoothly (a ramp, no clicks); the switch
-    *Smooth ALC gain* by AGC+ in SETTINGS › SDR DONGLE › ADVANCED turns that off.
+    *Smooth ALC gain* by AGC+ in SETTINGS › VFO › RX CHAIN › ADVANCED turns that off.
     **SETTINGS › AUDIO › ALC** (per VFO): on a louder signal the gain falls at once, then it *holds* and comes back up with
     the *rise* time constant (−10 dB back in about hold + 1.15 × rise). **FAST** (default: hold 400 ms, rise 100 ms) or
     **SLOW** (hold 600 ms, rise 1000 ms), each with its own times (hold 0–2000 ms, rise 100–5000 ms, DEFAULT). While NTH ›
@@ -262,7 +263,9 @@ browser – and the **CUE** key of that VFO (orange LED): that VFO stays audible
 
 - **MENU → SET (gear)**: settings. While the gear key is lit, the bottom part has a **SETTINGS** tab
   (beside SPECTRUM, DECODERS and SATELLITES); the open pages are remembered in the browser.
-  The gear is one switch for all VFOs; switching it off hides the tab. Three pages:
+  The gear is one switch for all VFOs; switching it off hides the tab. Pages GENERAL, STATION, SDR SOURCES (which source each
+  VFO receives from, see [SDR SOURCES](configuration.md#sdr-sources-assigning-sources-to-vfos)), VFO, RTL_TCP SERVER and
+  DATA/LOG (the logs and data files):
   - **GENERAL**: settings of the whole station, the same on every VFO.
     - **SKINS**: finish of the panel – dark brushed aluminium (default), black (darker) brushed aluminium, light brushed aluminium, mahogany or paint. A click on a colour of the RAL chart
       (36 common RAL Classic shades, screen approximations) or an own colour sprays the panel with it; on a light colour the print and the logo turn dark.
@@ -277,7 +280,7 @@ browser – and the **CUE** key of that VFO (orange LED): that VFO stays audible
       dipole, yagi, longwire, loop, mag loop, QFH, active whip …), its **bands in MHz** (one or several, e.g. `144-146, 430-440` for a dual-band vertical or the bands of a multiband dipole), polarization, gain, height, outdoor / indoor, on the rotor,
       the **chain** between the antenna and the dongle (LNA, filters, switch) and a note; the **VFO** keys of a row choose which VFOs receive on that antenna
       (one antenna per VFO: lighting a VFO in one row clears it in the others; a VFO that is not running is grey). **+ ADD**, ✕ deletes a row,
-      **SAVE** saves the whole list and the choice of the VFOs. One VFO can also choose its antenna in **SETTINGS › VFO › SDR DONGLE › ANTENNA** (block 0 of the block diagram).
+      **SAVE** saves the whole list and the choice of the VFOs. One VFO can also choose its antenna in **SETTINGS › VFO › RX CHAIN › ANTENNA** (block 0 of the block diagram).
       **ANT** in the VFO window (row with CTCSS / DCS / ATU): green while the VFO is tuned within one of the bands of its antenna, **amber** outside them (wrong antenna
       or a switch to turn), grey for an antenna without bands, dark without an antenna; its tooltip names the antenna.
 
@@ -288,12 +291,15 @@ browser – and the **CUE** key of that VFO (orange LED): that VFO stays audible
   - **VFO**: settings of one VFO. On the left the keys **VFO-A … VFO-D** (like the VFO keys under the VFO windows; one without an SDR is grey);
     the lit one is the active VFO and is joined to the card on the right, which holds its settings. A press on another key switches the
     active VFO (as the keys under the VFO windows) and SETTINGS stays open. The card has the pages:
-    - **SDR DONGLE**
+    - **RX CHAIN** (SDR DONGLE until 1.1beta1)
       - **Block diagram** at the top: the path of the signal antenna → upconverter → bias-tee → tuner → A/D (RTL2832) → USB → DC removal → SP spurs removal → spectrum / VFOs,
         with the crystal (ppm) clocking the tuner and the A/D, and AGC+, which reads the A/D level and sets the tuner gain (green dashed loop).
         Each block has a number, and the card of its setting has the same number (SP = 10 and AGC+ = 11 on the ADVANCED page);
         a click on a block highlights its card, switching to ADVANCED for SP and AGC+. A grey block has no setting for this dongle or VFO (a VFO with a fixed dongle). Shown for RTL-SDR dongles only, not for LimeSDR or Airspy.
       - **Antenna** (block 0): the antenna this VFO receives on, from SETTINGS › GENERAL › ANTENNAS, with its range and whether the tuned frequency is in it.
+      - **Source** (after the bias-tee): the local device (kind and serial), the VFO it is chained to, or the network source (rtl_tcp /
+        SpyServer, address, device, real band and upsampling, control). With a network source the antenna, upconverter LO and bias-tee are greyed
+        with the reason in their tooltip, with a shared SpyServer also the tuner gain.
       - Without `vfos.json` (single receiver) the dongle selection and the upconverter mode (auto / on / off).
       - **Bandwidth**: the width of the band the dongle receives (sample rate) = the width of the spectrum and waterfall.
       - **Correction (ppm)** and **Upconverter LO (MHz)**.
@@ -353,7 +359,7 @@ browser – and the **CUE** key of that VFO (orange LED): that VFO stays audible
     - **AUDIO**: AFI inversion frequency, the ASQ (auto squelch) margin above the noise (2–30 dB), the CTCSS tone (TSQ-C) and DCS code with polarity (TSQ-D), HPF and LPF frequency. The squelch level itself is set by the SQL bar of the VFO window.
     - **TX** (LimeSDR only): Enable TX, see [Transmitting (LimeSDR)](configuration.md#transmitting-limesdr).
 
-    ![SETTINGS › VFO › SDR DONGLE: keys VFO-A … D, the block diagram of the signal path from the antenna to the screen with numbered blocks, and the cards with correction, bandwidth, tuner gain, bias-tee, DC peak removal and RESET SDR DONGLE](images/settings_vfo.png)
+    ![SETTINGS › VFO › RX CHAIN: keys VFO-A … D, the block diagram of the signal path from the antenna to the screen with numbered blocks, and the cards with correction, bandwidth, tuner gain, bias-tee, DC peak removal and RESET SDR DONGLE](images/settings_vfo.png)
   - **STATION**: a simplified scheme of the whole receiver, live (like the AGC+ diagram). On top the station: **QTH**
     (locator), **ROTOR** (port, azimuth / elevation, target, tracking, errors), **DOPPLER** (the satellite followed and on which
     VFO) and **AUDIO** (the MAIN VFO, the VFOs on CUE and the muted ones), in one compact line. Below one row per VFO (each kind of block in its own colour with

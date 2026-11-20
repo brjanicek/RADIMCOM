@@ -207,6 +207,7 @@ class SpyServerSdr:
         self.freq = None
         self.ppm = 0
         self.lost = 0
+        self.rx_bytes = 0          # received over the network (the data rate in the tooltip of the network icon)
         self._stop = False
         self._seq = None
         fmt = i["forced_format"] or FORMAT_INT16
@@ -290,6 +291,7 @@ class SpyServerSdr:
                     if self._stop:
                         return
                     raise RuntimeError(f"SpyServer {self.where}: {e}")
+                self.rx_bytes += 20 + len(body)
                 if mtype == MSG_INT16_IQ:
                     x = np.frombuffer(body, "<i2").astype(np.float32) * (1 / 32768)
                 elif mtype == MSG_UINT8_IQ:

@@ -6,6 +6,13 @@
 
 - **Up to four VFOs, A–D.** Each VFO has its own SDR (RTL-SDR, LimeSDR Mini or Airspy R2, selected by serial number)
   and its own settings.
+- **Network sources:** an RTL-SDR dongle of an rtl_tcp server or an **Airspy SpyServer** (own client; a narrow band such as
+  the 228 kHz of an HF+ upsampled), the public SpyServers to pick from the Airspy directory, a SpyServer VFO paused
+  (disconnected) by a click on its network icon. See [Network sources](configuration.md#network-sources-rtl_tcp-and-spyserver).
+- **SETTINGS › SDR SOURCES:** the sources dragged onto VFO A–D in the running RADIMCOM; APPLY restarts only the VFOs that
+  change, a VFO keeps its settings with its source. See [SDR SOURCES](configuration.md#sdr-sources-assigning-sources-to-vfos).
+- **PROPAGATION tab (PROP key):** space weather (NOAA SWPC), the HF bands at the station for the next 24 h corrected by the
+  GIRO ionosondes and by what FT8 / WSPR hear, the Kiruna magnetogram, FT8 BAND TEST. See [Propagation](propagation.md).
 - **VFO chaining:** one dongle can serve several VFOs, e.g. one dongle for VFO A–D, or two dongles with two VFOs
   each. A chained VFO listens anywhere inside the band its dongle receives and shows a green CHAIN flag
   (see [VFO chaining](configuration.md#vfo-chaining-one-dongle-for-several-vfos)).
@@ -31,7 +38,7 @@
 - **Remove DC peak** and **remove spurs** from local sources, in the waterfall and in the received signal.
 - **Upconverter:** HF is tuned via the LO (e.g. 100 MHz), see [Shortwave (HF) reception](hf-upconverter.md). For a VFO with a manual converter switch, crossing
   30 MHz shows a warning whether the converter must be switched on (CONV) or set to BYPASS.
-- **Decoders:** 11 decoders, see [Decoders](#decoders) below.
+- **Decoders:** 12 decoders, see [Decoders](#decoders) below.
 - **Satellite tracking:** pass prediction, world map, Doppler correction of the VFO and a K3NG antenna rotor over USB, planned for passes across the north; no other program needed. See [Satellite tracking](satellites.md).
 - **ROTOR CONTROL tab (RCTRL key):** a map where a click (or a click on a channel of MEMORIES with a location) turns the rotor to that azimuth from the QTH, with the wanted azimuth (dashed line) and the antenna now (beam sector turning with the rotor), from any VFO; recalling a channel with a location opens the tab and turns the rotor to it; the channels are shown by their groups (a checkbox per group beside the map); page **SETTINGS** connects / disconnects the four sources of the wanted AZ / EL (SAT TRACKER, MEMORY RECALL, RCTRL MAP, SONDE TRACKER – the rotor follows the chosen radiosonde, AZ / EL from its GPS position and altitude) from the rotor in a block diagram (rotor block green = at least one connected) and holds the rotor controller itself (one rotor for the whole station, settings in `data\rotor.json`: ON / OFF, serial port, polar plot and elevation column with the antenna and its target, a click moves the antenna; STOP, RESET, MONITOR, azimuth calibration). See [Rotor control map](satellites.md#rotor-control-map).
 - **REC and REC SQ:** record the audio of the selected VFO to MP3 files in `data\recordings` or an own folder (SETTINGS › GENERAL › RECORDINGS): everything, or only while the squelch is open; with DAB the MP3 of the station as it comes. The keys and REC in the VFO window blink while audio goes into the file.
@@ -45,7 +52,7 @@
 - **Daily logs:** the LOG checkbox in each decoder card writes to `data\logs\<decoder>_YYYY-MM-DD.txt` (UTC, one line per message; WEFAX/SSTV log the names of saved images), classic ACARS to `data\acars\acars_YYYY-MM-DD.txt` and VDL2 to `data\acars\vdl2_YYYY-MM-DD.txt`.
 - **TX with LimeSDR** (optional, off by default), see [Transmitting (LimeSDR)](configuration.md#transmitting-limesdr).
 - **HTTP API:** everything the page does can be done from scripts, see [API/API.md](../API/API.md).
-- **Windows setup and app:** `RADIMCOM_Setup_v<version>.exe` installs RADIMCOM with its own Python (no admin rights, no internet), the USB drivers and DSD-FME as options, and upgrades an installation in place (`data\` stays). **RADIMCOM.exe** shows the page in its own window with the RADIMCOM icon (pinnable to the taskbar) and keeps the server in the tray when the window closes; full screen (F11) and MAIN power switch in the green LED of the logo; the SDR setup (dongles → VFO A–D, IDENTIFY by unplugging, any RTL-SDR dongle renamed in its EEPROM) in the same window. See [Installation](installation.md).
+- **Windows setup and app:** `RADIMCOM_Setup_v<version>.exe` installs RADIMCOM with its own Python (no admin rights, no internet), the USB drivers and DSD-FME as options, and upgrades an installation in place (`data\` stays). **RADIMCOM.exe** shows the page in its own window with the RADIMCOM icon (pinnable to the taskbar) and keeps the server in the tray when the window closes; full screen (F11) and MAIN power switch in the green LED of the logo; the SDR setup is SETTINGS › SDR SOURCES (for a first start without a setup still in the same window: dongles → VFO A–D, IDENTIFY by unplugging, any RTL-SDR dongle renamed in its EEPROM). See [Installation](installation.md).
 - **New version notice:** after each start RADIMCOM checks GitHub for a newer version and shows it with a link to its setup; run the setup into the same folder, `data\` and the settings stay. A red RADIMCOM logo shows that a newer version is available; a click on it opens the release page.
   See [Data folder](development.md#data-folder-data).
 
@@ -53,7 +60,8 @@
 
 | Decoder | What it decodes | Details | SDR | More |
 |---|---|---|---|---|
-| **FT8** | FT8 on the HF ham bands (160–10 m); next to the table a **station map** (▲ by the locator in the messages, last 10 min … 24 h, list of stations with distance, our report as a coloured chip, faint WW locator grid, also in a new tab) | band buttons; the PC clock must be accurate (±1 s) | all | [DECODE](controls.md#function-keys) |
+| **FT8** | FT8 on the HF ham bands (160–10 m); next to the table a **station map** (▲ by the locator in the messages, last 10 min … 24 h, list of stations with distance, our report as a coloured chip, faint WW locator grid, also in a new tab) | band buttons; the PC clock must be accurate (±1 s): its offset against NTP is shown with a SYNC key | all | [DECODE](controls.md#function-keys) |
+| **WSPR** | WSPR beacons on 160 m – 6 m (2-minute cycles, down to about −28 dB); next to the table a **station map** like FT8 | via wsprd of WSJT-X 2.7.0; band keys, recording progress, PC clock offset with SYNC; stations also in PROPAGATION | all | [WSPR](decoders/wspr.md) |
 | **WEFAX** | radio fax (DWD, Northwood…) | automatic format detection (LPM / IOC), slant correction (SLANT, ALIGN), AFC that retunes the VFO onto the signal, gallery of saved images | all | [DECODE](controls.md#function-keys) |
 | **CW** | Morse skimmer: up to 16 stations in the passband (or ±3.4 kHz) decoded at once | soft decoder: matched filter, Kalman fading tracker, Viterbi keying, beam search over the readings; learns the operator's timing (paddle / bug / straight key, Farnsworth); table of the stations with calls and their text (a click opens the whole text and the operator profile), text coloured by confidence, stations in the spectrum; text also in the audio spectrum bubble | all | [CW](decoders/cw.md) |
 | **RTTY** | Baudot | automatic shift 90–1000 Hz, speed 45.45 / 50 / 75 / 100 Bd and polarity; teletype-style terminal, tuning indicators CROSS / WF (click = tune) / BARS / EYE, known stations | all | [DECODE](controls.md#function-keys) |

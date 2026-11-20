@@ -2199,7 +2199,7 @@ def api_devices():
 
 @app.route("/api/dongles")
 def api_dongles():
-    """SETTINGS › SDR DONGLE › ADVANCED: the dongles in vfos.json with their VFOs and the connected RTL dongles."""
+    """SETTINGS › RX CHAIN › ADVANCED: the dongles in vfos.json with their VFOs and the connected RTL dongles."""
     try:
         with open(VFOS_PATH, encoding="utf-8") as f:
             vfos = json.load(f).get("vfos", [])
@@ -2980,6 +2980,8 @@ def api_set():
             if z not in ZOOMS:
                 raise ValueError("unsupported zoom")
             changes["zoom"] = z
+        if "net_pause" in body:
+            changes["net_pause"] = bool(body["net_pause"])   # SpyServer: disconnect / connect (network icon)
         if "bias_tee" in body:
             changes["bias_tee"] = bool(body["bias_tee"])
         if "squelch" in body:

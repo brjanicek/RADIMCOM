@@ -281,6 +281,12 @@ body {
 .vfo-stat .net-warn { display: block; height: 1.05em; width: auto; margin-left: 2px; color: var(--amber);
   filter: drop-shadow(0 0 3px rgba(255, 181, 71, .8)); animation: vfo-stat-blink 1s steps(1) infinite; }
 .vfo-stat.netslow { color: var(--amber); }   /* rtl_tcp: the network does not carry all samples */
+/* SpyServer: the network icon pauses (disconnects) / connects on a click; paused = amber with two bars */
+.vfo-stat.pausable { cursor: pointer; }
+.vfo-stat.pausable:hover { filter: brightness(1.35); }
+.vfo-stat.paused { color: var(--amber); text-shadow: none; }
+.vfo-stat.paused .usb-icon { filter: none; opacity: .75; }
+.vfo-stat .net-pause { display: block; height: .95em; width: auto; margin-left: 2px; color: var(--amber); }
 .vfo-stat.netslow .usb-icon { filter: drop-shadow(0 0 3px rgba(255, 181, 71, .7)); }
 .vfo-stat.neterr { color: var(--red); }   /* rtl_tcp: no connection / no data */
 .vfo-stat.neterr .usb-icon { filter: drop-shadow(0 0 3px rgba(255, 75, 62, .7)); }
@@ -3656,6 +3662,7 @@ html.app-shell .r-master .r-logo { margin-top: 10px; }
 .src-kind { font-weight: 700; letter-spacing: .04em; }
 .src-kind.spyserver { color: var(--blue); }
 .src-kind.rtltcp { color: var(--green); }
+.src-kind.chain { color: var(--muted); }
 .set-panel .setting.na { opacity: .4; filter: grayscale(1); }
 .set-panel .setting.na > * { pointer-events: none; }
 .set-panel .setting.na::after { content: attr(data-na); font-size: 10.5px; color: var(--muted); line-height: 1.3; }
@@ -4266,8 +4273,107 @@ label.map-opts-sub2 { display: flex; align-items: center; gap: 6px; cursor: poin
 .wspr-prog:not(.wp-rec) .wp-fill { transition: none; }
 .wspr-prog.wp-busy .wp-bar { border-color: color-mix(in srgb, var(--accent) 60%, transparent); }
 .wspr-prog .wp-r { color: var(--red); font-weight: 700; font-size: 10.5px; letter-spacing: .06em; animation: rec-blink 2s steps(2) infinite; }
+/* WSPR station map next to the spot table: the FT8 map look (.ft8-map, .ft8-tri, .ft8-label, .ft8-ml reused) */
+#wsprMap { flex: 1 1 0; min-height: 240px; border: 1px solid var(--line); border-radius: 6px; background: #0e1116; }
+#wsprMap.leaflet-container { font: 12px system-ui, sans-serif; }
+#wsprMap.ft8-nolbl .ft8-label { display: none; }
+#wsprMapInfo { flex: 1 1 auto; font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; }
+#wsprMapNote { font-size: 11px; }
 /* PC clock against NTP (FT8, WSPR): offset chip + SYNC */
 .clk-chip { font: 700 10.5px ui-monospace, Consolas, monospace; padding: 2px 6px; border-radius: 3px; border: 1px solid var(--line); color: var(--dim); white-space: nowrap; }
 .clk-chip.ok { color: var(--green); border-color: color-mix(in srgb, var(--green) 50%, transparent); }
 .clk-chip.warn { color: var(--amber); border-color: var(--amber); }
 .clk-chip.bad { color: #ff8a80; border-color: var(--red); background: color-mix(in srgb, var(--red) 14%, transparent); }
+
+/* ---------- SETTINGS › SDR SOURCES (the former SDR setup window): sources dragged onto VFO A–D, in the STATION style ---------- */
+.set-panel.srcs-panel { display: block; }      /* one card over the whole width, not the 3-column grid of the settings */
+.srcs { gap: 8px; }
+.srcs-top select { width: auto; flex: 0 0 auto; }
+.srcs-slot select { width: auto; }
+.srcs-top { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.srcs-top .grow, .srcs-foot .grow { flex: 1; }
+.srcs-top input { width: 300px; max-width: 100%; }
+.srcs-pool { display: flex; flex-wrap: wrap; gap: 8px; min-height: 58px; padding: 6px; border: 1px dashed var(--line2, #343b46); border-radius: 8px; align-items: center; }
+.srcs-pool.over, .srcs-drop.over { border-color: var(--yellow); background: rgba(255, 216, 74, .05); }
+.srcs-chip { position: relative; display: flex; flex-direction: column; gap: 1px; width: 210px; padding: 5px 22px 5px 8px; border-radius: 8px; cursor: grab;
+  user-select: none; border: 1px solid color-mix(in srgb, #3fd6e6 55%, transparent); background: color-mix(in srgb, #3fd6e6 6%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .04), 0 2px 6px rgba(0, 0, 0, .25); }
+.srcs-chip.net { border-style: dashed; }
+.srcs-chip > b { font: 700 10px system-ui, sans-serif; letter-spacing: .08em; color: var(--muted); }
+.srcs-chip .ser { font: 700 13px Consolas, monospace; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.srcs-chip .sub { font-size: 10.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.srcs-chip .sub em { font-style: normal; color: var(--amber); }
+.srcs-chip .sub i { font-style: normal; color: var(--text); }
+.srcs-chip:hover { filter: brightness(1.15); }
+.srcs-chip.picked { border-color: var(--yellow); box-shadow: 0 0 0 1px var(--yellow), 0 0 12px rgba(255, 216, 74, .35); }
+.srcs-chip.found { animation: srcs-found 1s ease-in-out infinite; }
+@keyframes srcs-found { 50% { box-shadow: 0 0 0 2px var(--green), 0 0 16px rgba(60, 240, 124, .6); } }
+.srcs-chip.dragging { opacity: .4; }
+.srcs-chip.missing { cursor: default; border-color: color-mix(in srgb, var(--red) 60%, transparent); background: color-mix(in srgb, var(--red) 7%, transparent); }
+.srcs-chip .x, .srcs-shared .x { position: absolute; top: 3px; right: 6px; color: var(--muted); cursor: pointer; font-size: 13px; line-height: 1; }
+.srcs-chip .x:hover, .srcs-shared .x:hover { color: var(--red); }
+.srcs-tag { font-style: normal; margin-right: 4px; }
+.srcs-tag.rtl, .srcs-tag.rtltcp { color: var(--green); }
+.srcs-tag.lime, .srcs-tag.spyserver { color: #6fb7ff; }
+.srcs-tag.airspy { color: var(--amber); }
+.srcs-slots { display: grid; grid-template-columns: repeat(4, minmax(200px, 250px)); gap: 10px; }
+@media (max-width: 1100px) { .srcs-slots { grid-template-columns: repeat(2, minmax(200px, 250px)); } }
+.srcs-slot { gap: 6px; }
+.srcs-slot > b { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+.srcs-slot.off { opacity: .7; }
+.srcs-st { font-style: normal; font-size: 9px; padding: 0 4px; border-radius: 3px; border: 1px solid currentColor; letter-spacing: .06em; }
+.srcs-st.run { color: var(--green); } .srcs-st.off { color: var(--muted); } .srcs-st.chg { color: var(--amber); }
+.srcs-drop { min-height: 56px; border: 1px dashed var(--line2, #343b46); border-radius: 6px; display: flex; align-items: center; justify-content: center; padding: 4px; }
+.srcs-drop.target { border-color: rgba(255, 216, 74, .5); cursor: pointer; }
+.srcs-drop .srcs-chip { width: 100%; }
+.srcs-drop .hint { color: var(--dim, #5d6672); font-size: 11px; }
+.srcs-shared { position: relative; width: 100%; padding: 8px 20px 8px 8px; border: 1px solid rgba(111, 183, 255, .35); border-radius: 6px; font-size: 12px; }
+.srcs-shared b { color: #6fb7ff; }
+.srcs-tools { display: flex; gap: 6px; }
+.srcs-tools select { flex: 1; min-width: 0; font-size: 11px; }
+.srcs-fields { display: grid; grid-template-columns: auto 1fr; gap: 4px 6px; align-items: center; font-size: 11px; }
+.srcs-fields > span { color: var(--muted); }
+.srcs-fields input[type=text], .srcs-fields input[type=number] { width: 100%; min-width: 0; }
+.srcs-lo { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.srcs-lo i { font-style: normal; color: var(--muted); }
+.srcs-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.srcs-foot .small { font-size: 11px; max-width: 640px; }
+.srcs-msg { border-radius: 6px; padding: 6px 10px; font-size: 12px; }
+.srcs-msg.warn { background: rgba(255, 181, 71, .08); border: 1px solid rgba(255, 181, 71, .35); color: #ffd9a0; }
+.srcs-msg.err { background: rgba(255, 75, 62, .1); border: 1px solid rgba(255, 75, 62, .45); color: #ffb3ab; }
+.srcs-msg.ok { background: rgba(60, 240, 124, .08); border: 1px solid rgba(60, 240, 124, .35); color: #b6f7cb; }
+.srcs-msg.info { background: rgba(111, 183, 255, .07); border: 1px solid rgba(111, 183, 255, .3); color: #cfe3fa; }
+.srcs-serial { display: flex; flex-direction: column; gap: 6px; padding-top: 6px; border-top: 1px solid var(--line); }
+.srcs-tbl { border-collapse: collapse; max-width: 640px; font-size: 12px; }
+.srcs-tbl th { text-align: left; font-size: 10px; letter-spacing: .08em; color: var(--muted); padding: 2px 8px; }
+.srcs-tbl td { padding: 3px 8px; border-top: 1px solid var(--line); }
+.srcs-same { color: var(--amber); }
+#srcsSerialKey.warn { color: var(--amber); }
+.srcs-spin { display: inline-block; width: 11px; height: 11px; border: 2px solid var(--line2, #343b46); border-top-color: var(--yellow);
+  border-radius: 50%; animation: srcs-r 1s linear infinite; vertical-align: -2px; }
+@keyframes srcs-r { to { transform: rotate(360deg); } }
+/* the bubble in the middle of the screen while the VFOs start (instead of the start window of RADIMCOM.exe) */
+.srcs-bubble { position: fixed; left: 50%; top: 45%; transform: translate(-50%, -50%); z-index: 9000; display: flex; flex-direction: column; gap: 4px;
+  min-width: 260px; padding: 14px 20px; border-radius: 12px; border: 1px solid color-mix(in srgb, #3fd6e6 60%, transparent);
+  background: color-mix(in srgb, var(--bg, #07090c) 92%, #3fd6e6); box-shadow: 0 8px 30px rgba(0, 0, 0, .6); font-size: 13px; }
+.srcs-bubble[hidden] { display: none; }
+.srcs-bubble b { color: #3fd6e6; letter-spacing: .06em; margin-bottom: 4px; }
+.srcs-bubble span { color: var(--muted); }
+.srcs-bubble span.ok { color: var(--green); }
+/* SDR SOURCES › DIRECTORY: the public SpyServers to pick from */
+.srcs-dir { display: flex; flex-direction: column; gap: 6px; padding: 6px; border: 1px solid color-mix(in srgb, #6fb7ff 40%, transparent); border-radius: 8px; }
+.srcs-dir-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
+.srcs-dir-bar input[type=text] { width: 240px; }
+.srcs-dir-bar select { width: auto; }
+.srcs-dir-bar .grow { flex: 1; }
+.srcs-dir-bar a { color: var(--amber); }
+.srcs-dir-err { color: var(--red); }
+.srcs-dir-scroll { max-height: 250px; overflow: auto; }
+.srcs-dir-tbl { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+.srcs-dir-tbl th { position: sticky; top: 0; background: var(--bg, #07090c); text-align: left; font-size: 10px; letter-spacing: .08em; color: var(--muted); padding: 3px 6px; }
+.srcs-dir-tbl td { padding: 3px 6px; border-top: 1px solid var(--line); white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+.srcs-dir-tbl tr[data-addr] { cursor: pointer; }
+.srcs-dir-tbl tr[data-addr]:hover td { background: rgba(111, 183, 255, .1); }
+.srcs-dir-tbl tr.mine td { color: #6fb7ff; }
+.srcs-dir-tbl tr.full td { opacity: .55; }
+.srcs-dir-tbl td.bad { color: var(--red); }

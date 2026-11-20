@@ -14,6 +14,12 @@ All components and how the signals flow between them, from the hardware at the b
 |---|---|
 | `app.py` | receiver server (Flask): API, events (SSE) and audio |
 | `launcher.py` | VFO A–D launcher |
+| `sources.py` | SETTINGS › SDR SOURCES on the launcher: the VFO processes (restart of single VFOs), sources, APPLY, the Airspy SpyServer directory |
+| `spyserver.py` | SpyServer client (driver `spyserver`): protocol, rates, upsampling of a narrow band |
+| `rtltcp.py` | rtl_tcp client (driver `rtltcp`), rtltcp-manager list, server status; tells rtl_tcp from SpyServer by the protocol |
+| `spacewx.py` | PROPAGATION tab: space weather feeds (NOAA SWPC, GIRO via KC2G, IRF Kiruna), the HF band model |
+| `wspr.py` | WSPR decoder: records the 2-minute cycles, runs `lib\wspr\wsprd.exe` |
+| `clocksync.py` | PC clock against NTP and its SYNC (FT8, WSPR) |
 | `sdr.py` | RTL-SDR via librtlsdr (ctypes) and DSP: tuning, filters, demodulation, squelch, waterfall |
 | `rds.py` | RDS decoder |
 | `ft8.py`, `wefax.py`, `cw.py`, `rtty.py`, `sstv.py`, `acars.py`, `cpdlc.py`, `adsc.py` | decoders (`adsc.py`: ADS-C reports inside ACARS) |

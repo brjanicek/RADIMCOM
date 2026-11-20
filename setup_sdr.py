@@ -186,11 +186,25 @@ def rtltcp_servers():
         return []
 
 
+def normalize_servers(servers):
+    """The network servers with sdr:// added to the SpyServers typed as host:port (told by the protocol, rtltcp.server_kind)."""
+    import rtltcp
+    from concurrent.futures import ThreadPoolExecutor
+    servers = [str(s).strip() for s in servers or [] if str(s).strip()]
+    if not servers:
+        return []
+    with ThreadPoolExecutor(len(servers)) as ex:
+        kinds = list(ex.map(rtltcp.server_kind, servers))
+    return [("sdr://" + s if k == "spyserver" and not s.lower().startswith(rtltcp.SPYSERVER) else s)
+            for s, k in zip(servers, kinds)]
+
+
 def net_devices(servers):
     """Dongles on rtl_tcp servers and SpyServers (sdr://host:port): ([{driver, serial (= network address), name}], [errors])."""
     import rtltcp
     import spyserver
     devs, errors = [], []
+    servers = normalize_servers(servers)
     spy = [s for s in servers if str(s).strip().lower().startswith(rtltcp.SPYSERVER)]
     rtl = [s for s in servers if s not in spy]
     for driver, found in (("rtltcp", rtltcp.list_devices(rtl)), ("spyserver", spyserver.list_devices(spy))):

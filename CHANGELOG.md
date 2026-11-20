@@ -4,7 +4,47 @@
 
 Test beta (GitHub branch `1.1beta2`; continues 1.1beta1).
 
+### Main Features
+
+- **PROPAGATION tab (PROP key):** space weather from NOAA SWPC (solar flux, X-ray, solar wind, Kp and A, R / S / G scales,
+  alerts) as blocks in the STATION style, charts of Kp (3 days with the forecast), X-ray (6 h) and the **magnetogram of
+  Kiruna** (IRF, X / Y / Z, ΔX over 3 h). **HF BANDS · ESTIMATE NEXT 24 H:** the bands 160–6 m against the next 24 hours
+  (UTC) from an own model (foF2 from the solar flux and the sun, absorption, storms), corrected by the **GIRO ionosondes**
+  up to 1000 km (via KC2G, every 15 min; sporadic E from foEs) and by what **FT8 and WSPR** of all VFOs hear (FT8 + WSPR ·
+  LAST 30′ block with the farthest station per band and Es). **FT8 BAND TEST** listens on each band for 15–60 s when FT8 heard
+  nothing and returns the VFO to its frequency, mode and decoder afterwards (also after the page was closed during the test).
+  A chip under the S-meter shows SFI · Kp · A · R S G in the colour of the worst value. See docs/propagation.md.
+- **WSPR decoder** (DECODERS › WSPR): WSPR beacons on 160 m – 6 m by wsprd of WSJT-X 2.7.0 (`lib\wspr\wsprd.exe`, built for
+  RADIMCOM); band keys, a progress bar of the 2-minute recording, table (SNR, DT, drift, call, locator, power, km), LOG and
+  a **station map** like that of FT8. See docs/decoders/wspr.md.
+- **PC clock against NTP** in the heads of FT8 and WSPR (green / amber / red by the offset) with **SYNC**, which sets the
+  clock of Windows (with the administrator consent of Windows when needed).
+- **SpyServer source:** an own client of the Airspy SpyServer protocol (driver `spyserver`); a server with a narrow band
+  (e.g. an HF+ with 228 kHz) is upsampled and the VFO keeps its tuning inside the real band; on a shared server the gain is
+  the server's. A **click on the network icon** of a SpyServer VFO pauses it (disconnects: no data, the client slot is free)
+  and connects it again; the tooltip shows the data rate.
+- **SETTINGS › SDR SOURCES:** the SDR setup is now a page of the running RADIMCOM in the STATION style (the *SDR setup…* item
+  of the tray menu is gone; the Start menu item and `--setup` open this page). Sources (USB devices with their USB name,
+  index, tuner and the VFO using them; rtl_tcp dongles; SpyServers) are dragged onto VFO A–D; network servers are told apart
+  by their protocol (a SpyServer on any port), and **DIRECTORY** lists the public SpyServers of the Airspy directory (by the
+  distance from the QTH, filters, a click adds one). **APPLY restarts only the VFOs that change** (a bubble shows them
+  starting), the others keep running; a VFO keeps its settings with its source, also when it moves to another letter.
+  EEPROM serial numbers with STOP USB VFOs.
+
 ### Changes
+
+- **SETTINGS › VFO › RX CHAIN** (was SDR DONGLE): a **Source** card after the bias-tee (local device, chained VFO, rtl_tcp or
+  SpyServer with address and device); with a network source the antenna, upconverter LO and bias-tee are greyed, with a
+  shared SpyServer the gain too. The VFO window shows the network icon for SpyServer as for rtl_tcp.
+- **SETTINGS › DATA/LOG** (was LOGS).
+- Decoders: the band key of the frequency the VFO is on stays lit (FT8, WSPR, WEFAX, SSTV, ACARS, AIS, ADS-B, ISM), also
+  when the VFO was tuned another way.
+- SETTINGS › DATA/LOG › LOGGING: the switches of a VFO that is not selected no longer flicker or switch back.
+- Bottom tabs: no strip of the waterfall at their bottom edge.
+- RADIMCOM.exe: the start window shows only *Starting RADIMCOM…* with the pulsing icon, and goes to full screen only when
+  the page is ready (no flash of the start page in full screen).
+- SDR setup: an `sdr://` (SpyServer) address no longer gives an rtl_tcp error.
+- `make_installer.py --exe` works while RADIMCOM runs (the running RADIMCOM.exe is renamed to `.old`).
 
 - **Development:** git workflow for working on one version branch together without conflicts: pull requests from short
   topic branches rebased onto the version branch, the change log written by the maintainer from the PR description,

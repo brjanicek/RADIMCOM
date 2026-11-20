@@ -2411,7 +2411,7 @@ function renderGain() {
   // the values from the moment the mouse came, and they are refreshed when it comes again.
   const a = st.agc || {};
   const plusTip = "AGC+ (AUTO): the tuner gain keeps the A/D headroom of the signal kind and band, cuts at once on clipping, " +
-    "stops climbing when more gain buys nothing (SETTINGS › VFO › SDR DONGLE)" +
+    "stops climbing when more gain buys nothing (SETTINGS › VFO › RX CHAIN)" +
     (smart ? `\nnow ${gainLabel(st)}, A/D peak ${st.adc_peak} dBFS${st.adc_clip ? `, clipping ${ppmPct(st.adc_clip_ppm)} of the samples` : ""}` +
       (a.why ? `\n${a.why}` : "") : "");
   if (!$("agcPlusKey").matches(":hover")) $("agcPlusKey").title = plusTip;
@@ -2494,8 +2494,15 @@ function renderSettings() {
 // source cannot use are shown greyed with the reason in the tooltip (not hidden, so it is clear why they do nothing).
 function renderSrc() {
   const spy = st.driver === "spyserver", net = spy || st.driver === "rtltcp", src = st.src;
-  $("srcSetting").hidden = !net;
-  if (net) {
+  if (!net) {
+    // local device: its kind and serial number (a chained VFO takes the samples of another VFO)
+    const kind = DEVICE_NAMES[st.driver] || (st.driver === "rtl" || !st.driver ? "RTL-SDR" : st.driver);
+    $("srcKind").textContent = st.chain_owner ? "CHAINED" : kind;
+    $("srcKind").className = `value src-kind ${st.chain_owner ? "chain" : "local"}`;
+    $("srcAddr").textContent = st.chain_owner ? `VFO ${st.chain_owner}` : st.serial ? `${kind} · ${st.serial}` : kind;
+    $("srcNote").textContent = st.chain_owner ? "takes the samples of the dongle of that VFO (SETTINGS › SDR SOURCES)"
+      : "local device on USB (SETTINGS › SDR SOURCES)";
+  } else {
     $("srcKind").textContent = spy ? "SpyServer" : "rtl_tcp";
     $("srcKind").className = `value src-kind ${st.driver}`;
     $("srcAddr").textContent = (src && src.addr) || (spy ? st.serial || "" : String(st.serial || "").replace(/^rtltcp:/, ""));
@@ -2507,7 +2514,7 @@ function renderSrc() {
       bits.push(src.can_control ? "this client controls the frequency and gain"
         : "shared server: frequency only inside the band of its owner, gain set by the server");
     }
-    if (!spy) bits.push("RTL-SDR dongle on another computer: all its settings work as with a local dongle");
+    if (!spy) bits.push("RTL-SDR dongle on another computer: its own antenna, converter and bias-tee are there");
     $("srcNote").textContent = bits.join(" · ");
   }
   const na = (id, why) => {
@@ -2516,9 +2523,11 @@ function renderSrc() {
     if (why) { el.hidden = false; el.dataset.na = why; el.title = why; }
     else if (el.dataset.na) { delete el.dataset.na; el.title = ""; }
   };
-  const noUp = spy ? "SpyServer: no upconverter – the server tunes its device directly" : "";
-  na("loSetting", noUp);
-  na("biasTeeSetting", spy ? "SpyServer: the bias-tee is set on the server side" : "");
+  // a network source has its own antenna, converter and bias-tee on the other computer
+  const where = spy ? "SpyServer" : "rtl_tcp";
+  na("antennaSetting", net ? `${where}: the antenna is at the server, not at this station` : "");
+  na("loSetting", net ? `${where}: no upconverter here – the server tunes its device directly` : "");
+  na("biasTeeSetting", net ? `${where}: the bias-tee is set on the server side` : "");
   na("rtlAgcBox", spy ? "SpyServer: no RTL2832 digital gain over SpyServer" : "");
   na("gainSetting", spy && src && !src.can_control ? "SpyServer shared (can_control = 0): the gain is set by the server" : "");
 }
@@ -2831,7 +2840,7 @@ function agcdInterp(v, xs, ys) {
   }
   return ys[ys.length - 1];
 }
-// diagram beside AGC+ (SETTINGS › VFO › SDR DONGLE): the values of the sliders and the live state in its labels
+// diagram beside AGC+ (SETTINGS › VFO › RX CHAIN): the values of the sliders and the live state in its labels
 function renderAgcLive() {
   const p = st.sagc || {}, a = st.agc || {}, auto = st.gain === "auto", smart = !!st.smart_agc && !auto;
   const live = !auto && a.head != null, clip = live && !!st.adc_clip;
@@ -3939,6 +3948,9 @@ function renderDecTab() {
   const ft8Now = decPage === "ft8" && !na && bodyTab === "dec";
   if (ft8Now && !ft8PageShown) setTimeout(renderFt8Map);
   ft8PageShown = ft8Now;
+  const wsprNow = decPage === "wspr" && !na && bodyTab === "dec";   // the same for the WSPR station map
+  if (wsprNow && !wsprPageShown) setTimeout(renderWsprMap);
+  wsprPageShown = wsprNow;
   $("decEmpty").hidden = !na;
   $("decEmpty").classList.toggle("dec-na", !!na);
   $("decEmpty").textContent = na;
@@ -11753,6 +11765,7 @@ function setSubOpened(name) {
   if (name.startsWith("logs:")) setTimeout(() => lgOpened(name));          // SETTINGS › LOGS (declared further down)
   if (name === "" && !document.querySelector('[data-set-panel="sta"]').hidden) setTimeout(sdgStart);   // STATION: no sub-pages
   if (name === "" && !document.querySelector('[data-set-panel="rtl"]').hidden) setTimeout(rtlStart);   // RTL_TCP: no sub-pages
+  if (name === "" && !document.querySelector('[data-set-panel="src"]').hidden) setTimeout(srcsStart);  // SDR SOURCES
 }
 /** The rotor settings (RCTRL › SETTINGS; SETTINGS › GENERAL › ROTOR until 1.0beta2) are on the screen. */
 function rotorPageOpen() {
@@ -11862,7 +11875,7 @@ for (const b of document.querySelectorAll("[data-set-sub]")) {
   const t = recall("setTab");
   const logsSub = recall("setSub_logs");
   if (logsSub && document.querySelector(`[data-set-sub="${logsSub}"]`)) showSetSub(logsSub);
-  showSetTab(t === "vfo" || (oldTab && oldTab.startsWith("vfo:")) ? "vfo" : t === "sta" || t === "rtl" || t === "logs" ? t : "gen");
+  showSetTab(t === "vfo" || (oldTab && oldTab.startsWith("vfo:")) ? "vfo" : t === "sta" || t === "rtl" || t === "logs" || t === "src" ? t : "gen");
 }
 
 // ---------- RCTRL › SETTINGS (SETTINGS › GENERAL › ROTOR until 1.0beta2): K3NG rotor (rotor.py) ----------
@@ -14245,6 +14258,24 @@ const USB_ICON = `<svg class="usb-icon" viewBox="0 0 690 440" aria-label="runnin
   `<rect x="430" y="322" width="118" height="118" rx="10"/></g><g fill="none" stroke="currentColor" stroke-width="38">` +
   `<path d="M140 222 H580"/><path d="M200 222 C250 160 250 56 370 56"/><path d="M290 222 C340 280 330 381 440 381"/></g></svg>`;
 // Lightning next to the network symbol: the rtl_tcp server of this VFO has under-voltage (or overheats).
+// SpyServer paused (network icon of the VFO display): two bars beside the network icon
+const NET_PAUSE_ICON = `<svg class="net-pause" viewBox="0 0 24 24" aria-label="paused"><path fill="currentColor" d="M5 3h5v18H5zM14 3h5v18h-5z"/></svg>`;
+const fmtRate = (bps) => bps >= 1e6 ? `${(bps / 1e6).toFixed(2)} MB/s` : `${Math.round(bps / 1e3)} kB/s`;
+// click on the network icon of a SpyServer VFO: pause (disconnect) / connect, without switching to that VFO
+$("vfoList").addEventListener("click", (e) => {
+  const stat = e.target.closest(".vfo-row .vfo-stat.pausable");
+  if (!stat) return;
+  e.stopPropagation();
+  e.preventDefault();
+  const v = vfos.find((x) => String(x.name) === stat.closest(".vfo-row").dataset.vfo);
+  const s = v && (v === active ? st : v.st);
+  if (!s || !s.net_pausable) return;
+  const pause = s.status !== "paused";
+  s.status = pause ? "paused" : "opening dongle";      // shown at once; the state from the server follows
+  renderVfoDisplays();
+  fetch(v.base + "/api/set", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ net_pause: pause }) })
+    .catch(() => {});
+}, true);
 const NET_WARN_ICON = `<svg class="net-warn" viewBox="0 0 24 24" aria-label="server warning"><path fill="currentColor" d="M13 1 3 14h7l-2 9 11-14h-7z"/></svg>`;
 // Network symbol (three connected nodes) instead of USB for a dongle on another computer (rtl_tcp).
 const NET_ICON = `<svg class="usb-icon" viewBox="0 0 600 440" aria-label="running"><g fill="currentColor">` +
@@ -14302,7 +14333,7 @@ const PASS_ICON = {
 // Tone squelch row under the frequency: the set CTCSS tone and DCS code, dark (as an unlit annunciator) = off, orange = on (FM), glowing = received.
 const vfoToneHtml = () => `<div class="vfo-tone"><span class="ann tsq ctcss">CTCSS<b></b></span>` +
   `<span class="ann tsq dcs">DCS<b></b></span>` +
-  `<span class="ann ant" title="Antenna of the VFO (SETTINGS › VFO › SDR DONGLE › ANTENNA)">ANT</span>` +
+  `<span class="ann ant" title="Antenna of the VFO (SETTINGS › VFO › RX CHAIN › ANTENNA)">ANT</span>` +
   `<span class="ann atu" title="ATU: autotune (USB/LSB/AM)">ATU</span></div>`;
 function renderVfoTone(row, s) {
   const fm = s.mode === "FM";
@@ -14556,21 +14587,26 @@ function renderVfoDisplays() {
       : s.status === "running" ? ["RUNNING", "", "receiver running"]
       : s.status === "opening dongle" ? ["OPENING", "wait", "opening dongle"]
       : s.status === "calibrating" ? ["CAL", "wait", "LimeSDR calibration"]
+      : s.status === "paused" ? ["PAUSED", "paused", "SpyServer paused: disconnected from the server, no data (click to connect)"]
       : ["OFFLINE", "off", `receiver ${s.status}`];
     // Connection as a USB icon (network icon for rtl_tcp and SpyServer): green = running, blinking orange = connecting (WAIT / OPENING / CAL),
     // grey = disconnected (OFFLINE); CHAIN and OOR stay as text. Details in the tooltip.
     const connecting = ["WAIT", "OPENING", "CAL"].includes(stTxt);
-    const icon = connecting || stTxt === "RUNNING" || stTxt === "OFFLINE";
+    const icon = connecting || stTxt === "RUNNING" || stTxt === "OFFLINE" || stTxt === "PAUSED";
     const net = ["rtltcp", "spyserver"].includes((s && s.driver) || v.driver);   // network source (rtl_tcp, SpyServer)
     const netWarn = net && s && s.net_warn && s.net_warn.length ? s.net_warn : null;
-    const stHtml = icon ? (net ? NET_ICON + (netWarn ? NET_WARN_ICON : "") : USB_ICON) : stTxt;
+    const stHtml = icon ? (net ? NET_ICON + (stTxt === "PAUSED" ? NET_PAUSE_ICON : netWarn ? NET_WARN_ICON : "") : USB_ICON) : stTxt;
     if (stat.dataset.html !== stHtml) { stat.innerHTML = stHtml; stat.dataset.html = stHtml; }
     // rtl_tcp: orange = the network does not carry all samples, red = no connection or no data from the server
     const netSlow = net && stTxt === "RUNNING" && s.net_ratio != null && s.net_ratio < 0.97;
     const netErr = net && stTxt === "OFFLINE" && v.online && !!s;
-    stat.className = `vfo-stat ${netErr ? "neterr" : netSlow ? "netslow" : stCls}${connecting ? " blink" : ""}`;
+    stat.className = `vfo-stat ${netErr ? "neterr" : netSlow ? "netslow" : stCls}${connecting ? " blink" : ""}${s && s.net_pausable ? " pausable" : ""}`;
     stat.title = netSlow ? `NETWORK TOO SLOW: only ${Math.round(s.net_ratio * 100)} % of the samples arrive, `
       + "the rest is lost on the rtl_tcp server (lower the sample rate or use a faster link)" : `${stTxt}: ${stTitle}`;
+    if (s && s.net_pausable) {
+      // SpyServer: the click on the icon disconnects (pause) / connects again; the data rate while running
+      if (stTxt !== "PAUSED") stat.title += (s.net_bps ? `\nSpyServer ${fmtRate(s.net_bps)}` : "") + "\nclick: PAUSE (disconnect from the SpyServer)";
+    }
     if (netWarn) stat.title += `
 rtl_tcp SERVER: ${netWarn.join(", ").toUpperCase()} (SETTINGS › RTL_TCP SERVER)`;
     const mode = row.querySelector(".vfo-mode"), gain = row.querySelector(".vfo-gain"), sql = row.querySelector(".vfo-sql");
@@ -15143,13 +15179,13 @@ function renderVfoAnt(el, s) {
   el.classList.toggle("on", ok === true);
   el.classList.toggle("set", !!a && ok === null);
   el.classList.toggle("warn", ok === false);
-  el.title = !s.antenna ? "ANT: no antenna chosen for this VFO (SETTINGS › VFO › SDR DONGLE › ANTENNA)"
+  el.title = !s.antenna ? "ANT: no antenna chosen for this VFO (SETTINGS › VFO › RX CHAIN › ANTENNA)"
     : !a ? "ANT: the antenna of this VFO is no longer in SETTINGS › GENERAL › ANTENNAS"
     : `ANT: ${a.name}` + (antRangeText(a) ? ` (${antRangeText(a)})` : "") +
       (ok === false ? ": the frequency is OUTSIDE the range of this antenna" : ok ? ": the frequency is within its range" : "");
 }
 
-/** ANTENNA card of SETTINGS › VFO › SDR DONGLE: the choice of the active VFO. */
+/** ANTENNA card of SETTINGS › VFO › RX CHAIN: the choice of the active VFO. */
 function renderAntVfo() {
   if (!antAsked) { antAsked = true; antLoad(); }   // first status: get the list once
   const sel = $("antVfo");
@@ -18604,6 +18640,7 @@ async function init() {
   active = vfos.find((v) => v.name === want) || vfos[0];
   vbase = active.base;
   restoreBodyTab();
+  srcsOpenFromUrl();
   if (MAP_ONLY) mapOnlySetup();
   renderVfoDisplays();
   if (list && list.length) { renderSpareVfos(); renderVfoKeys(); }
@@ -18941,13 +18978,13 @@ function sdgLane(v) {
   const a = antById(s.antenna), cov = a ? antCovers(a, s.tune_hz) : null;
   const ant = sdgBlk("ANTENNA", a ? `<span class="v">${escHtml(a.name)}</span><span>${escHtml([a.type, a.pol].filter(Boolean).join(" · "))}</span>` +
     `<span>${a.rotor ? sdgChip("ROTOR", sdg.rotor && sdg.rotor.connected ? "on" : "") : ""}${cov === false ? sdgChip("OUT OF RANGE", "warn") : ""}</span>` : "<span>not chosen</span>",
-    (a ? (cov === false ? "lit warn" : "lit") : "off") + " k-ant", "SETTINGS › VFO › SDR DONGLE › ANTENNA");
+    (a ? (cov === false ? "lit warn" : "lit") : "off") + " k-ant", "SETTINGS › VFO › RX CHAIN › ANTENNA");
   // dongle
   const chained = s.chain_owner ? `shares VFO-${s.chain_owner}` : s.chained_vfos ? `+${s.chained_vfos} VFO` : "";
   // the dongle as one block with its TUNER (gain) and A/D (sample rate, peak) inside
   const auto = s.gain === "auto", smart = s.smart_agc && !auto, clip = !auto && s.adc_clip;
   const devName = { rtl: "RTL-SDR", rtltcp: "RTL_TCP", airspy: "AIRSPY", lime: "LimeSDR" }[s.driver] || String(s.driver || "SDR").toUpperCase();
-  const tuner = `<div class="sdg-in" title="Tuner gain: SETTINGS › VFO › SDR DONGLE › AGC+ and the RF GAIN key"><b>TUNER</b>` +
+  const tuner = `<div class="sdg-in" title="Tuner gain: SETTINGS › VFO › RX CHAIN › AGC+ and the RF GAIN key"><b>TUNER</b>` +
     `<span class="v">${auto ? "auto" : gainLabel(s)}</span><span>${smart ? "AGC+" : auto ? (s.rtl_agc ? "RTL AGC" : "tuner auto") : "manual"}</span></div>`;
   const adc = `<div class="sdg-in${clip ? " bad" : ""}" title="A/D converter: sample rate and the peak of the raw samples"><b>A/D</b>` +
     `<span class="v">${+((s.sample_rate || 0) / 1e6).toFixed(3)} MS/s</span>` +
@@ -18956,11 +18993,11 @@ function sdgLane(v) {
     `${s.ppm ? sdgChip(`${s.ppm} ppm`, "on") : ""}${chained ? sdgChip(escHtml(chained), "on") : ""}`;
   const sdr = sdgBlk(`${escHtml(devName)} <em>${escHtml(s.serial || "")}</em>`, `<div class="sdg-inner">${tuner}${adc}</div>` +
     (chips ? `<span class="chips">${chips}</span>` : ""),
-    `sdg-dev k-dev ${s.error || clip ? "lit bad" : "lit"}`, "SETTINGS › VFO › SDR DONGLE");
+    `sdg-dev k-dev ${s.error || clip ? "lit bad" : "lit"}`, "SETTINGS › VFO › RX CHAIN");
   // IQ: DC removal and the noise blanker on the wideband samples
   // the samples always go through it; with DC and NB off it only passes them on (lit all the same, "pass")
   const iq = sdgBlk("IQ", `<span class="sdg-chain">${sdgOn(s.dc_remove, "DC", "DC removal")}<span>${sdgOn(s.nb, "NB", `noise blanker, level ${s.nb_level}`)}</span></span>` +
-    (s.dc_remove || s.nb ? "" : `<span>pass</span>`), "lit k-iq", "Wideband IQ: DC removal and the noise blanker (SETTINGS › VFO › SDR DONGLE, NB key); " +
+    (s.dc_remove || s.nb ? "" : `<span>pass</span>`), "lit k-iq", "Wideband IQ: DC removal and the noise blanker (SETTINGS › VFO › RX CHAIN, NB key); " +
     "with both off the samples only pass through");
   // MIXER: the digital mixer (NCO) shifts the tuned frequency from its place in the band to zero, then decimation
   // (÷ 64) to the channel rate; SP (spur removal) works on that baseband
@@ -18971,7 +19008,7 @@ function sdgLane(v) {
   // SP: the learned spurs removed from the baseband after the mixer, before the channel filter (the baseband decoders get it too)
   const spB = sdgBlk("SP", `<span class="v">${s.spur_on ? "on" : "pass"}</span>`,
     "lit k-sp", "SP: spur removal on the baseband of the channel, after the mixer and ÷ 64, before the filter; the decoders on the baseband " +
-    "(FT8, CW, RTTY …) get it too (SETTINGS › VFO › SDR DONGLE › SP)");
+    "(FT8, CW, RTTY …) get it too (SETTINGS › VFO › RX CHAIN › SP)");
   // channel filter + demodulator
   const bw = (s.bandwidth || {})[s.mode];
   const filt = sdgBlk("FILTER", `<span class="v">${s.dab ? "1.5 MHz" : bw ? sdgHz(bw) : "–"}</span><span>channel</span>`, "lit k-filt", "Filter width (BW)");
@@ -19081,14 +19118,14 @@ function sdgLane(v) {
   const agc = sdgBlk("AGC+", `<span class="v">${smart ? "on" : "off"}</span><span>${agcTxt}</span>` +
     (smart && s.auto_sql_on && !s.auto_sql ? `<span class="chips">${sdgChip("→ ASQ", "on", "AGC+ switched the auto squelch on")}</span>` : ""),
     `sdg-agc k-agc ${smart ? "lit" : "off"}`, "AGC+: keeps the A/D headroom of the signal kind and band – measures the A/D peak and the noise floor of the band, " +
-    "sets the TUNER gain (SETTINGS › VFO › SDR DONGLE, AGC+ key). Runs in RADIMCOM on the PC" +
+    "sets the TUNER gain (SETTINGS › VFO › RX CHAIN, AGC+ key). Runs in RADIMCOM on the PC" +
     (ag.why ? `&#10;${escHtml(ag.why)}` : "")) +
     `<i class="sdg-agcl${smart ? " on" : ""}"><i class="a"></i><i class="b"></i><em class="la">peak</em><em class="lb">gain</em><em class="lc">IQ</em></i>`;
-  // S-METER: the power of the channel after the filter (the S9 calibration of SETTINGS › VFO › SDR DONGLE); the squelch
+  // S-METER: the power of the channel after the filter (the S9 calibration of SETTINGS › VFO › RX CHAIN); the squelch
   // compares the same power, so its level goes on into the SQL / ASQ lines of AUDIO
   const smB = sdgBlk("S-METER", `<span class="v">${s.smeter != null ? sReading(s.smeter) : "–"}</span>` +
     `<span>${s.smeter != null ? dbf(s.smeter) : "–"} dBFS</span>`, "lit k-sm sdg-sm",
-    `S-meter: the power in the channel after the filter, S9 = ${s9Dbfs} dBFS (SETTINGS › VFO › SDR DONGLE); the squelch compares the same level`) +
+    `S-meter: the power in the channel after the filter, S9 = ${s9Dbfs} dBFS (SETTINGS › VFO › RX CHAIN); the squelch compares the same level`) +
     `<i class="sdg-sml${hasSq ? "" : " nosq"}"><i class="a"></i><i class="b"></i><em>level</em></i>`;
   // AGC+ -> ASQ: along the bottom of the row up into the ASQ chip in AUDIO (placed by sdgPlace)
   const asqL = !hasSq ? "" : `<i class="sdg-asql${agcAsq ? " on" : ""}" title="AGC+ ${agcAsq ? "switches the auto squelch (ASQ) on" : "does not switch ASQ on now"}">` +
@@ -20014,11 +20051,13 @@ function wsprAdd(d, fresh) {
   const n = sep.querySelector(".cy-n");
   n.textContent = Number(n.textContent) + 1;
   while (tb.rows.length > WSPR_MAX_ROWS) tb.lastChild.remove();
+  if (fresh) wsprStUpsert(d);
 }
 function wsprReset() {
   $("wsprRows").innerHTML = "";
   $("wsprEmpty").hidden = false;
   wsprCycle = null;
+  wsprStClear();
 }
 async function wsprLoad(v) {
   try {
@@ -20026,6 +20065,7 @@ async function wsprLoad(v) {
     if (v !== active) return;
     wsprReset();
     for (const d of list) wsprAdd(d, false);
+    await wsprStLoad(v);
   } catch { /* server unreachable */ }
 }
 
@@ -20049,6 +20089,182 @@ $("wsprBands").addEventListener("click", async (e) => {
   send(changes);
 });
 $("wsprClear").addEventListener("click", wsprReset);
+
+// ---------- WSPR station map next to the spot table: the FT8 map (its helpers, icons and styles) for the WSPR stations ----------
+// var: wsprReset / renderDecTab can run before these lines (init() is above)
+var wsprSt = null, wsprMap = null, wsprMapLay = null, wsprMapFitted = false, wsprSel = null, wsprQth = null, wsprMapTimer = null, wsprPageShown = false;
+wsprSt = new Map();   // call -> {call, grid, lat, lon, ts, first, n, snr, freq_hz, drift, dbm, msg} (as /api/wspr/stations)
+const WSPR_LIST_MAX = 300;
+const wsprMapShown = () => bodyTab === "dec" && decPage === "wspr";
+const wsprBandOf = (hz) => WSPR_BANDS[Object.keys(WSPR_BANDS).find((f) => Math.abs(f - hz) < 5000)];
+/** Distance (km) and azimuth (°) from the QTH, great circle (as ft8DistAz). */
+function wsprDistAz(lat, lon) {
+  const q = wsprQth;
+  if (!q) return null;
+  const r = Math.PI / 180, f1 = q.lat * r, f2 = lat * r, dl = (lon - q.lon) * r;
+  const d = Math.acos(Math.min(1, Math.sin(f1) * Math.sin(f2) + Math.cos(f1) * Math.cos(f2) * Math.cos(dl))) * 6371;
+  const az = (Math.atan2(Math.sin(dl) * Math.cos(f2), Math.cos(f1) * Math.sin(f2) - Math.sin(f1) * Math.cos(f2) * Math.cos(dl)) / r + 360) % 360;
+  return { km: Math.round(d), az: Math.round(az) };
+}
+/** Our report as a filled chip (the FT8 chip, coloured by the WSPR SNR steps of the table: -10 / -20 dB). */
+function wsprRxChip(snr, long = false) {
+  const cls = snr >= -10 ? "s-hi" : snr >= -20 ? "s-mid" : "s-lo";
+  return `<span class="ft8-rx ${cls}" title="our report: we hear this station at ${snr > 0 ? "+" : ""}${snr} dB SNR">` +
+    `${long ? "RX " : ""}${snr < 0 ? "-" : "+"}${String(Math.abs(snr)).padStart(2, "0")}${long ? " dB" : ""}</span>`;
+}
+
+function wsprStUpsert(d) {
+  if (!wsprSt || !d.call) return;
+  const ts = d.ts || Date.now() / 1000;
+  let s = wsprSt.get(d.call);
+  if (!s) { s = { call: d.call, first: ts, n: 0 }; wsprSt.set(d.call, s); }
+  Object.assign(s, { ts, snr: d.snr, freq_hz: d.freq_hz, drift: d.drift, dbm: d.dbm, msg: d.msg, n: s.n + 1 });
+  if (d.grid) Object.assign(s, { grid: d.grid, lat: d.lat, lon: d.lon });
+  s.fresh = Date.now();
+  wsprMapLater();
+}
+function wsprMapLater() {
+  if (wsprMapTimer || !wsprMapShown()) return;
+  wsprMapTimer = setTimeout(() => { wsprMapTimer = null; renderWsprMap(); }, 700);
+}
+async function wsprStLoad(v) {
+  try {
+    const list = await fetch(v.base + "/api/wspr/stations").then((r) => r.json());
+    if (v !== active) return;
+    wsprSt.clear();
+    for (const s of list) wsprSt.set(s.call, s);
+  } catch { /* server unreachable */ }
+  wsprMapFitted = false;
+  wsprMapLater();
+}
+/** CLR, VFO switch: the stations of the map go with the table (only in this tab: the server keeps them for PROP). */
+function wsprStClear() {
+  if (!wsprSt) return;
+  wsprSt.clear();
+  wsprSel = null;
+  wsprMapFitted = false;
+  if (wsprMapLay) { wsprMapLay.st.clearLayers(); wsprMapLay.path.clearLayers(); wsprMapLay.marks.clear(); }
+  renderWsprMap();
+}
+
+async function wsprMapOpen() {
+  try {
+    await Promise.all([satAsset("/static/leaflet/leaflet.css"), satAsset("/static/leaflet/leaflet.js")]);
+  } catch (e) {
+    $("wsprMapNote").textContent = e.message;
+    return false;
+  }
+  if (!wsprMap) {
+    wsprMap = L.map($("wsprMap"), { worldCopyJump: true, minZoom: 2 }).setView([50, 15], 3);
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 12, className: "hfdl-dark",
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors',
+    }).addTo(wsprMap);
+    wsprMap.on("click", () => { if (wsprSel != null) { wsprSel = null; renderWsprMap(); } });
+    ft8LocGrid(wsprMap);                   // the WW locator grid (on / off with GRID of the FT8 map)
+    wsprMapLay = { path: L.layerGroup().addTo(wsprMap), st: L.layerGroup().addTo(wsprMap), marks: new Map() };
+    const lbl = () => $("wsprMap").classList.toggle("ft8-nolbl", wsprMap.getZoom() < 5);
+    wsprMap.on("zoomend", lbl);
+    lbl();
+    try {
+      const s = await satFetch("/api/location");
+      if (s && Number.isFinite(s.lat) && Number.isFinite(s.lon) && (s.lat || s.lon)) {
+        wsprQth = { lat: s.lat, lon: s.lon };
+        L.circleMarker([s.lat, s.lon], { radius: 6, color: "#000", weight: 2, fillColor: "#ff5a3c", fillOpacity: 1 })
+          .bindTooltip(`QTH${s.locator ? " " + escHtml(s.locator) : ""}`).addTo(wsprMap);
+      }
+    } catch { /* server unreachable */ }
+  }
+  return true;
+}
+
+// WSPR stations are beacons: green triangles (the FT8 "calling CQ" colour), red = selected, pale = not heard for 30 min
+function wsprIcon(s, sel) {
+  const age = Date.now() / 1000 - s.ts;
+  return `ft8-tri ${sel ? "sel" : "cq"}${age > 1800 ? " old" : ""}${s.fresh && Date.now() - s.fresh < 20000 ? " fresh" : ""}`;
+}
+const wsprLabelHtml = (s) => `${escHtml(s.call)} ${wsprRxChip(s.snr)}`;
+function wsprPopup(s) {
+  const da = s.lat != null ? wsprDistAz(s.lat, s.lon) : null;
+  const band = wsprBandOf(s.freq_hz);
+  const w = s.dbm != null ? 10 ** (s.dbm / 10) / 1000 : null;
+  const pwr = s.dbm == null ? "" : ` · ${s.dbm} dBm (${w >= 1 ? `${+w.toFixed(w >= 10 ? 0 : 1)} W` : `${Math.round(w * 1000)} mW`})`;
+  return `<b class="ft8-pop-call">${escHtml(s.call)}</b>${s.grid ? ` <span class="ft8-pop-grid">${escHtml(s.grid)}</span>` : ""}<br>` +
+    (da ? `${da.km.toLocaleString("en")} km · az ${da.az}°<br>` : "") +
+    `${wsprRxChip(s.snr, true)} · ${(s.freq_hz / 1e6).toFixed(6)} MHz${band ? ` (${band} m)` : ""}<br>` +
+    `drift ${s.drift > 0 ? "+" : ""}${s.drift ?? 0} Hz${pwr}<br>` +
+    `${ft8Ago(s.ts)} ago · ${s.n} spot${s.n === 1 ? "" : "s"} · <a href="https://www.qrz.com/db/${encodeURIComponent(s.call)}" target="_blank" rel="noopener">QRZ</a>`;
+}
+
+/** Redraw of the map, at most one at a time (as renderFt8Map). */
+let wsprDrawing = false, wsprDrawAgain = false;
+async function renderWsprMap() {
+  if (wsprDrawing) { wsprDrawAgain = true; return; }
+  wsprDrawing = true;
+  try {
+    do { wsprDrawAgain = false; await drawWsprMap(); } while (wsprDrawAgain);
+  } finally { wsprDrawing = false; }
+}
+async function drawWsprMap() {
+  if (!wsprSt || !wsprMapShown() || !(await wsprMapOpen())) return;
+  wsprMap.invalidateSize();
+  const all = [...wsprSt.values()].sort((a, b) => b.ts - a.ts);
+  const list = all.filter((s) => s.lat != null);
+  const lay = wsprMapLay, keep = new Set();
+  lay.path.clearLayers();
+  for (const s of list) {
+    keep.add(s.call);
+    const sel = s.call === wsprSel;
+    let mk = lay.marks.get(s.call);
+    const call = s.call, cls = wsprIcon(s, sel);
+    if (!mk) {
+      mk = L.marker(ft8Spread(s), { icon: ft8IconOf(cls) })
+        .bindPopup(() => wsprPopup(wsprSt.get(call) || s), { className: "ft8-popup" })
+        .bindTooltip(wsprLabelHtml(s), { permanent: true, direction: "bottom", offset: [0, -1], className: "ft8-label cq" }).addTo(lay.st);
+      mk.on("click", () => wsprSelect(call, false));
+      mk._w = { cls, grid: s.grid, snr: s.snr };
+      lay.marks.set(call, mk);
+    }
+    if (mk._w.snr !== s.snr) { mk.setTooltipContent(wsprLabelHtml(s)); mk._w.snr = s.snr; }
+    if (mk._w.grid !== s.grid) { mk.setLatLng(ft8Spread(s)); mk._w.grid = s.grid; }
+    if (mk._w.cls !== cls) { mk.setIcon(ft8IconOf(cls)); mk._w.cls = cls; mk.setZIndexOffset(sel ? 1000 : 0); }
+    const tt = mk.getTooltip() && mk.getTooltip().getElement();
+    if (tt) { tt.classList.toggle("cq", !sel); tt.classList.toggle("sel", sel); }
+    if (mk.isPopupOpen()) mk.getPopup().update();
+    if (sel && wsprQth) L.polyline([[wsprQth.lat, wsprQth.lon], ft8Spread(s)], { color: "#ff4b3c", weight: 1.5, dashArray: "4 4", opacity: 0.8, interactive: false }).addTo(lay.path);
+  }
+  for (const [k, mk] of lay.marks) if (!keep.has(k)) { mk.remove(); lay.marks.delete(k); }
+  if (!wsprMapFitted && lay.marks.size) {
+    wsprMapFitted = true;
+    const pts = [...lay.marks.values()].map((m) => m.getLatLng());
+    if (wsprQth) pts.push(L.latLng(wsprQth.lat, wsprQth.lon));
+    wsprMap.fitBounds(L.latLngBounds(pts).pad(0.15), { maxZoom: 6 });
+  }
+  const far = list.reduce((m, s) => { const da = wsprDistAz(s.lat, s.lon); return da && da.km > m.km ? { km: da.km, call: s.call } : m; }, { km: 0 });
+  $("wsprMapInfo").textContent = `${all.length} station${all.length === 1 ? "" : "s"} · ${list.length} on the map` +
+    (far.km ? ` · farthest ${far.call} ${far.km.toLocaleString("en")} km` : "");
+  $("wsprMapList").innerHTML = `<div class="ais-ml-head">${all.length} heard (24 h) · ${all.length - list.length} without a locator${all.length > WSPR_LIST_MAX ? ` · newest ${WSPR_LIST_MAX} listed` : ""}</div>` +
+    all.slice(0, WSPR_LIST_MAX).map((s) => {
+      const da = s.lat != null ? wsprDistAz(s.lat, s.lon) : null;
+      return `<div class="ft8-ml cq${s.call === wsprSel ? " sel" : ""}${s.lat == null ? " nopos" : ""}" data-call="${escHtml(s.call)}" title="${escHtml(s.msg || "")}">` +
+        `<i class="tri"></i><b>${escHtml(s.call)}</b><span class="grid">${escHtml(s.grid || "")}</span>` +
+        `<span class="km">${da ? da.km.toLocaleString("en") : ""}</span><span class="rx">${wsprRxChip(s.snr)}</span>` +
+        `<span class="age">${ft8Ago(s.ts)}</span></div>`;
+    }).join("");
+  $("wsprMapNote").textContent = "▲ green = WSPR station · red = selected · filled chip = our report (SNR we hear the station with) · pale = not heard for 30 min · " +
+    "position = centre area of the locator (stations of one square spread inside it) · map © OpenStreetMap";
+}
+function wsprSelect(call, pan = true) {
+  wsprSel = call;
+  renderWsprMap().then(() => {
+    const mk = wsprMapLay && wsprMapLay.marks.get(call);
+    if (!mk) return;
+    if (pan) wsprMap.setView(mk.getLatLng(), Math.max(wsprMap.getZoom(), 5));
+    mk.openPopup();
+  });
+}
+$("wsprMapList").addEventListener("click", (e) => { const r = e.target.closest("[data-call]"); if (r && !r.classList.contains("nopos")) wsprSelect(r.dataset.call); });
+setInterval(() => { if (wsprMapShown()) renderWsprMap(); }, 30000);   // ages
 
 // ---------- the band key of a decoder page stays lit while the VFO is tuned there (like the HFDL keys) ----------
 function decBandsMark(s) {
@@ -20098,3 +20314,453 @@ document.addEventListener("click", async (e) => {
 });
 setTimeout(() => clockLoad(false), 4000);
 setInterval(() => clockLoad(false), 600000);
+
+// ---------- SETTINGS › SDR SOURCES (sources.py on the launcher; the former SDR setup window, setup.html) ----------
+// The sources (local USB devices, rtl_tcp dongles, SpyServers) are dragged onto VFO A–D, or a VFO shares the dongle of
+// another one. APPLY writes vfos.json; only the VFOs that change restart (a bubble in the middle of the screen while they
+// start), the others keep running with all their settings.
+const SRCS_NAMES = "ABCD";
+const SRCS_TYPE = { rtl: "RTL-SDR", rtltcp: "rtl_tcp", lime: "LimeSDR", airspy: "Airspy", spyserver: "SpyServer" };
+const SRCS_NET = ["rtltcp", "spyserver"];
+var srcs = { devs: [], cur: [], slots: [], base: "", max: 4, picked: "", pickedFrom: "pool", found: "", serversEdited: false,
+  known: new Set(), busy: false, loaded: false };
+
+const srcsKey = (d) => d.driver + "|" + d.serial;
+const srcsIsDev = (v) => !!v && v.includes("|");
+const srcsIsChain = (v) => !!v && v.startsWith("chain:");
+const srcsEmpty = () => ({ dev: "", ppm: 0, up: false, lo: "100", note: "" });
+function srcsBox(id, cls, html) { $(id).innerHTML = html ? `<div class="srcs-msg ${cls}">${html}</div>` : ""; }
+
+async function srcsApi(path, body) {
+  const r = await fetch(path, body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+
+function srcsStart() {
+  // on every opening the list is read again, unless something is being changed here
+  if (!srcs.loaded || (!srcs.busy && JSON.stringify(srcs.slots) === srcs.base && !srcs.serversEdited)) srcsLoad(false);
+}
+
+async function srcsLoad(keep) {
+  $("srcsPool").innerHTML = '<span class="srcs-spin"></span> <span class="muted">looking for the sources…</span>';
+  const q = srcs.serversEdited ? "?servers=" + encodeURIComponent($("srcsServers").value) : "";
+  let j;
+  try { j = await srcsApi("/api/sources" + q); } catch (e) {
+    $("srcsPool").innerHTML = "";
+    srcsBox("srcsMsg", "err", escHtml(e.message || "the launcher does not answer"));
+    return;
+  }
+  srcs.loaded = true;
+  srcs.devs = j.devices;
+  srcs.max = j.max_vfos || 4;
+  srcs.cur = j.current || [];
+  if (!srcs.serversEdited || q) $("srcsServers").value = (j.servers || []).join(", ");
+  srcs.known = new Set(j.saved_servers || []);
+  const warn = (j.server_errors || []).map(escHtml);
+  if (!srcs.devs.length) warn.push("No source found. Check the USB connection and the driver (RTL-SDR and Airspy: WinUSB with Zadig, LimeSDR: FTDI D3XX; see DRIVERS.txt), or add a network server.");
+  srcsBox("srcsMsg", "warn", warn.join("<br>"));
+  srcsSerialRender();
+  if (!keep) { srcs.slots = srcsFromCurrent(srcs.cur); srcs.base = JSON.stringify(srcs.slots); }
+  srcsDraw();
+}
+
+function srcsFromCurrent(cur) {
+  const out = [];
+  for (let i = 0; i < srcs.max; i++) {
+    const v = cur[i];
+    if (!v) { out.push(srcsEmpty()); continue; }
+    const up = v.lo_mhz != null;
+    out.push({ dev: v.chain ? "chain:" + v.chain : (v.driver || "rtl") + "|" + v.serial, ppm: v.ppm || 0, up,
+      lo: up ? String(+(+v.lo_mhz).toFixed(6)) : "100", note: v.note || "" });
+  }
+  return out;
+}
+
+function srcsDefaultNote(s) {
+  if (srcsIsChain(s.dev)) return `chained to VFO ${s.dev.slice(6)}`;
+  const drv = s.dev.split("|")[0];
+  if (!drv) return "";
+  if (drv === "spyserver") return "SpyServer";
+  return s.up ? "HF via upconverter" : (drv === "rtl" ? "" : SRCS_TYPE[drv] + ", ") + "VHF/UHF direct";
+}
+
+function srcsChip(k, where) {
+  const d = srcs.devs.find((x) => srcsKey(x) === k);
+  const [drv, ser] = k.split("|");
+  const net = SRCS_NET.includes(drv);
+  if (!d) {
+    return `<div class="srcs-chip missing ${net ? "net" : ""}" title="Saved for this VFO, but not found now"><b><i class="srcs-tag ${drv}">${SRCS_TYPE[drv] || drv}</i></b>
+      <span class="ser">${escHtml(ser)}</span><span class="sub">not found — connect it and ⟳</span>
+      <span class="x" data-x="${where}" title="Remove">✕</span></div>`;
+  }
+  // as in the former SDR setup: the USB name and index; and the tuner and the VFO that has it open now
+  const usb = net ? escHtml(d.name) : `${escHtml(d.name || SRCS_TYPE[d.driver])}${d.index != null ? " · #" + d.index : ""}`;
+  const more = [d.tuner ? `tuner <i>${escHtml(d.tuner)}</i>` : "", d.busy ? `<em>in use by VFO ${escHtml(d.busy)}</em>` : ""].filter(Boolean).join(" · ");
+  return `<div class="srcs-chip ${net ? "net" : ""} ${srcs.picked === k ? "picked" : ""} ${srcs.found === k ? "found" : ""}" draggable="true"
+      data-key="${escHtml(k)}" data-from="${where}" title="Drag onto a VFO (or click it, then click a VFO)">
+    <b><i class="srcs-tag ${d.driver}">${SRCS_TYPE[d.driver] || d.driver}</i>${net ? " network" : " USB"}</b>
+    <span class="ser">${escHtml(d.serial) || "(no serial)"}</span>
+    <span class="sub" title="${escHtml(d.name)}">${usb}</span>${more ? `<span class="sub">${more}</span>` : ""}
+    ${where !== "pool" ? `<span class="x" data-x="${where}" title="Back to the sources">✕</span>` : ""}</div>`;
+}
+
+function srcsDraw() {
+  const used = srcs.slots.map((s) => s.dev).filter(srcsIsDev);
+  const free = srcs.devs.filter((d) => !used.includes(srcsKey(d)));
+  $("srcsPool").innerHTML = free.length ? free.map((d) => srcsChip(srcsKey(d), "pool")).join("")
+    : `<span class="muted">${srcs.devs.length ? "All sources are on a VFO. Drag one back here to take it off." : "No source."}</span>`;
+  const base = JSON.parse(srcs.base || "[]");
+  $("srcsSlots").innerHTML = srcs.slots.map((s, i) => {
+    const name = SRCS_NAMES[i];
+    const owners = srcs.slots.slice(0, i).map((x, k) => [x, SRCS_NAMES[k]]).filter(([x]) => srcsIsDev(x.dev));
+    const own = srcsIsDev(s.dev);
+    const net = own && SRCS_NET.includes(s.dev.split("|")[0]);
+    const cur = srcs.cur.find((v) => v.name === name);
+    const changed = JSON.stringify(s) !== JSON.stringify(base[i] || srcsEmpty());
+    const stTag = changed ? '<i class="srcs-st chg">CHANGED</i>' : !s.dev ? "" : cur && cur.running ? '<i class="srcs-st run">RUNNING</i>'
+      : '<i class="srcs-st off">STOPPED</i>';
+    let body;
+    if (own) body = srcsChip(s.dev, i);
+    else if (srcsIsChain(s.dev)) body = `<div class="srcs-shared">⇄ shares the dongle of <b>VFO ${s.dev.slice(6)}</b>
+      <span class="x" data-x="${i}" title="Stop sharing">✕</span></div>`;
+    else body = `<div class="hint">${srcs.picked ? "click to put the source here" : "drop a source here"}</div>`;
+    return `<div class="sdg-b srcs-slot k-dev ${s.dev ? "lit" : "off"} ${changed ? "warn" : ""}" data-i="${i}">
+      <b>VFO ${name} ${stTag}</b>
+      <div class="srcs-drop ${srcs.picked && !own ? "target" : ""}" data-drop="${i}">${body}</div>
+      ${s.dev ? "" : `<div class="srcs-tools">
+        <button class="key small" data-ident="${i}" ${srcs.devs.some((d) => !SRCS_NET.includes(d.driver)) ? "" : "disabled"} title="Unplug the dongle for VFO ${name}: it is found and placed here">IDENTIFY</button>
+        ${owners.length ? `<select data-share="${i}"><option value="">or share…</option>${owners.map(([, n]) =>
+          `<option value="${n}">the dongle of VFO ${n}</option>`).join("")}</select>` : ""}</div>`}
+      <div class="srcs-fields">
+        <span>PPM</span><input type="number" step="1" data-f="ppm" value="${escHtml(s.ppm)}" ${own ? "" : "disabled"}>
+        <span>Upconv.</span><label class="srcs-lo" ${net ? 'title="A network source has its converter at the server"' : ""}><input type="checkbox" data-f="up" ${s.up ? "checked" : ""} ${own && !net ? "" : "disabled"}>
+          <input type="text" class="mono" data-f="lo" value="${escHtml(s.lo)}" title="LO in MHz" ${own && !net && s.up ? "" : "disabled"}><i>MHz</i></label>
+        <span>Name</span><input type="text" data-f="note" value="${escHtml(s.note)}" placeholder="${escHtml(srcsDefaultNote(s))}" ${s.dev ? "" : "disabled"}>
+      </div>
+    </div>`;
+  }).join("");
+  const dirty = JSON.stringify(srcs.slots) !== srcs.base || srcs.serversEdited;
+  $("srcsApply").disabled = srcs.busy || !dirty;
+  $("srcsRevert").disabled = srcs.busy || !dirty;
+  const run = srcs.cur.filter((v) => v.running).length;
+  $("srcsInfo").textContent = `${srcs.cur.length} VFO · ${run} running · ${srcs.devs.length} sources found`;
+}
+
+// ---- moving the sources
+function srcsRelease(i) {                     // the source of slot i goes back; VFOs sharing it stop sharing
+  srcs.slots[i].dev = "";
+  srcs.slots.forEach((x) => { if (x.dev === "chain:" + SRCS_NAMES[i]) x.dev = ""; });
+}
+function srcsPlace(k, to, from) {
+  const target = srcs.slots[to];
+  if (target.dev === k) { srcs.picked = ""; srcsDraw(); return; }
+  if (from !== "pool" && from !== undefined && +from !== to) {
+    const prev = target.dev;
+    srcsRelease(+from);
+    if (srcsIsDev(prev)) srcs.slots[+from].dev = prev;     // two VFOs swap their sources
+  }
+  if (srcsIsDev(target.dev) || srcsIsChain(target.dev)) srcsRelease(to);
+  srcs.slots.forEach((x) => { if (x.dev === k) x.dev = ""; });
+  target.dev = k;
+  if (SRCS_NET.includes(k.split("|")[0])) target.up = false;
+  srcs.picked = "";
+  srcsDraw();
+}
+
+{
+  const panel = document.querySelector('[data-set-panel="src"]');
+  const zoneOf = (e) => e.target.closest && (e.target.closest(".srcs-drop") || e.target.closest(".srcs-pool"));
+  panel.addEventListener("dragstart", (e) => {
+    const c = e.target.closest && e.target.closest(".srcs-chip[draggable]");
+    if (!c) return;
+    e.dataTransfer.setData("text/plain", JSON.stringify({ key: c.dataset.key, from: c.dataset.from }));
+    e.dataTransfer.effectAllowed = "move";
+    c.classList.add("dragging");
+  });
+  panel.addEventListener("dragend", (e) => { if (e.target.classList) e.target.classList.remove("dragging"); });
+  for (const ev of ["dragover", "dragenter"]) {
+    panel.addEventListener(ev, (e) => { const z = zoneOf(e); if (!z) return; e.preventDefault(); z.classList.add("over"); });
+  }
+  panel.addEventListener("dragleave", (e) => { const z = zoneOf(e); if (z && !z.contains(e.relatedTarget)) z.classList.remove("over"); });
+  panel.addEventListener("drop", (e) => {
+    const z = zoneOf(e);
+    if (!z) return;
+    e.preventDefault();
+    z.classList.remove("over");
+    let m;
+    try { m = JSON.parse(e.dataTransfer.getData("text/plain")); } catch (err) { return; }
+    if (z.classList.contains("srcs-pool")) { if (m.from !== "pool") { srcsRelease(+m.from); srcsDraw(); } return; }
+    srcsPlace(m.key, +z.dataset.drop, m.from);
+  });
+  panel.addEventListener("click", async (e) => {
+    const x = e.target.closest(".srcs-chip .x, .srcs-shared .x");
+    if (x) { srcsRelease(+x.dataset.x); srcsDraw(); return; }
+    const c = e.target.closest(".srcs-chip[draggable]");
+    if (c) { srcs.picked = srcs.picked === c.dataset.key ? "" : c.dataset.key; srcs.pickedFrom = c.dataset.from; srcsDraw(); return; }
+    const d = e.target.closest(".srcs-drop");
+    if (d && srcs.picked) { srcsPlace(srcs.picked, +d.dataset.drop, srcs.pickedFrom); return; }
+    const b = e.target.closest("[data-ident]");
+    if (b) srcsIdentify(+b.dataset.ident, b);
+  });
+  $("srcsSlots").addEventListener("input", (e) => {
+    const slot = e.target.closest(".srcs-slot");
+    if (!slot) return;
+    const s = srcs.slots[+slot.dataset.i];
+    if (e.target.dataset.share !== undefined) { if (e.target.value) { s.dev = "chain:" + e.target.value; srcsDraw(); } return; }
+    const f = e.target.dataset.f;
+    if (f === "up") { s.up = e.target.checked; srcsDraw(); return; }
+    if (f) {
+      s[f] = e.target.value;
+      // only the keys and the CHANGED mark, not the inputs (the cursor stays)
+      const dirty = JSON.stringify(srcs.slots) !== srcs.base || srcs.serversEdited;
+      $("srcsApply").disabled = $("srcsRevert").disabled = srcs.busy || !dirty;
+    }
+  });
+  $("srcsSlots").addEventListener("change", (e) => { if (e.target.dataset.f && e.target.dataset.f !== "up") srcsDraw(); });
+}
+
+// IDENTIFY: wait until one free USB dongle disappears, place it on this VFO, wait until it is back
+async function srcsIdentify(i, b) {
+  const name = SRCS_NAMES[i];
+  const used = srcs.slots.filter((x, k) => k !== i).map((x) => x.dev).filter(srcsIsDev);
+  const free = srcs.devs.filter((d) => !used.includes(srcsKey(d)) && !SRCS_NET.includes(d.driver) && !d.busy);
+  if (!free.length) { srcsBox("srcsIdent", "warn", "All free USB dongles are on other VFOs (or in use). Take one off first (✕)."); return; }
+  document.querySelectorAll("[data-ident]").forEach((x) => { x.disabled = true; });
+  b.classList.add("on");
+  srcsBox("srcsIdent", "info", `<span class="srcs-spin"></span> <b>Unplug the dongle for VFO ${name} now</b> (up to 30 s)…`);
+  try {
+    const j = await srcsApi("/api/sources/unplug", { devices: free.map((d) => [d.driver, d.serial]) });
+    if (!j.gone) { srcsBox("srcsIdent", "warn", escHtml(j.error || "nothing was unplugged")); return; }
+    const k = j.gone.join("|");
+    srcs.found = k;
+    srcsPlace(k, i, "pool");
+    srcsBox("srcsIdent", "info", `<span class="srcs-spin"></span> Found <b>${SRCS_TYPE[j.gone[0]]} '${escHtml(j.gone[1])}'</b> → VFO ${name}. <b>Plug it back in</b>…`);
+    const back = await srcsApi("/api/sources/back", { device: j.gone });
+    srcsBox("srcsIdent", back.back ? "ok" : "warn", back.back
+      ? `${SRCS_TYPE[j.gone[0]]} '${escHtml(j.gone[1])}' is on VFO ${name} and connected again.`
+      : `VFO ${name} = ${SRCS_TYPE[j.gone[0]]} '${escHtml(j.gone[1])}', but it is not back yet: plug it in before APPLY.`);
+    setTimeout(() => { srcs.found = ""; srcsDraw(); }, 4000);
+  } catch (err) {
+    srcsBox("srcsIdent", "err", escHtml(err.message));
+  } finally { srcsDraw(); }
+}
+
+// network servers: the server tells the kind by its protocol (rtltcp.server_kind) and returns the list with sdr:// at the
+// SpyServers; a host alone = rtltcp-manager
+function srcsNetKindApply() {}
+$("srcsServers").addEventListener("input", () => { srcs.serversEdited = true; });
+$("srcsServers").addEventListener("keydown", (e) => { if (e.key === "Enter") { srcsNetKindApply(); srcsLoad(true); } });
+$("srcsFind").onclick = () => { srcs.serversEdited = true; srcsNetKindApply(); srcsLoad(true); };
+$("srcsRefresh").onclick = () => srcsLoad(true);
+$("srcsRevert").onclick = () => {
+  srcs.serversEdited = false;
+  srcsBox("srcsSaveMsg", "", "");
+  srcsLoad(false);
+};
+
+// ---- APPLY: only the changed VFOs restart; a bubble in the middle of the screen while they start
+$("srcsApply").onclick = async () => {
+  const missing = srcs.slots.map((s, i) => [s, SRCS_NAMES[i]]).filter(([s]) => srcsIsDev(s.dev) && !srcs.devs.some((d) => srcsKey(d) === s.dev));
+  if (missing.length) {
+    srcsBox("srcsSaveMsg", "err", `Not found: ${missing.map(([s, n]) => `VFO ${n} (${escHtml(s.dev.split("|")[1])})`).join(", ")}. Connect it and ⟳, or remove it (✕).`);
+    return;
+  }
+  // the VFOs in order: empty ones are skipped, the letters of shared dongles follow
+  const used = srcs.slots.map((s, i) => [s, SRCS_NAMES[i]]).filter(([s]) => s.dev);
+  const map = {};
+  used.forEach(([, n], k) => { map[n] = SRCS_NAMES[k]; });
+  const list = used.map(([s]) => {
+    const v = { note: s.note.trim() || srcsDefaultNote(s) };
+    if (srcsIsChain(s.dev)) v.chain = map[s.dev.slice(6)];
+    else Object.assign(v, { device: s.dev.split("|"), ppm: s.ppm, lo: s.up ? s.lo : null });
+    return v;
+  });
+  if (!list.length) { srcsBox("srcsSaveMsg", "err", "No VFO has a source."); return; }
+  srcs.busy = true;
+  srcsDraw();
+  srcsBox("srcsSaveMsg", "info", '<span class="srcs-spin"></span> applying…');
+  try {
+    const j = await srcsApi("/api/sources/apply", { vfos: list, servers: $("srcsServers").value });
+    srcs.serversEdited = false;
+    srcsBox("srcsSaveMsg", "ok", (j.restart.length ? `Restarting VFO ${j.restart.join(", ")}` : "Nothing to restart")
+      + (j.kept.length ? ` · VFO ${j.kept.join(", ")} kept running` : "")
+      + (j.fresh.length ? ` · new source, default settings: VFO ${j.fresh.join(", ")}` : "")
+      + (j.backup ? ` · previous settings in <span class="mono">${escHtml(j.backup)}</span>` : ""));
+    await srcsStarting(j.restart);
+  } catch (e) {
+    srcsBox("srcsSaveMsg", "err", escHtml(e.message));
+  } finally {
+    srcs.busy = false;
+    srcsLoad(false);
+  }
+};
+
+/** The bubble while the restarted VFOs start; then the page reloads when the VFO list changed. */
+async function srcsStarting(names) {
+  let list = null;
+  try { list = await fetch("/api/vfos").then((r) => r.json()); } catch (e) { /* the launcher answers below */ }
+  const sig = (l) => JSON.stringify((l || []).map((x) => [x.name, x.port, x.serial, x.chain || null, x.note || ""]));
+  const changedList = list && sig(list) !== sig(vfos.filter((v) => v.name));
+  if (!names.length && !changedList) return;
+  let bub = $("srcsBubble");
+  if (!bub) {
+    bub = document.createElement("div");
+    bub.id = "srcsBubble";
+    bub.className = "srcs-bubble";
+    document.body.appendChild(bub);
+  }
+  const up = {};
+  const draw = () => {
+    bub.innerHTML = `<b><span class="srcs-spin"></span> Starting the SDR sources</b>` +
+      names.map((n) => `<span class="${up[n] ? "ok" : ""}">VFO ${n} ${up[n] ? "✓ running" : "…"}</span>`).join("");
+  };
+  bub.hidden = false;
+  draw();
+  const until = Date.now() + 90000;
+  while (names.some((n) => !up[n]) && Date.now() < until) {
+    await new Promise((r) => setTimeout(r, 1500));
+    for (const n of names.filter((x) => !up[x])) {
+      const v = (list || []).find((x) => x.name === n);
+      if (!v) { up[n] = true; continue; }
+      try {
+        const s = await fetch(`${location.protocol}//${location.hostname}:${v.port}/api/state`).then((r) => r.json());
+        if (s && (s.status === "running" || s.error)) up[n] = true;
+      } catch (e) { /* not up yet */ }
+    }
+    draw();
+  }
+  if (changedList || names.length) {
+    // the page connects to the VFOs anew (their list, ports and states); SETTINGS › SDR SOURCES stays open
+    store("setTab", "src");
+    setTimeout(() => location.reload(), 600);
+  } else bub.hidden = true;
+}
+
+// ---- SERIAL NUMBERS (EEPROM of the RTL-SDR dongles)
+function srcsSerialRender() {
+  const rtl = srcs.devs.filter((d) => d.driver === "rtl");
+  $("srcsSerialKey").hidden = !rtl.length;
+  $("srcsSerialKey").classList.toggle("warn", rtl.some((d) => d.rewrite));
+  if (rtl.some((d) => d.rewrite)) $("srcsSerial").hidden = false;
+  $("srcsSerialDup").hidden = !rtl.some((d) => d.rewrite);
+  $("srcsStopUsb").disabled = !rtl.some((d) => d.busy);
+  $("srcsSerialRows").innerHTML = rtl.map((d) => {
+    const len = (d.serial || d.suggest || "").length || 8;
+    return `<tr><td>${d.index != null ? "#" + d.index : "—"}</td><td class="mono">${escHtml(d.serial) || '<span class="muted">(empty)</span>'}</td>
+    <td><input type="text" class="mono" data-index="${d.index ?? ""}" data-old="${escHtml(d.serial)}" value="${escHtml(d.rewrite ? d.suggest : d.serial)}"
+      maxlength="${len}" size="${len + 2}" spellcheck="false" ${d.busy ? "disabled" : ""}></td>
+    <td class="small">${d.busy ? `<span class="muted">in use by VFO ${escHtml(d.busy)}</span>` : (d.rewrite ? '<b class="srcs-same">SAME</b> · ' : "") + `<span class="muted">up to ${len} characters</span>`}</td></tr>`;
+  }).join("");
+}
+$("srcsSerialKey").onclick = () => { $("srcsSerial").hidden = !$("srcsSerial").hidden; };
+$("srcsStopUsb").onclick = async () => {
+  if (!confirm("Stop the VFOs with a USB dongle (and the ones sharing it)? They start again with APPLY.")) return;
+  try {
+    const j = await srcsApi("/api/sources/stop_usb", {});
+    srcsBox("srcsSerialMsg", "info", `Stopped: VFO ${j.stopped.join(", ") || "none"}. Write the numbers, replug the dongles, ⟳, then APPLY.`);
+    srcs.base = "";                     // APPLY is needed to start them again
+  } catch (e) { srcsBox("srcsSerialMsg", "err", escHtml(e.message)); }
+  srcsLoad(true);
+};
+$("srcsWrite").onclick = async () => {
+  const inputs = [...$("srcsSerialRows").querySelectorAll("input:not(:disabled)")];
+  const all = inputs.map((x) => ({ index: +x.dataset.index, serial: x.value.trim(), old: x.dataset.old, len: x.maxLength }));
+  const items = all.filter((x) => x.serial !== x.old).map(({ index, serial }) => ({ index, serial }));
+  if (!items.length) { srcsBox("srcsSerialMsg", "info", "Nothing changed: type a new serial number first."); return; }
+  const bad = all.find((x) => x.serial !== x.old && !(x.serial.length >= 1 && x.serial.length <= x.len));
+  if (bad) { srcsBox("srcsSerialMsg", "err", `#${bad.index}: the serial may have 1 to ${bad.len} characters`); return; }
+  const badCh = all.find((x) => x.serial !== x.old && !/^[A-Za-z0-9_.-]+$/.test(x.serial));
+  if (badCh) { srcsBox("srcsSerialMsg", "err", `#${badCh.index}: letters, digits and - _ . only`); return; }
+  const dup = all.find((x, k) => x.serial && all.some((y, m) => m !== k && y.serial === x.serial));
+  if (dup) { srcsBox("srcsSerialMsg", "err", `Serial ${escHtml(dup.serial)} would be on two dongles: each needs its own`); return; }
+  $("srcsWrite").disabled = true;
+  srcsBox("srcsSerialMsg", "info", '<span class="srcs-spin"></span> writing…');
+  try {
+    const j = await srcsApi("/api/sources/serials", { items });
+    const failed = j.results.filter((r) => !r.ok);
+    // a renamed dongle keeps its VFO: the slot follows the new number (saved with APPLY)
+    for (const r of j.results.filter((x) => x.ok)) {
+      const it = all.find((x) => x.index === r.index);
+      if (it && it.old) srcs.slots.forEach((sl) => { if (sl.dev === "rtl|" + it.old) sl.dev = "rtl|" + it.serial; });
+    }
+    srcsBox("srcsSerialMsg", failed.length ? "err" : "ok", (failed.length ? failed.map((r) => `#${r.index}: ${escHtml(r.error)}`).join("<br>") + "<br>" : "")
+      + "<b>Unplug the renamed dongles, plug them back in</b>, ⟳ (the new numbers count only after that), then APPLY.");
+    srcsDraw();
+  } catch (e) {
+    srcsBox("srcsSerialMsg", "err", escHtml(e.message));
+  } finally { $("srcsWrite").disabled = false; }
+};
+/** ?settings=src (RADIMCOM.exe tray menu "SDR setup…"): opens SETTINGS › SDR SOURCES, then the address is clean again. */
+function srcsOpenFromUrl() {
+  const q = new URLSearchParams(location.search);
+  if (MAP_ONLY || q.get("settings") !== "src") return;
+  store("setTab", "src");
+  showSetTab("src");
+  setBodyTab("set");
+  history.replaceState(null, "", location.pathname);
+}
+
+// ---------- SETTINGS › SDR SOURCES › DIRECTORY: the public SpyServers (airspy.com/directory, via the launcher) ----------
+// A click on a row adds its sdr://host:port to the network servers and looks for it (FIND); owner e-mails are not shown.
+var srcsDir = { list: null, busy: false };
+async function srcsDirLoad() {
+  if (srcsDir.busy) return;
+  srcsDir.busy = true;
+  $("srcsDirInfo").textContent = "loading the Airspy directory…";
+  try {
+    const j = await fetch("/api/sources/directory").then((r) => r.json());
+    srcsDir.list = j.servers || [];
+    const devs = [...new Set(srcsDir.list.map((s) => s.device).filter(Boolean))].sort();
+    const keep = $("srcsDirDev").value;
+    $("srcsDirDev").innerHTML = `<option value="">all devices</option>` + devs.map((d) => `<option>${escHtml(d)}</option>`).join("");
+    $("srcsDirDev").value = devs.includes(keep) ? keep : "";
+    srcsDir.err = j.error;
+  } catch (e) { srcsDir.err = e.message; }
+  srcsDir.busy = false;
+  srcsDirRender();
+}
+function srcsDirRender() {
+  const list = srcsDir.list || [];
+  const q = $("srcsDirQ").value.trim().toLowerCase(), dev = $("srcsDirDev").value;
+  const band = $("srcsDirBand").value.split("-").map(Number);
+  const free = $("srcsDirFree").checked, ctl = $("srcsDirCtl").checked;
+  const mine = new Set($("srcsServers").value.split(/[,;\s]+/).filter(Boolean));
+  const rows = list.filter((s) => s.online
+      && (!dev || s.device === dev)
+      && (!free || s.clients < s.max_clients)
+      && (!ctl || s.control)
+      && (band.length < 2 || (s.min_hz <= band[0] * 1e6 && s.max_hz >= band[1] * 1e6))
+      && (!q || [s.owner, s.device, s.antenna, s.addr, s.desc].join(" ").toLowerCase().includes(q)))
+    .sort((a, b) => (a.km ?? 1e9) - (b.km ?? 1e9));
+  const mhz = (h) => (h == null ? "?" : +(h / 1e6).toFixed(h < 1e6 ? 2 : 0));
+  $("srcsDirRows").innerHTML = rows.slice(0, 300).map((s) => {
+    const full = s.clients >= s.max_clients;
+    return `<tr data-addr="${escHtml(s.addr)}" class="${mine.has(s.addr) ? "mine" : ""} ${full ? "full" : ""}"
+      title="${escHtml([s.desc, s.km != null ? `${s.km} km, ${s.az}°` : "", "click: add to the network servers and FIND"].filter(Boolean).join("\n"))}">
+      <td>${escHtml(s.owner) || "—"}</td><td>${escHtml(s.device)}</td><td>${mhz(s.min_hz)}–${mhz(s.max_hz)}</td>
+      <td>${s.iq_rate ? +(s.iq_rate / 1e6).toFixed(2) + " M" : "?"}</td><td class="${full ? "bad" : ""}">${s.clients}/${s.max_clients}</td>
+      <td>${s.control ? "full" : "—"}</td><td>${s.km != null ? s.km.toLocaleString(LOCALE) : "?"}</td>
+      <td>${escHtml(s.antenna) || "—"}</td><td class="mono">${escHtml(s.addr.replace("sdr://", ""))}</td></tr>`;
+  }).join("") || `<tr><td colspan="9" class="muted">${srcsDir.list ? "no server matches" : ""}</td></tr>`;
+  $("srcsDirInfo").innerHTML = srcsDir.err ? `<span class="srcs-dir-err">${escHtml(srcsDir.err)}</span>`
+    : `${rows.length} of ${list.filter((s) => s.online).length} online · <a href="https://airspy.com/directory/" target="_blank" rel="noopener">airspy.com/directory</a>`;
+}
+$("srcsDirKey").onclick = () => {
+  const open = $("srcsDir").hidden;
+  $("srcsDir").hidden = !open;
+  $("srcsDirKey").classList.toggle("on", open);
+  if (open && !srcsDir.list) srcsDirLoad(); else if (open) srcsDirRender();
+};
+for (const id of ["srcsDirQ", "srcsDirDev", "srcsDirBand", "srcsDirFree", "srcsDirCtl"]) $(id).addEventListener("input", srcsDirRender);
+$("srcsDirRows").addEventListener("click", (e) => {
+  const tr = e.target.closest("tr[data-addr]");
+  if (!tr) return;
+  const now = $("srcsServers").value.split(/[,;\s]+/).filter(Boolean);
+  if (!now.includes(tr.dataset.addr)) now.push(tr.dataset.addr);
+  $("srcsServers").value = now.join(", ");
+  srcs.serversEdited = true;
+  srcsLoad(true);
+  srcsDirRender();
+});

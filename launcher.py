@@ -18,6 +18,7 @@ from flask import Flask, jsonify, request, send_from_directory
 
 import rotor
 import serverlog
+import sources
 import sysload
 import update_check
 from paths import BASE, data
@@ -69,17 +70,13 @@ def main():
     if src:
         print(f"Rotor: settings moved from {src} to rotor.json (the rotor is now run by VFO {vfos[0]['name']})")
 
-    procs = []
     labels = {}                 # pid of a VFO server → its name (the CPU / MEM indicator shows each VFO)
-    # VFOs with their own dongle first, chained VFOs (sharing a dongle, "chain": "A") after them.
-    for v in sorted(vfos, key=lambda v: bool(v.get("chain"))):
-        procs.append(serverlog.spawn([sys.executable, os.path.join(BASE, "app.py"), "--vfo", v["name"]], v["name"],
-                                     stdin=subprocess.PIPE, cwd=BASE))
-        labels[procs[-1].pid] = v["name"]
-        # Dongles are opened one after another; opening them at the same time through libusb is unreliable.
-        time.sleep(0.5 if v.get("chain") else 1.5)
+    # the VFO processes (sources.py): SETTINGS › SDR SOURCES restarts single VFOs
+    procs = sources.Procs(labels)
+    procs.start_all(vfos)
 
     app = Flask(__name__, static_folder="static")
+    sources.register(app, procs, {"setup": setup, "vfos": vfos, "path": VFOS_PATH}, ensure_configs)
 
     @app.route("/")
     def index():
@@ -118,12 +115,12 @@ def main():
     def shutdown(code=0):
         """The VFO receivers end as with the launcher closed (their input closes), then the launcher
         (when RADIMCOM.exe closes our input)."""
-        for p in procs:
+        for p in procs.all():
             try:
                 p.stdin.close()
             except OSError:
                 pass
-        for p in procs:
+        for p in procs.all():
             try:
                 p.wait(10)
             except subprocess.TimeoutExpired:
@@ -156,5 +153,5 @@ def main():
     try:
         app.run(host=setup.get("host", "0.0.0.0"), port=port, threaded=True, use_reloader=False)
     finally:
-        for p in procs:
+        for p in procs.all():
             p.terminate()

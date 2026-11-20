@@ -101,7 +101,7 @@ def make_upgrade(full_zip):
     print(f"{out}: {n + 2} files, {os.path.getsize(out) / 1e6:.1f} MB")
 
 
-CODE = ["app.py", "launcher.py", "paths.py", "serverlog.py", "sdr.py", "gainctl.py", "autotune.py", "lime.py", "airspy.py", "rds.py", "cw.py", "rtty.py", "packet.py", "pocsag.py", "sonde.py", "sonde_ext.py", "sonde_sites.py", "wind.py", "aprs.py", "daylog.py", "ft8.py", "wspr.py", "clocksync.py", "spyserver.py", "wefax.py", "sstv.py", "acars.py", "cpdlc.py", "cpdlc_schema.py", "adsc.py", "vdl2.py", "hfdl.py", "ais.py", "adsb.py", "tonesq.py", "scanner.py", "airports.py", "dab.py", "ism.py", "dsd.py", "recorder.py", "iqrec.py", "install_dsd.py", "install_dsd.bat",
+CODE = ["app.py", "launcher.py", "paths.py", "serverlog.py", "sdr.py", "gainctl.py", "autotune.py", "lime.py", "airspy.py", "rds.py", "cw.py", "rtty.py", "packet.py", "pocsag.py", "sonde.py", "sonde_ext.py", "sonde_sites.py", "wind.py", "aprs.py", "daylog.py", "ft8.py", "wspr.py", "clocksync.py", "spyserver.py", "sources.py", "wefax.py", "sstv.py", "acars.py", "cpdlc.py", "cpdlc_schema.py", "adsc.py", "vdl2.py", "hfdl.py", "ais.py", "adsb.py", "tonesq.py", "scanner.py", "airports.py", "dab.py", "ism.py", "dsd.py", "recorder.py", "iqrec.py", "install_dsd.py", "install_dsd.bat",
         "memories.py", "datafiles.py", "satellites.py", "update_check.py", "sattrack.py", "satplan.py", "location.py", "antennas.py", "sysload.py", "rotor.py", "iqshare.py", "eeprom_tool.py", "setup_sdr.py", "setup_web.py", "rtltcp.py", "spacewx.py", "start.bat", "setup.bat", "README.md", "CHANGELOG.md",
         "LICENSE", "NOTICE.md", "API/API.md",
         # rtl_tcp server for a Raspberry Pi (brjanicek): install script + manager, also pushed by the UPDATE key (rtltcp.latest_manager)
@@ -196,14 +196,30 @@ def build_shell(out_dir):
         sys.exit(f"missing {CSC} (.NET Framework 4.x)")
     with zipfile.ZipFile(nuget("microsoft.web.webview2", WEBVIEW2_VERSION)) as z:
         for name, member in WEBVIEW2_FILES.items():
-            with z.open(member) as s, open(os.path.join(out_dir, name), "wb") as d:
-                shutil.copyfileobj(s, d)
+            dst = os.path.join(out_dir, name)
+            new = z.read(member)
+            # the same DLL is kept: a running RADIMCOM.exe holds it (--exe while RADIMCOM runs)
+            if os.path.exists(dst):
+                with open(dst, "rb") as f:
+                    if f.read() == new:
+                        continue
+            with open(dst, "wb") as d:
+                d.write(new)
         with z.open("LICENSE.txt") as s, open(os.path.join(out_dir, "WebView2_LICENSE.txt"), "wb") as d:
             shutil.copyfileobj(s, d)
     refs = ["System.dll", "System.Drawing.dll", "System.Windows.Forms.dll", "System.Web.Extensions.dll",
             os.path.join(out_dir, "Microsoft.Web.WebView2.Core.dll"), os.path.join(out_dir, "Microsoft.Web.WebView2.WinForms.dll")]
     cmd = [CSC, "-nologo", "-target:winexe", "-platform:x64", "-optimize+", "-out:" + os.path.join(out_dir, "RADIMCOM.exe"),
            "-win32icon:" + ICON, "-resource:" + ICON + ",radimcom.ico"] + ["-r:" + r for r in refs] + [os.path.join(HERE, "shell", "RADIMCOM.cs")]
+    exe = os.path.join(out_dir, "RADIMCOM.exe")
+    if os.path.exists(exe):
+        # a running RADIMCOM.exe cannot be overwritten, but renamed: the new one is used at its next start
+        try:
+            if os.path.exists(exe + ".old"):
+                os.remove(exe + ".old")
+            os.replace(exe, exe + ".old")
+        except OSError:
+            pass
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode:
         sys.exit("csc failed:\n" + r.stdout + r.stderr)
