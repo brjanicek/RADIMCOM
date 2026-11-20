@@ -276,7 +276,9 @@ function vmSettingsHtml() {
     const tot = Object.values(cs).reduce((a, b) => a + b, 0);
     const sw = (c) => { const s = vmStyle({ kind: k, cat: c }); return `<i class="vm-sw${k === "airspace" ? "" : " pt"}" style="--c:${s.fillColor}"></i>`; };
     h += `<details class="vm-kind" data-vmkind="${k}"${vmKindOpen().includes(k) ? " open" : ""}><summary>${chk(`data-vmcat="${k}"`, vmCatOn(k))} ${name} <small class="muted">${n(tot)}</small></summary>` +
-      `<div class="vm-cats">${cats.map((c) => `<label>${chk(`data-vmcat="${k}.${escHtml(c)}"`, vmCatOn(k, c))}${sw(c)} ${escHtml(VM_CAT_NAME[c] || c)} <small class="muted">${cs[c]}</small></label>`).join("")}</div>` +
+      `<div class="vm-cats">${cats.map((c) => { const id = escHtml(`${k}.${c}`);   // a part: its objects one by one when opened
+        return `<details class="vm-cat" data-vmcatd="${id}"${vmCatOpen().includes(`${k}.${c}`) ? " open" : ""}><summary>${chk(`data-vmcat="${id}"`, vmCatOn(k, c))}${sw(c)} ` +
+          `${escHtml(VM_CAT_NAME[c] || c)} <small class="muted">${cs[c]}</small></summary><div class="vm-objs" data-vmobjs="${id}"><p class="map-opts-note">Loading…</p></div></details>`; }).join("")}</div>` +
       `<label>${chk(`data-vmlbl="${k}"`, vmLblOn(k))} Names on the map <small class="muted">from zoom ${VM_LBL_ZOOM[k]}</small></label>` +
       (k === "airspace" ? `<label>Only starting below <select data-vm="maxFL">${VM_MAX_FL.map((v) => `<option value="${v}"${v === o.maxFL ? " selected" : ""}>${v ? `FL${v}` : "any altitude"}</option>`).join("")}</select></label>` : "") +
       `</details>`;
@@ -284,6 +286,22 @@ function vmSettingsHtml() {
   if (o.hidden.length) h += `<div class="map-opts-sub2">Hidden objects <small>a click on an object on the map hides it</small></div>` +
     `<label>${o.hidden.length} hidden <button type="button" class="vm-btn" data-vmshow="*">Show all</button></label>`;
   return h;
+}
+function vmCatOpen() {   // the parts open in the tree (this browser)
+  try { const v = JSON.parse(localStorage.getItem("vmCatOpen") || "[]"); return Array.isArray(v) ? v : []; } catch { return []; }
+}
+/** The objects of one part (kind.cat) in all shown maps, by name, as checkboxes (checked = shown). */
+async function vmFillObjs(box) {
+  const [kind, cat] = box.dataset.vmobjs.split(".");
+  const list = (await vmListGet()).filter((m) => vmMapOn(m.id));
+  const gjs = await Promise.all(list.map((m) => vmGet(m.id)));
+  const rows = [];
+  gjs.forEach((gj, i) => { for (const f of (gj && gj.features) || []) { const p = f.properties || {}; if (p.kind === kind && p.cat === cat) rows.push({ p, cc: list[i].country }); } });
+  rows.sort((a, b) => String(a.p.name).localeCompare(String(b.p.name)));
+  const hidden = new Set(vmOpt().hidden), many = list.length > 1;
+  box.innerHTML = rows.length ? rows.slice(0, 3000).map(({ p, cc }) => `<label title="${escHtml(p.name || "")}"><input type="checkbox" data-vmobj="${escHtml(vmKey(p))}"${hidden.has(vmKey(p)) ? "" : " checked"}> ` +
+    `${escHtml(p.name || p.ident || "?")}${p.ident && p.kind !== "airspace" ? ` <small class="muted">${escHtml(p.ident)}</small>` : ""}${many && cc ? ` <small class="muted">${escHtml(cc)}</small>` : ""}</label>`).join("")
+    : `<p class="map-opts-note">None in the shown maps.</p>`;
 }
 function vmKindOpen() {   // the kinds open in the tree (this browser; the first time all closed)
   try { const v = JSON.parse(localStorage.getItem("vmKindOpen") || "[]"); return Array.isArray(v) ? v : []; } catch { return []; }
@@ -304,6 +322,12 @@ function vmOnInput(e, panel) {
   else if (t.dataset.vmmap) vmSet({ maps: { ...o.maps, [t.dataset.vmmap]: t.checked } });
   else if (t.dataset.vmcat) vmSet({ cats: { ...o.cats, [t.dataset.vmcat]: t.checked } });
   else if (t.dataset.vmlbl) vmSet({ lbl: { ...o.lbl, [t.dataset.vmlbl]: t.checked } });
+  else if (t.dataset.vmobj) {   // one object shown / hidden: the list keeps its place (no new section)
+    const h = new Set(o.hidden);
+    if (t.checked) h.delete(t.dataset.vmobj); else h.add(t.dataset.vmobj);
+    vmSet({ hidden: [...h] });
+    return true;
+  }
   else return true;
   vmRefill(panel);
   return true;
@@ -347,7 +371,13 @@ function vmOnClick(e, panel) {
   }
   return false;
 }
-document.addEventListener("toggle", (e) => {   // a kind of the tree opened / closed: remembered in this browser
+document.addEventListener("toggle", (e) => {   // a kind / part of the tree opened / closed: remembered in this browser
+  if (e.target.matches && e.target.matches("details[data-vmcatd]")) {
+    const d = e.target, open = new Set(vmCatOpen());
+    if (d.open) { open.add(d.dataset.vmcatd); vmFillObjs(d.querySelector("[data-vmobjs]")); } else open.delete(d.dataset.vmcatd);
+    try { localStorage.setItem("vmCatOpen", JSON.stringify([...open])); } catch { /* this page only */ }
+    return;
+  }
   if (!e.target.matches || !e.target.matches("details[data-vmkind]")) return;
   const open = new Set(vmKindOpen());
   if (e.target.open) open.add(e.target.dataset.vmkind); else open.delete(e.target.dataset.vmkind);

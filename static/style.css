@@ -4481,7 +4481,13 @@ body.map-only #comStatus, #comPane:fullscreen #comStatus { display: flex; }
 .vm-kind { margin: 2px 0; }
 .vm-kind > summary { cursor: pointer; display: flex; align-items: center; gap: 6px; }
 .vm-kind > summary input { margin: 0; }
-.vm-cats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 10px; padding-left: 18px; }
+.vm-cats { padding-left: 18px; }
+.vm-cat > summary { cursor: pointer; display: flex; align-items: center; gap: 6px; margin: 1px 0; }
+.vm-cat > summary input { margin: 0; }
+.vm-objs { max-height: 180px; overflow-y: auto; padding-left: 22px; margin-bottom: 3px; }
+.vm-objs label { margin: 0; overflow: hidden; text-overflow: ellipsis; }
+.vm-objs::-webkit-scrollbar { width: 5px; }
+.vm-objs::-webkit-scrollbar-thumb { background: #3a4a60; border-radius: 3px; }
 .vm-cats label { margin: 1px 0; }
 .vm-kind > label { padding-left: 18px; }
 .vm-sw { display: inline-block; width: 14px; height: 9px; border: 2px solid var(--c); background: color-mix(in srgb, var(--c) 25%, transparent); border-radius: 2px; flex: none; }
