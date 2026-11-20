@@ -43,7 +43,7 @@ _CALL = re.compile(r"^(?=.*\d)(?=.*[A-Z])[A-Z0-9/]{3,12}$")
 
 def parse_line(line, ts=None):
     """One line of wsprd's output -> a decode, or None.
-    "0001 -24 -0.0  10.140200  0  OM2AMR JN88 37": UTC hhmm, SNR dB (2.5 kHz), DT s, MHz, drift Hz/min, message;
+    "0001 -24 -0.0  10.140200  0  DL1ABC JO62 37": UTC hhmm, SNR dB (2.5 kHz), DT s, MHz, drift Hz/min, message;
     the message is "CALL GRID dBm", "PFX/CALL dBm" (no locator) or "<CALL> GRID6 dBm" (6-character locator)."""
     m = _LINE.match(line.strip())
     if not m:
