@@ -17924,7 +17924,7 @@ function mapBaseInit(map) {
   map.eachLayer((l) => { if (!base0 && l instanceof L.TileLayer && /tile\.openstreetmap\.org/.test(l._url)) base0 = l; });
   const maxZoom = base0 ? base0.options.maxZoom : 16;
   let base = base0, baseSig = "osm|1|", sea = null, lays = new Map();   // id -> {sig, layer}
-  let cloud = null, cloudTimer = null, aip = null, aipKey = "";
+  let cloud = null, cloudTimer = null;
   const statClouds = document.getElementById("comStatClouds");   // the status row under the COMPOSITE map
   return async function apply() {
     const o = mapOpts, url = o.base === "custom" ? o.baseUrl : (MAP_BASES[o.base] || MAP_BASES.osm)[1];
@@ -17963,15 +17963,7 @@ function mapBaseInit(map) {
       if (statClouds) statClouds.hidden = true;
     }
     if (cloud) cloud.setOpacity(o.cldOpa);
-    // OpenAIP: airspaces, airports, navaids over the map (needs the free API key, stored on the server)
-    const key = o.aip ? ((await mapKeysGet()).openaip || "") : "";
-    if (aip && (!o.aip || key !== aipKey)) { map.removeLayer(aip); aip = null; }
-    if (o.aip && key && !aip) {
-      aipKey = key;
-      aip = L.tileLayer(`https://api.tiles.openaip.net/api/data/openaip/{z}/{x}/{y}.png?apiKey=${encodeURIComponent(key)}`, { maxZoom, maxNativeZoom: 14, zIndex: 260,
-        opacity: o.aipOpa, attribution: '&copy; <a href="https://www.openaip.net" target="_blank" rel="noopener noreferrer">openAIP</a> (CC BY-NC)' }).addTo(map);
-    }
-    if (aip) aip.setOpacity(o.aipOpa);
+    await vmApply(map);   // vector maps (vectormaps.js)
     // own layers
     const list = await mapLayListGet();
     const ids = new Set(list.map((x) => x.id));
@@ -18082,7 +18074,7 @@ function mapOptsRead0() {
     base: MAP_BASES[o.base] ? o.base : "osm", baseColor: mapHex(o.baseColor, "#000000"), dark: o.dark != null ? !!o.dark : true, baseUrl: typeof o.baseUrl === "string" ? o.baseUrl.slice(0, 500) : "",
     sea: !!o.sea, layRev: +o.layRev || 0,
     stIcon: MAP_ST_ICONS.some(([v]) => v === o.stIcon) ? o.stIcon : "circle", cSt: mapHex(o.cSt, "#ff5a3c"),   // COMPOSITE: the station
-    aip: !!o.aip, aipOpa: MAP_LAY_OPA.includes(+o.aipOpa) ? +o.aipOpa : 0.8, keyRev: +o.keyRev || 0,
+    keyRev: +o.keyRev || 0, vm: vmOptsNorm(o.vm),
     sym: MAP_SYMS.some(([v]) => v === o.sym) ? o.sym : "icon", cld: !!o.cld, cldOpa: Math.min(1, Math.max(0.1, +o.cldOpa || 0.7)),
     lay: Object.fromEntries(Object.entries(o.lay && typeof o.lay === "object" ? o.lay : {}).filter(([id, v]) => /^[\w-]{1,64}$/.test(id) && v && typeof v === "object")
       .map(([id, v]) => [id, { on: v.on !== false, c: mapHex(v.c, "#ff6cd2"), o: MAP_LAY_OPA.includes(+v.o) ? +v.o : 0.8 }])),
@@ -18761,6 +18753,7 @@ function comMapSettings(map, kind, rerender, noTrails) {
       });
       panel.addEventListener("dragend", () => { dragging = null; clearMarks(); });
       panel.addEventListener("click", (e) => {   // "auto" next to a colour: back to the map's own colours
+        if (vmOnClick(e, panel)) return;   // the Vector maps section (vectormaps.js)
         const mv = e.target.closest("button[data-lmove], button[data-limove]");
         if (mv) {   // an item or a line break of a label / of the list one place up or down
           const lbl = mv.dataset.lmove != null, p = lbl ? mv.dataset.lmove : mv.dataset.limove;
@@ -18882,9 +18875,6 @@ function comMapSettings(map, kind, rerender, noTrails) {
       (o.base === "solid" ? `<label>Colour <input type="color" class="map-opts-cp" data-o="baseColor" value="${o.baseColor}"></label>` : "") +
       (o.base === "custom" ? `<label><input type="text" class="map-opts-url" data-o="baseUrl" value="${escHtml(o.baseUrl)}" placeholder="https://…/{z}/{x}/{y}.png" spellcheck="false"></label>` : "") +
       `<label><input type="checkbox" data-o="sea"${o.sea ? " checked" : ""}> OpenSeaMap <small class="muted">(sea marks, waterways)</small></label>` +
-      `<label><input type="checkbox" data-o="aip"${o.aip ? " checked" : ""}> OpenAIP <small class="muted">(airspaces, airports, navaids)</small>` +
-      `<select data-o="aipOpa">${MAP_LAY_OPA.map((v) => `<option value="${v}"${v === o.aipOpa ? " selected" : ""}>${pc(v)}</option>`).join("")}</select></label>` +
-      (o.aip ? `<label>API key <input type="text" class="map-opts-url" data-key="openaip" value="${escHtml((mapKeys && mapKeys.openaip) || "")}" placeholder="from openaip.net (free account)" spellcheck="false"></label>` : "") +
       sub("Own layers", "GeoJSON, KML, GPX") +
       (lays.length ? `<table class="map-opts-t map-opts-lays">` + lays.map((it) => {
         const lo = mapLayOpt(it.id), id = escHtml(it.id);
@@ -18986,13 +18976,14 @@ function comMapSettings(map, kind, rerender, noTrails) {
       MAP_LBL.map(([id, n]) => `<tr><th>${n}</th><td>${box("lblSel", id)}</td><td>${box("lbl", id)}</td><td>${box("lblShr", id)}</td></tr>`).join("") +
       `</table><p class="map-opts-note">Drag a label to move it (this window only), a double click puts it back.</p>`;
     panel.innerHTML = (kind === "com" ? sec("sources", "Sources", "aircrafts, radiosondes, ships", srcHtml()) : "") +
-      sec("map", "Map", "base map, layers, rings, range", mapSec) + sec("weather", "Weather", "precipitation, clouds", weatherSec) +
+      sec("map", "Map", "base map, layers, rings, range", mapSec) + sec("vmaps", "Vector maps", "airspaces, airports, navaids", vmSettingsHtml()) + sec("weather", "Weather", "precipitation, clouds", weatherSec) +
       (rerender ? sec("objects", "Aircrafts", "symbol, label", kindSec("", true)) + sec("sondes", "Radiosondes", "symbol, label", kindSec("s_", false)) +
         sec("ships", "Ships", "symbol, label", kindSec("w_", false)) : "") +
       `<p class="map-opts-note">Remembered in the browser, the same in all windows.</p>`;
   }
   function onInput(e) {
     const t = e.target;
+    if (vmOnInput(e, panel)) return;   // the Vector maps section (vectormaps.js)
     if (t.dataset.x != null) {   // a switch of this map only: the map's own overlayadd / overlayremove handler keeps it
       if (e.type !== "change") return;
       const [l] = extra[+t.dataset.x];
@@ -19044,12 +19035,6 @@ function comMapSettings(map, kind, rerender, noTrails) {
         .catch((err) => { panel.querySelector(".map-opts-msg").textContent = `Key not stored: ${err.message}`; });
       return;
     }
-    if (t.dataset.o === "aip") {   // the key field shows with the switch
-      if (e.type !== "change") return;
-      mapOptsSet({ aip: t.checked });
-      mapKeysGet().then(() => fill());
-      return;
-    }
     if (t.dataset.o === "base" || t.dataset.o === "baseUrl") {
       if (e.type !== "change") return;
       mapOptsSet({ [t.dataset.o]: t.value.trim() });
@@ -19083,7 +19068,7 @@ function comMapSettings(map, kind, rerender, noTrails) {
       mapOptsSet({ [k]: t.value / 100 });
     } else if (e.type === "change") {
       if (/^(?:[sw]_)?pred/.test(k) && t.value === "land") { mapOptsSet({ [k]: "land" }); return; }
-      mapOptsSet({ [k]: ["precip", "ad", "adFine", "rng", "dark", "sea", "cld", "shAfi", "shNotLocal", "shGround", "noUnits", "noUnitsSel", "noUnitsShr"].includes(k) || /^(?:[sw]_)?(noUnits|lblShow|lblNote)/.test(k) ? t.checked : /^(?:[sw]_)?(span|icon|font|drop|bg|pred|adMax|adOpa|adFineOpa|stale|oRng|pRng|aipOpa|shDist|shInt|shAlt|shMax|shAisDist|shAisMax|shShDist|shShAge)/.test(k) && !/^(?:[sw]_)?(cStale)/.test(k) ? +t.value : t.value });
+      mapOptsSet({ [k]: ["precip", "ad", "adFine", "rng", "dark", "sea", "cld", "shAfi", "shNotLocal", "shGround", "noUnits", "noUnitsSel", "noUnitsShr"].includes(k) || /^(?:[sw]_)?(noUnits|lblShow|lblNote)/.test(k) ? t.checked : /^(?:[sw]_)?(span|icon|font|drop|bg|pred|adMax|adOpa|adFineOpa|stale|oRng|pRng|shDist|shInt|shAlt|shMax|shAisDist|shAisMax|shShDist|shShAge)/.test(k) && !/^(?:[sw]_)?(cStale)/.test(k) ? +t.value : t.value });
     }
   }
   function apply(other) {   // other = changed in another tab / window

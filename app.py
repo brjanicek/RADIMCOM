@@ -45,6 +45,7 @@ import satellites
 import datafiles
 import sysload
 import update_check
+import vectormaps
 try:
     import sattrack       # needs the sgp4 package (upgrade.bat installs it)
     import satplan
@@ -639,6 +640,7 @@ def sync_cpdlc():
 sync_cpdlc()
 
 app = Flask(__name__, static_folder="static")
+app.register_blueprint(vectormaps.bp)   # vector maps of the decoder maps (/api/vectormaps…)
 
 
 def same_host(req):
