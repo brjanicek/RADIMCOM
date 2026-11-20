@@ -39,10 +39,22 @@ local SONDE decoder does not hear** (on by default) and **only sondes in flight*
 server asks SondeHub at most every 15 s and makes the trails (the last 6 h) from the records asked; a sonde falling
 after the burst gets the parachute icon. New `GET /api/share/sondehub?dist=&last=`.
 
+## Tracks and Tracker bars
+
+Two bars over the bottom of the map: **Tracks** with **Show all labels** and **Hide all labels** (of the tracks on the
+map now; new tracks follow the map settings), and under it **Tracker** with **Center** (the station in the middle of the
+map, the zoom stays), **Show / Hide clouds**, **Show / Hide precipitations** (as in Weather of the map settings), **Show / Hide A/D map**,
+**Find track** (a small window: the text is looked for in the flight, registration, ICAO, ship name, MMSI, call sign and
+serial of the tracks, whole first, then a part; the track found is selected, its label shown and the map moved to it,
+else an error shows in the window) and **Unlock** while the map follows a track. Each folds to the left into its name (◀ / ▶) and opens
+over the whole width of the map (remembered).
+
 ## Status row
 
-Under the map: **Tracks** (the objects on the map, `of n` when some are hidden, and how many are joined from more
-sources), **Precipitation** (the time of the radar frame shown, while it is on), **Clouds** (the time of the satellite
+Under the map (in full screen and in the map alone in a new tab; not in the small map of the tab): **Tracks** of all
+kinds as `Total 45 (44/1) · Local 45 (44/1) · Sharing 0 (0/0)` (the objects on the map: all, from a local decoder, only
+from sharing, each as live / no position, see *No position* in the map settings), how many are joined from more
+sources, how many the map settings hide, and the track the map is locked on, **Precipitation** (the time of the radar frame shown, while it is on), **Clouds** (the time of the satellite
 image shown, while it is on; the newest is asked for every 2 minutes), the mouse position (**LAT**, **LON** and **A/D**:
 azimuth / distance from the station in the unit of the A/D map) and the **JSON** key (see [Feed format](#feed-format)).
 
@@ -54,16 +66,26 @@ azimuth / distance from the station in the unit of the A/D map) and the **JSON**
 - Trail colour = source (ADS-B yellow, ACARS / VDL2 blue, HFDL orange, AIS green, SONDE pink); the selected object and
   its trail orange; an emergency squawk (7500 / 7600 / 7700) red; grey = no position for 15 minutes.
 - **⚙ map settings** in the top right corner (see [Map settings](#map-settings)); the map keeps its view.
+- **Full screen** key beside ⚙: the map with its lists and the status row over the whole screen (Esc or the key again
+  leaves it).
 
 ## Map settings
 
-The **⚙** key in the top right corner of the map opens its settings (**Settings** shows beside it while open) in
-sections that open and close with a click (which are open is remembered): **Sources** (**Aircraft**, **Radiosondes** and **Ships**,
+**Restore default** at the right end of the settings bar (while the settings are open) puts all map settings and the
+layout of the map (lists, their width and sorting, the bars) back to the defaults of `static/com_defaults.js`, in all
+windows. The same defaults are used the first time the page opens in a browser; after that the browser keeps its own.
+
+The keys in the top right corner of the map (settings ⚙, full screen, new tab) are one bar. **⚙** opens its settings (**Settings** shows beside it while open) in
+sections that open and close with a click (which are open is remembered): **Sources** (**Aircrafts**, **Radiosondes** and **Ships**,
 each a part that opens with a click, one at a time: the local decoders, one switch per VFO and decoder with the number of
 objects, and **Sharing** from other stations), **Map** (base map, OpenSeaMap, OpenAIP, own layers, A/D map, ADS-B range),
-**Weather** (precipitation, clouds), **Aircraft**, **Radiosondes**, **Ships** and **Labels**. The settings are remembered in the browser (also from
-the map opened alone in a new tab) and applied at once in all open tabs and windows of the same address.
+**Weather** (precipitation, clouds), **Aircrafts**, **Radiosondes** and **Ships** (each with the parts **Symbol**, **Label**
+and **List**, one open at a time). All sections are closed the first time. In the small map of the tab the window takes
+the right edge of the map (never taller than the map) and the full screen / new tab keys hide while it is open. The
+settings and the open sections are remembered in the browser (also from the map opened alone in a new tab) and applied
+at once in all open tabs and windows of the same address.
 
+- **Station** (Map): the icon of your location (circle, square, triangle, diamond, star, cross, house) and its colour.
 - **Base map:** OpenStreetMap (the default), Esri dark grey, OpenTopoMap, Esri satellite, **Own tile address**
   (an XYZ address `https://…/{z}/{x}/{y}.png`) or **Plain colour** (no tiles, a background of the colour chosen, black
   by default), with **darken** (on by default: the tiles turned dark so the marks
@@ -91,9 +113,9 @@ the map opened alone in a new tab) and applied at once in all open tabs and wind
   altitude, ≤ 30000, ≤ 20000, ≤ 10000 ft) from the ADS-B decoder (as RANGE on the ADS-B map); each band its own **line** colour and brightness (none, 10–100 %; 80 % by default) and
   **fill** colour and opacity (none, 5–100 %; 5 % by default).
   Asked again every minute.
-- **Aircraft**, **Radiosondes** and **Ships:** each its own table (the same rows; the aircraft symbol only for aircraft),
-  with a column for the **Selected** object, one for **Local** (the tracks of the local decoders)
-  and one for **Sharing** (the tracks of shared sources, other stations, to come):
+- **Symbol** of **Aircrafts**, **Radiosondes** and **Ships** (the same rows; the symbol only for aircrafts; the colours
+  Icon / Trail / Prediction / No position under one heading), with a column for the **Selected** object, one for **Local**
+  (the tracks of the local decoders) and one for **Sharing** (the tracks of shared sources):
   - **Trails:** **Full (line)**, small dots of the **last 1 / 2 /
     3 / 5 / 10 min** (fading with age, the oldest the faintest), **Echo 1 / 2 / 3 / 5 min** (as a primary radar
     paints it: every 4 s a piece of an annulus centred on the station, 12 × 4 px, with afterglow), or **Off**. Full by
@@ -101,10 +123,13 @@ the map opened alone in a new tab) and applied at once in all open tabs and wind
   - **Aircraft symbol** (local decoders / sharing): the aircraft icon, an outline **square □**, **circle ○** or
     **triangle △**, or an **asterisk \***.
   - **Icon size** 50–250 %.
-  - **Prediction** 1 / 2 / 3 / 5 / 10 min or Off (3 min for the selected object, Off for the others by default): a thin
+  - **Prediction**: radiosondes by default the **landing predictor of the SONDE decoder** (path, burst, landing point and
+    area, from the sonde's own winds and GFS; its colours under **Landing prediction**: **Ascent** (blue), **Descent**
+    (red), **Landing area** (red) and **Burst ✱** (yellow)), or as aircrafts 1 / 2 / 3 / 5 / 10 min or Off (3 min for the selected object, Off for the others by default): a thin
     line from the icon along the track (course) as far as the object gets in that time at its speed, with a tick every
     minute; none for an object that stands or has no position for 5 minutes.
-  - **Icon colour**, **Trail colour** and **Prediction colour**: a colour picker, or **auto** (the default) for the
+  - **Icon colour**, **Trail colour** (radiosondes: **Trail ascent** and **Trail descent**, before and after the
+    burst) and **Prediction colour**: a colour picker, or **auto** (the default) for the
     map's own colours (the icons as on the decoder maps, the trail in the colour of its source, orange for the selected
     object).
     An object without a position for a while stays grey and an emergency squawk stays red.
@@ -112,14 +137,25 @@ the map opened alone in a new tab) and applied at once in all open tabs and wind
     object without a new position for that long; the selected one stays orange, an emergency squawk red.
   - **Hide when no position for** 1 / 2 / 3 / 5 / 10 min, or **never** (the default): an object without a new position
     for that long disappears from the map; the selected object always stays.
-- **Labels** (the same three columns): **Font size** 80–200 %, **Background** opacity 0–100 % by 5 % (85 % by default; a
+- **Label** and **List** of each kind: the items are listed under the marks *Line 1:*, *Line 2:* … (label up to 5 lines,
+  list 2); the items and the marks are dragged with the mouse (the grip ⠿ at the right), an item shows in the line of
+  the mark above it; the items are shaded in turn.
+- **Label** of each kind (the same three columns; the items differ: aircrafts flight, registration, ICAO, type, model,
+  FL, speed, climb, squawk; radiosondes serial, type, frequency, altitude, climb, speed, temperature, humidity, state,
+  predicted landing; ships name, MMSI, call sign, type, speed, course, navigation status, destination; all azimuth,
+  distance, source, note): **Show label** (on by default: the label of a new track; one track: its Track menu),
+  **Font size** 80–200 %, **Background** opacity 0–100 % by 5 % (85 % by default; a
   see-through one gets a dark text shadow), **Text colour** (a picker or auto) and **Show:** the items of the label (name / flight,
   registration, ICAO / MMSI, type, altitude, speed, climb, squawk, frequency, azimuth and distance from the station as
-  `123°/45km` (in the unit of the A/D map, km / NM), source); an item an object does not have is left out, no item = no
+  `123°/45km` (in the unit of the A/D map, km / NM), source, **Note** (the note of the Track menu; last by default,
+  movable as the other items)); an item an object does not have is left out, no item = no
   label. **Without units** shows the numbers alone (`FL330 · 597 kt · 235°/69km` → `330 · 597 · 235/69`).
+- Objects only from shared sources (adsb.fi, aisstream, SondeHub) are drawn as the outline of their icon in its
+  colour, not filled; those of the local decoders keep the filled icons.
 - The selected object is **orange** (icon and trail). An aircraft with the squawk **7500, 7600 or 7700** has a **red
   icon 1.5× the set size**, and the positions sent with that squawk are red in its trail (dots; on the full line a red
-  line over them); the squawk in its label is red too.
+  line over them); the squawk in its label is red too. While the squawk lasts its label is always shown (also when
+  hidden by hand), bigger and red, with the squawk; after it the label is as before.
 - A **label can be moved with the mouse** (drag it; a double click puts it back under its mark). The place is kept per
   object for that window only (also over a reload of the tab); other and new windows keep their own.
 - A **thin line** joins each icon to its label, at the corner or the middle of a longer side of the label nearest to the
@@ -127,14 +163,35 @@ the map opened alone in a new tab) and applied at once in all open tabs and wind
 
 ## Lists
 
-The panel **right of the map** has three sections that open and close with a click (remembered): **Aircraft**,
-**Radiosondes** and **Ships**, each a table of the objects on the map with their number. Aircraft: flag, flight, type,
-FL, speed (kt), distance from the station (in the unit of the A/D map) and the age of the position; radiosondes: serial,
-type, altitude (m), climb (m/s), distance, age; ships: flag, name, type, speed (kt), distance, age. A click on a column
-sorts by it, again the other way (remembered); the colour bar on the left is the source. A click on a row selects the
-object and centres the map on it; the tooltip has its identifiers and sources. An aircraft with the squawk **7500, 7600 or
+The border between the map and this panel can be dragged with the mouse (the width is remembered). The panel **right of the map** has three sections that open and close with a click (remembered): **Aircrafts**,
+**Radiosondes** and **Ships**, each a table of the objects on the map, with **Show** (the kind on the map or not,
+remembered; an emergency squawk is always shown) and the counts as in the status row
+(`Total 45 (44/1) · Local … · Sharing …`, live / no position). The first column is always the
+name (flight, serial, ship; with the flag unless switched off), over all lines of the object; the other columns are those
+chosen in **List** of the map settings (by default aircrafts: type, FL, speed, distance, age of the position;
+radiosondes: type, altitude, climb, distance, age; ships: type, speed, distance, age) in one or two lines. The objects
+are shaded in turn. A click on a column sorts by it, again the other way (remembered); the colour bar on the left is the
+source. A click on a row selects the
+object, shows its label and centres the map on it; while an object is selected its section is open and its row is kept
+in view (the list scrolls by itself); the tooltip has its identifiers and sources. An aircraft with the squawk **7500, 7600 or
 7700** opens the Aircraft section, is scrolled into view and stays on top in red while the squawk lasts and one minute
 after (`EMERGENCY` beside the number).
+
+## Track menu
+
+A right click on an aircraft, ship or sonde (on the map or in the list beside it) opens the floating **Track menu** at
+the mouse, with the settings of that track only (over those of the map settings; kept for that window only, also over a
+reload of the tab):
+
+- **Hide label** / **Show label**.
+- **Font**, **Prediction** and **Trail**: *default* (the map settings) or a value of its own.
+- **Note**: up to 20 characters shown in its label (where the item Note is in Label of the map settings; last by default).
+- **Lock display** / **Unlock display**: the map follows the track (the zoom stays); one track at a time, locking
+  another unlocks the one before.
+- **Reset this track**: back to the map settings.
+
+The selects and the note change the map at once; the menu closes with a click elsewhere, Esc, Enter in the note or a
+move of the map by hand.
 
 ## Details
 
