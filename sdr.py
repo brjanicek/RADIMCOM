@@ -46,6 +46,7 @@ TUNER_MAX_HZ = 1766e6
 # Tuning range by device type (driver in vfos.json / config).
 # LimeSDR Mini officially starts at 10 MHz; lower (via the NCO) it receives weaker, but usable.
 TUNER_LIMITS = {"rtl": (TUNER_MIN_HZ, TUNER_MAX_HZ), "rtltcp": (TUNER_MIN_HZ, TUNER_MAX_HZ), "lime": (1e6, 3500e6), "airspy": (24e6, 1750e6)}
+TUNER_LIMITS["spyserver"] = (0.0, 1800e6)     # SpyServer: the opened device tells its own range (spyserver.py)
 SSB_LOW_CUT = 300.0   # Hz, lower edge of the SSB passband
 CW_PITCH = 700.0      # Hz, tone pitch of a CW signal tuned exactly to the frequency
 SQUELCH_OFF = -120.0  # dBFS, squelch at this level and below is off
@@ -196,6 +197,10 @@ def open_device(cfg):
     if cfg.get("driver", "rtl") == "airspy":
         from airspy import AirspySdr
         return AirspySdr(READ_SAMPLES, serial=serial, index=int(cfg["device"]))
+    if cfg.get("driver", "rtl") == "spyserver":
+        # SDR shared by an Airspy SpyServer; "serial" is its address host:port (spyserver.py)
+        from spyserver import SpyServerSdr
+        return SpyServerSdr(READ_SAMPLES, serial)
     if cfg.get("driver", "rtl") == "rtltcp":
         # RTL-SDR dongle on another computer (rtl_tcp); "serial" is its network address (rtltcp.py)
         from rtltcp import RtlTcpSdr
@@ -1676,6 +1681,7 @@ class Receiver:
         self.opened = 0
         self.sdr = None
         self.dev_tuner_min = None   # lower tuning limit reported by the opened dongle (None = by the driver)
+        self.dev_tuner_max = None   # upper limit reported by the device (SpyServer)
         self.thread = None
         self._stop = threading.Event()
         # VFO chaining (iqshare.py): the owner of the dongle sends its blocks to iq_server (set by app.py);
@@ -1734,7 +1740,7 @@ class Receiver:
 
     @property
     def tuner_max(self):
-        return TUNER_LIMITS[self.cfg.get("driver", "rtl")][1]
+        return self.dev_tuner_max or TUNER_LIMITS[self.cfg.get("driver", "rtl")][1]
 
     # Settings that belong to a specific dongle (converter, LO, crystal correction).
     PROFILE_KEYS = ("upconv", "lo_offset_hz", "ppm")
@@ -1814,6 +1820,7 @@ class Receiver:
                 self.gains = sdr.gains
                 self.has_bias_tee, self.has_rtl_agc = sdr.has_bias_tee, sdr.has_rtl_agc
                 self.dev_tuner_min = getattr(sdr, "tuner_min_hz", None)
+                self.dev_tuner_max = getattr(sdr, "tuner_max_hz", None)
                 self._configure(sdr)
                 if hasattr(sdr, "calibrate"):
                     # LimeSDR: DC and IQ calibration when opening (may fail on HF, does not matter).
@@ -2033,15 +2040,21 @@ class Receiver:
             self.sdr.set_center_freq(c["center_hz"] + self.lo)
         self.sagc.reset(SAGC_SETTLE)
 
+    def _usable(self):
+        """Width of the band that really arrives: less than fs when the driver upsamples (a SpyServer that allows only
+        a narrow band, spyserver.py), the edges of the shown band are empty then."""
+        return self.fs / max(1, getattr(self.sdr, "up", 1) or 1)
+
     def _recenter(self, tune, only_if_outside=False):
         """Tuned frequency outside the displayed band -> move the centre (away from the DC spike)."""
         c = self.cfg
         if self.chained:
             return                                  # the centre follows the owner VFO
-        half = self.fs / 2 * 0.9
+        use = self._usable()
+        half = use / 2 * 0.9
         if only_if_outside and abs(tune - c["center_hz"]) < half:
             return
-        c["center_hz"] = max(tune + self.fs * 0.2, self.fs / 2)
+        c["center_hz"] = max(tune + use * 0.2, self.fs / 2)
 
     def _request_view(self, view_hz):
         """Dragging the waterfall: the centre of the section is set by the web page. If the section leaves the received band,
@@ -2051,7 +2064,7 @@ class Receiver:
         self.view_req = view_hz
         if self.chained:
             return                                  # dragging stays inside the band of the shared dongle
-        if abs(view_hz - c["center_hz"]) + span / 2 > self.fs / 2 * 0.98:
+        if abs(view_hz - c["center_hz"]) + min(span, self._usable()) / 2 > self._usable() / 2 * 0.98:
             c["center_hz"] = max(view_hz, self.fs / 2)
 
     def _learn_spurs(self, power, lo_edge, bin_hz):
@@ -2596,6 +2609,15 @@ class Receiver:
         wfm = getattr(self, "wfm", None) if self.cfg["mode"] == "WFM" else None
         return wfm.mpx_spectrum() if isinstance(wfm, Wfm) else None
 
+    def _src_info(self):
+        """Network source (rtl_tcp, SpyServer) of the opened device for SETTINGS › VFO, else None."""
+        s = self.sdr
+        where = getattr(s, "where", None) if s is not None else None
+        if not where:
+            return None
+        return {"addr": where, "device": getattr(s, "tuner_name", None), "up": getattr(s, "up", 1),
+                "can_control": bool(getattr(s, "can_control", True))}
+
     def state(self):
         c = self.cfg
         wfm = getattr(self, "wfm", None) if c["mode"] == "WFM" else None   # does not exist yet before the thread starts
@@ -2677,6 +2699,7 @@ class Receiver:
             "net_warn": getattr(self.sdr, "server_warn", None) if self.status == "running" else None,   # rtl_tcp server
             "has_bias_tee": self.has_bias_tee,
             "has_rtl_agc": self.has_rtl_agc,
+            "src": self._src_info(),                # network source (rtl_tcp / SpyServer): address, device, control
             "range": self.tune_range(),
             "tune_hz": c["tune_hz"],
             "center_hz": c["center_hz"],

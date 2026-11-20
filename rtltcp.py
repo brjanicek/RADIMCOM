@@ -53,9 +53,25 @@ def is_addr(s):
     return "@" in (s or "") or ":" in (s or "")
 
 
+SPYSERVER = ("sdr://", "spyserver://")
+
+
+def clean_server(server):
+    """Address as typed or pasted -> 'host' or 'host:port': a scheme (rtl_tcp://, tcp://, http://) and a path or a
+    trailing slash are dropped. ValueError for a SpyServer address (sdr://, a different protocol than rtl_tcp)."""
+    server = (server or "").strip()
+    low = server.lower()
+    if low.startswith(SPYSERVER):
+        raise ValueError("this is a SpyServer address (sdr://, Airspy SpyServer protocol); RADIMCOM connects only to "
+                         "rtl_tcp servers (rtl_tcp -a 0.0.0.0 -p 1234) and rtltcp-manager")
+    if "://" in server:
+        server = server.split("://", 1)[1]
+    return server.split("/", 1)[0].strip()
+
+
 def split_server(server):
-    """'host' -> (host, None), 'host:1234' -> (host, 1234)."""
-    server = server.strip()
+    """'host' -> (host, None), 'host:1234' -> (host, 1234); also 'rtl_tcp://host:1234/'."""
+    server = clean_server(server)
     if server.count(":") == 1:
         host, port = server.rsplit(":", 1)
         return host.strip(), int(port)
@@ -83,8 +99,9 @@ def list_devices(servers, timeout=2.0):
     for server in servers or []:
         try:
             host, port = split_server(server)
-        except ValueError:
-            out.append({"serial": "", "name": "", "server": server, "error": "address must be host or host:port"})
+        except ValueError as e:
+            msg = str(e) if "SpyServer" in str(e) else "address must be host or host:port"
+            out.append({"serial": "", "name": "", "server": server, "error": msg})
             continue
         if port is None or port == LIST_PORT:
             try:
@@ -108,13 +125,21 @@ def list_devices(servers, timeout=2.0):
     return out
 
 
+def _host_of(server):
+    try:
+        return split_server(server)[0]
+    except ValueError:              # a SpyServer address in the saved list: not one of ours
+        return server
+
+
 def servers_in_use(vfos_cfg):
     """rtl_tcp servers of vfos.json: the saved list ("rtltcp_servers") and the hosts of the VFO dongles."""
-    out = [str(s).strip() for s in vfos_cfg.get("rtltcp_servers", []) if str(s).strip()]
+    out = [str(s).strip() for s in vfos_cfg.get("rtltcp_servers", []) if str(s).strip()
+           and not str(s).strip().lower().startswith(SPYSERVER)]      # SpyServers are not rtl_tcp servers
     for v in vfos_cfg.get("vfos", []):
         if v.get("driver") == "rtltcp" and "@" in (v.get("serial") or ""):
             host = v["serial"].split("@", 1)[1]
-            if host not in out and split_server(host)[0] not in [split_server(s)[0] for s in out]:
+            if host not in out and split_server(host)[0] not in [_host_of(s) for s in out]:
                 out.append(host)
     return out
 
@@ -136,7 +161,10 @@ def tcp_ping(host, port, count=3, timeout=1.5):
 
 def server_status(server, vfos_cfg=None):
     """SETTINGS > RTL_TCP: the state of one server (rtltcp-manager /status.json) with the ping from here."""
-    host, port = split_server(server)
+    try:
+        host, port = split_server(server)
+    except ValueError as e:
+        return {"server": server, "host": server, "ping_ms": None, "error": str(e)}
     lport = port or LIST_PORT
     out = {"server": server, "host": host, "ping_ms": tcp_ping(host, lport)}
     try:

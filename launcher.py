@@ -90,6 +90,25 @@ def main():
         """CPU and memory of RADIMCOM (server by VFO, the window) and of the whole PC (indicator under the S-meter)."""
         return jsonify(sysload.load(labels))
 
+    @app.route("/api/spacewx")
+    def api_spacewx():
+        """Space weather and the HF bands at the station for the PROP tab and the chip under the S-meter (spacewx.py);
+        here once for the whole station, the page asks the launcher like /api/sysload."""
+        import location
+        import spacewx
+        q = location.load()
+        return jsonify(spacewx.summary(q.get("lat"), q.get("lon")))
+
+    @app.route("/api/clock", methods=["GET", "POST"])
+    def api_clock():
+        """PC clock against NTP for FT8 / WSPR (clocksync.py): GET = the offset (cached 10 min, ?force=1 measures now),
+        POST = sync the clock by it (an administrator consent of Windows when not elevated)."""
+        import clocksync
+        from flask import request as rq
+        if rq.method == "POST":
+            return jsonify(clocksync.sync())
+        return jsonify(clocksync.offset(force=rq.args.get("force") == "1"))
+
     @app.route("/api/vfos")
     def api_vfos():
         # "rotor": the VFO whose process holds the rotor (the first one, as in app.py ROTOR_HERE)

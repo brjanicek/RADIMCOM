@@ -51,6 +51,7 @@ try:
 except ImportError:
     sattrack = None
 from ft8 import FT8_FREQS, Ft8Decoder
+from wspr import WSPR_FREQS, WsprDecoder
 from cw import CwDecoder
 from rtty import RttyDecoder, station_list as rtty_station_list
 from packet import PacketDecoder
@@ -178,6 +179,10 @@ if VFO:
 RTL_DONGLE = cfg.get("driver", "rtl") in ("rtl", "rtltcp")
 if not RTL_DONGLE:
     cfg["vdl2"] = cfg["dab"] = cfg["ism"] = False
+if cfg.get("driver") == "spyserver":
+    # SpyServer: the rates its server allows (asked once at start; spyserver.py)
+    import spyserver
+    DRIVER_SAMPLE_RATES["spyserver"] = spyserver.rates_for(cfg.get("serial", "")) or (int(cfg.get("sample_rate") or 912000),)
 if cfg.get("driver") in DRIVER_SAMPLE_RATES:
     SAMPLE_RATES = DRIVER_SAMPLE_RATES[cfg["driver"]]
     if cfg["sample_rate"] not in SAMPLE_RATES:
@@ -222,10 +227,11 @@ def save_config_later():
 
 # ---------- daily decoder logs (turned on with LOG in the decoder card) ----------
 
-LOG_KEYS = ("ft8", "wefax", "cw", "rtty", "sstv", "acars", "dsd", "ism", "packet", "pocsag", "hfdl", "ais", "adsb")
+LOG_KEYS = ("ft8", "wefax", "cw", "rtty", "sstv", "acars", "dsd", "ism", "packet", "pocsag", "hfdl", "ais", "adsb", "wspr")
 _tag = cfg.get("vfo") or ""
 logs = {"ft8": DayLog("ft8", _tag), "wefax": DayLog("wefax", _tag), "sstv": DayLog("sstv", _tag), "dsd": DayLog("dsd", _tag), "ism": DayLog("ism", _tag), "packet": DayLog("packet", _tag), "pocsag": DayLog("pocsag", _tag), "hfdl": DayLog("hfdl", _tag), "ais": DayLog("ais", _tag), "adsb": DayLog("adsb", _tag),
         "cw": TextLog("cw", _tag), "rtty": TextLog("rtty", _tag)}
+logs["wspr"] = DayLog("wspr", _tag)
 _saved_logged = {"wefax": None, "sstv": None}
 
 
@@ -274,6 +280,8 @@ def decoder_event(kind, data):
         if kind == "ft8" and log_on("ft8"):
             logs["ft8"].write(f"{_mhz(data['freq_hz'])} {data['snr']:+d} dB DT {data['dt']:+.1f} "
                               f"{data['df']} Hz | {data['msg']}")
+        elif kind == "wspr" and log_on("wspr"):
+            logs["wspr"].write(f"{_mhz(data['freq_hz'])} {data['snr']:+d} dB DT {data['dt']:+.1f} drift {data['drift']:+d} | {data['msg']}")
         elif kind == "dsdcall" and log_on("dsd"):
             slot = f" slot {data['slot']}" if data["slot"] else ""
             alias = f" | {data['alias']}" if data["alias"] else ""
@@ -328,6 +336,7 @@ def decoder_event(kind, data):
 
 ft8 = Ft8Decoder(on_decode=lambda d: decoder_event("ft8", d),
                  on_cycle=lambda t: hub.event("ft8cycle", {"time": t}))
+wspr_dec = WsprDecoder(on_decode=lambda d: decoder_event("wspr", d), on_cycle=lambda i: hub.event("wsprcycle", i))
 
 
 def wefax_retune(old_hz, new_hz):
@@ -431,7 +440,7 @@ def audio_muted():
 
 def state():
     capable = tx_capable()
-    return dict(receiver.state(), ft8=ft8.enabled, ft8_error=ft8.error, wefax=wefax.enabled, cw=cw.enabled, rtty=rtty.enabled, packet=packet.enabled, pocsag=pocsag.enabled, sonde=sonde.enabled, sonde_multi=sonde.multi,
+    return dict(receiver.state(), ft8=ft8.enabled, ft8_error=ft8.error, wspr=wspr_dec.enabled, wspr_error=wspr_dec.error, wspr_info=wspr_dec.info, wspr_prog=wspr_dec.progress(), wefax=wefax.enabled, cw=cw.enabled, rtty=rtty.enabled, packet=packet.enabled, pocsag=pocsag.enabled, sonde=sonde.enabled, sonde_multi=sonde.multi,
                 sstv=sstv.enabled, acars=acars.enabled, vdl2=vdl2.enabled, vdl2_error=vdl2.error, vdl2_region=vdl2.region, cpdlc=acars.cpdlc_on,
                 dsd=dsd.info(), dab=dab.enabled, dab_error=dab.error, dab_channel=dab.channel, dab_sids=cfg.get("dab_sids") or {}, ism=ism.enabled, ism_error=ism.error, ism_raw=ism.raw, hfdl=hfdl.enabled, hfdl_error=hfdl.error, ais=ais.enabled, ais_error=ais.error, adsb=adsb.enabled, adsb_error=adsb.error, ism_hz=cfg.get("ism_hz", ISM_DEFAULT), audio_muted=audio_muted(), recording=recorder.state(), iq_rec=iq_recorder.state(), logs={k: log_on(k) for k in LOG_KEYS},
                 **doppler_trsp(), antenna=cfg.get("antenna", ""),
@@ -461,6 +470,7 @@ def on_baseband(base, fs, dial_hz):
     if receiver.scan.on:
         return                           # SCAN: the decoders of this VFO are paused (they would get every channel)
     ft8.feed(base, fs, dial_hz)
+    wspr_dec.feed(base, fs, dial_hz)
     wefax.feed(base, fs, dial_hz)
     if cw.enabled:
         cw.feed(base, fs, dial_hz, cw_band())
@@ -547,6 +557,7 @@ _iq_on = [k for k in ("dab", "adsb", "vdl2", "acars", "ism", "hfdl", "ais", "son
 for _k in _iq_on[1:]:
     cfg[_k] = False
 ft8.set_enabled(cfg.get("ft8", False))
+wspr_dec.set_enabled(cfg.get("wspr", False))
 wefax.slant_ppm = float(cfg.get("wefax_slant_ppm", 0.0))
 wefax.afc_vfo = bool(cfg.get("wefax_afc_vfo", True))
 wefax.set_enabled(cfg.get("wefax", False))
@@ -666,7 +677,7 @@ def api_whatsnew():
 
 @app.route("/api/state")
 def api_state():
-    return jsonify(dict(state(), sample_rates=SAMPLE_RATES, modes=MODES, ft8_freqs=FT8_FREQS, acars_freqs=ACARS_FREQS,
+    return jsonify(dict(state(), sample_rates=SAMPLE_RATES, modes=MODES, ft8_freqs=FT8_FREQS, wspr_freqs=WSPR_FREQS, acars_freqs=ACARS_FREQS,
                         vdl2_freqs=region_freqs(vdl2.region), vdl2_region_freqs={r: region_freqs(r) for r in VDL2_REGIONS}, vdl2_center=VDL2_CENTER, vdl2_rate=VDL2_RATE, tx_bands=TX_BANDS,
                         dab_channels=DAB_CHANNELS, ism_freqs=ISM_FREQS, hfdl_bands=hfdl_mod.BANDS,
                         hfdl_stations=hfdl_mod.STATIONS, ais_center=ais_mod.CENTER_HZ, ais_channels=sorted(ais_mod.CHANNELS), adsb_freq=adsb_mod.FREQ_HZ))
@@ -816,6 +827,20 @@ def api_ft8_stations():
         hub.event("ft8stclear", {})
         return jsonify(ok=True)
     return jsonify(ft8.station_list())
+
+
+@app.route("/api/wspr")
+def api_wspr():
+    return jsonify(list(wspr_dec.decodes))
+
+
+@app.route("/api/wspr/stations", methods=["GET", "DELETE"])
+def api_wspr_stations():
+    """WSPR stations heard in the last 24 h (the same fields as /api/ft8/stations + drift, dBm); DELETE clears them."""
+    if request.method == "DELETE":
+        wspr_dec.clear_stations()
+        return jsonify(ok=True)
+    return jsonify(wspr_dec.station_list())
 
 
 @app.route("/api/wefax", methods=["GET"])
@@ -989,6 +1014,15 @@ def api_wind():
     import wind
     keys = [k for k in request.args.get("cells", "").split(",") if re.fullmatch(r"-?\d{1,2}\.\d{2}_-?\d{1,3}\.\d{2}", k)]
     return jsonify(wind.cells(keys))
+
+
+@app.route("/api/spacewx")
+def api_spacewx():
+    """Space weather for the PROP tab and the header chip: NOAA SWPC feeds (sun, solar wind, Kp, scales, alerts),
+    downloaded when stale and kept in data/spacewx, and the band conditions at the station (spacewx.py)."""
+    import spacewx
+    q = location.load()
+    return jsonify(spacewx.summary(q.get("lat"), q.get("lon")))
 
 
 @app.route("/api/sonde", methods=["GET"])
@@ -2971,6 +3005,11 @@ def api_set():
     if "ft8" in body:
         cfg["ft8"] = bool(body["ft8"])
         ft8.set_enabled(cfg["ft8"])
+        save_config_later()
+        hub.event("status", state())
+    if "wspr" in body:
+        wspr_dec.set_enabled(bool(body["wspr"]))
+        cfg["wspr"] = wspr_dec.enabled
         save_config_later()
         hub.event("status", state())
     if "wefax" in body:

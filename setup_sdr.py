@@ -174,7 +174,7 @@ def fix_serials(rtl):
     return True
 
 
-DEVICE_NAMES = {"rtl": "RTL-SDR", "rtltcp": "rtl_tcp", "lime": "LimeSDR", "airspy": "Airspy"}
+DEVICE_NAMES = {"rtl": "RTL-SDR", "rtltcp": "rtl_tcp", "lime": "LimeSDR", "airspy": "Airspy", "spyserver": "SpyServer"}
 
 
 def rtltcp_servers():
@@ -187,14 +187,18 @@ def rtltcp_servers():
 
 
 def net_devices(servers):
-    """Dongles on rtl_tcp servers: ([{driver, serial (= network address), name}], [errors])."""
+    """Dongles on rtl_tcp servers and SpyServers (sdr://host:port): ([{driver, serial (= network address), name}], [errors])."""
     import rtltcp
+    import spyserver
     devs, errors = [], []
-    for d in rtltcp.list_devices(servers):
-        if d.get("error"):
-            errors.append(f"{d['server']}: {d['error']}")
-        else:
-            devs.append({"driver": "rtltcp", "serial": d["serial"], "name": d["name"]})
+    spy = [s for s in servers if str(s).strip().lower().startswith(rtltcp.SPYSERVER)]
+    rtl = [s for s in servers if s not in spy]
+    for driver, found in (("rtltcp", rtltcp.list_devices(rtl)), ("spyserver", spyserver.list_devices(spy))):
+        for d in found:
+            if d.get("error"):
+                errors.append(f"{d['server']}: {d['error']}")
+            else:
+                devs.append({"driver": driver, "serial": d["serial"], "name": d["name"]})
     return devs, errors
 
 
@@ -314,6 +318,8 @@ def lo_mhz(lo):
 def default_note(driver, upconverter):
     if upconverter:
         return "HF via upconverter"
+    if driver == "spyserver":
+        return "SpyServer"
     return ("" if driver == "rtl" else f"{DEVICE_NAMES[driver]}, ") + "VHF/UHF direct"
 
 
@@ -333,6 +339,10 @@ def make_entry(dev, name, port, ppm=0, lo=None, note=None):
         init.update(gain=35, bias_tee=False, rtl_agc=False)
     elif driver == "airspy":
         init.update(gain=12, bias_tee=False, rtl_agc=False)
+    elif driver == "spyserver":
+        # the band of a shared SpyServer can be narrow (228 kHz): the centre close to the tuned frequency; its gain stays
+        init.update(gain="auto", bias_tee=False, rtl_agc=False, tune_hz=7074000, mode="USB", upconv="off")
+        init["center_hz"] = init["tune_hz"] + 40000
     entry["note"] = default_note(driver, bool(lo)) if note is None else note
     entry["init"] = init
     return entry

@@ -2395,7 +2395,7 @@ function resizeWaterfall() {
 
 // ---------- nastavenia ----------
 
-const DEVICE_NAMES = { lime: "LimeSDR", airspy: "Airspy", rtltcp: "rtl_tcp" };
+const DEVICE_NAMES = { lime: "LimeSDR", airspy: "Airspy", rtltcp: "rtl_tcp", spyserver: "SpyServer" };
 /** VDL2, DAB and ISM need the sample rates and raw samples of an RTL dongle (USB or rtl_tcp). */
 const noRtlDongle = (s) => !["rtl", "rtltcp"].includes(s.driver || "rtl");
 /** The Airspy gain is a preset 0–21, not dB. */
@@ -2478,6 +2478,7 @@ function renderSettings() {
   $("rtlAgcBox").hidden = st.has_rtl_agc === false;
   $("biasTeeSetting").hidden = st.has_bias_tee === false;
   $("biasTee").checked = st.bias_tee;
+  renderSrc();
   renderAntVfo();
   // (1.1beta1: the SDR DONGLE block diagram is gone – the cards themselves are in the order of the signal)
   syncBlkDiagram();
@@ -2488,6 +2489,40 @@ function renderSettings() {
   renderSquelch();
   renderWfLabels();
 }
+
+// Network source (SDR setup: rtl_tcp or SpyServer): the Source card says what and where it is; the settings the
+// source cannot use are shown greyed with the reason in the tooltip (not hidden, so it is clear why they do nothing).
+function renderSrc() {
+  const spy = st.driver === "spyserver", net = spy || st.driver === "rtltcp", src = st.src;
+  $("srcSetting").hidden = !net;
+  if (net) {
+    $("srcKind").textContent = spy ? "SpyServer" : "rtl_tcp";
+    $("srcKind").className = `value src-kind ${st.driver}`;
+    $("srcAddr").textContent = (src && src.addr) || (spy ? st.serial || "" : String(st.serial || "").replace(/^rtltcp:/, ""));
+    const bits = [];
+    if (src && src.device) bits.push(spy ? src.device : `tuner ${src.device}`);
+    if (!src) bits.push(st.status === "running" ? "connecting…" : "not connected");
+    if (spy && src) {
+      if (src.up > 1) bits.push(`real band ${fmtNum(st.sample_rate / src.up / 1e3)} kHz, upsampled ×${src.up} to the bandwidth below`);
+      bits.push(src.can_control ? "this client controls the frequency and gain"
+        : "shared server: frequency only inside the band of its owner, gain set by the server");
+    }
+    if (!spy) bits.push("RTL-SDR dongle on another computer: all its settings work as with a local dongle");
+    $("srcNote").textContent = bits.join(" · ");
+  }
+  const na = (id, why) => {
+    const el = $(id);
+    el.classList.toggle("na", !!why);
+    if (why) { el.hidden = false; el.dataset.na = why; el.title = why; }
+    else if (el.dataset.na) { delete el.dataset.na; el.title = ""; }
+  };
+  const noUp = spy ? "SpyServer: no upconverter – the server tunes its device directly" : "";
+  na("loSetting", noUp);
+  na("biasTeeSetting", spy ? "SpyServer: the bias-tee is set on the server side" : "");
+  na("rtlAgcBox", spy ? "SpyServer: no RTL2832 digital gain over SpyServer" : "");
+  na("gainSetting", spy && src && !src.can_control ? "SpyServer shared (can_control = 0): the gain is set by the server" : "");
+}
+const fmtNum = (x) => Number(x).toLocaleString(LOCALE, { maximumFractionDigits: 1 });
 
 const SQUELCH_OFF = -120;
 
@@ -2614,7 +2649,7 @@ function renderRds() {
 // (disabled, with the reason in their tip), and SETTINGS › VFO › AUDIO says why. NB and SP act on the samples before
 // the channel and its baseband decoders, so they stay usable while such a decoder (FT8, CW, …) runs beside.
 const RAW_DEC_NAMES = { vdl2: "VDL2", ism: "ISM", hfdl: "HFDL", ais: "AIS", adsb: "ADS-B", acars: "ACARS", sonde: "SONDE" };
-const BASEBAND_DECS = ["ft8", "wefax", "cw", "rtty", "packet", "pocsag", "sstv"];
+const BASEBAND_DECS = ["ft8", "wefax", "cw", "rtty", "packet", "pocsag", "sstv", "wspr"];
 const BYPASS_KEYS = ["stereoKey", "notchKey", "hpfKey", "lpfKey", "alcKey", "dynKey", "afiKey", "asqKey", "tsqcKey", "tsqdKey", "dnrKey", "humKey"];
 function audioBypassWhy(s) {
   if (s.dab) return "DAB is on: welle-cli decodes the ensemble from the raw IQ and plays the station";
@@ -3775,7 +3810,7 @@ function restoreBodyTab(keepTab, auto = false) {
   const saved = MAP_ONLY ? "scope" : keepTab || recall(tabKey());
   // DAB / DSD (tabs of a mode): the first state decides, like for a VFO without a saved tab
   bodyTabGuess = !["dec", "scope", "sat", "set", "mem", "recs", "rot", "scan"].includes(saved);
-  setBodyTab((saved === "dec" && decTabShown()) || (saved === "sat" && amsatTabShown()) || (saved === "set" && setTabShown()) || (saved === "mem" && memTabShown()) || (saved === "recs" && recsTabShown()) || (saved === "rot" && rotTabShown()) || (saved === "scan" && scanTabShown()) ? saved : "scope", !bodyTabGuess);
+  setBodyTab((saved === "dec" && decTabShown()) || (saved === "sat" && amsatTabShown()) || (saved === "set" && setTabShown()) || (saved === "mem" && memTabShown()) || (saved === "recs" && recsTabShown()) || (saved === "rot" && rotTabShown()) || (saved === "prop" && propTabShown()) || (saved === "scan" && scanTabShown()) ? saved : "scope", !bodyTabGuess);
 }
 
 /** First state of a VFO without a saved tab: if a decoder runs on it, opens DECODERS. */
@@ -3801,6 +3836,7 @@ function setBodyTab(tab, save = true) {
   if (tab === "rot" && save) store("rotOn", "1");       // the ROTOR CONTROL tab open → the RCTRL key on
   if (tab === "scan" && save) store("scanOn", "1");     // the SCAN tab open → the SCAN key on
   if (tab === "com" && save) store("comOn", "1");       // the COMPOSITE tab open → the COM key on
+  if (tab === "prop" && save) store("propOn", "1");     // the PROPAGATION tab open → the PROP key on
   for (const b of $("bodyTabs").querySelectorAll("button")) b.classList.toggle("on", b.dataset.tab === tab);
   $("decPane").hidden = tab !== "dec";
   $("dabPane").hidden = tab !== "dab";
@@ -3813,6 +3849,7 @@ function setBodyTab(tab, save = true) {
   $("rotPane").hidden = tab !== "rot";
   $("scanPane").hidden = tab !== "scan";
   $("comPane").hidden = tab !== "com";
+  $("propPane").hidden = tab !== "prop";
   if (tab === "dec") { $("decNew").hidden = true; decNewPages.delete(decPage); }
   renderDecKey();
   renderDecTab();
@@ -3824,6 +3861,7 @@ function setBodyTab(tab, save = true) {
   renderRotKey();
   renderScanKey();
   renderComKey();
+  renderPropKey();
   setTimeout(() => comShown(tab === "com"));       // the COMPOSITE map polls only while open (declared further down)
   if (tab === "scan") setTimeout(scanPaneOpened);  // declared further down
   if (tab === "mem") setTimeout(memPaneOpened);    // declared further down
@@ -3831,6 +3869,7 @@ function setBodyTab(tab, save = true) {
   // the open settings page fills at once (ROTOR, LOCATION, the dongle list; declared further down)
   if (tab === "set") setTimeout(() => setSubOpened(openSetSub($("settingsCard").querySelector("[data-set-panel]:not([hidden])").dataset.setPanel)));
   if (tab === "rot") setTimeout(rctrlOpened);  // the map of ROTOR CONTROL (declared further down)
+  if (tab === "prop") setTimeout(propOpened);   // PROPAGATION: drawn at once from the last data, then asked again
   hoverHide();
 }
 
@@ -3839,7 +3878,7 @@ function setBodyTab(tab, save = true) {
 // order of the page keys; "|" = a vertical separator between the groups (HF digital, aircraft, ships, radiosondes, ISM)
 const DEC_LAYOUT = [
   { key: "cw", title: "CW" }, { key: "ft8", title: "FT8" }, { key: "packet", title: "PACKET" }, { key: "pocsag", title: "POCSAG" }, { key: "rtty", title: "RTTY" },
-  { key: "sstv", title: "SSTV" }, { key: "wefax", title: "WEFAX" }, "|",
+  { key: "sstv", title: "SSTV" }, { key: "wefax", title: "WEFAX" }, { key: "wspr", title: "WSPR" }, "|",
   { key: "acars", title: "ACARS" }, { key: "adsb", title: "ADS-B" }, { key: "hfdl", title: "HFDL" }, { key: "vdl2", title: "VDL2" }, "|",
   { key: "ais", title: "AIS" }, "|",
   { key: "sonde", title: "SONDE" }, "|",
@@ -4044,6 +4083,20 @@ function renderComKey() {
   $("comTab").hidden = !on;
 }
 $("comKey").addEventListener("click", () => setComOn(!comTabShown()));
+/** PROP key (PROP group): the PROPAGATION tab is there only while it is on; one switch for all VFOs. */
+function propTabShown() { return recall("propOn") === "1"; }
+function setPropOn(on) {
+  store("propOn", on ? "1" : "0");
+  if (on) setBodyTab("prop");
+  else if (bodyTab === "prop") setBodyTab("scope");
+  else renderPropKey();
+}
+function renderPropKey() {
+  const on = propTabShown();
+  $("propKey").classList.toggle("on", on);
+  $("propTab").hidden = !on;
+}
+$("propKey").addEventListener("click", () => setPropOn(!propTabShown()));
 for (const id of ["ft8On", "wefaxOn", "cwOn", "rttyOn", "sstvOn", "packetOn", "pocsagOn", "sondeOn", "acarsOn", "vdl2On", "hfdlOn", "aisOn", "adsbOn"]) {
   $(id).addEventListener("change", () => renderDecTab());
 }
@@ -13980,6 +14033,8 @@ function onStatus(s) {
   renderRds();
   $("ft8On").checked = s.ft8;
   renderFt8Info();
+  wsprStatus(s);
+  decBandsMark(s);
   $("wefaxOn").checked = s.wefax;
   $("wefaxCard").hidden = !s.wefax;
   $("cwOn").checked = s.cw;
@@ -14174,6 +14229,8 @@ function connectEvents(v) {
   on("ft8", ft8StUpsert);
   on("ft8stclear", ft8StClear);
   on("ft8cycle", (d) => renderFt8Info(`cycle ${d.time} · decoding…`));
+  on("wspr", (d) => { wsprAdd(d, true); decActivity("wspr"); });
+  on("wsprcycle", (d) => { wsprInfo(st, d.info); wsprProg = { ...wsprProg, ...d }; renderWsprProg(); });
   bus.addEventListener("down", () => {
     v.online = false;
     renderVfoDisplays();
@@ -14500,11 +14557,11 @@ function renderVfoDisplays() {
       : s.status === "opening dongle" ? ["OPENING", "wait", "opening dongle"]
       : s.status === "calibrating" ? ["CAL", "wait", "LimeSDR calibration"]
       : ["OFFLINE", "off", `receiver ${s.status}`];
-    // Connection as a USB icon (network icon for rtl_tcp): green = running, blinking orange = connecting (WAIT / OPENING / CAL),
+    // Connection as a USB icon (network icon for rtl_tcp and SpyServer): green = running, blinking orange = connecting (WAIT / OPENING / CAL),
     // grey = disconnected (OFFLINE); CHAIN and OOR stay as text. Details in the tooltip.
     const connecting = ["WAIT", "OPENING", "CAL"].includes(stTxt);
     const icon = connecting || stTxt === "RUNNING" || stTxt === "OFFLINE";
-    const net = ((s && s.driver) || v.driver) === "rtltcp";
+    const net = ["rtltcp", "spyserver"].includes((s && s.driver) || v.driver);   // network source (rtl_tcp, SpyServer)
     const netWarn = net && s && s.net_warn && s.net_warn.length ? s.net_warn : null;
     const stHtml = icon ? (net ? NET_ICON + (netWarn ? NET_WARN_ICON : "") : USB_ICON) : stTxt;
     if (stat.dataset.html !== stHtml) { stat.innerHTML = stHtml; stat.dataset.html = stHtml; }
@@ -14646,6 +14703,7 @@ async function selectVfo(v, keepTab) {
   adRotInfo = null; rotorInfo = null; rotorPendingOn = false;
   for (const id of ["modes", "bandwidths", "steps"]) $(id)._html = null;
   $("ft8Rows").innerHTML = ""; $("ft8Empty").hidden = false; ft8Cycle = null; ft8Count = 0;
+  wsprReset();
   cwReset(); rttyOut.clear();
   packetReset();
   pocsagReset();
@@ -14706,6 +14764,7 @@ async function loadDecoders() {
   if (v !== active) return;
   for (const d of decodes) addFt8(d, false);
   await ft8StLoad();
+  await wsprLoad(v);
   const ac = await fetch(vbase + "/api/acars").then((r) => r.json());
   const cp = await fetch(vbase + "/api/cpdlc").then((r) => r.json());
   if (v !== active) return;
@@ -15720,7 +15779,7 @@ $("lgViewClose").addEventListener("click", lgViewClose);
 
 // LOGGING: the LOG switch of every decoder on every VFO (from their states), and what is always written
 const LG_LOGS = [["ft8", "FT8"], ["cw", "CW"], ["rtty", "RTTY"], ["wefax", "WEFAX"], ["sstv", "SSTV"], ["acars", "ACARS / VDL2"],
-  ["hfdl", "HFDL"], ["ais", "AIS"], ["adsb", "ADS-B"], ["ism", "ISM"], ["packet", "PACKET"], ["pocsag", "POCSAG"], ["dsd", "DSD"]];
+  ["hfdl", "HFDL"], ["ais", "AIS"], ["adsb", "ADS-B"], ["ism", "ISM"], ["packet", "PACKET"], ["pocsag", "POCSAG"], ["dsd", "DSD"], ["wspr", "WSPR"]];
 const LG_ALWAYS = [["SCAN activities", "logs\\scan", "every activity of the scan; kept KEEP HISTORY days (⚙ of SCAN, default 31)"],
   ["RADIOSONDE flights", "logs\\radiosonde", "every frame while SONDE runs (the history of the sonde map 1D / 7D); kept until deleted"],
   ["COMPOSITE map history", "composite_<VFO>.json", "positions of the last 6 hours per VFO, written every 2 min (HISTORY)"],
@@ -15747,7 +15806,9 @@ function lgRenderLogging() {
   }
   html += `<tr class="lg-sep"><td colspan="${list.length + 2}"></td></tr>`;
   for (const [label, where, what] of LG_ALWAYS) html += `<tr class="lg-always"><td>${label}</td><td class="c" colspan="${list.length}"><span class="lg-badge">ALWAYS</span> <span class="muted">${escHtml(what)}</span></td><td class="muted">${escHtml(where)}</td></tr>`;
-  $("lgLogTable").innerHTML = html + "</tbody>";
+  // rebuilt every 2 s: only when something changed (a new table each time made the switches blink)
+  const el = $("lgLogTable");
+  if (el.dataset.html !== html) { el.innerHTML = html + "</tbody>"; el.dataset.html = html; }
   $("lgLogInfo").textContent = `${on} log${on === 1 ? "" : "s"} on`;
 }
 $("lgLogTable").addEventListener("change", async (e) => {
@@ -15756,7 +15817,13 @@ $("lgLogTable").addEventListener("change", async (e) => {
   const list = vfos.length ? vfos : [{ name: "", base: vbase }];
   const v = list[+box.dataset.vfo];
   const r = await fetch(`${v.base}/api/set`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ log: { [box.dataset.log]: box.checked } }) });
-  if (!r.ok) { adError((await r.json().catch(() => ({}))).error || "Log: error"); box.checked = !box.checked; }
+  if (!r.ok) { adError((await r.json().catch(() => ({}))).error || "Log: error"); box.checked = !box.checked; return; }
+  // the server took it: keep it in the state the table is drawn from (a VFO that is not selected may send its next
+  // status only later, and the table drawn from the old one turned the switch back off)
+  const s = v === active ? st : v.st;
+  if (s) s.logs = { ...(s.logs || {}), [box.dataset.log]: box.checked };
+  if (v === active && v.st && v.st !== st) v.st.logs = { ...(v.st.logs || {}), [box.dataset.log]: box.checked };
+  lgRenderLogging();
 });
 
 // HISTORY: what the maps keep, with EXPORT (a JSON file), IMPORT (merged) and CLEAR
@@ -19437,3 +19504,597 @@ function sdgStart() {
   sdg.html = "";
   sdgTick();
 }
+
+// ---------- PROPAGATION (PROP key): space weather from NOAA SWPC and the HF bands at the station (spacewx.py) ----------
+// The data come from the server of this page every 2 min (the server downloads each NOAA feed only when its copy is
+// stale); they fill the short chip under the S-meter all the time and the PROPAGATION tab while it is open.
+Object.assign(SDG_ICO, { mgn: '<path d="M1.5 9h2.2l1.4-4.5 2 8 2-6.5 1.4 4 1-1h2.9"/>', tst: '<path d="M2.5 13.5h11M2.5 13.5v-11"/><path d="M4.5 10.5l2.5-3 2 2 4-5"/>',
+  sun: '<circle cx="8" cy="8" r="3"/><path d="M8 1.2v1.8M8 13v1.8M1.2 8H3M13 8h1.8M3.2 3.2l1.3 1.3M11.5 11.5l1.3 1.3M3.2 12.8l1.3-1.3M11.5 4.5l1.3-1.3"/>',
+  xr: '<path d="M1.5 12.5l3-3 2 1.5 3-6 2 3 3-5"/><path d="M1.5 14.5h13" opacity=".6"/>',
+  sw: '<path d="M1.5 5h8a2 2 0 1 0-2-2M1.5 8h11a2 2 0 1 1-2 2M1.5 11h6"/>',
+  geo: '<circle cx="8" cy="8" r="2.6"/><path d="M8 5.4C4 1 1 4 2.5 8S8 10.6 8 10.6M8 5.4c4-4.4 7-1.4 5.5 2.6S8 10.6 8 10.6"/>',
+  scl: '<path d="M2 13.5h12M3.5 13.5V10M6.5 13.5V7.5M9.5 13.5V5M12.5 13.5V2.5"/>',
+  muf: '<path d="M1.5 13.5C4 6 6 4 8 4s4 2 6.5 9.5"/><path d="M1.5 13.5h13" opacity=".6"/>',
+  ion: '<path d="M8 14.5V9M5.5 14.5h5"/><path d="M8 9L4.5 3M8 9l3.5-6"/><path d="M2 5.5c2-2.5 10-2.5 12 0" opacity=".7"/>',
+  es: '<path d="M1.5 13.5L8 6l6.5 7.5"/><path d="M4 6.5h8" stroke-dasharray="1.6 1.4"/>',
+  ft8: '<path d="M2 3.5h12v9H2z"/><path d="M4 6.5h2M7.5 6.5h4.5M4 9.5h5M10.5 9.5h1.5"/>',
+});
+const prop = { d: null, at: 0, err: null, ft8: [], ft8At: 0 };
+// FT8 bands (MHz) for the stations heard by the FT8 decoders of all VFOs
+const PROP_FT8_BANDS = [["160m", 1.8, 2], ["80m", 3.5, 4], ["60m", 5.25, 5.45], ["40m", 7, 7.3], ["30m", 10.1, 10.15], ["20m", 14, 14.35],
+  ["17m", 18.068, 18.168], ["15m", 21, 21.45], ["12m", 24.89, 24.99], ["10m", 28, 29.7], ["6m", 50, 54], ["4m", 70, 70.5], ["2m", 144, 146]];
+const PROP_FT8_MIN = 30;         // minutes: stations heard in this time count
+const PROP_ES_KM = [500, 2300];   // one Es hop; on 6 m almost only Es (tropo is shorter, F2 rare), on 10–15 m Es when F2 is closed
+function propDist(la1, lo1, la2, lo2) {
+  const r = Math.PI / 180, c = Math.sin(la1 * r) * Math.sin(la2 * r) + Math.cos(la1 * r) * Math.cos(la2 * r) * Math.cos((lo2 - lo1) * r);
+  return 6371 * Math.acos(Math.max(-1, Math.min(1, c)));
+}
+/** The FT8 stations heard in the last PROP_FT8_MIN minutes, by band: count, the farthest, the ones in one Es hop. */
+function propFt8ByBand(d) {
+  const q = d.qth, out = {};
+  if (!q || q.lat == null || (q.lat === 0 && q.lon === 0)) return out;
+  const since = Date.now() / 1000 - PROP_FT8_MIN * 60, muf = d.prop?.muf ?? 0;
+  for (const st of prop.ft8) {
+    if (!(st.ts >= since) || st.lat == null) continue;
+    const mhz = st.freq_hz / 1e6, b = PROP_FT8_BANDS.find(([, lo, hi]) => mhz >= lo && mhz <= hi);
+    if (!b) continue;
+    const km = Math.round(propDist(q.lat, q.lon, st.lat, st.lon));
+    const o = (out[b[0]] ||= { n: 0, max: 0, es: [], list: [] });
+    o.n++; o.max = Math.max(o.max, km);
+    o.list.push(`${st.call} ${st.grid} ${km} km ${st.snr} dB`);
+    // in one Es hop: on 6 m and up always Es, on 15–10 m only while the F2 MUF is under the band (else it may be F2)
+    if (km >= PROP_ES_KM[0] && km <= PROP_ES_KM[1] && (mhz >= 50 || (mhz >= 21 && muf < mhz))) o.es.push(`${st.call} ${km} km`);
+  }
+  return out;
+}
+async function pollPropFt8() {
+  const on = vfos.filter((v) => v.name && v.online);
+  const lists = await Promise.all(on.flatMap((v) => ["/api/ft8/stations", "/api/wspr/stations"].map((u) => fetch(v.base + u).then((r) => (r.ok ? r.json() : [])).catch(() => []))));
+  const seen = new Map();
+  for (const l of lists) for (const st of l || []) if (!seen.has(st.call + st.freq_hz) || seen.get(st.call + st.freq_hz).ts < st.ts) seen.set(st.call + st.freq_hz, st);
+  prop.ft8 = [...seen.values()]; prop.ft8At = Date.now();
+}
+const propKpCls = (kp) => (kp == null ? "" : kp >= 5 ? "bad" : kp >= 4 ? "warn" : "ok");
+const propHM = (iso) => (iso ? iso.slice(11, 16) : "–");
+const propAge = (iso) => {
+  const t = iso ? Date.parse(iso) : NaN;
+  if (!isFinite(t)) return "";
+  const m = Math.max(0, Math.round((Date.now() - t) / 60000));
+  return m < 60 ? `${m} min ago` : m < 48 * 60 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`;
+};
+const propGeoText = (kp) => (kp == null ? "–" : kp >= 9 ? "extreme storm (G5)" : kp >= 8 ? "severe storm (G4)" : kp >= 7 ? "strong storm (G3)"
+  : kp >= 6 ? "moderate storm (G2)" : kp >= 5 ? "minor storm (G1)" : kp >= 4 ? "active" : kp >= 3 ? "unsettled" : "quiet");
+/** The worst of now: 0 calm, 1 watch (Kp 4, R1, S1, M flare, Bz strongly south), 2 storm (Kp 5+ or G1+, R3+, X flare). */
+function propLevel(d) {
+  const sc = d.scales?.["0"] || {}, R = sc.R?.scale || 0, S = sc.S?.scale || 0, G = sc.G?.scale || 0;
+  const kp = d.kp ?? 0, xc = (d.xray?.cls || "")[0];
+  if (kp >= 5 || G >= 1 || R >= 3 || xc === "X") return 2;
+  if (kp >= 4 || R >= 1 || S >= 1 || xc === "M" || (d.wind?.bz ?? 0) <= -10) return 1;
+  return 0;
+}
+
+async function pollProp() {
+  if (document.hidden && prop.d) return;
+  try {
+    const d = await fetch("/api/spacewx").then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))));
+    prop.d = d; prop.at = Date.now(); prop.err = null;
+  } catch (e) { prop.err = e.message; }
+  if (bodyTab === "prop" || Date.now() - prop.ft8At > 600000) await pollPropFt8().catch(() => {});
+  renderPropChip();
+  if (bodyTab === "prop") renderProp();
+}
+function propOpened() { renderProp(); if (Date.now() - prop.at > 60000) pollProp(); }
+
+function renderPropChip() {
+  const d = prop.d, el = $("propChip");
+  if (!d || (!d.sfi && d.kp == null)) { el.hidden = true; return; }
+  const sc = d.scales?.["0"] || {}, lv = propLevel(d);
+  const rsg = ["R", "S", "G"].map((k) => `${k}${sc[k]?.scale ?? "–"}`).join(" ");
+  el.innerHTML = `<span>SFI</span><b>${d.sfi ? Math.round(d.sfi.sfi) : "–"}</b><span>Kp</span><b class="${propKpCls(d.kp)}">${d.kp != null ? d.kp.toFixed(1) : "–"}</b>` +
+    `<span>A</span><b>${d.a ?? "–"}</b><b class="rsg">${rsg}</b>`;
+  el.className = "prop-chip " + ["ok", "warn", "bad"][lv];
+  const NL = String.fromCharCode(10);
+  el.title = [`Space weather (NOAA SWPC) – click: the PROPAGATION tab`, "",
+    `Solar flux SFI ${d.sfi ? Math.round(d.sfi.sfi) : "–"}${d.sfi?.mean90 ? ` (90-day mean ${Math.round(d.sfi.mean90)})` : ""} · sunspot number ${d.ssn ?? "–"}`,
+    `Kp ${d.kp != null ? d.kp.toFixed(1) : "–"} = ${propGeoText(d.kp)} · A ${d.a ?? "–"}`,
+    `X-ray ${d.xray?.cls || "–"} · solar wind ${d.wind?.speed ?? "–"} km/s, Bz ${d.wind?.bz ?? "–"} nT`,
+    `NOAA scales now: ${rsg} (R = radio blackouts, S = solar radiation storms, G = geomagnetic storms)`,
+    d.prop ? `HF at the station: MUF(3000) about ${Math.round(d.prop.muf)} MHz (own estimate)` : ""].filter(Boolean).join(NL);
+  el.hidden = false;
+}
+$("propChip").addEventListener("click", () => setPropOn(true));
+$("propChip").addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setPropOn(true); } });
+
+function propBlocks(d) {
+  const out = [], sc = d.scales || {}, now = sc["0"] || {};
+  const f = d.sfi, last = d.daily?.[d.daily.length - 1];
+  out.push(sdgBlk("SOLAR FLUX", `<span class="v">SFI ${f ? Math.round(f.sfi) : "–"}</span><span>90-day mean ${f?.mean90 ? Math.round(f.mean90) : "–"}` +
+    ` · sunspots ${d.ssn ?? "–"}</span>`, f ? "lit k-sun" : "off k-sun",
+    "10.7 cm solar radio flux (Penticton, 3 a day) and the sunspot number of the last day. Higher = a denser F2 layer = higher bands open. " +
+    "About 70 = solar minimum, 150+ = 10 m opens most days, 200+ = 6 m F2 possible."));
+  const x = d.xray, fl = d.flare, xc = (x?.cls || "")[0];
+  out.push(sdgBlk("X-RAY", `<span class="v">${x?.cls || "–"}</span><span>last flare ${fl?.max || "–"}${fl?.max_t ? ` at ${propHM(fl.max_t)}` : ""}` +
+    `${last ? ` · ${last.date.slice(5)}: C${last.c} M${last.m} X${last.x}` : ""}</span>`,
+    (x ? "lit " : "off ") + (xc === "X" ? "bad " : xc === "M" ? "warn " : "") + "k-xr",
+    "GOES X-ray flux 0.1–0.8 nm now and the flares of the last full day. An M or X flare ionises the D layer on the day side: " +
+    "short-wave fade-out, the low bands first (NOAA R scale)."));
+  const w = d.wind;
+  const wCls = !w ? "off" : (w.speed ?? 0) >= 700 || (w.bz ?? 0) <= -10 ? "lit bad" : (w.speed ?? 0) >= 500 || (w.bz ?? 0) <= -5 ? "lit warn" : "lit";
+  out.push(sdgBlk("SOLAR WIND", `<span class="v">${w?.speed ?? "–"} km/s</span><span>Bt ${w?.bt ?? "–"} nT · Bz ${w?.bz ?? "–"} nT</span>`, wCls + " k-sw",
+    "At L1, about an hour before the Earth. Fast wind (500+ km/s) and a field turned to the south (Bz negative, −10 nT and less) start geomagnetic storms."));
+  out.push(sdgBlk("GEOMAGNETIC", `<span class="v">Kp ${d.kp != null ? d.kp.toFixed(1) : "–"} · A ${d.a ?? "–"}</span><span>${propGeoText(d.kp)}</span>`,
+    (d.kp == null ? "off" : d.kp >= 5 ? "lit bad" : d.kp >= 4 ? "lit warn" : "lit") + " k-geo",
+    "Planetary Kp (estimated, each minute) and A of the last 24 h. Kp 0–2 quiet: best for the low bands and polar paths; 4 active; 5+ storm: " +
+    "the F2 layer drops (lower MUF), polar paths close, absorption; aurora on 6 m / 2 m possible."));
+  const scl = (k) => { const v = now[k]?.scale; return `<span class="sdg-c ${v ? (v >= 3 ? "bad" : "warn") : "on"}">${k}${v ?? "–"}</span>`; };
+  const fc = ["1", "2", "3"].map((k) => sc[k]).filter(Boolean);
+  const rMax = fc.length ? Math.max(...fc.map((s) => s.R?.minor || 0)) : null, gMax = fc.length ? Math.max(...fc.map((s) => s.G?.scale || 0)) : null;
+  const sMax = Math.max(now.R?.scale || 0, now.S?.scale || 0, now.G?.scale || 0);
+  out.push(sdgBlk("NOAA SCALES", `<span class="chips">${scl("R")}${scl("S")}${scl("G")}</span>` +
+    `<span>3 days: R1+ ${rMax ?? "–"} % · up to ${gMax != null ? "G" + gMax : "–"}${sc["-1"] ? ` · yesterday R${sc["-1"].R?.scale ?? "–"} S${sc["-1"].S?.scale ?? "–"} G${sc["-1"].G?.scale ?? "–"}` : ""}</span>`,
+    (now.R ? "lit " : "off ") + (sMax >= 3 ? "bad " : sMax >= 1 ? "warn " : "") + "k-scl",
+    "NOAA space weather scales now: R = radio blackouts (X-ray flares), S = solar radiation storms (polar cap absorption), G = geomagnetic storms. " +
+    "Under them the forecast for the next 3 days: probability of an R1+ blackout and the highest G expected."));
+  const p = d.prop;
+  out.push(sdgBlk("HF AT THE STATION", p ? `<span class="v">MUF ≈ ${Math.round(p.muf)} MHz</span><span>foF2 ≈ ${p.fof2.toFixed(1)} MHz · ${p.hours[0].day ? "day" : "night"} · SFI ${p.sfi_used}</span>` +
+    `<span title="${escHtml(p.cal_from?.join(", ") || "")}">${p.cal_from?.length ? `corrected ×${p.cal.toFixed(2)} by ${p.cal_from.length} ionosonde${p.cal_from.length > 1 ? "s" : ""}` : "model only (no near ionosonde)"}</span>`
+    : `<span>set the location</span>`, (p ? "lit" : "off") + " k-muf",
+    "Estimate over the station: foF2 from the solar flux (mean of today and the 90-day mean), the height of the sun, the season and Kp; " +
+    "MUF(3000) = 3 × foF2 (one F2 hop of about 3000 km). Corrected by the ionosondes up to 1000 km away (their measured MUF over the model " +
+    "at their place and time, the nearer the more); the correction fades into the model over the next hours. Location: SETTINGS › GENERAL › LOCATION."));
+  // sporadic E: foEs of the near ionosondes and what the FT8 decoders hear in one Es hop
+  const ft = propFt8ByBand(d), esB = Object.entries(ft).filter(([, o]) => o.es.length);
+  const ion = (d.iono || []).filter((s) => s.km <= 1000 && s.foes);
+  const esCls = esB.length || (p?.es_muf ?? 0) >= 50 ? "lit bad" : (p?.es_muf ?? 0) >= 28 ? "lit warn" : p?.es_muf || prop.ft8.length ? "lit" : "off";
+  out.push(sdgBlk("SPORADIC E", `<span class="v">${p?.es_muf ? `MUF(Es) ≈ ${Math.round(p.es_muf)} MHz` : "no foEs now"}</span>` +
+    `<span>${ion.length ? ion.map((s) => `${escHtml(s.code)} foEs ${s.foes.toFixed(1)}`).join(" · ") : "ionosondes: no Es"}</span>` +
+    `<span>${esB.length ? `FT8 Es: ${esB.map(([b, o]) => `${b} ${o.es.length}×`).join(", ")}` : prop.ft8.length ? "FT8: nothing in one Es hop" : "FT8: nothing heard"}</span>`,
+    esCls + " k-es",
+    "Sporadic E: thin dense clouds at ~105 km, mostly May–August by day and in the evening, also in December. From the near ionosondes: " +
+    "MUF(Es) ≈ 5.3 × foEs for one hop of about 2000 km (foEs 10 MHz = 6 m open). From the FT8 decoders of all VFOs: stations heard in the last " +
+    `${PROP_FT8_MIN} min ${PROP_ES_KM[0]}–${PROP_ES_KM[1]} km away on 6 m and up, or on 15–10 m while the F2 MUF is under the band = Es now. ` +
+    "Red = 6 m open, amber = 10 m open by Es."));
+  return out.join("");
+}
+
+/** The ionosondes up to 1500 km from the station, the nearest first: their newest foF2, MUF(3000), foEs. */
+function propIonoHtml(d) {
+  const l = d.iono || [];
+  if (!l.length) return '<div class="muted">No ionosonde with a value in the last 6 hours up to 1500 km away.</div>';
+  const used = new Set(d.prop?.cal_from || []);
+  return l.map((s) => sdgBlk(`${escHtml(s.code)} <em>${s.km} km</em>`,
+    `<span class="v">MUF ${s.mufd != null ? s.mufd.toFixed(1) : "–"} · foF2 ${s.fof2 != null ? s.fof2.toFixed(1) : "–"}</span>` +
+    `<span>${escHtml(s.name || "")}</span><span>foEs ${s.foes != null ? s.foes.toFixed(1) : "–"} · ${Math.round(s.age_s / 60)} min ago${s.cs != null && s.cs >= 0 ? ` · cs ${Math.round(s.cs)}` : ""}</span>`,
+    (used.has(s.code) ? "lit" : s.age_s > 5400 ? "off" : "lit idle-ion") + " k-ion",
+    `${s.name} (${s.code}), ${s.km} km from the station, ${s.t.slice(0, 16).replace("T", " ")} UTC. MUF(3000) and foF2 in MHz` +
+    `${s.model != null ? `; the model there and then: MUF ${s.model} MHz` : ""}. cs = KC2G confidence of the automatic scaling (0–100). ` +
+    (used.has(s.code) ? "Corrects the model now." : "Not used for the correction (farther than 1000 km, older than 90 min or a low confidence).")
+  )).join("");
+}
+
+/** Kp bars: the last 3 days (observed, estimated) and the forecast (lighter), one bar per 3 h. */
+function propKpSvg(d) {
+  const rows = (d.kp_fc || []).filter((r) => Date.parse(r.t) >= Date.now() - 3 * 86400e3);
+  if (!rows.length) return '<div class="muted">no data</div>';
+  const W = 600, H = 120, L = 22, B = 16, T = 6, n = rows.length, bw = (W - L - 2) / n, y = (k) => T + (H - T - B) * (1 - k / 9);
+  let g = "";
+  for (const k of [3, 5, 7, 9]) g += `<line class="grid" x1="${L}" x2="${W}" y1="${y(k)}" y2="${y(k)}"/><text x="${L - 4}" y="${y(k) + 3}" text-anchor="end">${k}</text>`;
+  rows.forEach((r, i) => {
+    const x = L + 1 + i * bw, h = Math.max(1, y(0) - y(r.kp)), pred = r.kind === "predicted";
+    g += `<rect class="kp ${propKpCls(r.kp)}${pred ? " pred" : ""}" x="${x + 1}" y="${y(r.kp)}" width="${Math.max(1, bw - 2)}" height="${h}"><title>${r.t.slice(0, 16).replace("T", " ")} UTC · Kp ${r.kp.toFixed(2)} (${r.kind})</title></rect>`;
+    if (r.t.slice(11, 13) === "00") g += `<line class="day" x1="${x}" x2="${x}" y1="${T}" y2="${H - B}"/><text x="${x + 3}" y="${H - 4}">${r.t.slice(5, 10)}</text>`;
+  });
+  const t0 = Date.parse(rows[0].t), nx = L + 1 + ((Date.now() - t0) / (3 * 3600e3)) * bw;
+  if (nx > L && nx < W) g += `<line class="now" x1="${nx}" x2="${nx}" y1="${T}" y2="${H - B}"/>`;
+  return `<svg class="prop-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${g}</svg>`;
+}
+
+/** X-ray flux, log scale with the A B C M X classes. */
+function propXraySvg(d) {
+  const c = d.xray?.curve || [];
+  if (c.length < 2) return '<div class="muted">no data</div>';
+  const W = 600, H = 120, L = 22, B = 16, T = 6, lo = -8, hi = -3;
+  const t0 = Date.parse(c[0].t), t1 = Date.parse(c[c.length - 1].t), span = Math.max(1, t1 - t0);
+  const x = (t) => L + (W - L - 2) * ((Date.parse(t) - t0) / span), y = (f) => T + (H - T - B) * (1 - (Math.log10(Math.max(f, 1e-9)) - lo) / (hi - lo));
+  let g = "";
+  ["A", "B", "C", "M", "X"].forEach((k, i) => {
+    const yy = y(10 ** (lo + i)), y2 = y(10 ** (lo + i + 1));
+    g += `<rect class="xband ${k}" x="${L}" y="${y2}" width="${W - L}" height="${yy - y2}"/><text x="${L - 4}" y="${(yy + y2) / 2 + 3}" text-anchor="end">${k}</text>`;
+  });
+  for (const p of c) if (p.t.slice(14, 16) === "00") g += `<line class="day" x1="${x(p.t)}" x2="${x(p.t)}" y1="${T}" y2="${H - B}"/><text x="${x(p.t) + 3}" y="${H - 4}">${p.t.slice(11, 16)}</text>`;
+  g += `<path class="xline" d="${c.map((p, i) => `${i ? "L" : "M"}${x(p.t).toFixed(1)} ${y(p.f).toFixed(1)}`).join("")}"/>`;
+  return `<svg class="prop-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${g}</svg>`;
+}
+
+// magnetogram of Kiruna (IRF): X Y Z as the difference from their median of the last 24 h, nT; the time axis is the last 24 h
+function propMagSvg(d) {
+  const k = d.kir, c = k?.pts || [];
+  if (c.length < 2) return '<div class="muted">no data</div>';
+  const W = 600, H = 120, L = 30, B = 16, T = 6, t1 = c[c.length - 1][0], t0 = t1 - 86400;
+  const med = [1, 2, 3].map((i) => { const v = c.map((p) => p[i]).sort((a, b) => a - b); return v[v.length >> 1]; });
+  let m = 50;
+  for (const p of c) for (const i of [0, 1, 2]) m = Math.max(m, Math.abs(p[i + 1] - med[i]));
+  const st = [50, 100, 200, 250, 500, 1000, 2000].find((s) => s * 2 >= m) || 2000, top = Math.ceil(m / st) * st;
+  const x = (t) => L + (W - L - 2) * ((t - t0) / 86400), y = (v) => T + (H - T - B) * (1 - (v + top) / (2 * top));
+  let g = "";
+  for (let v = -top; v <= top; v += st) g += `<line class="${v ? "grid" : "day"}" x1="${L}" x2="${W}" y1="${y(v)}" y2="${y(v)}"/><text x="${L - 4}" y="${y(v) + 3}" text-anchor="end">${v > 0 ? "+" : ""}${v}</text>`;
+  for (let t = Math.ceil(t0 / 10800) * 10800; t <= t1; t += 10800) {
+    const hh = new Date(t * 1000).toISOString().slice(11, 13);
+    g += `<line class="grid" x1="${x(t)}" x2="${x(t)}" y1="${T}" y2="${H - B}"/><text x="${x(t) + 3}" y="${H - 4}">${hh}</text>`;
+  }
+  ["x", "y", "z"].forEach((n, i) => {
+    let path = "", prev = null;
+    for (const p of c) {
+      if (p[0] < t0) continue;
+      path += `${prev == null || p[0] - prev > 600 ? "M" : "L"}${x(p[0]).toFixed(1)} ${y(p[i + 1] - med[i]).toFixed(1)}`;
+      prev = p[0];
+    }
+    g += `<path class="mline ${n}" d="${path}"/>`;
+  });
+  return `<svg class="prop-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${g}</svg>`;
+}
+
+// the three charts as STATION blocks: Kp, X-ray, magnetogram
+function propChartsRender(d) {
+  const kpc = propKpCls(d.kp), xc = (d.xray?.cls || "")[0], k = d.kir, dx = k?.dx3h;
+  const magLvl = dx == null ? "" : dx >= 400 ? "bad" : dx >= 150 ? "warn" : "";
+  $("propKp").innerHTML = sdgBlk("Kp · 3 DAYS AND FORECAST", `<span class="v">Kp ${d.kp != null ? d.kp.toFixed(1) : "–"}<i>3 h bars, UTC; the forecast paler</i></span>${propKpSvg(d)}`,
+    `${d.kp_hist?.length ? "lit" : "off"} ${kpc === "bad" ? "bad" : kpc === "warn" ? "warn" : ""} k-geo`,
+    "Planetary Kp index (NOAA SWPC): observed 3-hour values of the last 3 days and the forecast. 4 = active, 5+ = geomagnetic storm (G1+).");
+  $("propXray").innerHTML = sdgBlk("X-RAY · LAST 6 HOURS", `<span class="v">${d.xray?.cls || "–"}<i>GOES 0.1–0.8 nm, log scale</i></span>${propXraySvg(d)}`,
+    `${d.xray ? "lit" : "off"} ${xc === "X" ? "bad" : xc === "M" ? "warn" : ""} k-xr`,
+    "GOES X-ray flux. An M or X flare damps the HF bands on the day side for minutes to hours (short-wave fade-out).");
+  $("propMag").innerHTML = sdgBlk("MAGNETOGRAM · KIRUNA · 24 h",
+    `<span class="v">${dx != null ? `ΔX 3 h ${dx} nT · ${magLvl === "bad" ? "disturbed" : magLvl ? "active" : "quiet"}` : "–"}` +
+    `<i><em class="mx">X</em> <em class="my">Y</em> <em class="mz">Z</em> nT from the 24 h median${k ? ` · ${k.t.slice(11, 16)} UTC` : ""}</i></span>${propMagSvg(d)}`,
+    `${k ? "lit" : "off"} ${magLvl} k-mgn`,
+    "Magnetometer of the Kiruna observatory (Swedish Institute of Space Physics, IRF), 67.8° N: 1-minute X (north), Y (east), Z (down). " +
+    "Big fast swings of X = substorms and aurora in the north (auroral Es and flutter on 6 m / 2 m, worse polar paths on HF). " +
+    "ΔX 3 h = the range of X in the last 3 hours: under 150 nT quiet, 150–400 active, 400+ disturbed.");
+}
+
+function propBandsHtml(d) {
+  const p = d.prop;
+  if (!p) return `<div class="muted">The band estimate needs the location of the station: SETTINGS › GENERAL › LOCATION.</div>`;
+  const R = ["poor", "fair", "good"], ft = propFt8ByBand(d), NL = String.fromCharCode(10);
+  let h = `<div class="pb-row pb-head"><span>UTC</span><span>NOW</span>${p.hours.map((x, i) => `<span title="${x.t.slice(0, 13).replace("T", " ")} UTC · ${x.day ? "day" : "night"} at the station · MUF ≈ ${x.muf} MHz${x.kp != null ? ` · Kp ${x.kp.toFixed(1)}` : ""}">${i === 0 || +x.t.slice(11, 13) % 3 === 0 ? x.t.slice(11, 13) : ""}</span>`).join("")}</div>`;
+  h += `<div class="pb-row pb-sun"><span>SUN</span><span></span>${p.hours.map((x) => `<span class="${x.day ? "d" : "n"}" title="${x.day ? "day" : "night"} at the station"></span>`).join("")}</div>`;
+  h += `<div class="pb-row pb-muf"><span title="Maximum usable frequency for one F2 hop (3000 km), MHz">MUF <i>MHz</i></span><span>${Math.round(p.muf)}</span>${p.hours.map((x) => `<span title="MUF(3000) ≈ ${x.muf} MHz">${Math.round(x.muf)}</span>`).join("")}</div>`;
+  for (const b of p.bands) {
+    const o = ft[b.band];
+    // what is heard beats the estimate: FT8 stations over 1000 km away raise NOW (1 = FAIR, 3+ or Es = GOOD)
+    const far = o ? o.list.filter((x) => +x.split(" ")[2] > 1000).length : 0;
+    const heard = o && (o.es.length || far >= 3) ? 2 : far ? 1 : 0, now = Math.max(b.now, heard);
+    const why = [b.es ? `raised by sporadic E (MUF(Es) ≈ ${Math.round(p.es_muf)} MHz)` : "", heard > b.now ? `raised by FT8: ${far} stations over 1000 km${o.es.length ? `, ${o.es.length} in one Es hop` : ""} (estimate: ${p.ratings[b.now]})` : ""].filter(Boolean).join("; ");
+    const tag = b.es || o?.es.length ? " Es" : heard > b.now ? " FT8" : "";
+    h += `<div class="pb-row"><span class="pb-band">${b.band} <i>(${PROP_BAND_MHZ[b.band] ?? b.mhz})</i></span><span class="pb-now ${R[now]}${tag ? ` by-${tag.trim().toLowerCase()}` : ""}"${why ? ` title="${escHtml(why)}"` : ""}>${p.ratings[now]}</span>` +
+      b.hours.map((r, i) => `<span class="pb-c ${R[r]}" title="${b.band} (${b.mhz} MHz) · ${p.hours[i].t.slice(11, 13)} UTC: ${p.ratings[r]}"></span>`).join("") + "</div>";
+  }
+  return h;
+}
+const PROP_BAND_MHZ = { "160m": 1.8, "80m": 3.5, "60m": 5.3, "40m": 7, "30m": 10.1, "20m": 14, "17m": 18, "15m": 21, "12m": 24.9, "10m": 28, "6m": 50 };
+
+// FT8 block next to the band grid (STATION look): per band a bar of the farthest station (log 100–20000 km), the count and the km
+function propFt8Html(d) {
+  const p = d.prop, ft = propFt8ByBand(d), NL = String.fromCharCode(10);
+  const bands = p ? p.bands.map((b) => b.band) : PROP_FT8_BANDS.map((b) => b[0]);
+  const total = Object.values(ft).reduce((s, o) => s + o.n, 0);
+  const pos = (km) => Math.max(4, Math.min(100, (100 * Math.log10(Math.max(km, 100) / 100)) / Math.log10(200)));
+  const rows = bands.map((band) => {
+    const o = ft[band];
+    if (!o) return `<div class="pf-row none"><span class="pf-b">${band}</span><span class="pf-bar"></span><span class="pf-n">–</span><span class="pf-km"></span></div>`;
+    const tip = `${band}: ${o.n} stations in ${PROP_FT8_MIN} min, the farthest ${o.max} km${o.es.length ? `${NL}in one Es hop: ${o.es.join(", ")}` : ""}${NL}${o.list.slice(0, 20).join(NL)}`;
+    return `<div class="pf-row${o.es.length ? " es" : ""}" title="${escHtml(tip)}"><span class="pf-b">${band}</span>` +
+      `<span class="pf-bar"><i style="width:${pos(o.max).toFixed(1)}%"></i></span><span class="pf-n">${o.n}</span>` +
+      `<span class="pf-km">${o.max >= 1000 ? (o.max / 1000).toFixed(o.max >= 10000 ? 0 : 1) + "k" : o.max}${o.es.length ? '<em class="sdg-c es">Es</em>' : ""}</span></div>`;
+  }).join("");
+  const scale = `<div class="pf-row pf-scale"><span></span><span class="pf-bar"><u style="left:0">100</u><u style="left:${pos(1000).toFixed(1)}%">1k</u><u style="left:${pos(3000).toFixed(1)}%">3k</u><u style="left:${pos(10000).toFixed(1)}%">10k km</u></span><span class="pf-n">n</span><span class="pf-km">far</span></div>`;
+  return sdgBlk(`FT8 + WSPR · LAST ${PROP_FT8_MIN}′`, `<span class="v">${total ? `${total} stations` : "nothing heard"}</span>` +
+    `<div class="pf-rows">${rows}${scale}</div>`, (total ? "lit" : "off") + " k-ft8",
+    "Stations heard by the FT8 and WSPR decoders of all VFOs in the last " + PROP_FT8_MIN + " min (with a locator). Bar = the farthest station " +
+    "(log scale 100–20 000 km), n = count, Es = some in one Es hop (500–2300 km). What is heard raises NOW in the grid.");
+}
+
+function propAlertsHtml(d) {
+  const a = d.alerts || [];
+  if (!a.length) return '<div class="muted">No alerts in the last 48 hours.</div>';
+  const kind = (k) => (/ALERT/.test(k) ? "bad" : /WARNING/.test(k) ? "warn" : /WATCH/.test(k) ? "watch" : "");
+  return a.map((x) => `<details class="prop-al" data-id="${escHtml(x.t + x.id)}"><summary><span class="t">${x.t.slice(5, 16).replace("T", " ")}</span>` +
+    `<span class="sdg-c ${kind(x.kind)}">${escHtml(x.kind || x.id || "")}</span><span class="h">${escHtml(x.head.replace(/^[A-Z ]+:\s*/, ""))}</span></summary>` +
+    `<pre>${escHtml(x.text)}</pre></details>`).join("");
+}
+
+function renderProp() {
+  const d = prop.d;
+  if (!d) { $("propInfo").textContent = prop.err ? `not available: ${prop.err}` : "loading…"; return; }
+  const errs = Object.keys(d.errors || {});
+  // the sources with links (the ionosondes: GIRO is the original, KC2G only collects its values) and the age of their newest value
+  const lnk = (u, t, tip) => `<a href="${u}" target="_blank" rel="noopener noreferrer" title="${escHtml(tip)}">${t}</a>`;
+  const ionoT = (d.iono || []).map((s) => s.t).filter(Boolean).sort().pop();
+  $("propInfo").innerHTML = `${lnk("https://www.swpc.noaa.gov", "NOAA SWPC", "NOAA Space Weather Prediction Center: Kp, flux, X-ray, solar wind, scales, alerts")} · Kp ${propAge(d.kp_t)}` +
+    ` · ${lnk("https://giro.uml.edu", "GIRO", "Global Ionospheric Radio Observatory (Lowell DIDBase), CC BY-NC-SA 4.0: the ionosondes")}` +
+    ` (via ${lnk("https://prop.kc2g.com", "KC2G", "prop.kc2g.com collects the newest GIRO values")}) ${ionoT ? propAge(ionoT) : "–"}` +
+    ` · ${lnk("https://www2.irf.se/maggraphs/", "IRF Kiruna", "Swedish Institute of Space Physics, Kiruna geophysical observatory: the magnetogram")} ${d.kir ? propAge(d.kir.t) : "–"}` +
+    ` · read ${new Date(prop.at).toISOString().slice(11, 16)} UTC` +
+    escHtml((errs.length ? ` · not available now: ${errs.join(", ")}` : "") + (prop.err ? ` · ${prop.err}` : ""));
+  $("propBlocks").innerHTML = propBlocks(d);
+  propChartsRender(d);
+  $("propBands").innerHTML = sdgBlk("HF BANDS · ESTIMATE NEXT 24 H",`<div class="pb-grid">${propBandsHtml(d)}</div>`, "lit k-muf",
+    "Our own estimate for one F2 hop (about 3000 km) now and for the next 24 hours (UTC), corrected by the ionosondes; NOW is raised by Es and by what FT8 hears.");
+  $("propFt8").innerHTML = propFt8Html(d);
+  $("propIono").innerHTML = propIonoHtml(d);
+  renderPropTest();
+  const open = new Set([...$("propAlerts").querySelectorAll("details[open]")].map((e) => e.dataset.id));
+  $("propAlerts").innerHTML = propAlertsHtml(d);
+  for (const el of $("propAlerts").querySelectorAll("details")) if (open.has(el.dataset.id)) el.open = true;
+  $("propNote").innerHTML = `Data: <a href="https://www.swpc.noaa.gov" target="_blank" rel="noopener noreferrer">NOAA Space Weather Prediction Center</a> ` +
+    `(public domain), downloaded by this PC when older than 5–60 min (by the kind) and kept in data/spacewx. ` +
+    `<b>The HF bands are our own rough estimate</b> for one F2 hop from the station (about 3000 km): foF2 from the solar flux, the height of the sun, ` +
+    `the season and Kp (its forecast for the coming hours), the day-time absorption of the low bands (more with X-ray flares); ` +
+    `GOOD = well under the MUF, FAIR = near it or damped, POOR = closed or absorbed; NOW is raised by sporadic E from the ionosondes (Es). ` +
+    `Ionosondes: <a href="https://giro.uml.edu" target="_blank" rel="noopener noreferrer">GIRO</a> (Lowell DIDBase, CC BY-NC-SA 4.0; ` +
+    `Reinisch and Galkin 2011, doi:10.5047/eps.2011.03.001), collected by <a href="https://prop.kc2g.com" target="_blank" rel="noopener noreferrer">KC2G</a>. ` +
+    `FT8: the stations heard by the FT8 decoders of all VFOs (DECODERS › FT8) in the last ${PROP_FT8_MIN} min. ` +
+    `Magnetogram: <a href="https://www2.irf.se/maggraphs/" target="_blank" rel="noopener noreferrer">Kiruna geophysical observatory, Swedish Institute of Space Physics (IRF)</a>.`;
+}
+// FT8 BAND TEST (PROPAGATION): one VFO goes through the FT8 frequency of each band (USB, FT8 decoder on) for 1, 2 or 4
+// cycles of 15 s, what its decoder hears fills the FT8 column; then the VFO returns to its frequency, mode and FT8.
+// Runs in this page (it stops when the page is closed; the VFO stays where the test left it then).
+const PROP_TEST_FREQS = [["160m", 1840000], ["80m", 3573000], ["60m", 5357000], ["40m", 7074000], ["30m", 10136000], ["20m", 14074000],
+  ["17m", 18100000], ["15m", 21074000], ["12m", 24915000], ["10m", 28074000], ["6m", 50313000]];
+const propTest = { run: false, stop: false, vfo: null, i: -1, endAt: 0, startAt: 0, res: {}, at: 0, cycles: Number(recall("propTestCycles")) || 2 };
+const propSleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function propTestPost(v, body) {
+  const r = await fetch(v.base + "/api/set", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+}
+async function propTestStart(name) {
+  const v = vfos.find((x) => x.name === name && x.online);
+  if (!v || propTest.run) return;
+  let s0;
+  try { s0 = await fetch(v.base + "/api/state").then((r) => r.json()); } catch (e) { adError(`FT8 test: VFO-${name} not reachable`); return; }
+  const busy = ["dab", "vdl2", "acars", "ism"].find((k) => s0[k]);
+  if (busy) { adError(`FT8 test: VFO-${name} runs ${busy.toUpperCase()} now – choose another VFO or switch ${busy.toUpperCase()} off`); return; }
+  // its frequency, mode and FT8 before the test: kept also in this browser, so a test cut by closing the page is undone on the next start
+  const saved = { mode: s0.mode, center_hz: s0.center_hz, tune_hz: s0.tune_hz, ft8: !!s0.ft8 };
+  const beat = () => store("propTestSaved", JSON.stringify({ vfo: name, saved, at: Date.now() }));   // "still running" for other windows
+  beat();
+  Object.assign(propTest, { run: true, stop: false, vfo: name, i: -1, res: {}, startAt: Date.now(), at: 0, saved });
+  renderPropTest();
+  try {
+    for (let i = 0; i < PROP_TEST_FREQS.length && !propTest.stop; i++) {
+      const [band, hz] = PROP_TEST_FREQS[i];
+      propTest.i = i;
+      try { await propTestPost(v, { mode: "USB", tune_hz: hz, ft8: true }); } catch (e) { propTest.res[band] = { err: e.message }; renderPropTest(); continue; }
+      const t0 = Date.now() / 1000, slot = Math.ceil(t0 / 15) * 15;      // a cycle is decoded only when heard from its start
+      propTest.endAt = (slot + 15 * propTest.cycles + 2.5) * 1000;          // + the time of the decoding
+      while (Date.now() < propTest.endAt && !propTest.stop) { renderPropTest(); beat(); await propSleep(500); }
+      const list = await fetch(v.base + "/api/ft8/stations").then((r) => r.json()).catch(() => []);
+      const q = prop.d?.qth, heard = list.filter((st) => st.ts >= t0 && Math.abs(st.freq_hz - hz) < 5000);
+      const kms = heard.filter((st) => st.lat != null && q && q.lat != null).map((st) => Math.round(propDist(q.lat, q.lon, st.lat, st.lon)));
+      propTest.res[band] = { n: heard.length, max: kms.length ? Math.max(...kms) : null };
+      await pollPropFt8().catch(() => {});
+      if (bodyTab === "prop") renderProp();
+    }
+  } finally {
+    try { await propTestPost(v, saved); store("propTestSaved", ""); } catch (e) { adError(`FT8 test: VFO-${name} could not return (${e.message}), it is tried again later`); }
+    propTest.run = false; propTest.i = -1; propTest.at = Date.now();
+    renderPropTest();
+  }
+}
+// a test cut off (the page closed, the VFO offline at the end): put that VFO back to where it was as soon as it is online
+async function propTestUndo() {
+  if (propTest.run || MAP_ONLY) return;
+  let o;
+  try { o = JSON.parse(recall("propTestSaved") || "null"); } catch (e) { o = null; }
+  if (!o || Date.now() - (o.at || 0) < 90000) return;      // another window of this browser may still be running it
+  const v = vfos.find((x) => x.name === o.vfo && x.online);
+  if (!v) return;
+  try { await propTestPost(v, o.saved); store("propTestSaved", ""); adError(`FT8 test: VFO-${o.vfo} returned to ${(o.saved.tune_hz / 1e6).toFixed(3)} MHz ${o.saved.mode} (the test was cut off)`); } catch (e) { /* try again later */ }
+}
+const propFmtRet = (s) => (s ? `${(s.tune_hz / 1e6).toFixed(3)} MHz ${s.mode}${s.ft8 ? " + FT8" : ""}` : "");
+
+function renderPropTest() {
+  const el = $("propTest");
+  if (!el) return;
+  const on = vfos.filter((v) => v.name && v.online), t = propTest;
+  const heardAny = prop.d && Object.keys(propFt8ByBand(prop.d)).length > 0;
+  const per = t.cycles * 15, total = Math.round((PROP_TEST_FREQS.length * (per + 10)) / 60);
+  const resHtml = Object.keys(t.res).length ? `<div class="pt-res">${PROP_TEST_FREQS.filter(([b]) => t.res[b]).map(([b]) => {
+    const r = t.res[b];
+    return r.err ? `<span class="sdg-c" title="${escHtml(r.err)}">${b} –</span>`
+      : `<span class="sdg-c ${r.n ? "on" : ""}" title="${b}: ${r.n} stations${r.max != null ? `, the farthest ${r.max} km` : ""}">${b} ${r.n}${r.max != null ? ` · ${r.max >= 1000 ? (r.max / 1000).toFixed(1) + "k" : r.max}` : ""}</span>`;
+  }).join("")}</div>` : "";
+  let h;
+  if (t.run) {
+    const [band, hz] = PROP_TEST_FREQS[Math.max(0, t.i)], left = Math.max(0, Math.round((t.endAt - Date.now()) / 1000));
+    h = sdgBlk(`FT8 TEST · VFO-${escHtml(t.vfo)}`, `<span class="v">${band} · ${(hz / 1e6).toFixed(3)} MHz</span>` +
+      `<span class="pt-info">returns to ${propFmtRet(t.saved)}</span>` +
+      `<div class="pt-row"><span>band ${t.i + 1}/${PROP_TEST_FREQS.length} · ${left} s</span><span class="pt-gap"></span>` +
+      `<button class="key small" data-pt="stop" title="Stop the test; the VFO returns to its frequency, mode and FT8 setting">STOP</button></div>` +
+      `<div class="pt-bar"><i style="width:${Math.round((100 * (t.i + 1)) / PROP_TEST_FREQS.length)}%"></i></div>${resHtml}`, "lit run k-tst");
+  } else {
+    const sel = recall("propTestVfo");
+    h = sdgBlk("FT8 BAND TEST", `<span class="pt-q">${heardAny ? "Listen to all the bands with FT8 on one VFO" : "No FT8 decoder hears anything – test the bands on a VFO"}</span>` +
+      `<div class="pt-row"><select id="propTestVfo" title="The VFO that goes through the bands (its dongle must receive HF)">${on.map((v) => `<option value="${escHtml(v.name)}"${v.name === sel ? " selected" : ""}>VFO-${escHtml(v.name)}</option>`).join("")}</select>` +
+      `<select id="propTestCycles" title="How long on each band">${[1, 2, 4].map((c) => `<option value="${c}"${c === t.cycles ? " selected" : ""}>${c * 15} s/band</option>`).join("")}</select>` +
+      `<button class="key small accent" data-pt="start"${on.length ? "" : " disabled"}>START</button></div>` +
+      `<span class="pt-info">${t.at ? `last test ${new Date(t.at).toISOString().slice(11, 16)} UTC on VFO-${escHtml(t.vfo)}` : `about ${total} min; the VFO is retuned (USB, FT8 on) and then returns`}</span>${resHtml}`,
+      (heardAny ? "lit" : "lit warn") + " k-tst");
+  }
+  if (el.dataset.html !== h) { el.innerHTML = h; el.dataset.html = h; }
+}
+$("propTest").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-pt]");
+  if (!b) return;
+  if (b.dataset.pt === "stop") { propTest.stop = true; propTest.endAt = 0; }
+  if (b.dataset.pt === "start") propTestStart($("propTestVfo").value);
+});
+$("propTest").addEventListener("change", (e) => {
+  if (e.target.id === "propTestVfo") store("propTestVfo", e.target.value);
+  if (e.target.id === "propTestCycles") { propTest.cycles = Number(e.target.value) || 2; store("propTestCycles", String(propTest.cycles)); renderPropTest(); }
+});
+pollProp();
+setInterval(pollProp, 120000);
+setTimeout(propTestUndo, 5000);
+setInterval(propTestUndo, 60000);
+
+// ---------- WSPR decoder (wspr.py: wsprd of WSJT-X on 2-minute cycles), DECODERS › WSPR ----------
+const WSPR_BANDS = { 1836600: "160", 3568600: "80", 5287200: "60", 7038600: "40", 10138700: "30", 14095600: "20", 18104600: "17",
+  21094600: "15", 24924600: "12", 28124600: "10", 50293000: "6" };
+const WSPR_MAX_ROWS = 400;
+let wsprCycle = null;
+let wsprBandsHtml = "";
+
+/** From onStatus: ON key, band keys, the state of the cycle. */
+function wsprStatus(s) {
+  $("wsprOn").checked = !!s.wspr;
+  const fr = s.wspr_freqs || Object.keys(WSPR_BANDS).map(Number);
+  const h = fr.map((f) => `<button data-f="${f}" title="${fmtKHz(f, 1)} kHz USB: the WSPR signals are 1400–1600 Hz above it">${WSPR_BANDS[f] || fmtMHz(f, 3)} m</button>`).join("");
+  if (h !== wsprBandsHtml) { $("wsprBands").innerHTML = h; wsprBandsHtml = h; }
+  wsprInfo(s, s.wspr_info);
+  if (s.wspr_prog) wsprProg = s.wspr_prog;
+  renderWsprProg();
+}
+
+// progress of the recording of the 2-minute cycle (wspr.py: rec_t0 = its start, rec_s = 114 s), drawn twice a second
+let wsprProg = { rec_t0: null, rec_s: 114, busy: false };
+function renderWsprProg() {
+  const box = $("wsprProg"), on = !!(st && st.wspr);
+  box.hidden = !on;
+  if (!on || bodyTab !== "dec" || decPage !== "wspr") return;
+  const now = Date.now() / 1000, p = wsprProg, dec = p.busy ? " · wsprd decodes the previous cycle…" : "";
+  let pct = 0, txt;
+  if (p.rec_t0) {
+    const t = Math.max(0, now - p.rec_t0);
+    pct = Math.min(100, (100 * t) / p.rec_s);
+    txt = `<span class="wp-r">● REC</span> cycle ${new Date(p.rec_t0 * 1000).toISOString().slice(11, 16)} · ${Math.min(p.rec_s, Math.round(t))} / ${p.rec_s} s${dec}`;
+  } else {
+    const next = Math.ceil(now / 120) * 120;
+    txt = `waiting for the even minute · the next cycle starts in ${Math.round(next - now)} s${dec}`;
+  }
+  box.classList.toggle("wp-rec", !!p.rec_t0);
+  box.classList.toggle("wp-busy", !!p.busy);
+  box.querySelector(".wp-fill").style.width = pct.toFixed(1) + "%";
+  const el = box.querySelector(".wp-txt");
+  if (el.innerHTML !== txt) el.innerHTML = txt;
+}
+setInterval(renderWsprProg, 500);
+function wsprInfo(s, text) {
+  if (!s) return;
+  $("wsprInfo").textContent = !s.wspr ? (s.wspr_error ? `off · ${s.wspr_error}` : "off")
+    : s.wspr_error && !text ? `error: ${s.wspr_error}` : text || "waiting for an even minute…";
+}
+
+function wsprAdd(d, fresh) {
+  const tb = $("wsprRows");
+  $("wsprEmpty").hidden = true;
+  if (wsprCycle !== d.time) {
+    wsprCycle = d.time;
+    const sep = document.createElement("tr");
+    sep.className = "cycle even";
+    sep.innerHTML = `<td colspan="9"><span class="cy-t">${d.time}</span><span class="cy-n">0</span><span class="cy-s">2 min cycle</span></td>`;
+    tb.prepend(sep);
+  }
+  const sep = tb.firstChild;
+  const q = typeof prop !== "undefined" ? prop.d?.qth : null;
+  const km = d.lat != null && q && q.lat != null && !(q.lat === 0 && q.lon === 0) ? Math.round(propDist(q.lat, q.lon, d.lat, d.lon)) : null;
+  const lvl = Math.max(0, Math.min(1, (d.snr + 30) / 40));
+  const snrCls = d.snr >= -10 ? "s-hi" : d.snr >= -20 ? "s-mid" : "s-lo";
+  const w = d.dbm != null ? 10 ** (d.dbm / 10) / 1000 : null;
+  const pwr = d.dbm == null ? "" : `${d.dbm} dBm <i>${w >= 1 ? `${+w.toFixed(w >= 10 ? 0 : 1)} W` : `${Math.round(w * 1000)} mW`}</i>`;
+  const tr = document.createElement("tr");
+  if (fresh) tr.classList.add("new");
+  tr.innerHTML = `<td class="utc">${d.time}</td>` +
+    `<td class="snr ${snrCls}"><div class="cf"><span class="snr-v">${d.snr > 0 ? "+" : ""}${d.snr}</span><span class="snr-b"><i style="width:${(lvl * 100).toFixed(0)}%"></i></span></div></td>` +
+    `<td class="num${Math.abs(d.dt) > 2 ? " dt-bad" : ""}">${d.dt >= 0 ? "+" : ""}${d.dt.toFixed(1)}</td><td class="num">${d.drift > 0 ? "+" : ""}${d.drift}</td>` +
+    `<td class="num fq">${(d.freq_hz / 1e6).toFixed(6)}</td><td class="msg"><span class="t-call">${escHtml(d.call || d.msg)}</span></td>` +
+    `<td class="msg"><span class="t-grid">${escHtml(d.grid || "")}</span></td><td class="num pwr">${pwr}</td><td class="num">${km != null ? km : ""}</td>`;
+  tb.insertBefore(tr, sep.nextSibling);
+  const n = sep.querySelector(".cy-n");
+  n.textContent = Number(n.textContent) + 1;
+  while (tb.rows.length > WSPR_MAX_ROWS) tb.lastChild.remove();
+}
+function wsprReset() {
+  $("wsprRows").innerHTML = "";
+  $("wsprEmpty").hidden = false;
+  wsprCycle = null;
+}
+async function wsprLoad(v) {
+  try {
+    const list = await fetch(v.base + "/api/wspr").then((r) => r.json());
+    if (v !== active) return;
+    wsprReset();
+    for (const d of list) wsprAdd(d, false);
+  } catch { /* server unreachable */ }
+}
+
+$("wsprOn").addEventListener("change", () => {
+  if (!st) return;
+  st.wspr = $("wsprOn").checked;
+  wsprInfo(st, st.wspr ? "waiting for an even minute…" : "");
+  send({ wspr: st.wspr });
+  renderDecTab();
+});
+$("wsprBands").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-f]");
+  if (!b || !st) return;
+  await ensureVfoFor(Number(b.dataset.f));   // HF band -> VFO with upconverter
+  if (!st) return;
+  st.mode = "USB";
+  renderControls();
+  tune(Number(b.dataset.f));
+  const changes = { mode: "USB" };
+  if (!st.wspr) { st.wspr = true; $("wsprOn").checked = true; changes.wspr = true; }
+  send(changes);
+});
+$("wsprClear").addEventListener("click", wsprReset);
+
+// ---------- the band key of a decoder page stays lit while the VFO is tuned there (like the HFDL keys) ----------
+function decBandsMark(s) {
+  if (!s) return;
+  const near = (a, b, tol) => a != null && Math.abs(a - b) <= tol;
+  const at = (f, tol) => near(s.tune_hz, f, tol) || near(s.center_hz, f, tol);
+  // only the frequency keys (data-f): the VDL2 region / centre keys light themselves (renderVdl2Region)
+  const mark = (id, test) => { for (const b of document.querySelectorAll(`#${id} button[data-f]`)) b.classList.toggle("active", !!test(b)); };
+  const usb = (b) => s.mode === "USB" && near(s.tune_hz, Number(b.dataset.f), 100);
+  mark("ft8Bands", usb);
+  mark("wsprBands", usb);
+  mark("wefaxBands", (b) => s.mode === "USB" && near(s.tune_hz, Number(b.dataset.f) - 1900, 400));   // AFC moves it a little
+  mark("sstvBands", (b) => (!b.dataset.mode || s.mode === b.dataset.mode) && near(s.tune_hz, Number(b.dataset.f), 100));
+  mark("acarsBands", (b) => !s.vdl2 && near(s.tune_hz, Number(b.dataset.f), 1000));
+  mark("aisBands", (b) => !!s.ais && at(Number(b.dataset.f), 1000));
+  mark("adsbBands", () => !!s.adsb);
+  mark("ismBands", (b) => !!s.ism && near(s.ism_hz, Number(b.dataset.f), 1000));
+}
+
+// ---------- PC clock against NTP (launcher /api/clock, clocksync.py): chip + SYNC on the FT8 and WSPR pages ----------
+let clk = null, clkBusy = false;
+async function clockLoad(force) {
+  try { clk = await fetch("/api/clock" + (force ? "?force=1" : "")).then((r) => (r.ok ? r.json() : { error: `HTTP ${r.status}` })); } catch { clk = { error: "the launcher does not answer" }; }
+  renderClock();
+}
+function renderClock() {
+  const off = clk && clk.offset != null ? -clk.offset : null;       // + = the PC is ahead of the real time
+  const cls = off == null ? "" : Math.abs(off) < 0.5 ? "ok" : Math.abs(off) < 1 ? "warn" : "bad";
+  for (const el of document.querySelectorAll("[data-clk]")) {
+    el.textContent = clkBusy ? "PC CLOCK sync…" : off == null ? "PC CLOCK ?" : `PC CLOCK ${off >= 0 ? "+" : "−"}${Math.abs(off).toFixed(2)} s`;
+    el.className = "clk-chip " + cls;
+    el.title = clk?.error ? `PC clock: ${clk.error}` : off == null ? "PC clock: not measured yet"
+      : `The PC clock is ${Math.abs(off).toFixed(3)} s ${off >= 0 ? "ahead" : "behind"} (NTP ${clk.server}, round trip ${Math.round(clk.rtt * 1000)} ms, measured ${new Date(clk.t * 1000).toISOString().slice(11, 19)} UTC). FT8 and WSPR need it within ±1 s.`;
+  }
+  for (const b of document.querySelectorAll("[data-clk-sync]")) b.disabled = clkBusy;
+}
+document.addEventListener("click", async (e) => {
+  if (!e.target.closest("[data-clk-sync]") || clkBusy) return;
+  clkBusy = true; renderClock();
+  try {
+    const r = await fetch("/api/clock", { method: "POST" }).then((x) => x.json());
+    if (!r.ok) adError(`PC clock: ${r.error || "not set"}`);
+    else if (r.after != null) adError(`PC clock set: it was ${Math.abs(r.before).toFixed(2)} s ${r.before > 0 ? "behind" : "ahead"}, now ${Math.abs(r.after).toFixed(2)} s off (${r.how})`);
+  } catch { adError("PC clock: the launcher does not answer"); }
+  clkBusy = false;
+  await clockLoad(true);
+});
+setTimeout(() => clockLoad(false), 4000);
+setInterval(() => clockLoad(false), 600000);

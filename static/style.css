@@ -722,6 +722,11 @@ input[type=range]:disabled { opacity: .35; }
 
 /* ---------- spectrum and waterfall ---------- */
 .scope { position: relative; background: #050506; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+/* a tab over the scope (PROPAGATION, SETTINGS, DECODERS ...): the spectrum and the waterfall may shrink and nothing of them
+   may stick out under the tab (their min-heights made the waterfall overflow the scope at the bottom on a low window) */
+.scope:has(> .set-pane:not([hidden]), > .amsat-pane:not([hidden]), > .dec-pane:not([hidden])) { overflow: hidden; }
+.scope:has(> .set-pane:not([hidden]), > .amsat-pane:not([hidden]), > .dec-pane:not([hidden])) > .spectrum-wrap,
+.scope:has(> .set-pane:not([hidden]), > .amsat-pane:not([hidden]), > .dec-pane:not([hidden])) > .waterfall-wrap { min-height: 0; }
 .radio > :not(.scope) { flex: none; }
 .spectrum-wrap, .waterfall-wrap { position: relative; cursor: crosshair; touch-action: none; }
 .spectrum-wrap { flex: 0 0 34%; min-height: 110px; }
@@ -2838,11 +2843,11 @@ html.compact .r-keys .keys button { --led-at: left 3px top 2px / 6px 3px no-repe
 .r-keys .keys button, html.compact .r-keys .keys button, html.compact .r-keys .key {
   min-width: 50px; height: 28px; padding: 0 6px; }
 .r-keys .keys > button:only-child, html.compact .r-keys .keys > button:only-child { height: auto; }
-/* ATU and DEC: alone in their group, but as high as the other keys, in the upper row */
-.r-keys #atuKey, .r-keys #decKey { grid-row: 1; height: 28px; }
+/* ATU, DEC and PROP: alone in their group, but as high as the other keys, in the upper row */
+.r-keys #atuKey, .r-keys #decKey, .r-keys #propKey { grid-row: 1; height: 28px; }
 /* their bed only as high as the one key, the group at the top of the row (legend in line with the others) */
-.r-keys .keys:has(> #atuKey), .r-keys .keys:has(> #decKey) { grid-template-rows: 28px; }
-.r-keys .kgroup:has(#atuKey), .r-keys .kgroup:has(#decKey) { align-self: flex-start; }
+.r-keys .keys:has(> #atuKey), .r-keys .keys:has(> #decKey), .r-keys .keys:has(> #propKey) { grid-template-rows: 28px; }
+.r-keys .kgroup:has(#atuKey), .r-keys .kgroup:has(#decKey), .r-keys .kgroup:has(#propKey) { align-self: flex-start; }
 /* HPF / LPF: the curve and the cutoff under the LED window, not into it */
 .r-keys .keys button.pass-key, html.compact .r-keys .keys button.pass-key { gap: 0; padding-top: 7px; padding-bottom: 1px; }
 .r-keys .pass-icon { height: 9px; }
@@ -3645,6 +3650,15 @@ html.app-shell .r-master .r-logo { margin-top: 10px; }
 .sdg-h.off { opacity: .55; }
 /* the audio chain not used (raw-IQ decoder, DAB): its keys inactive, its settings faded under a note */
 .set-subpanel.bypass > .setting { opacity: .45; }
+/* SETTINGS › VFO: network source card and the settings that source cannot use (greyed, reason in data-na) */
+.set-panel .setting.src-setting { --bc: var(--blue); border-style: dashed; }
+.src-addr { font-size: 12px; color: var(--text); word-break: break-all; }
+.src-kind { font-weight: 700; letter-spacing: .04em; }
+.src-kind.spyserver { color: var(--blue); }
+.src-kind.rtltcp { color: var(--green); }
+.set-panel .setting.na { opacity: .4; filter: grayscale(1); }
+.set-panel .setting.na > * { pointer-events: none; }
+.set-panel .setting.na::after { content: attr(data-na); font-size: 10.5px; color: var(--muted); line-height: 1.3; }
 .bypass-note { grid-column: 1 / -1; margin: 0; }
 /* not used now (a raw-IQ decoder or DAB): faded and hatched, the reason in the tip */
 .sdg-b.idle { opacity: .28; border-style: dashed; filter: grayscale(1);
@@ -4124,3 +4138,136 @@ label.map-opts-sub2 { display: flex; align-items: center; gap: 6px; cursor: poin
 .map-opts-subsec[open] > summary::before { transform: rotate(90deg); }
 .map-opts-subsec > summary small { color: #8fa3bd; font-weight: 400; margin-left: 4px; }
 .map-opts-subsec[open] { border-left-color: #6cb8ff; }
+
+/* ===== PROPAGATION (PROP key): space weather and the HF bands, in the look of the STATION scheme ===== */
+.r-keys .kgroup[data-g="PROP"] { --kc: #ffb84d; }
+.sdg-b.k-sun { --bc: #ffc14d; } .sdg-b.k-xr { --bc: #ff7f6a; } .sdg-b.k-sw { --bc: #6cc6ff; }
+.sdg-b.k-geo { --bc: #7fd88a; } .sdg-b.k-scl { --bc: #b99bff; } .sdg-b.k-muf { --bc: #2fd4b4; }
+.sdg-b.k-ion { --bc: #5aa9ff; } .sdg-b.k-es { --bc: #e07cff; }
+.prop-iono .sdg-b { flex-direction: column; align-items: stretch; }
+.prop-iono .sdg-b .sdg-ico { top: 5px; transform: none; }
+.prop-iono .sdg-b > b em { font-style: normal; color: var(--text); margin-left: 4px; letter-spacing: .02em; }
+.prop-iono .sdg-b.idle-ion { opacity: .7; }
+/* FT8 BAND TEST: a compact STATION block, amber when no FT8 decoder hears anything (it asks), accent while running */
+.sdg-b.k-tst { --bc: #ffb84d; }
+.sdg-b.k-tst.run { --bc: var(--accent); }
+.prop-test .pt-q { white-space: normal !important; color: var(--text); }
+.prop-test .pt-info { white-space: normal !important; font-size: 10px; color: var(--dim); }
+.prop-test .pt-row { display: flex; align-items: center; gap: 4px; font-size: 11px; }
+.prop-test select { width: auto; flex: 1 1 0; min-width: 0; height: 22px; padding: 0 2px; font-size: 11px; }
+.prop-test .pt-gap { flex: 1 1 auto; }
+.prop-test .pt-bar { height: 3px; border-radius: 2px; background: var(--line2); overflow: hidden; }
+.prop-test .pt-bar i { display: block; height: 100%; background: var(--accent); transition: width .4s; }
+.prop-test .pt-res { display: flex; flex-wrap: wrap; gap: 3px; }
+.prop-test .pt-res .sdg-c { margin: 0; }
+.pb-ft8 { font: 10px ui-monospace, Consolas, monospace; color: var(--text); text-align: right !important; white-space: nowrap; }
+.pb-ft8.none { color: var(--dim); }
+.pb-ft8.es, .pb-now.es { color: #f0a8ff; }
+.pb-ft8.es { font-weight: 700; }
+.sdg-c.watch { border-color: #6cc6ff; background: rgba(108, 198, 255, .14); color: #9fd8ff; }
+.prop-panel .sdg { gap: 10px; }
+.prop-blocks, .prop-iono { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
+.prop-blocks .sdg-b { flex-direction: column; align-items: stretch; }
+.prop-blocks .sdg-b > span, .prop-iono .sdg-b > span { white-space: normal; overflow-wrap: anywhere; }
+.prop-blocks .sdg-b .sdg-ico { top: 5px; transform: none; }
+.prop-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 10px; align-items: stretch; }
+.prop-charts > div { display: flex; flex-direction: column; min-width: 0; }
+.prop-charts .sdg-b { flex: 1 1 auto; flex-direction: column; align-items: stretch; }
+.prop-charts .sdg-b .sdg-ico { top: 5px; transform: none; }
+.prop-charts .sdg-b .v i { font: 400 10px system-ui, sans-serif; font-style: normal; color: var(--dim); margin-left: 8px; }
+.prop-charts .sdg-b .v em { font-style: normal; font-weight: 700; }
+.sdg-b.k-mgn { --bc: #7fd8c8; }
+.prop-svg .mline { fill: none; stroke-width: 1.3; vector-effect: non-scaling-stroke; }
+.prop-svg .mline.x, .prop-charts em.mx { stroke: #ff7f6a; color: #ff7f6a; }
+.prop-svg .mline.y, .prop-charts em.my { stroke: #7fd88a; color: #7fd88a; }
+.prop-svg .mline.z, .prop-charts em.mz { stroke: #6cc6ff; color: #6cc6ff; }
+.prop-svg { display: block; width: 100%; height: 120px; }
+.prop-svg text { font: 9px ui-monospace, Consolas, monospace; fill: var(--muted); }
+.prop-svg .grid { stroke: var(--line); stroke-dasharray: 2 3; }
+.prop-svg .day { stroke: var(--line2); }
+.prop-svg .now { stroke: var(--text); stroke-width: 1.5; stroke-dasharray: 3 2; }
+.prop-svg rect.kp.ok { fill: var(--green); } .prop-svg rect.kp.warn { fill: var(--amber); } .prop-svg rect.kp.bad { fill: var(--red); }
+.prop-svg rect.kp { opacity: .85; } .prop-svg rect.kp.pred { opacity: .35; }
+.prop-svg .xband { fill: transparent; } .prop-svg .xband.M { fill: rgba(255, 181, 71, .07); } .prop-svg .xband.X { fill: rgba(255, 75, 62, .1); }
+.prop-svg .xline { fill: none; stroke: #ff7f6a; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+/* the band grid takes about a third of the tab, the FT8 block and the FT8 test sit to its right */
+.prop-hf { display: grid; grid-template-columns: minmax(460px, 34%) 250px 210px; justify-content: start; gap: 10px; align-items: stretch; }
+@media (max-width: 1100px) { .prop-hf { grid-template-columns: 1fr; } }
+.prop-hf > div { display: flex; flex-direction: column; min-width: 0; }
+.prop-hf > div > .sdg-b { flex: 1 1 auto; flex-direction: column; align-items: stretch; }
+.prop-hf > .prop-test { align-self: start; }
+.prop-hf .sdg-b .sdg-ico { top: 5px; transform: none; }
+.pb-grid { display: flex; flex-direction: column; gap: 2px; overflow-x: auto; margin-top: 3px; }
+.pb-row { display: grid; grid-template-columns: 68px 40px repeat(24, minmax(8px, 1fr)); gap: 1px; align-items: center; min-width: 420px;
+  font: 10px ui-monospace, Consolas, monospace; color: var(--muted); }
+.pb-row > span { text-align: center; }
+.pb-row > span:first-child { text-align: left; }
+.pb-band { font: 700 11px system-ui, sans-serif; color: var(--text); white-space: nowrap; }
+.pb-band i, .pb-muf i { font: 400 9px ui-monospace, Consolas, monospace; font-style: normal; color: var(--dim); }
+.pb-head > span:nth-child(n+3) { text-align: left; }
+.sdg-b.k-ft8 { --bc: #e07cff; }
+.pf-rows { display: flex; flex-direction: column; justify-content: space-between; flex: 1 1 auto; gap: 3px; margin-top: 3px; }
+.pf-row { display: grid; grid-template-columns: 34px 1fr 26px 52px; gap: 6px; align-items: center; font: 10px ui-monospace, Consolas, monospace; color: var(--text); }
+.pf-row .pf-b { font: 700 10.5px system-ui, sans-serif; }
+.pf-row .pf-n { text-align: right; font-weight: 700; }
+.pf-row .pf-km { white-space: nowrap; }
+.pf-row .pf-km .sdg-c { margin: 0 0 0 4px; padding: 0 3px; }
+.pf-bar { position: relative; height: 8px; border-radius: 2px; background: rgba(255, 255, 255, .04); border: 1px solid var(--line); overflow: hidden; }
+.pf-bar i { display: block; height: 100%; background: linear-gradient(90deg, color-mix(in srgb, var(--green) 30%, transparent), color-mix(in srgb, var(--green) 75%, transparent)); }
+.pf-row.es .pf-bar i { background: linear-gradient(90deg, color-mix(in srgb, #e07cff 30%, transparent), color-mix(in srgb, #e07cff 80%, transparent)); }
+.pf-row.none { color: var(--dim); }
+.pf-row.none .pf-b { opacity: .6; }
+.sdg-c.es { border-color: #e07cff; background: rgba(224, 124, 255, .16); color: #f0a8ff; }
+.pf-scale { color: var(--dim); font-size: 8.5px; margin-top: 1px; }
+.pf-scale .pf-bar { border: 0; background: none; overflow: visible; height: 10px; }
+.pf-scale u { position: absolute; top: 0; text-decoration: none; white-space: nowrap; transform: translateX(-2px); }
+.pf-scale .pf-n, .pf-scale .pf-km { font-weight: 400; }
+.pb-head > span { white-space: nowrap; overflow: visible; }
+.pb-sun > span.d, .pb-sun > span.n { height: 5px; border-radius: 2px; }
+.pb-sun > span.d { background: #ffc14d; opacity: .7; } .pb-sun > span.n { background: #2a3550; }
+.pb-c { height: 14px; border-radius: 3px; border: 1px solid transparent; }
+.pb-c.good { background: color-mix(in srgb, var(--green) 55%, transparent); }
+.pb-c.fair { background: color-mix(in srgb, var(--amber) 50%, transparent); }
+.pb-c.poor { background: rgba(255, 255, 255, .04); border-color: var(--line); }
+.pb-row > .pb-c:nth-child(3) { outline: 1px solid var(--text); outline-offset: 0; }
+.pb-now { position: relative; font: 700 9.5px/16px system-ui, sans-serif; white-space: nowrap; border-radius: 3px; border: 1px solid var(--line); }
+/* NOW raised by what is heard (FT8) or by sporadic E: a small corner mark, the reason in the tooltip */
+.pb-now.by-ft8::after, .pb-now.by-es::after { content: ""; position: absolute; top: -3px; right: -3px; width: 6px; height: 6px; border-radius: 50%;
+  background: #e07cff; box-shadow: 0 0 0 1px var(--bg, #111); }
+.pb-now.by-es::after { background: #f0a8ff; border-radius: 1px; }
+.pb-now.good { color: var(--green); border-color: color-mix(in srgb, var(--green) 60%, transparent); background: color-mix(in srgb, var(--green) 14%, transparent); }
+.pb-now.fair { color: var(--amber); border-color: var(--amber); background: color-mix(in srgb, var(--amber) 12%, transparent); }
+.pb-now.poor { color: var(--dim); }
+.prop-alerts { display: flex; flex-direction: column; gap: 3px; }
+.prop-al summary { display: flex; gap: 8px; align-items: baseline; cursor: pointer; font-size: 12px; color: var(--text); list-style: none; }
+.prop-al summary::-webkit-details-marker { display: none; }
+.prop-al summary .t { font: 11px ui-monospace, Consolas, monospace; color: var(--muted); flex: 0 0 auto; }
+.prop-al summary .h { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prop-al pre { margin: 4px 0 6px 0; padding: 6px 8px; white-space: pre-wrap; font: 11px ui-monospace, Consolas, monospace; color: var(--muted);
+  border: 1px solid var(--line); border-radius: 6px; background: rgba(0, 0, 0, .3); }
+/* the chip under the S-meter: SFI · Kp · A · R S G, its colour by the worst of now */
+.prop-chip { display: flex; align-items: baseline; gap: 4px; font: 10px ui-monospace, Consolas, monospace; color: var(--ink-dim, var(--muted)); cursor: pointer; }
+.prop-chip[hidden] { display: none; }
+.prop-chip b { font-weight: 600; color: var(--text); margin-right: 4px; }
+.prop-chip b.ok { color: var(--green); } .prop-chip b.warn { color: var(--amber); } .prop-chip b.bad { color: var(--red); }
+.prop-chip b.rsg { margin-right: 0; padding: 0 3px; border-radius: 3px; border: 1px solid var(--line); font-weight: 400; color: var(--muted); }
+.prop-chip.warn b.rsg { border-color: var(--amber); color: var(--amber); }
+.prop-chip.bad b.rsg { border-color: var(--red); color: var(--red); }
+.prop-chip:hover b.rsg, .prop-chip:focus-visible b.rsg { border-color: var(--muted); }
+
+/* ===== WSPR decoder (DECODERS › WSPR): the FT8 table look ===== */
+.wspr-tbl col.c-dr { width: 58px; } .wspr-tbl col.c-call { width: 110px; } .wspr-tbl col.c-grid { width: 78px; } .wspr-tbl col.c-pwr { width: 120px; }
+.wspr-tbl td.pwr i { font-style: normal; color: var(--dim); margin-left: 4px; }
+.wspr-prog { display: flex; align-items: center; gap: 10px; padding: 2px 0 6px; font: 11.5px system-ui, sans-serif; color: var(--muted); }
+.wspr-prog[hidden] { display: none; }
+.wspr-prog .wp-bar { flex: 0 0 340px; max-width: 45%; height: 8px; border-radius: 4px; background: rgba(255, 255, 255, .05);
+  border: 1px solid var(--line); overflow: hidden; }
+.wspr-prog .wp-fill { display: block; height: 100%; width: 0; background: linear-gradient(90deg, color-mix(in srgb, var(--red) 45%, transparent), var(--red)); transition: width .5s linear; }
+.wspr-prog:not(.wp-rec) .wp-fill { transition: none; }
+.wspr-prog.wp-busy .wp-bar { border-color: color-mix(in srgb, var(--accent) 60%, transparent); }
+.wspr-prog .wp-r { color: var(--red); font-weight: 700; font-size: 10.5px; letter-spacing: .06em; animation: rec-blink 2s steps(2) infinite; }
+/* PC clock against NTP (FT8, WSPR): offset chip + SYNC */
+.clk-chip { font: 700 10.5px ui-monospace, Consolas, monospace; padding: 2px 6px; border-radius: 3px; border: 1px solid var(--line); color: var(--dim); white-space: nowrap; }
+.clk-chip.ok { color: var(--green); border-color: color-mix(in srgb, var(--green) 50%, transparent); }
+.clk-chip.warn { color: var(--amber); border-color: var(--amber); }
+.clk-chip.bad { color: #ff8a80; border-color: var(--red); background: color-mix(in srgb, var(--red) 14%, transparent); }

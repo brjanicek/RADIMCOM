@@ -43,6 +43,8 @@
           <span class="sys-remote" id="sysRemote" hidden title="The numbers are of the server PC (this page is opened from another PC)">SRV</span><span>CPU</span><i class="sys-bar"><i id="sysCpuPc" class="pc"></i><i id="sysCpuBar"></i></i><b id="sysCpu"></b>
           <span>MEM</span><i class="sys-bar"><i id="sysMemPc" class="pc"></i><i id="sysMemBar"></i></i><b id="sysMem"></b>
         </div>
+        <!-- space weather in short (PROP): solar flux, Kp, A, NOAA R / S / G; green / amber / red by the worst; a click opens PROPAGATION -->
+        <div id="propChip" class="prop-chip" hidden role="button" tabindex="0"></div>
       </div>
     </div>
 
@@ -248,6 +250,9 @@
       <button id="satKey" class="key sat-key" aria-label="Satellite tracking" aria-controls="amsatPane" title="Satellite tracking: the SATELLITES tab (passes, map, Doppler, rotor)"><svg class="sat-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.6 7C3.2 12.6 8.4 18.8 15 17.4Z"/><path d="M9.8 12.2L13.4 8.6"/><circle cx="14.6" cy="7.4" r="1.6"/><path d="M16.6 3.1A5 5 0 0 1 19 5.5"/><path d="M17.2.6A8 8 0 0 1 21.5 4.9"/><path d="M7.6 15.4L5.8 20.6M11 17.2L12.4 20.6M3.2 21.2H15"/></svg></button>
       <button id="rctrlKey" class="key" aria-controls="rotPane" title="RCTRL: the ROTOR CONTROL tab – a map where a click turns the rotor to that place (azimuth from the QTH, elevation 0), with the MEMORIES channels that have a location, by groups; CONNECTION of the sources; SETTINGS of the rotor controller (port, calibration, MONITOR)">RCTRL</button>
     </div></div>
+    <div class="kgroup" data-g="PROP"><span class="klabel">PROP</span><div class="keys">
+      <button id="propKey" class="key" aria-controls="propPane" title="PROP: the PROPAGATION tab – space weather from the point of view of a radio amateur (solar flux, sunspots, X-ray flares, solar wind, Kp and its forecast, NOAA R / S / G scales and alerts) and an estimate of the HF bands at the station, now and for the next 24 hours">PROP</button>
+    </div></div>
     <div class="kgroup" data-g="MENU"><span class="klabel">MENU</span><div class="keys">
       <button id="setKey" class="key set-key" aria-label="Settings" aria-controls="settingsCard" title="Settings: the SETTINGS tab (SDR dongle, audio, UI, location, antennas)"><svg class="gear-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.4-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3.3h-4l-.4 2.7a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.4L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.4 2.5-1a7.4 7.4 0 0 0 1.7 1l.4 2.7h4l.4-2.7a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.4zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg></button>
       <button id="memKey" class="key mem-key" aria-controls="memPane" title="Memories: the MEMORIES tab (channels to recall and edit, groups, import, export)">MEM</button>
@@ -272,6 +277,7 @@
     <button data-tab="dec" id="decTab">DECODERS <span id="decCount" class="dec-count"></span><span id="decNew" class="dec-new" hidden>●</span></button>
     <button data-tab="sat" id="amsatTab">SATELLITES</button>
     <button data-tab="rot" id="rotTab" hidden>ROTOR CONTROL</button>
+    <button data-tab="prop" id="propTab" hidden>PROPAGATION</button>
     <button data-tab="com" id="comTab" hidden>COMPOSITE</button>
     <button data-tab="mem" id="memTab" hidden>MEMORIES</button>
     <button data-tab="recs" id="recsTab" hidden>RECORDINGS</button>
@@ -600,6 +606,7 @@
         <label class="key small toggle" data-dec-on="ft8" title="FT8 decoder on/off"><input id="ft8On" type="checkbox">ON</label>
         <div class="bands" id="ft8Bands"></div>
         <span id="ft8Info" class="muted"></span>
+        <span class="clk-chip" data-clk title="How far the PC clock is off (NTP); FT8 and WSPR need it within ±1 s">PC CLOCK …</span><button class="key small" data-clk-sync title="Set the PC clock by NTP (Windows asks for the administrator consent)">SYNC</button>
         <label class="wf-opt log-opt" title="Write to the daily log data\logs\ft8\YYYY\MM\DD\ft8_YYYY-MM-DD.txt (UTC, shared by all VFOs)"><input type="checkbox" data-log="ft8">LOG</label>
         <button id="ft8Clear" class="key small">CLR</button>
       </div>
@@ -636,6 +643,31 @@
           <div class="ais-map-list ft8-ml-box" id="ft8MapList"></div>
         </div>
       </div>
+      </div>
+    </section>
+
+    <!-- WSPR (wspr.py: wsprd of WSJT-X on 2-minute cycles) -->
+    <section class="card ft8 wspr" id="wsprCard" data-dec="wspr" hidden>
+      <div class="ft8-head">
+        <label class="key small toggle" data-dec-on="wspr" title="WSPR decoder on/off"><input id="wsprOn" type="checkbox">ON</label>
+        <div class="bands" id="wsprBands"></div>
+        <span id="wsprInfo" class="muted"></span>
+        <span class="clk-chip" data-clk title="How far the PC clock is off (NTP); FT8 and WSPR need it within ±1 s">PC CLOCK …</span><button class="key small" data-clk-sync title="Set the PC clock by NTP (Windows asks for the administrator consent)">SYNC</button>
+        <label class="wf-opt log-opt" title="Write to the daily log data\logs\wspr\YYYY\MM\DD\wspr_YYYY-MM-DD.txt (UTC, shared by all VFOs)"><input type="checkbox" data-log="wspr">LOG</label>
+        <button id="wsprClear" class="key small">CLR</button>
+      </div>
+      <div class="wspr-prog" id="wsprProg" hidden><div class="wp-bar"><span class="wp-fill"></span></div><span class="wp-txt"></span></div>
+      <p class="note">Records the USB passband from each even UTC minute for 114 s and decodes it with wsprd (WSJT-X) at the end of the
+        cycle: the spots come every 2 minutes. The PC clock must be accurate to ±1 s. A cycle during which the VFO is retuned is skipped.</p>
+      <div class="ft8-table">
+        <table class="ft8-tbl wspr-tbl">
+          <colgroup><col class="c-utc"><col class="c-snr"><col class="c-dt"><col class="c-dr"><col class="c-f"><col class="c-call"><col class="c-grid"><col class="c-pwr"><col></colgroup>
+          <thead><tr><th>UTC</th><th title="Signal-to-noise ratio in 2.5 kHz">SNR dB</th><th class="num" title="Time offset from the PC clock">DT s</th>
+            <th class="num" title="Frequency drift during the transmission">Drift Hz</th><th class="num">MHz</th><th>Call</th><th>Locator</th>
+            <th class="num" title="Transmit power the station reports">Power</th><th class="num" title="Distance from the station location (SETTINGS › GENERAL › LOCATION)">km</th></tr></thead>
+          <tbody id="wsprRows"></tbody>
+        </table>
+        <div id="wsprEmpty" class="ft8-empty">No spots yet.</div>
       </div>
     </section>
 
@@ -1074,6 +1106,34 @@
          shown by their groups (one checkbox per group beside the map).
          Pages MAP and SETTINGS: on SETTINGS the block scheme of the sources of the wanted AZ / EL (SAT TRACKER, MEMORY RECALL, RCTRL MAP),
          each with a switch that disconnects it from the rotor (data\rotor.json, the whole station), and the rotor controller. -->
+    <!-- PROPAGATION (PROP key): space weather (NOAA SWPC) and the HF bands at the station, in the look of the STATION scheme -->
+    <div class="set-pane prop-pane" id="propPane" hidden aria-label="Propagation">
+      <div class="set-body">
+        <div class="set-panel sdg-panel prop-panel">
+          <div class="setting sdg">
+            <div class="row"><span>Space weather and HF propagation</span><span class="muted" id="propInfo"></span></div>
+            <span class="sdg-sec">SUN · SOLAR WIND · EARTH</span>
+            <div class="sdg-shared prop-blocks" id="propBlocks"></div>
+            <div class="prop-charts">
+              <div id="propKp"></div>
+              <div id="propXray"></div>
+              <div id="propMag"></div>
+            </div>
+            <span class="sdg-sec">IONOSONDES UP TO 1500 KM · NEWEST VALUES (MHz)</span>
+            <div class="sdg-shared prop-iono" id="propIono"></div>
+            <span class="sdg-sec">HF BANDS AT THE STATION · NOW AND THE NEXT 24 HOURS (UTC) · WHAT THE FT8 DECODERS HEAR</span>
+            <div class="prop-hf">
+              <div class="prop-bands" id="propBands"></div>
+              <div class="prop-ft8" id="propFt8"></div>
+              <div class="prop-test" id="propTest"></div>
+            </div>
+            <span class="sdg-sec">NOAA ALERTS, WARNINGS AND WATCHES · LAST 48 HOURS</span>
+            <div class="prop-alerts" id="propAlerts"></div>
+            <p class="note" id="propNote"></p>
+          </div>
+        </div>
+      </div>
+    </div>
     <div class="set-pane com-pane" id="comPane" hidden aria-label="Composite map">
       <div class="com-srcs" id="comSrcs" hidden></div><!-- the sources: switched in the map settings (Sources) -->
       <div class="com-body"><div id="comMap"></div><div id="comSide" class="com-side"></div></div>
@@ -1666,6 +1726,12 @@
                  reset – as blocks with arrows between them, wrapping into the next line; the AGC+ diagram at the end -->
             <div class="set-subpanel no-blk" id="dongleBasic" data-set-subpanel="vfo:dongle" role="tabpanel">
               <div class="set-chain">
+              <!-- network source (rtl_tcp / SpyServer): where the samples come from; settings it cannot use are greyed -->
+              <div class="setting src-setting" id="srcSetting" hidden>
+                <div class="row"><span>Source</span><span class="value" id="srcKind"></span></div>
+                <div class="mono src-addr" id="srcAddr"></div>
+                <p class="note" id="srcNote"></p>
+              </div>
               <div class="setting" id="antennaSetting" data-blk="0">
                 <div class="row"><span>Antenna</span><span class="value" id="antVfoRange"></span></div>
                 <select id="antVfo"></select>

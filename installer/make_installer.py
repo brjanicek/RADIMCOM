@@ -101,8 +101,8 @@ def make_upgrade(full_zip):
     print(f"{out}: {n + 2} files, {os.path.getsize(out) / 1e6:.1f} MB")
 
 
-CODE = ["app.py", "launcher.py", "paths.py", "serverlog.py", "sdr.py", "gainctl.py", "autotune.py", "lime.py", "airspy.py", "rds.py", "cw.py", "rtty.py", "packet.py", "pocsag.py", "sonde.py", "sonde_ext.py", "sonde_sites.py", "wind.py", "aprs.py", "daylog.py", "ft8.py", "wefax.py", "sstv.py", "acars.py", "cpdlc.py", "cpdlc_schema.py", "adsc.py", "vdl2.py", "hfdl.py", "ais.py", "adsb.py", "tonesq.py", "scanner.py", "airports.py", "dab.py", "ism.py", "dsd.py", "recorder.py", "iqrec.py", "install_dsd.py", "install_dsd.bat",
-        "memories.py", "datafiles.py", "satellites.py", "update_check.py", "sattrack.py", "satplan.py", "location.py", "antennas.py", "sysload.py", "rotor.py", "iqshare.py", "eeprom_tool.py", "setup_sdr.py", "setup_web.py", "rtltcp.py", "start.bat", "setup.bat", "README.md", "CHANGELOG.md",
+CODE = ["app.py", "launcher.py", "paths.py", "serverlog.py", "sdr.py", "gainctl.py", "autotune.py", "lime.py", "airspy.py", "rds.py", "cw.py", "rtty.py", "packet.py", "pocsag.py", "sonde.py", "sonde_ext.py", "sonde_sites.py", "wind.py", "aprs.py", "daylog.py", "ft8.py", "wspr.py", "clocksync.py", "spyserver.py", "wefax.py", "sstv.py", "acars.py", "cpdlc.py", "cpdlc_schema.py", "adsc.py", "vdl2.py", "hfdl.py", "ais.py", "adsb.py", "tonesq.py", "scanner.py", "airports.py", "dab.py", "ism.py", "dsd.py", "recorder.py", "iqrec.py", "install_dsd.py", "install_dsd.bat",
+        "memories.py", "datafiles.py", "satellites.py", "update_check.py", "sattrack.py", "satplan.py", "location.py", "antennas.py", "sysload.py", "rotor.py", "iqshare.py", "eeprom_tool.py", "setup_sdr.py", "setup_web.py", "rtltcp.py", "spacewx.py", "start.bat", "setup.bat", "README.md", "CHANGELOG.md",
         "LICENSE", "NOTICE.md", "API/API.md",
         # rtl_tcp server for a Raspberry Pi (brjanicek): install script + manager, also pushed by the UPDATE key (rtltcp.latest_manager)
         "rpi/install_rtltcp.sh", "rpi/rtltcp_manager.py"]
@@ -116,6 +116,8 @@ LIBS += sorted("lib/dab/" + f for f in os.listdir(os.path.join(ROOT, "lib", "dab
                if f.lower().endswith((".exe", ".dll"))) if os.path.isdir(os.path.join(ROOT, "lib", "dab")) else []
 # ISM: the static rtl_433 of its release (see installer/ISM.txt), no DLLs needed
 LIBS += ["lib/ism/rtl_433.exe"]
+# WSPR: wsprd of WSJT-X 2.7.0 built with MSYS2 UCRT64, static (installer/build_wspr.sh, see installer/WSPR.txt)
+LIBS += ["lib/wspr/wsprd.exe"] if os.path.isfile(os.path.join(ROOT, "lib", "wspr", "wsprd.exe")) else []
 # HFDL: dumphfdl built with MSYS2 (installer/build_hfdl.sh, see installer/HFDL.txt) with its DLLs and ground station table
 LIBS += sorted("lib/hfdl/" + f for f in os.listdir(os.path.join(ROOT, "lib", "hfdl"))
                if f.lower().endswith((".exe", ".dll", ".conf"))) if os.path.isdir(os.path.join(ROOT, "lib", "hfdl")) else []
@@ -305,6 +307,7 @@ def stage(build):
     copy(os.path.join(HERE, "DAB.txt"), "lib/dab/README.txt", build)     # licences and sources of welle-cli
     copy(os.path.join(HERE, "ISM.txt"), "lib/ism/README.txt", build)     # licences and sources of rtl_433
     copy(os.path.join(HERE, "HFDL.txt"), "lib/hfdl/README.txt", build)   # licences and sources of dumphfdl
+    copy(os.path.join(HERE, "WSPR.txt"), "lib/wspr/README.txt", build)   # licence and sources of wsprd
     shutil.copytree(os.path.join(ROOT, "static"), os.path.join(build, "static"))
     for dst, src in EXTERNAL.items():
         copy(src, dst, build)
