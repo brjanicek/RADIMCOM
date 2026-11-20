@@ -35,6 +35,7 @@ function vmOptsNorm(v) {
     maps: bool(o.maps), cats: bool(o.cats),
     maxFL: VM_MAX_FL.includes(+o.maxFL) ? +o.maxFL : 0,
     lbl: bool(o.lbl),   // names on the map per kind (missing: VM_LBL_DEF)
+    style: o.style && typeof o.style === "object" ? o.style : {},
     hidden: Array.isArray(o.hidden) ? o.hidden.filter((x) => typeof x === "string" && /^[\w:-]{1,80}$/.test(x)).slice(0, 5000) : [],
     rev: +o.rev || 0,   // the data changed (Update, delete): all windows load it again
     viewRev: +o.viewRev || 0,   // what is shown changed: all windows ask the server again
@@ -42,7 +43,7 @@ function vmOptsNorm(v) {
 }
 // What is shown (cats, lbl, maxFL, maps, hidden) is stored on the server in the map files (the same in every browser
 // and computer); the browser keeps only on, countries and the revisions. vmOpt() gives both together.
-const VM_VIEW_KEYS = ["cats", "lbl", "maxFL", "maps", "hidden"];
+const VM_VIEW_KEYS = ["cats", "lbl", "maxFL", "maps", "hidden", "style"];
 let vmView = null;   // from the server (GET /api/vectormaps → view)
 const vmOpt = () => { const b = mapOpts.vm || vmOptsNorm(null); return vmView ? { ...b, ...vmView } : b; };
 const vmCatOn = (kind, cat) => {
@@ -69,15 +70,42 @@ const VM_AS_DEF = ["#9fb3c8", 1, "4 4", 0.03];
 const VM_PT_STYLE = {   // colour, radius
   airport: ["#4fd2ff", 5], navaid: ["#7cff9a", 4], point: ["#ffd84a", 3], obstacle: ["#ff6cd2", 3],
 };
-function vmStyle(p) {
-  if (p.kind === "airspace") {
-    const [c, w, dash, fo] = VM_AS_STYLE[p.cat] || VM_AS_DEF;
-    return { color: c, weight: w, dashArray: dash || null, opacity: 0.9, fillColor: c, fillOpacity: fo };
+// the style of a part (kind.cat): line c / w / d (type) / o, fill fc / fo, point r / sym, name lc / ls / lz (from zoom);
+// the defaults above, what the person changed in view.style (stored on the server with the maps)
+const VM_DASH = { solid: null, dash: "8 5", long: "14 6", dot: "2 4", dashdot: "8 4 2 4" };
+const VM_DASH_OF = { "6 4": "dash", "8 4": "dash", "4 4": "dash", "2 4": "dot", "10 6": "long" };
+const VM_SYMS = [["circle", "Circle"], ["square", "Square"], ["diamond", "Diamond"], ["triangle", "Triangle"], ["cross", "Cross"]];
+function vmStyDef(kind, cat) {
+  if (kind === "airspace") {
+    const [c, w, dash, fo] = VM_AS_STYLE[cat] || VM_AS_DEF;
+    return { c, w, d: VM_DASH_OF[dash] || "solid", o: 0.9, fc: c, fo, lc: c, ls: 10, lz: VM_LBL_ZOOM.airspace };
   }
-  const [c, r] = VM_PT_STYLE[p.kind] || ["#ffffff", 3];
-  const big = p.kind === "airport" && (p.cat === "intl" || p.cat === "ifr" || p.cat === "military");
-  return { color: "#000", weight: 1, opacity: 0.8, fillColor: c, fillOpacity: p.cat === "closed" ? 0.3 : 0.95, radius: big ? r + 2 : r };
+  const [c, r] = VM_PT_STYLE[kind] || ["#ffffff", 3];
+  const big = kind === "airport" && (cat === "intl" || cat === "ifr" || cat === "military");
+  return { fc: c, r: big ? r + 2 : r, sym: kind === "navaid" ? "diamond" : kind === "point" ? "triangle" : "circle", fo: cat === "closed" ? 0.3 : 0.95,
+    lc: c, ls: 10, lz: (VM_LBL_ZOOM[kind] || 9) - (kind === "airport" && (cat === "intl" || cat === "ifr") ? 2 : 0) };
 }
+const vmSty = (kind, cat) => ({ ...vmStyDef(kind, cat), ...(((vmOpt().style || {})[`${kind}.${cat}`]) || {}) });
+function vmStyle(p) {
+  const y = vmSty(p.kind, p.cat);
+  if (p.kind === "airspace") return { color: y.c, weight: y.w, dashArray: VM_DASH[y.d] || null, opacity: y.o, fillColor: y.fc, fillOpacity: y.fo };
+  return { color: "#000", weight: 1, opacity: 0.8, fillColor: y.fc, fillOpacity: y.fo, radius: y.r, sym: y.sym };
+}
+// a point drawn as a symbol on the canvas (one canvas for thousands of points)
+const VmSym = L.CircleMarker.extend({
+  _updatePath() {
+    const rd = this._renderer, sym = this.options.sym || "circle";
+    if (sym === "circle" || !rd._ctx) { L.CircleMarker.prototype._updatePath.call(this); return; }
+    if (!rd._drawing || this._empty()) return;
+    const ctx = rd._ctx, { x, y } = this._point, r = Math.max(this._radius, 1);
+    ctx.beginPath();
+    if (sym === "square") ctx.rect(x - r, y - r, 2 * r, 2 * r);
+    else if (sym === "diamond") { ctx.moveTo(x, y - r * 1.3); ctx.lineTo(x + r * 1.3, y); ctx.lineTo(x, y + r * 1.3); ctx.lineTo(x - r * 1.3, y); ctx.closePath(); }
+    else if (sym === "triangle") { ctx.moveTo(x, y - r * 1.3); ctx.lineTo(x + r * 1.15, y + r * 0.8); ctx.lineTo(x - r * 1.15, y + r * 0.8); ctx.closePath(); }
+    else if (sym === "cross") { const t = Math.max(1, r / 2.5); ctx.rect(x - r, y - t, 2 * r, 2 * t); ctx.rect(x - t, y - r, 2 * t, 2 * r); }
+    rd._fillStroke(ctx, this);
+  },
+});
 
 // the list of the stored maps and their GeoJSON (asked from the VFO of the page or any VFO, like the own layers)
 let vmList = null, vmListP = null, vmListRev = -1, vmViewRev = -1;
@@ -90,7 +118,7 @@ function vmListGet(force) {
   if (vmList) return Promise.resolve(vmList);
   return (vmListP = vmListP || mapLayApi("/api/vectormaps").then((j) => {
     const v = j.view || {};
-    vmView = { cats: v.cats || {}, lbl: v.lbl || {}, maxFL: +v.maxFL || 0, maps: v.maps || {}, hidden: v.hidden || [] };
+    vmView = { cats: v.cats || {}, lbl: v.lbl || {}, maxFL: +v.maxFL || 0, maps: v.maps || {}, hidden: v.hidden || [], style: v.style || {} };
     if (!v.stored && (j.maps || []).length && VM_VIEW_KEYS.some((k) => { const x = b[k]; return Array.isArray(x) ? x.length : x && typeof x === "object" ? Object.keys(x).length : x; })) {
       vmView = Object.fromEntries(VM_VIEW_KEYS.map((k) => [k, b[k]]));   // once: what this browser had before goes to the server
       vmViewSave();
@@ -159,7 +187,7 @@ async function vmApply(map) {
   const st = map._vm || (map._vm = vmInit(map));
   const o = vmOpt(), list = o.on ? await vmListGet() : [];
   const want = new Set(list.filter((m) => vmMapOn(m.id)).map((m) => m.id));
-  const sig = JSON.stringify([o.cats, o.maxFL, o.rev, o.hidden]);
+  const sig = JSON.stringify([o.cats, o.maxFL, o.rev, o.hidden, o.style]);
   let changed = false;
   for (const [id, x] of st.layers) if (!want.has(id) || x.sig !== sig) { map.removeLayer(x.layer); st.layers.delete(id); changed = true; }
   const hidden = new Set(o.hidden);
@@ -182,7 +210,7 @@ async function vmApply(map) {
     const layer = L.geoJSON({ type: "FeatureCollection", features: feats }, {
       pane: "vmaps", interactive: false,
       style: (f) => ({ ...vmStyle(f.properties || {}), renderer: st.renderer, interactive: false }),
-      pointToLayer: (f, ll) => L.circleMarker(ll, { ...vmStyle(f.properties || {}), renderer: st.renderer, pane: "vmaps", interactive: false }),
+      pointToLayer: (f, ll) => new VmSym(ll, { ...vmStyle(f.properties || {}), renderer: st.renderer, pane: "vmaps", interactive: false }),
     }).addTo(map);
     st.layers.set(m.id, { sig, layer, objs });
     changed = true;
@@ -252,7 +280,7 @@ function vmInit(map) {
     lblLayer.clearLayers();
     if (!vmOpt().on || !st.layers.size) return;
     const z = map.getZoom(), b = map.getBounds().pad(0.1), out = [];
-    const ok = (p) => vmLblOn(p.kind) && z >= (VM_LBL_ZOOM[p.kind] || 9) - (p.kind === "airport" && (p.cat === "intl" || p.cat === "ifr") ? 2 : 0);
+    const ok = (p) => vmLblOn(p.kind) && z >= vmSty(p.kind, p.cat).lz;
     for (const ob of st.pts) if (ok(ob.p) && b.contains(ob.ll)) out.push(ob);
     for (const ob of st.polys) if (ok(ob.p) && b.contains(ob.c) && ob.area > 0) out.push(ob);
     const rank = { navaid: 0, airport: 1, airspace: 2, point: 3, obstacle: 4 };
@@ -260,14 +288,14 @@ function vmInit(map) {
     const placed = [];   // boxes of the names already placed: a name that would overlap one is left out
     for (const ob of out) {
       if (placed.length >= VM_LBL_MAX) break;
-      const pt = !ob.ring, col = vmStyle(ob.p)[pt ? "fillColor" : "color"];
+      const pt = !ob.ring, y = vmSty(ob.p.kind, ob.p.cat), col = y.lc;
       const q = map.latLngToContainerPoint(ob.ll || ob.c), txt = String(ob.p.ident && ob.p.kind !== "airspace" ? ob.p.ident : ob.p.name || "");
       const w = Math.max(20, txt.length * 6), hh = ob.p.kind === "airspace" || ob.p.kind === "navaid" ? 24 : 12;
       const r = [q.x - w / 2, pt ? q.y + 6 : q.y - hh / 2, q.x + w / 2, (pt ? q.y + 6 : q.y - hh / 2) + hh];
       if (placed.some((o) => r[0] < o[2] && r[2] > o[0] && r[1] < o[3] && r[3] > o[1])) continue;
       placed.push(r);
       L.marker(ob.ll || ob.c, { pane: "vmlabels", interactive: false, keyboard: false,
-        icon: L.divIcon({ className: `vm-lbl${pt ? " pt" : ""}`, html: `<span style="--c:${col}">${vmLabel(ob.p)}</span>`, iconSize: null }) }).addTo(lblLayer);
+        icon: L.divIcon({ className: `vm-lbl${pt ? " pt" : ""}`, html: `<span style="--c:${col};font-size:${y.ls}px">${vmLabel(ob.p)}</span>`, iconSize: null }) }).addTo(lblLayer);
     }
   };
   map.on("moveend zoomend", () => st.labels());
@@ -298,11 +326,12 @@ function vmSettingsHtml() {
     if (!cs) continue;
     const cats = [...order.filter((c) => cs[c]), ...Object.keys(cs).filter((c) => !order.includes(c))];
     const tot = Object.values(cs).reduce((a, b) => a + b, 0);
-    const sw = (c) => { const s = vmStyle({ kind: k, cat: c }); return `<i class="vm-sw${k === "airspace" ? "" : " pt"}" style="--c:${s.fillColor}"></i>`; };
+    const sw = (c) => { const y = vmSty(k, c); return `<i class="vm-sw${k === "airspace" ? "" : " pt"}" data-vmswatch="${escHtml(`${k}.${c}`)}" title="Style (click)" style="--c:${k === "airspace" ? y.c : y.fc}"></i>`; };
     h += `<details class="vm-kind" data-vmkind="${k}"${vmKindOpen().includes(k) ? " open" : ""}><summary>${chk(`data-vmcat="${k}"`, vmCatOn(k))} ${name} <small class="muted">${n(tot)}</small></summary>` +
       `<div class="vm-cats">${cats.map((c) => { const id = escHtml(`${k}.${c}`);   // a part: its objects one by one when opened
         return `<details class="vm-cat" data-vmcatd="${id}"${vmCatOpen().includes(`${k}.${c}`) ? " open" : ""}><summary>${chk(`data-vmcat="${id}"`, vmCatOn(k, c))}${sw(c)} ` +
-          `${escHtml(VM_CAT_NAME[c] || c)} <small class="muted">${cs[c]}</small></summary><div class="vm-objs" data-vmobjs="${id}"><p class="map-opts-note">Loading…</p></div></details>`; }).join("")}</div>` +
+          `${escHtml(VM_CAT_NAME[c] || c)} <small class="muted">${cs[c]}</small></summary><div class="vm-objs" data-vmobjs="${id}"><p class="map-opts-note">Loading…</p></div></details>` +
+          (vmStyOpen === `${k}.${c}` ? vmStyEditor(k, c) : ""); }).join("")}</div>` +
       `<label>${chk(`data-vmlbl="${k}"`, vmLblOn(k))} Names on the map <small class="muted">from zoom ${VM_LBL_ZOOM[k]}</small></label>` +
       (k === "airspace" ? `<label>Only starting below <select data-vm="maxFL">${VM_MAX_FL.map((v) => `<option value="${v}"${v === o.maxFL ? " selected" : ""}>${v ? `FL${v}` : "any altitude"}</option>`).join("")}</select></label>` : "") +
       `</details>`;
@@ -310,6 +339,23 @@ function vmSettingsHtml() {
   if (o.hidden.length) h += `<div class="map-opts-sub2">Hidden objects <small>a click on an object on the map hides it</small></div>` +
     `<label>${o.hidden.length} hidden <button type="button" class="vm-btn" data-vmshow="*">Show all</button></label>`;
   return h;
+}
+let vmStyOpen = "";   // the part whose style editor is open (one at a time)
+/** The style editor of a part, under its row in the tree. */
+function vmStyEditor(kind, cat) {
+  const y = vmSty(kind, cat), key = escHtml(`${kind}.${cat}`), pc = (v) => `${Math.round(v * 100)} %`;
+  const sel = (k, list, name) => `<select data-vmsty="${key}" data-k="${k}">${list.map((v) => `<option value="${v}"${String(v) === String(y[k]) ? " selected" : ""}>${name ? name(v) : v}</option>`).join("")}</select>`;
+  const col = (k) => `<input type="color" class="map-opts-cp" data-vmsty="${key}" data-k="${k}" value="${y[k]}">`;
+  const own = !!((vmOpt().style || {})[`${kind}.${cat}`]);
+  const rows = kind === "airspace" ? [
+    ["Line", col("c") + sel("w", [0.5, 1, 1.5, 2, 3, 4, 5], (v) => `${v} px`) + sel("d", Object.keys(VM_DASH)) + sel("o", [0.2, 0.4, 0.6, 0.8, 0.9, 1], pc)],
+    ["Fill", col("fc") + sel("fo", [0, 0.03, 0.05, 0.08, 0.1, 0.15, 0.2, 0.3, 0.5], pc)],
+  ] : [
+    ["Symbol", col("fc") + sel("sym", VM_SYMS.map(([v]) => v), (v) => VM_SYMS.find(([x]) => x === v)[1]) + sel("r", [2, 3, 4, 5, 6, 7, 8, 10], (v) => `${v} px`) + sel("fo", [0.3, 0.5, 0.7, 0.95, 1], pc)],
+  ];
+  rows.push(["Name", col("lc") + sel("ls", [8, 9, 10, 11, 12, 14, 16], (v) => `${v} px`) + sel("lz", [5, 6, 7, 8, 9, 10, 11, 12, 13, 14], (v) => `from zoom ${v}`)]);
+  return `<div class="vm-sty">${rows.map(([n, c]) => `<div class="vm-sty-row"><span>${n}</span>${c}</div>`).join("")}` +
+    `<div class="vm-sty-row"><span></span><button type="button" class="vm-btn" data-vmstydef="${key}"${own ? "" : " disabled"}>Default</button></div></div>`;
 }
 function vmCatOpen() {   // the parts open in the tree (this browser)
   try { const v = JSON.parse(localStorage.getItem("vmCatOpen") || "[]"); return Array.isArray(v) ? v : []; } catch { return []; }
@@ -354,6 +400,15 @@ function vmOnInput(e, panel) {
   else if (t.dataset.vmmap) vmSet({ maps: { ...o.maps, [t.dataset.vmmap]: t.checked } });
   else if (t.dataset.vmcat) vmSet({ cats: { ...o.cats, [t.dataset.vmcat]: t.checked } });
   else if (t.dataset.vmlbl) vmSet({ lbl: { ...o.lbl, [t.dataset.vmlbl]: t.checked } });
+  else if (t.dataset.vmsty) {   // one style value of a part
+    const key = t.dataset.vmsty, k = t.dataset.k, [kind, cat] = key.split(".");
+    const v = ["c", "fc", "lc", "d", "sym"].includes(k) ? t.value : +t.value;
+    const cur = { ...((o.style || {})[key] || {}) }, def = vmStyDef(kind, cat);
+    if (v === def[k]) delete cur[k]; else cur[k] = v;
+    const style = { ...(o.style || {}) };
+    if (Object.keys(cur).length) style[key] = cur; else delete style[key];
+    vmSet({ style });
+  }
   else if (t.dataset.vmobj) {   // one object shown / hidden: the list keeps its place (no new section)
     const h = new Set(o.hidden);
     if (t.checked) h.delete(t.dataset.vmobj); else h.add(t.dataset.vmobj);
@@ -390,6 +445,20 @@ function vmOnClick(e, panel) {
       vmRefill(panel);
       if (msg()) msg().textContent = bad.length ? `Not downloaded: ${bad.join("; ")}` : `Downloaded: ${cs.join(" ")}`;
     })();
+    return true;
+  }
+  const swb = e.target.closest("[data-vmswatch]"), sdef = e.target.closest("button[data-vmstydef]");
+  if (swb) {   // the swatch of a part: its style editor opens / closes (the row itself stays as it was)
+    e.preventDefault();
+    vmStyOpen = vmStyOpen === swb.dataset.vmswatch ? "" : swb.dataset.vmswatch;
+    vmRefill(panel);
+    return true;
+  }
+  if (sdef) {
+    const style = { ...(vmOpt().style || {}) };
+    delete style[sdef.dataset.vmstydef];
+    vmSet({ style });
+    vmRefill(panel);
     return true;
   }
   if (e.target.closest("button[data-vmshow]")) { vmSet({ hidden: [] }); vmRefill(panel); return true; }

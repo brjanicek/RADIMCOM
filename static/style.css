@@ -4501,3 +4501,8 @@ body.map-only #comStatus, #comPane:fullscreen #comStatus { display: flex; }
 .vm-pop .leaflet-popup-content { margin: 8px 10px; font: 12px/1.4 system-ui, sans-serif; }
 .vm-card .muted { color: #8fa3bd; }
 .vm-card-act { margin-top: 6px; }
+.vm-sw[data-vmswatch] { cursor: pointer; }
+.vm-sw[data-vmswatch]:hover { outline: 1px solid #dfe4ea; }
+.vm-sty { margin: 2px 0 4px 22px; padding: 4px 6px; border: 1px solid #2a3546; border-radius: 4px; background: rgba(20, 27, 38, .6); }
+.vm-sty-row { display: flex; align-items: center; gap: 5px; margin: 2px 0; }
+.vm-sty-row > span { width: 46px; color: #8fa3bd; font-size: 11px; }

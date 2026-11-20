@@ -12,7 +12,8 @@ per source and country, as GeoJSON with properties of the same names for every s
 
 The file's root object also holds "radimcom": {version, name, source, country, fetched (UNIX s), license,
 attribution, view}. What is shown is kept in the files too, so it is the same in every browser and computer and travels
-with the file: "view" = {on (this map), cats {"kind" | "kind.cat": bool}, lbl {kind: bool}, maxFL}, and a hidden
+with the file: "view" = {on (this map), cats {"kind" | "kind.cat": bool}, lbl {kind: bool}, maxFL, style
+{"kind.cat": {c, w, d, o, fc, fo, r, sym, lc, ls, lz}} (only what differs from the defaults)}, and a hidden
 object has "hidden": true in its properties. Update keeps both (objects matched by their id in the source). Airspaces keep their polygons and vertical limits, so a later "track inside an airspace" test can use
 the same files.
 
@@ -261,7 +262,7 @@ def keep_view(old, new):
 
 def get_view(maps=None):
     """What is shown, from all stored maps: {cats, lbl, maxFL, maps {id: bool}, hidden [keys], stored}."""
-    view = {"cats": {}, "lbl": {}, "maxFL": 0, "maps": {}, "hidden": [], "stored": False}
+    view = {"cats": {}, "lbl": {}, "maxFL": 0, "style": {}, "maps": {}, "hidden": [], "stored": False}
     if not os.path.isdir(VMAP_DIR):
         return view
     for fn in sorted(os.listdir(VMAP_DIR)):
@@ -274,10 +275,36 @@ def get_view(maps=None):
         v = (coll.get("radimcom") or {}).get("view")
         if isinstance(v, dict):
             if not view["stored"]:
-                view.update(cats=v.get("cats") or {}, lbl=v.get("lbl") or {}, maxFL=v.get("maxFL") or 0, stored=True)
+                view.update(cats=v.get("cats") or {}, lbl=v.get("lbl") or {}, maxFL=v.get("maxFL") or 0,
+                            style=v.get("style") or {}, stored=True)
             view["maps"][fn[:-5]] = v.get("on", True) is not False
         view["hidden"] += [_key(f.get("properties") or {}) for f in coll.get("features") or [] if (f.get("properties") or {}).get("hidden")]
     return view
+
+
+STYLE_KEYS = {"c": "color", "fc": "color", "lc": "color", "d": ("solid", "dash", "long", "dot", "dashdot"),
+              "sym": ("circle", "square", "diamond", "triangle", "cross"), "w": (0.5, 10), "o": (0, 1), "fo": (0, 1),
+              "r": (1, 20), "ls": (6, 24), "lz": (1, 18)}
+
+
+def clean_style(style):
+    """{"kind.cat": {key: value}} with only known keys and sane values."""
+    out = {}
+    for part, st in (style or {}).items() if isinstance(style, dict) else ():
+        if not isinstance(st, dict) or not re.fullmatch(r"[\w-]{1,20}\.[\w-]{1,30}", str(part)):
+            continue
+        ok = {}
+        for k, v in st.items():
+            rule = STYLE_KEYS.get(k)
+            if rule == "color" and isinstance(v, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", v):
+                ok[k] = v
+            elif isinstance(rule, tuple) and isinstance(rule[0], str) and v in rule:
+                ok[k] = v
+            elif isinstance(rule, tuple) and isinstance(v, (int, float)) and not isinstance(v, bool) and rule[0] <= v <= rule[1]:
+                ok[k] = v
+        if ok:
+            out[str(part)] = ok
+    return out
 
 
 def set_view(view):
@@ -290,6 +317,7 @@ def set_view(view):
     except (TypeError, ValueError):
         max_fl = 0
     hidden = {str(k) for k in view.get("hidden") or [] if isinstance(k, str)}
+    style = clean_style(view.get("style"))
     if not os.path.isdir(VMAP_DIR):
         return
     for fn in sorted(os.listdir(VMAP_DIR)):
@@ -299,7 +327,8 @@ def set_view(view):
             coll = _load(os.path.join(VMAP_DIR, fn))
         except (OSError, ValueError):
             continue
-        coll.setdefault("radimcom", {})["view"] = {"on": maps.get(fn[:-5], True), "cats": cats, "lbl": lbl, "maxFL": max_fl}
+        coll.setdefault("radimcom", {})["view"] = {"on": maps.get(fn[:-5], True), "cats": cats, "lbl": lbl, "maxFL": max_fl,
+                                             "style": style}
         for f in coll.get("features") or []:
             p = f.setdefault("properties", {})
             if _key(p) in hidden:
@@ -357,7 +386,7 @@ def openaip_update(country, key=None):
     if old is None:   # a new country: shown as the other maps say
         v = get_view()
         if v["stored"]:
-            coll["radimcom"]["view"] = {"on": True, "cats": v["cats"], "lbl": v["lbl"], "maxFL": v["maxFL"]}
+            coll["radimcom"]["view"] = {"on": True, "cats": v["cats"], "lbl": v["lbl"], "maxFL": v["maxFL"], "style": v["style"]}
     save(mid, keep_view(old, coll))
     return next((m for m in list_maps() if m["id"] == mid), {"id": mid})
 

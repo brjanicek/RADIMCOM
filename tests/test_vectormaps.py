@@ -100,3 +100,11 @@ def test_view_stored_in_files_and_kept_on_update(tmp_path, monkeypatch):
     new = vm.keep_view(vm._load(vm._path("openaip_SK")), vm.openaip_collection("SK", items))
     assert [f["properties"].get("hidden") for f in new["features"]] == [None, True]
     assert new["radimcom"]["view"]["cats"] == {"airport.civil": False}
+
+
+def test_style_is_cleaned_and_stored(tmp_path, monkeypatch):
+    monkeypatch.setattr(vm, "VMAP_DIR", str(tmp_path))
+    vm.save("openaip_SK", vm.openaip_collection("SK", {}))
+    vm.set_view({"style": {"airspace.CTR": {"c": "#112233", "w": 3, "d": "dot", "x": 1, "o": 7},
+                           "airport.intl": {"sym": "square", "r": 6, "fc": "red"}, "bad key": {"c": "#000000"}}})
+    assert vm.get_view()["style"] == {"airspace.CTR": {"c": "#112233", "w": 3, "d": "dot"}, "airport.intl": {"sym": "square", "r": 6}}

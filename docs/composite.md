@@ -100,7 +100,10 @@ at once in all open tabs and windows of the same address.
   one by one with a checkbox. **Names on the map** per kind (from a zoom on, names that would overlap are left out);
   **Only starting below** FL… shows only the airspaces whose lower limit is below that level. The mouse over an object
   shows its name, class, vertical limits and frequencies; a click opens it with **Hide this object** (**Show all** in
-  the settings brings the hidden ones back). What is shown and hidden is stored in the map files on the server, the
+  the settings brings the hidden ones back). A click on the colour mark of a part opens its **style**: line (colour,
+  width, solid / dash / long / dot / dash-dot, opacity) and fill (colour, opacity) of an airspace, symbol (colour,
+  circle / square / diamond / triangle / cross, size, opacity) of a point, and its name (colour, size, from which zoom);
+  **Default** returns to the built-in look. What is shown, hidden and styled is stored in the map files on the server, the
   same in every browser and computer, and kept by Update. openAIP data: CC BY-NC.
 - **Own layers:** **Add** a GeoJSON, KML or GPX file (KMZ: unpack the KML from it first; KML / GPX are turned into
   GeoJSON in the browser): points, lines and areas, with the name and description as a tooltip. The layers are stored
