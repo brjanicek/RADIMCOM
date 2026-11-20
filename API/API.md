@@ -313,6 +313,18 @@ Scan session: GET `/api/scan` also returns `"session_id"` (and `"session"` of th
 
 The memory fields used by the scan: `"scan"` (false = never scanned), `"scan_sq"` (own level −120…0 dBFS or null), `"scan_asq"` (own ASQ margin 1–30 dB or null), `"scan_prio"` (0 / 1), set by PATCH `/api/memories/<id>`. Search & store adds memories in the group `Scan YYYY-MM-DD` and sends the event `memories`.
 
+## Vector maps
+
+Airspaces, airports, navaids, reporting points and obstacles drawn on the decoder maps (`vectormaps.py`, `static/vectormaps.js`). The data is downloaded from openAIP per country (the API has no area filter) and kept in `data\vectormaps\<source>_<CC>.json`, one folder for all VFOs, so the maps work offline. Each file is a GeoJSON FeatureCollection with the properties `kind` (`airspace` / `airport` / `navaid` / `point` / `obstacle`), `cat` (the part: `CTR`, `TMA`, `R`, ... / `intl`, `civil`, ... / `VOR-DME`, `NDB`, ...), `name`, `ident`, `cls` (ICAO class or `SUA`), `freq` (`[{"f": MHz, "name", "type"}]`), `lower` / `upper` (`{"v", "u": "ft" | "m" | "FL", "ref": "GND" | "MSL" | "STD"}`), `elev`, `height` (m), `src`, `srcId`, and `hidden: true` for an object hidden by the user. The root object holds `"radimcom": {version, name, source, country, fetched, license, attribution, view}`; `view` = `{on, cats, lbl, maxFL}` is what is shown (the same in all files except `on`).
+
+| Method | Path | Meaning |
+|---|---|---|
+| GET | `/api/vectormaps` | `{"maps": [{"id", "name", "source", "country", "fetched", "stale"` (older than 28 days), `"license", "attribution", "n", "size", "cats": {kind: {cat: count}}}], "view": {"cats", "lbl", "maxFL", "maps": {id: on}, "hidden": [keys], "stored"}, "staleDays"}` |
+| GET | `/api/vectormaps/<id>` | the GeoJSON of a map |
+| DELETE | `/api/vectormaps/<id>` | removes a downloaded map |
+| POST | `/api/vectormaps/openaip` | `{"country": "SK"}` downloads that country from openAIP (key from `data\mapkeys.json`) and answers `{"map": {...}}` as in the list; what was shown and hidden is kept. 400 without a key or with a wrong country, 502 when openAIP fails |
+| POST | `/api/vectormaps/view` | `{"cats": {"kind" or "kind.cat": bool}, "lbl": {kind: bool}, "maxFL", "maps": {id: bool}, "hidden": ["<src>:<srcId>", ...]}` stores what is shown into every map file; answers `{"view"}` |
+
 ## Examples
 
 ```bash

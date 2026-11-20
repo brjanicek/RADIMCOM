@@ -78,7 +78,7 @@ windows. The same defaults are used the first time the page opens in a browser; 
 The keys in the top right corner of the map (settings ⚙, full screen, new tab) are one bar. **⚙** opens its settings (**Settings** shows beside it while open) in
 sections that open and close with a click (which are open is remembered): **Sources** (**Aircrafts**, **Radiosondes** and **Ships**,
 each a part that opens with a click, one at a time: the local decoders, one switch per VFO and decoder with the number of
-objects, and **Sharing** from other stations), **Map** (base map, OpenSeaMap, OpenAIP, own layers, A/D map, ADS-B range),
+objects, and **Sharing** from other stations), **Map** (base map, OpenSeaMap, own layers, A/D map, ADS-B range), **Vector maps** (airspaces, airports, navaids),
 **Weather** (precipitation, clouds), **Aircrafts**, **Radiosondes** and **Ships** (each with the parts **Symbol**, **Label**
 and **List**, one open at a time). All sections are closed the first time. In the small map of the tab the window takes
 the right edge of the map (never taller than the map) and the full screen / new tab keys hide while it is open. The
@@ -90,9 +90,18 @@ at once in all open tabs and windows of the same address.
   (an XYZ address `https://…/{z}/{x}/{y}.png`) or **Plain colour** (no tiles, a background of the colour chosen, black
   by default), with **darken** (on by default: the tiles turned dark so the marks
   stand out). **OpenSeaMap** adds the sea marks, buoys and waterways on top (useful with AIS on rivers).
-  **OpenAIP** adds airspaces, airports and navaids on top (opacity 10–100 %); it needs the free API key of an
-  openaip.net account, typed into the **API key** field under the switch and stored on the server
-  (`data\mapkeys.json`) for every window and computer. OpenAIP data: CC BY-NC.
+- **Vector maps:** airspaces, airports, navaids, reporting points and obstacles from openAIP, drawn on every decoder
+  map under the tracks and kept on the server, so they work offline. Type the free **API key** of an openaip.net
+  account (stored in `data\mapkeys.json`) and the **Countries** (two letters each, `SK CZ AT HU PL UA` by default), then
+  **Update** downloads them into `data\vectormaps` (one file per country, a few seconds each); the date of each download
+  shows beside it, ⚠ when it is older than an AIRAC cycle (28 days); ✕ deletes one. The tree below switches the maps, the
+  kinds (**Airspaces**, **Airports**, **Navaids**, **Reporting points**, **Obstacles**: off at first) and their parts
+  (CTR, TMA, R, D, … / international, civil, ultralight, … / VOR-DME, NDB, …) on and off; each part opens to its objects
+  one by one with a checkbox. **Names on the map** per kind (from a zoom on, names that would overlap are left out);
+  **Only starting below** FL… shows only the airspaces whose lower limit is below that level. The mouse over an object
+  shows its name, class, vertical limits and frequencies; a click opens it with **Hide this object** (**Show all** in
+  the settings brings the hidden ones back). What is shown and hidden is stored in the map files on the server, the
+  same in every browser and computer, and kept by Update. openAIP data: CC BY-NC.
 - **Own layers:** **Add** a GeoJSON, KML or GPX file (KMZ: unpack the KML from it first; KML / GPX are turned into
   GeoJSON in the browser): points, lines and areas, with the name and description as a tooltip. The layers are stored
   on the server in `data\maplayers` (one folder for all VFOs, up to 20 MB each), so every window and computer has
