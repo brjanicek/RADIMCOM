@@ -11,7 +11,9 @@ per source and country, as GeoJSON with properties of the same names for every s
     src, srcId      where it comes from and its id there
 
 The file's root object also holds "radimcom": {version, name, source, country, fetched (UNIX s), license,
-attribution}. Airspaces keep their polygons and vertical limits, so a later "track inside an airspace" test can use
+attribution, view}. What is shown is kept in the files too, so it is the same in every browser and computer and travels
+with the file: "view" = {on (this map), cats {"kind" | "kind.cat": bool}, lbl {kind: bool}, maxFL}, and a hidden
+object has "hidden": true in its properties. Update keeps both (objects matched by their id in the source). Airspaces keep their polygons and vertical limits, so a later "track inside an airspace" test can use
 the same files.
 
 Sources: openAIP (https://www.openaip.net, CC BY-NC 4.0, free API key in data/mapkeys.json). The API has no area
@@ -233,6 +235,80 @@ def summary(coll):
     return cats
 
 
+def _key(p):
+    return f"{p.get('src') or 'x'}:{p.get('srcId') or p.get('name')}"
+
+
+def _load(path):
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def keep_view(old, new):
+    """Carries what was shown (view, hidden objects) from an older file of the map to a new download."""
+    if not old:
+        return new
+    view = (old.get("radimcom") or {}).get("view")
+    if view:
+        new.setdefault("radimcom", {})["view"] = view
+    hidden = {_key(f.get("properties") or {}) for f in old.get("features") or [] if (f.get("properties") or {}).get("hidden")}
+    for f in new.get("features") or []:
+        p = f.get("properties") or {}
+        if _key(p) in hidden:
+            p["hidden"] = True
+    return new
+
+
+def get_view(maps=None):
+    """What is shown, from all stored maps: {cats, lbl, maxFL, maps {id: bool}, hidden [keys], stored}."""
+    view = {"cats": {}, "lbl": {}, "maxFL": 0, "maps": {}, "hidden": [], "stored": False}
+    if not os.path.isdir(VMAP_DIR):
+        return view
+    for fn in sorted(os.listdir(VMAP_DIR)):
+        if not fn.endswith(".json"):
+            continue
+        try:
+            coll = _load(os.path.join(VMAP_DIR, fn))
+        except (OSError, ValueError):
+            continue
+        v = (coll.get("radimcom") or {}).get("view")
+        if isinstance(v, dict):
+            if not view["stored"]:
+                view.update(cats=v.get("cats") or {}, lbl=v.get("lbl") or {}, maxFL=v.get("maxFL") or 0, stored=True)
+            view["maps"][fn[:-5]] = v.get("on", True) is not False
+        view["hidden"] += [_key(f.get("properties") or {}) for f in coll.get("features") or [] if (f.get("properties") or {}).get("hidden")]
+    return view
+
+
+def set_view(view):
+    """Stores what is shown into every map file (the same cats / lbl / maxFL in all, on and hidden per map)."""
+    def bools(x):
+        return {str(k)[:80]: bool(b) for k, b in (x or {}).items()} if isinstance(x, dict) else {}
+    cats, lbl, maps = bools(view.get("cats")), bools(view.get("lbl")), bools(view.get("maps"))
+    try:
+        max_fl = int(view.get("maxFL") or 0)
+    except (TypeError, ValueError):
+        max_fl = 0
+    hidden = {str(k) for k in view.get("hidden") or [] if isinstance(k, str)}
+    if not os.path.isdir(VMAP_DIR):
+        return
+    for fn in sorted(os.listdir(VMAP_DIR)):
+        if not fn.endswith(".json") or not _path(fn[:-5]):
+            continue
+        try:
+            coll = _load(os.path.join(VMAP_DIR, fn))
+        except (OSError, ValueError):
+            continue
+        coll.setdefault("radimcom", {})["view"] = {"on": maps.get(fn[:-5], True), "cats": cats, "lbl": lbl, "maxFL": max_fl}
+        for f in coll.get("features") or []:
+            p = f.setdefault("properties", {})
+            if _key(p) in hidden:
+                p["hidden"] = True
+            else:
+                p.pop("hidden", None)
+        save(fn[:-5], coll)
+
+
 def list_maps():
     out = []
     if not os.path.isdir(VMAP_DIR):
@@ -274,7 +350,15 @@ def openaip_update(country, key=None):
         raise ValueError("the openAIP API key is missing (free account at openaip.net)")
     coll = openaip_collection(country, openaip_download(country, key))
     mid = f"openaip_{country}"
-    save(mid, coll)
+    try:
+        old = _load(_path(mid))
+    except (OSError, ValueError):
+        old = None
+    if old is None:   # a new country: shown as the other maps say
+        v = get_view()
+        if v["stored"]:
+            coll["radimcom"]["view"] = {"on": True, "cats": v["cats"], "lbl": v["lbl"], "maxFL": v["maxFL"]}
+    save(mid, keep_view(old, coll))
     return next((m for m in list_maps() if m["id"] == mid), {"id": mid})
 
 
@@ -282,7 +366,17 @@ def openaip_update(country, key=None):
 @bp.route("/api/vectormaps", methods=["GET"])
 def api_vectormaps():
     """The stored maps [{id, name, source, country, fetched, stale, n, size, cats: {kind: {cat: n}}}]."""
-    return jsonify(maps=list_maps(), staleDays=STALE_S // 86400)
+    return jsonify(maps=list_maps(), view=get_view(), staleDays=STALE_S // 86400)
+
+
+@bp.route("/api/vectormaps/view", methods=["POST"])
+def api_vectormaps_view():
+    """POST {cats, lbl, maxFL, maps {id: bool}, hidden [keys]}: what is shown, stored in the map files."""
+    d = request.get_json(silent=True)
+    if not isinstance(d, dict):
+        return jsonify(error="JSON object expected"), 400
+    set_view(d)
+    return jsonify(view=get_view())
 
 
 @bp.route("/api/vectormaps/<mid>", methods=["GET", "DELETE"])

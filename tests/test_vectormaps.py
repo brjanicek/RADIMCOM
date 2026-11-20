@@ -83,3 +83,20 @@ def test_update_needs_country_and_key(monkeypatch):
             assert False
         except ValueError as e:
             assert msg in str(e)
+
+
+def test_view_stored_in_files_and_kept_on_update(tmp_path, monkeypatch):
+    monkeypatch.setattr(vm, "VMAP_DIR", str(tmp_path))
+    items = {"airports": [{"_id": "a1", "name": "A", "type": 2, "geometry": PT}, {"_id": "a2", "name": "B", "type": 2, "geometry": PT}]}
+    vm.save("openaip_SK", vm.openaip_collection("SK", items))
+    vm.save("openaip_CZ", vm.openaip_collection("CZ", {}))
+    assert vm.get_view()["stored"] is False
+    vm.set_view({"cats": {"airport.civil": False}, "lbl": {"airport": True}, "maxFL": 95,
+                 "maps": {"openaip_CZ": False}, "hidden": ["openaip:a2"]})
+    v = vm.get_view()
+    assert v["stored"] and v["cats"] == {"airport.civil": False} and v["maxFL"] == 95
+    assert v["maps"] == {"openaip_CZ": False, "openaip_SK": True} and v["hidden"] == ["openaip:a2"]
+    # a new download of SK keeps the hidden object and the view
+    new = vm.keep_view(vm._load(vm._path("openaip_SK")), vm.openaip_collection("SK", items))
+    assert [f["properties"].get("hidden") for f in new["features"]] == [None, True]
+    assert new["radimcom"]["view"]["cats"] == {"airport.civil": False}

@@ -36,10 +36,15 @@ function vmOptsNorm(v) {
     maxFL: VM_MAX_FL.includes(+o.maxFL) ? +o.maxFL : 0,
     lbl: bool(o.lbl),   // names on the map per kind (missing: VM_LBL_DEF)
     hidden: Array.isArray(o.hidden) ? o.hidden.filter((x) => typeof x === "string" && /^[\w:-]{1,80}$/.test(x)).slice(0, 5000) : [],
-    rev: +o.rev || 0,
+    rev: +o.rev || 0,   // the data changed (Update, delete): all windows load it again
+    viewRev: +o.viewRev || 0,   // what is shown changed: all windows ask the server again
   };
 }
-const vmOpt = () => mapOpts.vm || vmOptsNorm(null);
+// What is shown (cats, lbl, maxFL, maps, hidden) is stored on the server in the map files (the same in every browser
+// and computer); the browser keeps only on, countries and the revisions. vmOpt() gives both together.
+const VM_VIEW_KEYS = ["cats", "lbl", "maxFL", "maps", "hidden"];
+let vmView = null;   // from the server (GET /api/vectormaps → view)
+const vmOpt = () => { const b = mapOpts.vm || vmOptsNorm(null); return vmView ? { ...b, ...vmView } : b; };
 const vmCatOn = (kind, cat) => {
   const c = vmOpt().cats, k = c[kind] != null ? c[kind] : !VM_OFF.has(kind);
   return k && (cat == null || (c[`${kind}.${cat}`] != null ? c[`${kind}.${cat}`] : !VM_OFF.has(`${kind}.${cat}`)));
@@ -75,13 +80,32 @@ function vmStyle(p) {
 }
 
 // the list of the stored maps and their GeoJSON (asked from the VFO of the page or any VFO, like the own layers)
-let vmList = null, vmListP = null, vmListRev = -1;
+let vmList = null, vmListP = null, vmListRev = -1, vmViewRev = -1;
 const vmGj = new Map();   // id -> Promise of the GeoJSON
 function vmListGet(force) {
-  const rev = vmOpt().rev;
-  if (force || rev !== vmListRev) { vmList = null; vmListP = null; vmGj.clear(); vmListRev = rev; }
+  const b = mapOpts.vm || vmOptsNorm(null);
+  if (force || b.rev !== vmListRev) { vmList = null; vmListP = null; vmGj.clear(); vmListRev = b.rev; }
+  else if (b.viewRev !== vmViewRev) { vmList = null; vmListP = null; }   // only the view: the GeoJSON stays
+  vmViewRev = b.viewRev;
   if (vmList) return Promise.resolve(vmList);
-  return (vmListP = vmListP || mapLayApi("/api/vectormaps").then((j) => (vmList = j.maps || [])).catch(() => (vmList = [])));
+  return (vmListP = vmListP || mapLayApi("/api/vectormaps").then((j) => {
+    const v = j.view || {};
+    vmView = { cats: v.cats || {}, lbl: v.lbl || {}, maxFL: +v.maxFL || 0, maps: v.maps || {}, hidden: v.hidden || [] };
+    if (!v.stored && (j.maps || []).length && VM_VIEW_KEYS.some((k) => { const x = b[k]; return Array.isArray(x) ? x.length : x && typeof x === "object" ? Object.keys(x).length : x; })) {
+      vmView = Object.fromEntries(VM_VIEW_KEYS.map((k) => [k, b[k]]));   // once: what this browser had before goes to the server
+      vmViewSave();
+    }
+    return (vmList = j.maps || []);
+  }).catch(() => (vmList = [])));
+}
+let vmViewT = null;
+function vmViewSave() {   // to the server (a moment later: several clicks one write), then the other windows ask again
+  clearTimeout(vmViewT);
+  vmViewT = setTimeout(() => {
+    mapLayApi("/api/vectormaps/view", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(vmView) })
+      .then(() => { vmViewRev = Date.now(); mapOptsSet({ vm: { ...(mapOpts.vm || vmOptsNorm(null)), viewRev: vmViewRev } }); })
+      .catch((err) => { const m = document.querySelector(".vm-msg"); if (m) m.textContent = `Not stored on the server: ${err.message}`; });
+  }, 400);
 }
 function vmGet(id) {
   if (!vmGj.has(id)) vmGj.set(id, mapLayApi(`/api/vectormaps/${encodeURIComponent(id)}`).catch(() => { vmGj.delete(id); return null; }));
@@ -307,7 +331,15 @@ function vmKindOpen() {   // the kinds open in the tree (this browser; the first
   try { const v = JSON.parse(localStorage.getItem("vmKindOpen") || "[]"); return Array.isArray(v) ? v : []; } catch { return []; }
 }
 
-function vmSet(patch) { mapOptsSet({ vm: { ...vmOpt(), ...patch } }); }
+function vmSet(patch) {
+  const view = Object.fromEntries(Object.entries(patch).filter(([k]) => VM_VIEW_KEYS.includes(k)));
+  const rest = Object.fromEntries(Object.entries(patch).filter(([k]) => !VM_VIEW_KEYS.includes(k)));
+  if (Object.keys(view).length) {
+    vmView = { ...(vmView || Object.fromEntries(VM_VIEW_KEYS.map((k) => [k, vmOpt()[k]]))), ...view };
+    vmViewSave();
+  }
+  mapOptsSet({ vm: { ...(mapOpts.vm || vmOptsNorm(null)), ...rest } });   // this page draws again at once
+}
 
 /** Inputs of the Vector maps section (true = handled). */
 function vmOnInput(e, panel) {
