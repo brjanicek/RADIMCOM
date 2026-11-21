@@ -131,11 +131,11 @@ let vbase = ""; // receiver address of the active VFO ("" = server of this page,
 let vfos = []; // [{name, port, serial, note, base, st, rows, online}]
 let active = null; // active VFO
 
-// "?map=packet|hfdl|ais|adsb|acars|sonde&vfo=A": this tab shows only that map (opened by the □ key of the map) – no audio,
+// "?map=packet|hfdl|ais|adsb|acars|ft8|wspr|sonde&vfo=A": this tab shows only that map (opened by the □ key of the map) – no audio,
 // no spectrum, and it saves nothing to the browser, so the settings of the main window stay as they are
 const MAP_ONLY = (() => {
   const m = new URLSearchParams(location.search).get("map");
-  return ["packet", "hfdl", "ais", "adsb", "acars", "ft8", "sonde", "com"].includes(m) ? m : null;
+  return ["packet", "hfdl", "ais", "adsb", "acars", "ft8", "wspr", "sonde", "com"].includes(m) ? m : null;
 })();
 
 function store(key, value) { if (MAP_ONLY) return; try { localStorage.setItem(key, value); } catch (e) { /* no storage */ } }
@@ -3596,6 +3596,7 @@ async function ft8MapOpen() {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors',
     }).addTo(ft8Map);
     mapPopout(ft8Map, "ft8");
+    mapLabelClicks(ft8Map);   // a click on a call label = on its triangle
     // a click on the map (not on a mark) drops the selection: the red mark and trail get their own colors back
     ft8Map.on("click", () => { if (ft8Sel != null) { ft8Sel = null; renderFt8Map(); } });
     ft8Grid = ft8LocGrid(ft8Map);
@@ -6083,11 +6084,12 @@ async function acarsMapOpen() {
     mapPrecip(acarsMap, "acars", acarsMapLayers.tracks);
     try {
       const s = await satFetch("/api/location");
+      mapQthLink(acarsMap, s);   // dark bubbles, a red dotted line from the QTH to the open one
       if (s && Number.isFinite(s.lat) && Number.isFinite(s.lon)) {
         L.circleMarker([s.lat, s.lon], { radius: 6, color: "#000", weight: 2, fillColor: "#ff5a3c", fillOpacity: 1 }).bindTooltip("QTH").addTo(acarsMap);
         if (!acarsMapLayers.marks.size && !mapViewSaved("acars")) acarsMap.setView([s.lat, s.lon], 6);
       }
-    } catch { /* server unreachable */ }
+    } catch { mapQthLink(acarsMap, null); /* server unreachable */ }
   }
   return true;
 }
@@ -7030,10 +7032,10 @@ async function pktMapOpen() {
     return;
   }
   if (!pktMap) {
-    let qth = [48.6, 17.9];   // until the station of SETTINGS › GENERAL › LOCATION is known
+    let qth = [48.6, 17.9], loc = null;   // until the station of SETTINGS › GENERAL › LOCATION is known
     try {
       const s = await satFetch("/api/location");
-      if (s && Number.isFinite(s.lat) && Number.isFinite(s.lon)) qth = [s.lat, s.lon];
+      if (s && Number.isFinite(s.lat) && Number.isFinite(s.lon)) { qth = [s.lat, s.lon]; loc = s; }
     } catch { /* server unreachable */ }
     pktMap = L.map($("packetMap"), { worldCopyJump: true }).setView(qth, 8);
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -7041,6 +7043,7 @@ async function pktMapOpen() {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors',
     }).addTo(pktMap);
     L.circleMarker(qth, { radius: 7, color: "#000", weight: 2, fillColor: "#ff5a3c", fillOpacity: 1 }).bindTooltip("QTH").addTo(pktMap);
+    mapQthLink(pktMap, loc);   // dark bubbles, a red dotted line from the QTH to the open one
     mapPopout(pktMap, "packet");
   }
   pktMap.invalidateSize();
@@ -7425,7 +7428,7 @@ function sondeIcon(s, sel) {
 }
 
 function sondePopup(s) {
-  const lines = [`<b>${escHtml(s.serial)}</b> ${escHtml(s.type)}${s.freq_hz ? ` · ${fmtMHz(s.freq_hz, 3)} MHz` : ""}`];
+  const lines = [`<b class="ft8-pop-call">${escHtml(s.serial)}</b> ${escHtml(s.type)}${s.freq_hz ? ` · ${fmtMHz(s.freq_hz, 3)} MHz` : ""}`];
   if (s.lat != null) {
     lines.push(`${sondeAlt(s.alt)} m · climb ${sondeClimb(s.vv)} m/s · ${sondeKmh(s.vh)} km/h to ${sondeDir(s.dir)}`);
     lines.push(`position ${sondePos(s)} (${aisAge(s.pos_time)} ago)`);
@@ -7456,6 +7459,7 @@ async function sondeMapOpen() {
     sondeMap.attributionControl.addAttribution('prediction wind: <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo.com</a>' +
       ' (GFS, <a href="https://www.ncei.noaa.gov/products/weather-climate-models/global-forecast" target="_blank" rel="noopener noreferrer">NOAA</a>), CC-BY 4.0');
     mapPopout(sondeMap, "sonde");
+    mapLabelClicks(sondeMap);   // a click on a sonde's label = on the sonde
     // a click on the empty map keeps the choice (the charts stay on the chosen sonde; only the list drops it)
     sondeLayers = { tracks: L.layerGroup().addTo(sondeMap), marks: L.layerGroup().addTo(sondeMap), m: new Map() };
     sondeSitesInit();
@@ -7562,7 +7566,7 @@ async function sondeSitesLoad() {
     const mk = L.circleMarker([s.lat, s.lon], { radius: 4, weight: 1.5, pane: "sondeSitesPane" })
       .bindTooltip(escHtml(s.name), { direction: "top", offset: [0, -4] });
     mk.site = s;
-    mk.bindPopup(() => sondeSitePopup(s), { maxWidth: 340 });
+    mk.bindPopup(() => sondeSitePopup(s), { maxWidth: 340, className: "ft8-popup" });
     mk.addTo(sondeSitesLayer);
   }
   sondeSitesStyle();
@@ -7605,9 +7609,13 @@ async function renderSondeMap() {
     }
     let mk = lay.m.get(s.serial);
     if (!mk) {
-      mk = L.marker([s.lat, s.lon]).bindPopup("").bindTooltip("", { permanent: true, direction: "bottom", offset: [0, 2], className: "ais-label" }).addTo(lay.marks);
+      mk = L.marker([s.lat, s.lon]).bindPopup("", { className: "ft8-popup" }).bindTooltip("", { permanent: true, direction: "bottom", offset: [0, 2], className: "ais-label" }).addTo(lay.marks);
       mk.on("click", () => sondeSelect(s.serial, false));
       lay.m.set(s.serial, mk);
+    }
+    // the selected sonde: a red dotted line from the QTH (dots, not the dashes of the prediction); distance in its popup
+    if (sel && sondeQth && (sondeQth.lat || sondeQth.lon)) {
+      L.polyline([[sondeQth.lat, sondeQth.lon], [s.lat, s.lon]], { color: "#ff4b3c", weight: 2.5, opacity: 0.85, dashArray: "1 6", lineCap: "round", interactive: false }).addTo(lay.tracks);
     }
     mk.setLatLng([s.lat, s.lon]);
     mk.setIcon(sondeIcon(s, sel));
@@ -7621,7 +7629,7 @@ async function renderSondeMap() {
   }
   renderSondeProfile();
   sondeHistDraw();
-  $("sondeMapNote").textContent = `${list.length} with a position · light blue balloon = rising · parachute = falling after the burst (yellow ring) · orange = selected (its profile on the right) · grey = no frame for 10 min · green line = flight path · blue = flights of the last day / week (HISTORY 1D / 7D, a click opens one) · red dashed = prediction from the last decoded point to the landing (✕, circle = 90 % landing area), from the sonde's own winds and, where it has not flown, the GFS model wind${sondeWindVer ? "" : sondeWindErr ? ` (not available: ${sondeWindErr})` : ""}, +1 h / +2 h / +3 h after the launch · map © OpenStreetMap · wind: Open-Meteo.com (GFS, NOAA), CC-BY 4.0`;
+  $("sondeMapNote").textContent = `${list.length} with a position · light blue balloon = rising · parachute = falling after the burst (yellow ring) · orange = selected (its profile on the right; red dotted line from the QTH, distance in its bubble) · grey = no frame for 10 min · green line = flight path · blue = flights of the last day / week (HISTORY 1D / 7D, a click opens one) · red dashed = prediction from the last decoded point to the landing (✕, circle = 90 % landing area), from the sonde's own winds and, where it has not flown, the GFS model wind${sondeWindVer ? "" : sondeWindErr ? ` (not available: ${sondeWindErr})` : ""}, +1 h / +2 h / +3 h after the launch · map © OpenStreetMap · wind: Open-Meteo.com (GFS, NOAA), CC-BY 4.0`;
 }
 
 // ----- SONDE PREDICTION: where the sonde will be 1, 2 and 3 h after its launch and where it lands. No weather model:
@@ -10037,9 +10045,10 @@ async function hfdlMapOpen() {
     mapPrecip(hfdlMap, "hfdl", hfdlMapLayers.tracks);
     try {
       const s = await satFetch("/api/location");
+      mapQthLink(hfdlMap, s);   // dark bubbles, a red dotted line from the QTH to the open one
       if (s && Number.isFinite(s.lat) && Number.isFinite(s.lon))
         L.circleMarker([s.lat, s.lon], { radius: 6, color: "#000", weight: 2, fillColor: "#ff5a3c", fillOpacity: 1 }).bindTooltip("QTH").addTo(hfdlMap);
-    } catch { /* server unreachable */ }
+    } catch { mapQthLink(hfdlMap, null); /* server unreachable */ }
   }
   return true;
 }
@@ -10503,11 +10512,12 @@ async function aisMapOpen() {
     aisMapLayers = { tracks: L.layerGroup().addTo(aisMap), ships: L.layerGroup().addTo(aisMap), marks: new Map() };
     try {
       const s = await satFetch("/api/location");
+      mapQthLink(aisMap, s);   // dark bubbles, a red dotted line from the QTH to the open one
       if (s && Number.isFinite(s.lat) && Number.isFinite(s.lon)) {
         L.circleMarker([s.lat, s.lon], { radius: 6, color: "#000", weight: 2, fillColor: "#ff5a3c", fillOpacity: 1 }).bindTooltip("QTH").addTo(aisMap);
         if (!mapViewSaved("ais")) aisMap.setView([s.lat, s.lon], 8);
       }
-    } catch { /* server unreachable */ }
+    } catch { mapQthLink(aisMap, null); /* server unreachable */ }
   }
   return true;
 }
@@ -10920,6 +10930,7 @@ async function adsbMapOpen() {
     mapPrecip(adsbMap, "adsb", adsbMapLayers.tracks);
     try {
       const s = await satFetch("/api/location");
+      mapQthLink(adsbMap, s);   // dark bubbles, a red dotted line from the QTH to the open one
       if (s && Number.isFinite(s.lat) && Number.isFinite(s.lon) && (s.lat || s.lon)) {
         adsbQth = s;
         for (const km of [50, 100, 200, 300]) {
@@ -10928,7 +10939,7 @@ async function adsbMapOpen() {
         L.circleMarker([s.lat, s.lon], { radius: 6, color: "#000", weight: 2, fillColor: "#ff5a3c", fillOpacity: 1 }).bindTooltip("QTH · rings 50, 100, 200, 300 km").addTo(adsbMap);
         if (!mapViewSaved("adsb")) adsbMap.setView([s.lat, s.lon], 7);
       }
-    } catch { /* server unreachable */ }
+    } catch { mapQthLink(adsbMap, null); /* server unreachable */ }
   }
   return true;
 }
@@ -16904,8 +16915,8 @@ function mapOnlySetup() {
   document.body.append(box);
   box.classList.add("map-only-box");
   document.body.classList.add("map-only");
-  document.title = `${({ packet: "APRS", acars: "ACARS / VDL2", adsb: "ADS-B", ft8: "FT8 stations", sonde: "Radiosonde" })[MAP_ONLY] || MAP_ONLY.toUpperCase()} map${active && active.name ? ` · VFO ${active.name}` : ""} · RADIMCOM`;
-  ({ packet: setPktView, hfdl: setHfdlView, ais: setAisView, adsb: setAdsbView, acars: setAcarsView, ft8: () => renderFt8Map(), sonde: setSondeView })[MAP_ONLY]("map");
+  document.title = `${({ packet: "APRS", acars: "ACARS / VDL2", adsb: "ADS-B", ft8: "FT8 stations", wspr: "WSPR stations", sonde: "Radiosonde" })[MAP_ONLY] || MAP_ONLY.toUpperCase()} map${active && active.name ? ` · VFO ${active.name}` : ""} · RADIMCOM`;
+  ({ packet: setPktView, hfdl: setHfdlView, ais: setAisView, adsb: setAdsbView, acars: setAcarsView, ft8: () => renderFt8Map(), wspr: () => renderWsprMap(), sonde: setSondeView })[MAP_ONLY]("map");
 }
 
 /** Decoder maps remember their view (centre and zoom, per map, in the browser): it comes back after a switch of the
@@ -19414,6 +19425,68 @@ function mapPrecip(map, kind, trails) {
   return ctl;   // more overlays can join the same switch box (addOverlay)
 }
 
+/** The bubbles of a map dark (like the FT8 / WSPR stations), and while the bubble of a mark is open a red dotted line
+ *  from the QTH to it with the distance and azimuth in its middle; the line follows a moving mark (plane, ship).
+ *  Called once after the QTH was asked for (qth = {lat, lon}, or null: dark bubbles without the line). Used by the ACARS, PACKET, HFDL, AIS and ADS-B maps. */
+function mapQthLink(map, qth) {
+  mapLabelClicks(map);
+  const known = !!qth && Number.isFinite(qth.lat) && Number.isFinite(qth.lon) && !!(qth.lat || qth.lon);
+  let line = null, src = null;
+  const draw = () => {
+    if (!src || !src.getLatLng) return;
+    const p = src.getLatLng(), r = Math.PI / 180, f1 = qth.lat * r, f2 = p.lat * r, dl = (p.lng - qth.lon) * r;
+    const km = Math.acos(Math.min(1, Math.sin(f1) * Math.sin(f2) + Math.cos(f1) * Math.cos(f2) * Math.cos(dl))) * 6371;
+    const az = (Math.atan2(Math.sin(dl) * Math.cos(f2), Math.cos(f1) * Math.sin(f2) - Math.sin(f1) * Math.cos(f2) * Math.cos(dl)) / r + 360) % 360;
+    const txt = `${km < 10 ? km.toFixed(1) : Math.round(km).toLocaleString("en")} km · az ${Math.round(az)}°`;
+    if (!line) {
+      line = L.polyline([[qth.lat, qth.lon], p], { color: "#ff4b3c", weight: 2.5, opacity: 0.85, dashArray: "1 6", lineCap: "round", interactive: false })
+        .bindTooltip(txt, { permanent: true, direction: "center", className: "map-qth-dist" }).addTo(map);
+    } else {
+      line.setLatLngs([[qth.lat, qth.lon], p]);
+      line.setTooltipContent(txt);
+    }
+  };
+  const drop = () => {
+    if (src && src.off) src.off("move", draw);
+    if (line) line.remove();
+    line = src = null;
+  };
+  map.on("popupopen", (e) => {
+    const el = e.popup.getElement();
+    if (el) el.classList.add("ft8-popup");
+    const s = e.popup._source;
+    if (!known || !s || !s.getLatLng || s instanceof L.CircleMarker && s.getLatLng().equals([qth.lat, qth.lon])) return;
+    drop();
+    src = s;
+    src.on("move", draw);
+    draw();
+  });
+  map.on("popupclose", (e) => { if (e.popup._source === src) drop(); });
+}
+
+/** A click on the label (permanent tooltip: call, flight, serial) of a mark acts as a click on the mark: selects it
+ *  and opens its bubble. The click stays off the map (it would drop the selection) and a drag of the map that started
+ *  on a label opens nothing. */
+function mapLabelClicks(map) {
+  if (map._lblClicks) return;
+  map._lblClicks = true;
+  const hook = (tt) => {
+    const src = tt && tt._source, el = tt && tt.getElement();
+    if (!el || el._lblClick || !tt.options.permanent || !src || !src.getPopup || !src.getPopup()) return;
+    el._lblClick = true;
+    el.style.pointerEvents = "auto";
+    el.style.cursor = "pointer";
+    L.DomEvent.on(el, "click", (ev) => {
+      L.DomEvent.stop(ev);
+      if (map.dragging && map.dragging.moved()) return;
+      src.fire("click", { latlng: src.getLatLng ? src.getLatLng() : null, originalEvent: ev });
+    });
+  };
+  map.on("tooltipopen", (e) => hook(e.tooltip));
+  // labels open already (isTooltipOpen throws on a layer without a tooltip: ask getTooltip first)
+  map.eachLayer((l) => { const tt = l.getTooltip && l.getTooltip(); if (tt && tt.isOpen()) hook(tt); });
+}
+
 function mapPopout(map, kind) {
   mapViewKeep(map, kind);
   if (MAP_ONLY) return;
@@ -20905,10 +20978,10 @@ $("wsprClear").addEventListener("click", wsprReset);
 
 // ---------- WSPR station map next to the spot table: the FT8 map (its helpers, icons and styles) for the WSPR stations ----------
 // var: wsprReset / renderDecTab can run before these lines (init() is above)
-var wsprSt = null, wsprMap = null, wsprMapLay = null, wsprMapFitted = false, wsprSel = null, wsprQth = null, wsprMapTimer = null, wsprPageShown = false;
+var wsprSt = null, wsprMap = null, wsprMapLay = null, wsprMapFitted = !!mapViewSaved("wspr"), wsprSel = null, wsprQth = null, wsprMapTimer = null, wsprPageShown = false;
 wsprSt = new Map();   // call -> {call, grid, lat, lon, ts, first, n, snr, freq_hz, drift, dbm, msg} (as /api/wspr/stations)
 const WSPR_LIST_MAX = 300;
-const wsprMapShown = () => bodyTab === "dec" && decPage === "wspr";
+const wsprMapShown = () => MAP_ONLY === "wspr" || (bodyTab === "dec" && decPage === "wspr");
 const wsprBandOf = (hz) => WSPR_BANDS[Object.keys(WSPR_BANDS).find((f) => Math.abs(f - hz) < 5000)];
 /** Distance (km) and azimuth (°) from the QTH, great circle (as ft8DistAz). */
 function wsprDistAz(lat, lon) {
@@ -20947,7 +21020,7 @@ async function wsprStLoad(v) {
     wsprSt.clear();
     for (const s of list) wsprSt.set(s.call, s);
   } catch { /* server unreachable */ }
-  wsprMapFitted = false;
+  wsprMapFitted = !!mapViewSaved("wspr");   // a kept view (mapPopout) is not fitted to the marks again
   wsprMapLater();
 }
 /** CLR, VFO switch: the stations of the map go with the table (only in this tab: the server keeps them for PROP). */
@@ -20955,7 +21028,7 @@ function wsprStClear() {
   if (!wsprSt) return;
   wsprSt.clear();
   wsprSel = null;
-  wsprMapFitted = false;
+  wsprMapFitted = !!mapViewSaved("wspr");
   if (wsprMapLay) { wsprMapLay.st.clearLayers(); wsprMapLay.path.clearLayers(); wsprMapLay.marks.clear(); }
   renderWsprMap();
 }
@@ -20973,7 +21046,9 @@ async function wsprMapOpen() {
       maxZoom: 12, className: "hfdl-dark",
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors',
     }).addTo(wsprMap);
+    mapPopout(wsprMap, "wspr");   // keeps its view; □ = the map alone in a new tab (?map=wspr)
     wsprMap.on("click", () => { if (wsprSel != null) { wsprSel = null; renderWsprMap(); } });
+    mapLabelClicks(wsprMap);   // a click on a call label = on its triangle
     ft8LocGrid(wsprMap);                   // the WW locator grid (on / off with GRID of the FT8 map)
     wsprMapLay = { path: L.layerGroup().addTo(wsprMap), st: L.layerGroup().addTo(wsprMap), marks: new Map() };
     const lbl = () => $("wsprMap").classList.toggle("ft8-nolbl", wsprMap.getZoom() < 5);

@@ -112,6 +112,9 @@ kept in `sonde.py`).
   battery, frequency, VFO). After a server restart the sondes of the last 24 h of that VFO are read back with their
   flight paths (*from log* in SONDES); the list above the profile also offers older logged flights, drawn in the profile and on
   the map.
+- **Selected sonde** in MAP (a click on it, or in the list): orange, a **red dotted line** from the QTH to it and a dark
+  bubble with its altitude, climb, speed, temperature, distance, azimuth and elevation from the QTH; the bubbles of the
+  launch sites are dark too.
 - **Flight prediction** in MAP (red dashed line from the last decoded point, every sonde in the air, also one no longer
   heard): +1 h, +2 h, +3 h after the launch, burst (yellow ring) and landing (✕, time UTC). Wind from the sonde's own flight path in 500 m layers (above the highest one heard the top
   layer is kept, below the lowest one its speed falls off to a half at the ground; a layer heard during the fall

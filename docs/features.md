@@ -88,9 +88,12 @@ and the country flag from the ICAO address; a click on a message pauses the list
 
 ### Decoder maps
 
-The maps of FT8, PACKET, ACARS / VDL2, HFDL, ADS-B, AIS and SONDE keep their **view** (centre and zoom, per map, in the
+The maps of FT8, WSPR, PACKET, ACARS / VDL2, HFDL, ADS-B, AIS and SONDE keep their **view** (centre and zoom, per map, in the
 browser): it comes back after a switch of the VFO or tab and after a reload, and new data no longer fits the map to the
-marks again. The VDL2, HFDL, ADS-B and SONDE maps have switches in the top right corner (the COMPOSITE map has its own
+marks again. A click on a mark, or on its label (call, flight, serial), opens its **bubble** (dark, in the style of the page) and draws a **red dotted line from
+the QTH** to it: on FT8, WSPR and SONDE to the selected station / sonde (the distance and azimuth in its bubble), on
+PACKET, ACARS / VDL2, HFDL, AIS and ADS-B to the mark whose bubble is open, with the distance and azimuth in the middle
+of the line, following a moving plane or ship until the bubble closes. The VDL2, HFDL, ADS-B and SONDE maps have switches in the top right corner (the COMPOSITE map has its own
 [map settings](composite.md#map-settings)):
 
 - **Precipitation:** the RainViewer radar (no position sent, only the map tiles), the last 30 minutes as an animation

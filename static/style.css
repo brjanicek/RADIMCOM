@@ -1226,6 +1226,11 @@ canvas.axis { height: 39px; background: #1c1e22; border-bottom: 1px solid #44474
   letter-spacing: .5px; white-space: nowrap; pointer-events: none; text-shadow: 0 0 2px #000; }
 .ft8-popup .leaflet-popup-content-wrapper, .ft8-popup .leaflet-popup-tip { background: #11151b; color: #d6dde5; border: 1px solid var(--line); }
 .ft8-popup .leaflet-popup-content { margin: 10px 12px; line-height: 1.55; }
+.ft8-popup .leaflet-popup-close-button { color: #8a96a3; }
+/* distance and azimuth in the middle of the red dotted line from the QTH (mapQthLink: ACARS, PACKET, HFDL, AIS, ADS-B) */
+.leaflet-tooltip.map-qth-dist { padding: 1px 5px; background: rgba(60, 10, 8, .88); border: 1px solid #ff4b3c; color: #ffd9d4;
+  font: 600 11px ui-monospace, "Cascadia Mono", Consolas, monospace; box-shadow: none; }
+.leaflet-tooltip.map-qth-dist::before { display: none; }
 .ft8-popup a { color: #6cb8ff; }
 .ft8-pop-call { font: 700 15px ui-monospace, "Cascadia Mono", Consolas, monospace; color: #5fd7ff; }
 .ft8-pop-grid { padding: 0 4px; border: 1px solid rgba(255, 181, 71, .45); border-radius: 3px; color: #ffb547; font-weight: 600; }

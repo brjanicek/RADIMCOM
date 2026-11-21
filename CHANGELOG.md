@@ -98,6 +98,12 @@ Release candidate (GitHub branch `1.1rc1`; continues the test betas `1.1beta1` a
   owner and country of the server instead of its address (also in the tooltip of the network icon of the VFO window,
   which no longer flickers). The country comes from the Natural Earth borders in `countries.json`.
 - HFDL: the status lines moved under INFO, so the map gets more room.
+- Decoder maps: the bubbles are dark like those of the FT8 / WSPR stations, not white, and a click on a mark draws a
+  red dotted line from the QTH to it; a click on the label of a mark (call, flight, serial) works like a click on the
+  mark. SONDE: to the selected sonde (like FT8 and WSPR). PACKET, ACARS / VDL2, HFDL, AIS
+  and ADS-B: to the mark whose bubble is open, with the distance and azimuth in the middle of the line; it follows a
+  moving plane or ship.
+- WSPR map: the □ key opens it alone in a new browser tab, like the FT8 map; it keeps its view.
 - AGC+ card: a warning is one short line (the whole text in its tooltip); "more gain buys nothing" is grey information,
   only the warnings to act on are amber. The A/D value and clipping of the AGC+ card are those of the VFO window.
 

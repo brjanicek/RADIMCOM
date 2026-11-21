@@ -116,7 +116,9 @@ Changes
 - Decoders: one at a time per VFO; the DECODERS tab names the running one and opens on its page, its key has a green bar.
 - Bottom tabs close with a red x; Loading... in the middle; COMPOSITE tab purple. Recordings can be starred.
 - A restart of the server shows the small start window. SpyServer DIRECTORY lists only the servers that answer; the
-  source shows the owner and country of the server. HFDL status under INFO. AGC+ warnings shorter (whole text in the tooltip).
+  source shows the owner and country of the server. HFDL status under INFO. AGC+ warnings shorter (whole text in the
+  tooltip). Decoder maps (SONDE, PACKET, ACARS / VDL2, HFDL, AIS, ADS-B): dark bubbles, a click on a mark or its label
+  draws a red dotted line from the QTH with the distance and azimuth. WSPR map in a new tab (its key), like FT8.
 - Development: rules for working on the code together without git conflicts (CONTRIBUTING.md, CLAUDE.md).
 
 Ver. 1.1beta1

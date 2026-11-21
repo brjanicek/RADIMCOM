@@ -18,7 +18,9 @@ and 6 m, decoded by **wsprd** of WSJT-X 2.7.0 (`lib\wspr\wsprd.exe`, built for R
 - **Map** beside the table, the same as the FT8 one: the stations heard in their locator squares (green, beacons;
   the selected one red, faded after 30 minutes without being heard), labels with our SNR from zoom 5, the QTH, a dashed
   line to the selected station, a list of the stations (a click zooms to one), a popup with call, locator, km and azimuth,
-  SNR, band, drift, power, the age and a QRZ link.
+  SNR, band, drift, power, the age and a QRZ link. A click on a label works like a click on its triangle. The map keeps
+  its view; the □ key in its top right corner opens the map with its list alone in a new browser tab (`?map=wspr`,
+  live, no audio there).
 
 ## How it works
 
