@@ -80,8 +80,8 @@ Change log
 ----------
 (also in CHANGELOG.md)
 
-Ver. 1.1beta2
-(test beta, GitHub branch 1.1beta2; continues 1.1beta1)
+Ver. 1.1rc1
+(release candidate, GitHub branch 1.1rc1; continues the test betas 1.1beta1 and 1.1beta2)
 New
 - AGC+ much better (smart clipping), the result of hours of testing and tuning on real short-wave signals. The aim was to
   get the most out of the RF signal while keeping the quality: clearly better sensitivity for weak stations on short
