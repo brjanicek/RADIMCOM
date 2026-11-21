@@ -91,8 +91,10 @@ function vmStyle(p) {
   if (p.kind === "airspace") return { color: y.c, weight: y.w, dashArray: VM_DASH[y.d] || null, opacity: y.o, fillColor: y.fc, fillOpacity: y.fo };
   return { color: "#000", weight: 1, opacity: 0.8, fillColor: y.fc, fillOpacity: y.fo, radius: y.r, sym: y.sym };
 }
-// a point drawn as a symbol on the canvas (one canvas for thousands of points)
-const VmSym = L.CircleMarker.extend({
+// a point drawn as a symbol on the canvas (one canvas for thousands of points); made when first needed, since
+// Leaflet is loaded after this file
+let VmSymCls = null;
+const vmSymMarker = (ll, opt) => new (VmSymCls = VmSymCls || L.CircleMarker.extend({
   _updatePath() {
     const rd = this._renderer, sym = this.options.sym || "circle";
     if (sym === "circle" || !rd._ctx) { L.CircleMarker.prototype._updatePath.call(this); return; }
@@ -105,7 +107,7 @@ const VmSym = L.CircleMarker.extend({
     else if (sym === "cross") { const t = Math.max(1, r / 2.5); ctx.rect(x - r, y - t, 2 * r, 2 * t); ctx.rect(x - t, y - r, 2 * t, 2 * r); }
     rd._fillStroke(ctx, this);
   },
-});
+}))(ll, opt);
 
 // the list of the stored maps and their GeoJSON (asked from the VFO of the page or any VFO, like the own layers)
 let vmList = null, vmListP = null, vmListRev = -1, vmViewRev = -1;
@@ -210,7 +212,7 @@ async function vmApply(map) {
     const layer = L.geoJSON({ type: "FeatureCollection", features: feats }, {
       pane: "vmaps", interactive: false,
       style: (f) => ({ ...vmStyle(f.properties || {}), renderer: st.renderer, interactive: false }),
-      pointToLayer: (f, ll) => new VmSym(ll, { ...vmStyle(f.properties || {}), renderer: st.renderer, pane: "vmaps", interactive: false }),
+      pointToLayer: (f, ll) => vmSymMarker(ll, { ...vmStyle(f.properties || {}), renderer: st.renderer, pane: "vmaps", interactive: false }),
     }).addTo(map);
     st.layers.set(m.id, { sig, layer, objs });
     changed = true;
