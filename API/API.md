@@ -323,7 +323,7 @@ Airspaces, airports, navaids, reporting points and obstacles drawn on the decode
 | GET | `/api/vectormaps/<id>` | the GeoJSON of a map |
 | DELETE | `/api/vectormaps/<id>` | removes a downloaded map |
 | POST | `/api/vectormaps/openaip` | `{"country": "SK"}` downloads that country from openAIP (key from `data\mapkeys.json`) and answers `{"map": {...}}` as in the list; what was shown and hidden is kept. 400 without a key or with a wrong country, 502 when openAIP fails |
-| POST | `/api/vectormaps/view` | `{"cats": {"kind" or "kind.cat": bool}, "lbl": {kind: bool}, "maxFL", "style", "maps": {id: bool}, "hidden": ["<src>:<srcId>", ...]}` stores what is shown into every map file; answers `{"view"}` |
+| POST | `/api/vectormaps/view` | `{"cats": {"kind" or "kind.cat": bool}, "lbl": {kind: bool}, "maxFL", "style", "maps": {id: bool}, "hidden": ["<src>:<srcId>", ...]}` stores what is shown into every map file (only the files that change are rewritten); answers `{"view"}` |
 
 ## Examples
 

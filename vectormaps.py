@@ -23,6 +23,7 @@ filter, so it is asked per country.
 import json
 import os
 import re
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -217,12 +218,25 @@ def _path(mid):
     return os.path.join(VMAP_DIR, mid + ".json") if re.fullmatch(r"[A-Za-z0-9_-]{1,64}", mid or "") else None
 
 
+_lock = threading.Lock()
+_cache = {}   # path -> (mtime_ns, size, parsed file): the list and the view are asked often, the files change rarely
+
+
 def save(mid, coll):
     os.makedirs(VMAP_DIR, exist_ok=True)
-    tmp = _path(mid) + ".tmp"
+    path = _path(mid)
+    tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(coll, f, separators=(",", ":"), ensure_ascii=False)
-    os.replace(tmp, _path(mid))
+    for i in range(30):   # Windows: the file may be open for a moment (another VFO reading it)
+        try:
+            os.replace(tmp, path)
+            break
+        except PermissionError:
+            if i == 29:
+                raise
+            time.sleep(0.1)
+    _cache.pop(path, None)
 
 
 def summary(coll):
@@ -241,8 +255,20 @@ def _key(p):
 
 
 def _load(path):
+    """A map file, freshly read (to be changed)."""
     with open(path, encoding="utf-8") as f:
         return json.load(f)
+
+
+def _load_ro(path):
+    """A map file for reading only: parsed once until it changes (do not modify the answer)."""
+    st = os.stat(path)
+    c = _cache.get(path)
+    if c and c[0] == st.st_mtime_ns and c[1] == st.st_size:
+        return c[2]
+    coll = _load(path)
+    _cache[path] = (st.st_mtime_ns, st.st_size, coll)
+    return coll
 
 
 def keep_view(old, new):
@@ -269,7 +295,7 @@ def get_view(maps=None):
         if not fn.endswith(".json"):
             continue
         try:
-            coll = _load(os.path.join(VMAP_DIR, fn))
+            coll = _load_ro(os.path.join(VMAP_DIR, fn))
         except (OSError, ValueError):
             continue
         v = (coll.get("radimcom") or {}).get("view")
@@ -320,22 +346,28 @@ def set_view(view):
     style = clean_style(view.get("style"))
     if not os.path.isdir(VMAP_DIR):
         return
-    for fn in sorted(os.listdir(VMAP_DIR)):
-        if not fn.endswith(".json") or not _path(fn[:-5]):
-            continue
-        try:
-            coll = _load(os.path.join(VMAP_DIR, fn))
-        except (OSError, ValueError):
-            continue
-        coll.setdefault("radimcom", {})["view"] = {"on": maps.get(fn[:-5], True), "cats": cats, "lbl": lbl, "maxFL": max_fl,
-                                             "style": style}
-        for f in coll.get("features") or []:
-            p = f.setdefault("properties", {})
-            if _key(p) in hidden:
-                p["hidden"] = True
-            else:
-                p.pop("hidden", None)
-        save(fn[:-5], coll)
+    with _lock:
+        for fn in sorted(os.listdir(VMAP_DIR)):
+            if not fn.endswith(".json") or not _path(fn[:-5]):
+                continue
+            try:
+                coll = _load(os.path.join(VMAP_DIR, fn))
+            except (OSError, ValueError):
+                continue
+            meta = coll.setdefault("radimcom", {})
+            view = {"on": maps.get(fn[:-5], True), "cats": cats, "lbl": lbl, "maxFL": max_fl, "style": style}
+            changed = meta.get("view") != view
+            meta["view"] = view
+            for f in coll.get("features") or []:
+                p = f.setdefault("properties", {})
+                if _key(p) in hidden:
+                    changed = changed or not p.get("hidden")
+                    p["hidden"] = True
+                elif "hidden" in p:
+                    changed = True
+                    del p["hidden"]
+            if changed:   # only the files that differ are written again
+                save(fn[:-5], coll)
 
 
 def list_maps():
@@ -347,8 +379,7 @@ def list_maps():
             continue
         path = os.path.join(VMAP_DIR, fn)
         try:
-            with open(path, encoding="utf-8") as f:
-                coll = json.load(f)
+            coll = _load_ro(path)
             meta = coll.get("radimcom") or {}
             fetched = meta.get("fetched") or round(os.path.getmtime(path))
             out.append({"id": fn[:-5], "name": meta.get("name") or fn[:-5], "source": meta.get("source") or "",
@@ -356,7 +387,7 @@ def list_maps():
                         "stale": time.time() - fetched > STALE_S, "license": meta.get("license") or "",
                         "attribution": meta.get("attribution") or "", "n": len(coll.get("features") or []),
                         "size": os.path.getsize(path), "cats": summary(coll)})
-        except (OSError, ValueError, AttributeError):
+        except (OSError, ValueError, AttributeError, TypeError):
             continue
     return out
 

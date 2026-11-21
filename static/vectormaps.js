@@ -230,6 +230,7 @@ async function vmApply(map) {
 function vmInit(map) {
   if (!map.getPane("vmaps")) map.createPane("vmaps").style.zIndex = 380;   // over the tiles and clouds, under the tracks
   if (!map.getPane("vmlabels")) { const lp = map.createPane("vmlabels"); lp.style.zIndex = 385; lp.style.pointerEvents = "none"; }
+  map.getContainer()._vmMap = map;   // for "This zoom" of the settings window inside it
   const st = { layers: new Map(), renderer: L.canvas({ pane: "vmaps", padding: 0.3 }), attr: "", pts: [], polys: [] };
   const lblLayer = L.layerGroup().addTo(map);
   const tip = L.tooltip({ className: "ais-label vm-tip", direction: "top", offset: [0, -6], opacity: 1 });
@@ -305,21 +306,43 @@ function vmInit(map) {
 }
 
 /** The Vector maps section of the map settings window. */
-function vmSettingsHtml() {
-  const o = vmOpt(), list = vmList || [], n = (x) => x.toLocaleString("en-US").replace(/,/g, " ");
+// the sources of the vector maps, one tab each (openAIP now; more sources come as more tabs)
+const VM_SOURCES = [["openaip", "openAIP"]];
+function vmSrcTab() { try { const v = localStorage.getItem("vmSrcTab"); return VM_SOURCES.some(([k]) => k === v) ? v : VM_SOURCES[0][0]; } catch { return VM_SOURCES[0][0]; } }
+/** The Map sources section: a tab per source with its key, what to download and the downloaded maps. */
+function vmSourcesHtml() {
+  const o = vmOpt(), tab = vmSrcTab(), n = (x) => x.toLocaleString("en-US").replace(/,/g, " ");
   const day = (t) => new Date(t * 1000).toISOString().slice(0, 10);
   const chk = (attr, on) => `<input type="checkbox" ${attr}${on ? " checked" : ""}>`;
-  let h = `<label>${chk('data-vm="on"', o.on)} Show the vector maps</label>` +
-    `<div class="map-opts-sub2">openAIP <small>airspaces, airports, navaids, reporting points, obstacles (CC BY-NC)</small></div>` +
+  const list = (vmList || []).filter((m) => (m.source || "openaip") === tab);
+  if (!vmList) vmListGet().then(() => vmRefillAll());
+  let h = `<div class="vm-tabs">${VM_SOURCES.map(([k, name]) => `<button type="button" class="vm-tab${k === tab ? " on" : ""}" data-vmtab="${k}">${name}</button>`).join("")}</div>`;
+  if (tab === "openaip") h += `<p class="map-opts-note">Airspaces, airports, navaids, reporting points, obstacles (CC BY-NC).</p>` +
     `<label>API key <input type="text" class="map-opts-url" data-key="openaip" value="${escHtml((mapKeys && mapKeys.openaip) || "")}" placeholder="from openaip.net (free account)" spellcheck="false"></label>` +
     `<label>Countries <input type="text" class="vm-countries" data-vm="countries" value="${escHtml(o.countries)}" placeholder="SK CZ AT" spellcheck="false">` +
     `<button type="button" class="vm-btn" data-vmupd>Update</button></label><p class="map-opts-note vm-msg"></p>`;
-  if (!vmList) { vmListGet().then(() => { const b = document.querySelector(".map-opts-panel:not([hidden]) details[data-sec=vmaps] .map-opts-body"); if (b && !b.contains(document.activeElement)) b.innerHTML = vmSettingsHtml(); }); }
   h += list.length ? `<table class="map-opts-t vm-maps">` + list.map((m) => `<tr><th><label title="${n(m.n)} objects, ${Math.max(1, Math.round(m.size / 1024))} kB">` +
     `${chk(`data-vmmap="${escHtml(m.id)}"`, vmMapOn(m.id))} ${escHtml(m.name)}</label></th>` +
     `<td class="${m.stale ? "vm-stale" : "muted"}" title="${m.stale ? "Older than an AIRAC cycle (28 days): Update" : "Downloaded"}">${day(m.fetched)}${m.stale ? " ⚠" : ""}</td>` +
     `<td><button type="button" class="map-opts-del" data-vmdel="${escHtml(m.id)}" title="Delete the downloaded data">✕</button></td></tr>`).join("") + `</table>`
     : `<p class="map-opts-note">${vmList ? "Nothing downloaded yet: enter the API key and the countries, then Update." : "Loading…"}</p>`;
+  return h;
+}
+function vmRefillAll() {   // both sections in every open settings window of this page
+  document.querySelectorAll(".map-opts-panel").forEach((p) => {
+    const b = p.querySelector("details[data-sec=vsrc] .map-opts-body"), v = p.querySelector("details[data-sec=vmaps] .map-opts-body");
+    if (b && !b.contains(document.activeElement)) b.innerHTML = vmSourcesHtml();
+    if (v && !v.contains(document.activeElement)) v.innerHTML = vmSettingsHtml();
+  });
+}
+
+/** The Vector maps section of the map settings window: what is shown (the maps come from Map sources). */
+function vmSettingsHtml() {
+  const o = vmOpt(), list = vmList || [], n = (x) => x.toLocaleString("en-US").replace(/,/g, " ");
+  const chk = (attr, on) => `<input type="checkbox" ${attr}${on ? " checked" : ""}>`;
+  if (!vmList) vmListGet().then(() => vmRefillAll());
+  let h = `<label>${chk('data-vm="on"', o.on)} Show the vector maps</label>` +
+    (vmList && !list.length ? `<p class="map-opts-note">No map downloaded yet: see Map sources.</p>` : "");
   // the tree: kind › part, the counts of all shown maps together
   const cnt = {};
   for (const m of list) if (vmMapOn(m.id)) for (const [k, cs] of Object.entries(m.cats || {})) for (const [c, x] of Object.entries(cs)) { cnt[k] = cnt[k] || {}; cnt[k][c] = (cnt[k][c] || 0) + x; }
@@ -355,8 +378,10 @@ function vmStyEditor(kind, cat) {
   ] : [
     ["Symbol", col("fc") + sel("sym", VM_SYMS.map(([v]) => v), (v) => VM_SYMS.find(([x]) => x === v)[1]) + sel("r", [2, 3, 4, 5, 6, 7, 8, 10], (v) => `${v} px`) + sel("fo", [0.3, 0.5, 0.7, 0.95, 1], pc)],
   ];
-  rows.push(["Name", col("lc") + sel("ls", [8, 9, 10, 11, 12, 14, 16], (v) => `${v} px`) + sel("lz", [5, 6, 7, 8, 9, 10, 11, 12, 13, 14], (v) => `from zoom ${v}`)]);
-  return `<div class="vm-sty">${rows.map(([n, c]) => `<div class="vm-sty-row"><span>${n}</span>${c}</div>`).join("")}` +
+  const zs = [...new Set([5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, y.lz])].sort((a, b) => a - b);
+  rows.push(["Name", col("lc") + sel("ls", [8, 9, 10, 11, 12, 14, 16], (v) => `${v} px`) + sel("lz", zs, (v) => `from zoom ${v}`) +
+    `<button type="button" class="vm-btn" data-vmthiszoom="${key}" title="From the zoom the map has now">This zoom</button>`]);
+  return `<div class="vm-sty"><button type="button" class="vm-sty-x" data-vmstyclose title="Close">✕</button>${rows.map(([n, c]) => `<div class="vm-sty-row"><span>${n}</span>${c}</div>`).join("")}` +
     `<div class="vm-sty-row"><span></span><button type="button" class="vm-btn" data-vmstydef="${key}"${own ? "" : " disabled"}>Default</button></div></div>`;
 }
 function vmCatOpen() {   // the parts open in the tree (this browser)
@@ -392,7 +417,7 @@ function vmSet(patch) {
 /** Inputs of the Vector maps section (true = handled). */
 function vmOnInput(e, panel) {
   const t = e.target;
-  if (!t.closest || !t.closest("details[data-sec=vmaps]")) return false;
+  if (!t.closest || !t.closest("details[data-sec=vmaps], details[data-sec=vsrc]")) return false;
   if (t.dataset.key) return false;   // the API key: the settings window stores it
   if (e.type !== "change") return true;
   const o = vmOpt();
@@ -422,8 +447,9 @@ function vmOnInput(e, panel) {
   return true;
 }
 function vmRefill(panel) {
-  const b = panel.querySelector("details[data-sec=vmaps] .map-opts-body");
+  const b = panel.querySelector("details[data-sec=vmaps] .map-opts-body"), c = panel.querySelector("details[data-sec=vsrc] .map-opts-body");
   if (b) b.innerHTML = vmSettingsHtml();
+  if (c) c.innerHTML = vmSourcesHtml();
 }
 
 /** Clicks of the Vector maps section: Update, delete, the tree opened / closed (true = handled). */
@@ -456,6 +482,21 @@ function vmOnClick(e, panel) {
     vmRefill(panel);
     return true;
   }
+  if (e.target.closest("button[data-vmstyclose]")) { vmStyOpen = ""; vmRefill(panel); return true; }
+  const tz = e.target.closest("button[data-vmthiszoom]");
+  if (tz) {   // the names of the part from the zoom the map has now
+    const box = panel.closest(".leaflet-container"), map = box && box._vmMap;
+    if (!map) return true;
+    const key = tz.dataset.vmthiszoom, [kind, cat] = key.split("."), style = { ...(vmOpt().style || {}) };
+    const cur = { ...(style[key] || {}), lz: Math.round(map.getZoom()) };
+    if (cur.lz === vmStyDef(kind, cat).lz) delete cur.lz;
+    if (Object.keys(cur).length) style[key] = cur; else delete style[key];
+    vmSet({ style });
+    vmRefill(panel);
+    return true;
+  }
+  const tb = e.target.closest("button[data-vmtab]");
+  if (tb) { try { localStorage.setItem("vmSrcTab", tb.dataset.vmtab); } catch { /* this page only */ } vmRefill(panel); return true; }
   if (sdef) {
     const style = { ...(vmOpt().style || {}) };
     delete style[sdef.dataset.vmstydef];

@@ -4503,6 +4503,12 @@ body.map-only #comStatus, #comPane:fullscreen #comStatus { display: flex; }
 .vm-card-act { margin-top: 6px; }
 .vm-sw[data-vmswatch] { cursor: pointer; }
 .vm-sw[data-vmswatch]:hover { outline: 1px solid #dfe4ea; }
-.vm-sty { margin: 2px 0 4px 22px; padding: 4px 6px; border: 1px solid #2a3546; border-radius: 4px; background: rgba(20, 27, 38, .6); }
+.vm-sty { position: relative; margin: 2px 0 4px 22px; padding: 4px 22px 4px 6px; border: 1px solid #2a3546; border-radius: 4px; background: rgba(20, 27, 38, .6); }
 .vm-sty-row { display: flex; align-items: center; gap: 5px; margin: 2px 0; }
 .vm-sty-row > span { width: 46px; color: #8fa3bd; font-size: 11px; }
+.vm-sty-x { position: absolute; top: 2px; right: 3px; padding: 0 4px; border: none; background: none; color: #8fa3bd; font-size: 13px; line-height: 1; cursor: pointer; }
+.vm-sty-x:hover { color: #fff; }
+.vm-tabs { display: flex; gap: 2px; margin: 0 0 6px; border-bottom: 1px solid #2a3546; }
+.vm-tab { padding: 3px 10px; border: 1px solid transparent; border-bottom: none; border-radius: 4px 4px 0 0; background: none; color: #8fa3bd; font-size: 12px; cursor: pointer; margin-bottom: -1px; }
+.vm-tab:hover { color: #dfe4ea; }
+.vm-tab.on { border-color: #2a3546; background: rgba(20, 27, 38, .9); color: #fff; }

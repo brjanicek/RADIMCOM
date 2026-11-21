@@ -18976,7 +18976,7 @@ function comMapSettings(map, kind, rerender, noTrails) {
       MAP_LBL.map(([id, n]) => `<tr><th>${n}</th><td>${box("lblSel", id)}</td><td>${box("lbl", id)}</td><td>${box("lblShr", id)}</td></tr>`).join("") +
       `</table><p class="map-opts-note">Drag a label to move it (this window only), a double click puts it back.</p>`;
     panel.innerHTML = (kind === "com" ? sec("sources", "Sources", "aircrafts, radiosondes, ships", srcHtml()) : "") +
-      sec("map", "Map", "base map, layers, rings, range", mapSec) + sec("vmaps", "Vector maps", "airspaces, airports, navaids", vmSettingsHtml()) + sec("weather", "Weather", "precipitation, clouds", weatherSec) +
+      sec("map", "Map", "base map, layers, rings, range", mapSec) + sec("vsrc", "Map sources", "openAIP", vmSourcesHtml()) + sec("vmaps", "Vector maps", "airspaces, airports, navaids", vmSettingsHtml()) + sec("weather", "Weather", "precipitation, clouds", weatherSec) +
       (rerender ? sec("objects", "Aircrafts", "symbol, label", kindSec("", true)) + sec("sondes", "Radiosondes", "symbol, label", kindSec("s_", false)) +
         sec("ships", "Ships", "symbol, label", kindSec("w_", false)) : "") +
       `<p class="map-opts-note">Remembered in the browser, the same in all windows.</p>`;
