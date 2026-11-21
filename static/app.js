@@ -17336,7 +17336,7 @@ function comPrune() {
 
 // ----- the bars over the bottom of the map: Tracks (the labels of all tracks) above Tracker (the view); each folds to
 // the left into its name and opens over the whole width of the map (remembered)
-const COM_BARS = [["tracks", "Tracks"], ["tracker", "Tracker"]];
+const COM_BARS = [["tracks", "Tracks"], ["tracker", "Tracker"], ["maps", "Maps"]];   // Maps: the map memories (mapmemo.js)
 try { localStorage.removeItem("comTbarOpen"); } catch { /* the former single bar */ }
 function comBarOpen(k) {
   try { const v = JSON.parse(localStorage.getItem("comBarsOpen") || "{}") || {}; return v[k] !== false; } catch { return true; }
@@ -17360,6 +17360,7 @@ function renderComTbar() {
       `<button type="button" data-tb="ad" title="The azimuth / distance rings around the station (Map in the map settings)">${mapOpts.ad ? "Hide" : "Show"} A/D map</button>` +
       `<button type="button" data-tb="find" title="Find a track by its name, flight, registration, ICAO, MMSI, call sign or serial">Find track</button>` +
       (lk ? `<button type="button" data-tb="unlock" title="The map stops following the track">Unlock ${escHtml(String(comName(lk)))}</button>` : ""),
+    maps: mapMemoBarHtml(),
   };
   const html = COM_BARS.map(([k, name]) => {
     const open = comBarOpen(k);
@@ -17391,6 +17392,7 @@ document.addEventListener("click", (e) => {
     comTrkSave();
     renderComMap();
   } else if (a === "unlock") comLockSet(null);
+  else if (a === "mm" || a === "mmsave") mapMemoClick(b);
 });
 
 // the border between the map and the lists beside it: dragged with the mouse, the width of the lists remembered

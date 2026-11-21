@@ -4460,6 +4460,19 @@ body.map-only #comStatus, #comPane:fullscreen #comStatus { display: flex; }
 .com-bar button { font: inherit; color: #dfe4ea; background: #18202b; border: 1px solid #3a4a60; border-radius: 4px; padding: 2px 9px; cursor: pointer; }
 .com-bar button:hover { background: #22303f; }
 .com-bar .com-bar-fold { color: #6cb8ff; background: none; border-color: transparent; padding: 2px 4px; min-width: 6.5em; text-align: left; }
+/* Map memory (mapmemo.js): the keys of the Maps bar, the Save actual window (Track menu look) */
+.com-bar.open[data-bar="maps"] { flex-wrap: wrap; align-self: flex-start; max-width: calc(100% - 290px); }   /* clear of the attribution at the bottom right */
+.com-bar button[data-tb="mm"]:disabled { color: #5d6b7c; background: #11161d; border-color: #263140; cursor: default; }
+.com-bar button.mm-save { margin-left: 6px; color: #6cb8ff; }
+.mm-dlg { position: absolute; left: 6px; z-index: 950; min-width: 220px; padding: 4px 0 8px; background: rgba(10, 13, 18, .92); backdrop-filter: blur(4px); border: 1px solid #3a4a60; border-radius: 6px; box-shadow: 0 4px 14px rgba(0, 0, 0, .5); font: 12px/1.5 system-ui, sans-serif; color: #dfe4ea; }
+.mm-dlg-h { display: flex; justify-content: space-between; align-items: center; padding: 2px 6px 4px 10px; color: #6cb8ff; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid #2a3546; margin-bottom: 4px; }
+.mm-dlg .mm-x { padding: 0 4px; border: 0; background: none; color: #8fa3bd; cursor: pointer; font-size: 13px; }
+.mm-dlg label { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 2px 12px; }
+.mm-dlg select, .mm-dlg input[type=text] { width: 13em; font: inherit; color: inherit; background: #141a22; border: 1px solid #3a4a60; border-radius: 4px; padding: 1px 4px; }
+.mm-dlg-act, .mm-dlg-ask { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 12px 0; }
+.mm-dlg-act[hidden], .mm-dlg-ask[hidden] { display: none; }
+.mm-dlg-act button, .mm-dlg-ask button { font: inherit; color: #dfe4ea; background: #18202b; border: 1px solid #3a4a60; border-radius: 4px; padding: 2px 9px; cursor: pointer; }
+.mm-dlg-act button:hover, .mm-dlg-ask button:hover { background: #22303f; }
 /* map settings: a small gap under Selected / Local / Sharing */
 .map-opts-t tr:first-child th { padding-bottom: 4px; }
 /* map settings bar: Restore default at the right end, only while the settings are open (COMPOSITE) */

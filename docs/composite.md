@@ -39,7 +39,7 @@ local SONDE decoder does not hear** (on by default) and **only sondes in flight*
 server asks SondeHub at most every 15 s and makes the trails (the last 6 h) from the records asked; a sonde falling
 after the burst gets the parachute icon. New `GET /api/share/sondehub?dist=&last=`.
 
-## Tracks and Tracker bars
+## Tracks, Tracker and Maps bars
 
 Two bars over the bottom of the map: **Tracks** with **Show all labels** and **Hide all labels** (of the tracks on the
 map now; new tracks follow the map settings), and under it **Tracker** with **Center** (the station in the middle of the
@@ -48,6 +48,13 @@ map, the zoom stays), **Show / Hide clouds**, **Show / Hide precipitations** (as
 serial of the tracks, whole first, then a part; the track found is selected, its label shown and the map moved to it,
 else an error shows in the window) and **Unlock** while the map follows a track. Each folds to the left into its name (◀ / ▶) and opens
 over the whole width of the map (remembered).
+
+Under them the **Maps** bar (Map memory): ten keys **MapMemo 1** … **MapMemo 10**, each recalling a stored setup of
+the maps (the vector maps with what is shown and their styles, the base map, the A/D map, the ADS-B range and the
+station); an empty memory is grey. **Save actual** opens a small window: the memory and its name (MapMemo 1 … at first);
+**OK** stores what the maps show now into an empty memory at once and asks before overwriting a used one. The memories
+are kept in the browser (all its tabs and windows); the vector maps part of a recall goes to the server like any change
+of the vector maps.
 
 ## Status row
 
