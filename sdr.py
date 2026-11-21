@@ -15,6 +15,8 @@ import numpy as np
 import scipy.fft as scipy_fft
 from collections import deque
 
+import audiofx
+import nrx
 from autotune import AutoTune
 from gainctl import (SAGC_PARAMS, SAGC_SETTLE, SmartAgc, Target, analyse, kind_for, sagc_params,  # noqa: F401
                      warning)
@@ -1292,6 +1294,15 @@ class Channel:
         self.sam_on = False
         self.sam_sb = "dsb"
         self.nr = SpectralNR(fs)
+        self.nr_algo = nrx.ALGO_DEFAULT     # DNR algorithm: wiener (SpectralNR), nr4 (nrx.SpecBleach), rnn (nrx.RnNoise)
+        self.nr4 = nrx.SpecBleach(fs)
+        self.rnn = None                     # made when first chosen (loads rnnoise.dll)
+        self.tnf = audiofx.Tnf()      # TNF key: notches fixed on radio frequencies (offsets from the tuned one)
+        self.tnf_offsets = []
+        self.tnf_width = audiofx.TNF_WIDTH_DEFAULT_HZ
+        self.apf = audiofx.Apf()      # APF key (CW): peak filter on the pitch
+        self.apf_on = False
+        self.apf_width = audiofx.APF_WIDTH_DEFAULT
         self.agc_on = True       # off = fixed gain frozen when turned off (volume only with the slider)
         self.fixed_level = None
         self.lim_on = False      # soft limiter (DNR key)
@@ -1315,6 +1326,16 @@ class Channel:
         self.ea_depth = EXP_DEPTH_DEFAULT_DB
         self.ea_snr = None
         self._ea_reset()
+
+    def nr_now(self):
+        """The noise reduction of the chosen DNR algorithm (RNN falls back to the Wiener DNR without its DLL)."""
+        if self.nr_algo == "nr4":
+            return self.nr4
+        if self.nr_algo == "rnn" and nrx.rnn_library() is not None:
+            if self.rnn is None:
+                self.rnn = nrx.RnNoise(self.fs)
+            return self.rnn
+        return self.nr
 
     def configure(self, mode, bw, filt=None):
         """filt: the filter width, if it differs from bw (the FM deviation scale still follows bw)."""
@@ -1345,6 +1366,9 @@ class Channel:
         self.dc = 0.0
         self.notch.reset()
         self.nr.reset()
+        self.nr4.reset()
+        if self.rnn is not None:
+            self.rnn.reset()
         self.sam.reset()
         self.hum.reset()
 
@@ -1357,6 +1381,8 @@ class Channel:
         power = float(np.mean(pw)) + 1e-20
         smeter = 10 * np.log10(power)
         self.sub_db = 10 * np.log10(pw.reshape(SQUELCH_SUB, -1).mean(axis=1) + 1e-20)   # for the squelch
+        if self.tnf_offsets:                            # TNF: after the S-meter and squelch, which see the band as it is
+            ch = self.tnf.process(ch, self.fs, self.tnf_offsets, self.tnf_width)
 
         if self.mode == "FM":
             prev = np.concatenate(([self.prev], ch[:-1]))
@@ -1390,9 +1416,13 @@ class Channel:
         else:
             self.notch.notched = 0
         if self.nr_on and self.mode in DNR_MODES:       # after NF (a whistle is not noise), before the ALC
-            audio = self.nr.process(audio)
+            audio = self.nr_now().process(audio)
         else:
-            self.nr.reduction_db = 0.0
+            self.nr.reduction_db = self.nr4.reduction_db = 0.0
+            if self.rnn is not None:
+                self.rnn.reduction_db = 0.0
+        if self.apf_on and self.mode in audiofx.APF_MODES:     # after DNR, before the ALC (it levels the narrow tone)
+            audio = self.apf.process(audio, self.fs, CW_PITCH, self.apf_width)
         if self.agc_on:
             self.fixed_level = None
             out = self.agc(audio)
@@ -1640,6 +1670,42 @@ class Channel:
         gm = np.lib.stride_tricks.sliding_window_view(gg, d + 1).max(axis=1)[:n]
         self.exp_la = (xx[n:], gg[n:])
         return xx[:n] * gm
+
+
+def channel_setup(chan, c, mode, bw, dsd=False):
+    """The AUDIO keys and settings of a VFO (config c) onto a Channel: the same for the live audio and RETRO."""
+    filt = float(c.get("dsd_filter", DSD_BW)) if dsd else None
+    chan.configure("FM" if dsd else mode, bw, filt if filt in DSD_FILTERS and filt != bw else None)
+    chan.notch_on = bool(c.get("notch", False))
+    chan.agc_on = bool(c.get("audio_agc", True))
+    chan.nr_on = bool(c.get("dnr", False))                # DNR key: spectral noise reduction
+    sam_on = bool(c.get("sam", False))                    # SAM key: synchronous AM
+    if sam_on and not chan.sam_on:
+        chan.sam.reset()
+    chan.sam_on = sam_on
+    chan.hum_on = bool(c.get("hum", False))               # HUM key: comb notch of the mains hum
+    chan.hum_base = int(c.get("hum_base", 50)) if c.get("hum_base") in HUM_BASES else 50
+    chan.hum_width = float(c.get("hum_width", HUM_WIDTH_DEFAULT_HZ))
+    chan.sam_sb = c.get("sam_sb", "dsb") if c.get("sam_sb") in SAM_SIDEBANDS else "dsb"
+    chan.nr.level = chan.nr4.level = int(c.get("dnr_level", DNR_LEVEL_DEFAULT))
+    chan.nr_algo = c.get("dnr_algo", nrx.ALGO_DEFAULT) if c.get("dnr_algo") in nrx.ALGOS else nrx.ALGO_DEFAULT
+    chan.tnf_offsets = [n - c["tune_hz"] for n in c.get("tnf_hz", [])] if c.get("tnf") else []
+    chan.tnf_width = float(c.get("tnf_width", audiofx.TNF_WIDTH_DEFAULT_HZ))
+    chan.apf_on = bool(c.get("apf", False))
+    chan.apf_width = int(c.get("apf_width", audiofx.APF_WIDTH_DEFAULT))
+    dyn = bool(c.get("dyn", False))                       # NTH key (config "dyn"): the parts ticked in SETTINGS › AUDIO
+    chan.lim_on = dyn and bool(c.get("dyn_lim", True))
+    chan.exp_on = dyn and bool(c.get("dyn_exp", True))
+    chan.exp_depth_db = float(c.get("dyn_exp_db", EXP_DEPTH_DEFAULT_DB))
+    chan.exp_sens = float(c.get("dyn_exp_sens", EXP_SENS_DEFAULT))
+    chan.exp_hold_s = float(c.get("dyn_exp_hold_ms", 1000 * EXP_HOLD_S)) / 1000
+    chan.exp_auto = bool(c.get("dyn_exp_auto", True))
+    chan.exp_fast = bool(c.get("dyn_exp_fast", True))
+    chan.alc_norm = (float(c.get("alc_hang_ms", ALC_HANG_MS)), float(c.get("alc_decay_ms", ALC_DECAY_MS)))
+    chan.alc_fast_on = bool(c.get("alc_fast", True))
+    chan.alc_fast = (float(c.get("alc_fast_hang_ms", ALC_FAST_HANG_MS)),
+                     float(c.get("alc_fast_decay_ms", ALC_FAST_DECAY_MS)))
+    chan.smooth_on = bool(c.get("agc_smooth", True))
 
 
 class Receiver:
@@ -1922,6 +1988,7 @@ class Receiver:
         self.dec_cutoff = min(10000.0, self.fs / DECIM / 3)
         self.dec = Decimator(self.fs, cutoff=self.dec_cutoff)
         self.chan = Channel(self.fs / DECIM)
+        self.binaural = audiofx.Binaural()      # BIN key: pseudo-stereo of CW / SSB / AM
         self.spur = SpurFilter(self.fs / DECIM)
         self.nb = NoiseBlanker()
         self.spur_mask, self.spur_depth, self.spur_grid, self.spur_settings = None, None, None, None
@@ -2002,9 +2069,16 @@ class Receiver:
         if "audio_agc" in changes:
             c["audio_agc"] = changes["audio_agc"]
         for k in ("dyn", "dyn_lim", "dyn_exp", "dyn_exp_auto", "dyn_exp_fast", "alc_fast", "alc_hang_ms", "alc_decay_ms", "alc_fast_hang_ms", "alc_fast_decay_ms", "dyn_exp_db", "dyn_exp_sens", "dyn_exp_hold_ms", "agc_smooth",
-                  "dnr", "dnr_level", "nb", "nb_level", "nb_width_us", "sam", "sam_sb", "hum", "hum_base", "hum_width"):
+                  "dnr", "dnr_level", "nb", "nb_level", "nb_width_us", "sam", "sam_sb", "hum", "hum_base", "hum_width",
+                  "tnf", "tnf_width", "apf", "apf_width", "bin", "dnr_algo"):
             if k in changes:
                 c[k] = changes[k]
+        if "tnf_click" in changes:                  # Shift+click in the spectrum: a notch added there, or the one near it removed
+            c["tnf_hz"] = audiofx.tnf_toggle(c.get("tnf_hz", []), changes["tnf_click"])
+            if c["tnf_hz"]:
+                c["tnf"] = True
+        if changes.get("tnf_clear"):
+            c["tnf_hz"] = []
         if "afi" in changes:
             c["afi"] = changes["afi"]
         if "autotune" in changes:
@@ -2353,33 +2427,7 @@ class Receiver:
                 audio, self.smeter = self.wfm.process(shifted)
                 sub_db = self.wfm.sub_db
             else:
-                filt = float(c.get("dsd_filter", DSD_BW)) if dsd else None
-                self.chan.configure("FM" if dsd else mode, bw, filt if filt in DSD_FILTERS and filt != bw else None)
-                self.chan.notch_on = bool(c.get("notch", False))
-                self.chan.agc_on = bool(c.get("audio_agc", True))
-                self.chan.nr_on = bool(c.get("dnr", False))      # DNR key: spectral noise reduction
-                sam_on = bool(c.get("sam", False))                # SAM key: synchronous AM
-                if sam_on and not self.chan.sam_on:
-                    self.chan.sam.reset()
-                self.chan.sam_on = sam_on
-                self.chan.hum_on = bool(c.get("hum", False))      # HUM key: comb notch of the mains hum
-                self.chan.hum_base = int(c.get("hum_base", 50)) if c.get("hum_base") in HUM_BASES else 50
-                self.chan.hum_width = float(c.get("hum_width", HUM_WIDTH_DEFAULT_HZ))
-                self.chan.sam_sb = c.get("sam_sb", "dsb") if c.get("sam_sb") in SAM_SIDEBANDS else "dsb"
-                self.chan.nr.level = int(c.get("dnr_level", DNR_LEVEL_DEFAULT))
-                dyn = bool(c.get("dyn", False))           # NTH key (config "dyn"): the parts ticked in SETTINGS › AUDIO
-                self.chan.lim_on = dyn and bool(c.get("dyn_lim", True))
-                self.chan.exp_on = dyn and bool(c.get("dyn_exp", True))
-                self.chan.exp_depth_db = float(c.get("dyn_exp_db", EXP_DEPTH_DEFAULT_DB))
-                self.chan.exp_sens = float(c.get("dyn_exp_sens", EXP_SENS_DEFAULT))
-                self.chan.exp_hold_s = float(c.get("dyn_exp_hold_ms", 1000 * EXP_HOLD_S)) / 1000
-                self.chan.exp_auto = bool(c.get("dyn_exp_auto", True))
-                self.chan.exp_fast = bool(c.get("dyn_exp_fast", True))
-                self.chan.alc_norm = (float(c.get("alc_hang_ms", ALC_HANG_MS)), float(c.get("alc_decay_ms", ALC_DECAY_MS)))
-                self.chan.alc_fast_on = bool(c.get("alc_fast", True))
-                self.chan.alc_fast = (float(c.get("alc_fast_hang_ms", ALC_FAST_HANG_MS)),
-                                      float(c.get("alc_fast_decay_ms", ALC_FAST_DECAY_MS)))
-                self.chan.smooth_on = bool(c.get("agc_smooth", True))
+                channel_setup(self.chan, c, mode, bw, dsd)    # the keys of AUDIO (shared with RETRO)
                 audio, self.smeter = self.chan.process(base)
                 sub_db = self.chan.sub_db
             cal = getattr(self.sdr, "smeter_offset", 0.0)   # Lime: matched to RTL, RTL: 0
@@ -2406,6 +2454,8 @@ class Receiver:
                 self.scan.audio(audio, self.fs / DECIM)   # scan: recording of each activity (before the squelch)
             self._noise_floor(mode, bw, sub_db, cal)
             audio = self._squelch(audio, mode, sub_db, self.tone_open)
+            if audio.ndim == 1 and c.get("bin") and mode in audiofx.BIN_MODES:
+                audio = self.binaural.process(audio)    # BIN key: pseudo-stereo
             if audio.ndim == 1:                     # the browser always gets stereo (L, R interleaved)
                 audio = np.repeat(audio[:, None], 2, axis=1)
             self.on_audio((audio * 32767).astype("<i2").tobytes())
@@ -2724,7 +2774,12 @@ class Receiver:
             "nb_rate": round(self.nb.rate, 1) if getattr(self, "nb", None) is not None else 0.0,
             "nb_frac": round(self.nb.frac * 100, 3) if getattr(self, "nb", None) is not None else 0.0,
             "dnr_level": int(c.get("dnr_level", DNR_LEVEL_DEFAULT)),
-            "dnr_reduction_db": self.chan.nr.reduction_db if getattr(self, "chan", None) is not None else 0.0,
+            "tnf": bool(c.get("tnf", False)), "tnf_hz": list(c.get("tnf_hz", [])),
+            "tnf_width": float(c.get("tnf_width", audiofx.TNF_WIDTH_DEFAULT_HZ)),
+            "apf": bool(c.get("apf", False)), "apf_width": int(c.get("apf_width", audiofx.APF_WIDTH_DEFAULT)),
+            "bin": bool(c.get("bin", False)),
+            "dnr_reduction_db": self.chan.nr_now().reduction_db if getattr(self, "chan", None) is not None else 0.0,
+            "dnr_algo": c.get("dnr_algo", nrx.ALGO_DEFAULT), "dnr_rnn_error": nrx.rnn_error(),
             "dyn_lim": bool(c.get("dyn_lim", True)),
             "dyn_exp": bool(c.get("dyn_exp", True)),
             "dyn_exp_db": float(c.get("dyn_exp_db", EXP_DEPTH_DEFAULT_DB)),

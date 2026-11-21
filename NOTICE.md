@@ -21,6 +21,8 @@ does not contain the binaries; the release packages do, except where noted.
 | libacars 2.2.1 | used by dumpvdl2 and dumphfdl | MIT | <https://github.com/szpajder/libacars> |
 | dumphfdl 1.7.0 (with its ground station table `systable.conf`) | HFDL decoder (separate program) | GPL v3 | <https://github.com/szpajder/dumphfdl> |
 | wsprd from WSJT-X 2.7.0 (K1JT, K9AN and the WSJT Development Group), not changed, built statically by `installer/build_wspr.sh` with FFTW 3.3.11 and the GCC runtime | WSPR decoder in `lib\wspr` (separate program, reads a WAV file of each 2-minute cycle) | GPL v3 (FFTW: GPL v2 or later; GCC runtime: GPL with GCC Runtime Library Exception) | <https://sourceforge.net/projects/wsjt/> |
+| RNNoise (Xiph.Org, J.-M. Valin), the `rnnoise.dll` of the pyrnnoise 0.4.6 wheel, not changed; not in the packages, downloaded by `installer/get_rnnoise.py` into `lib\rnnoise` | DNR algorithm RNN (`nrx.py`, loaded by ctypes) | BSD 3-Clause (pyrnnoise: Apache 2.0) | <https://github.com/xiph/rnnoise>, <https://pypi.org/project/pyrnnoise/> |
+| LDPC (128,90) code tables of WSJT-X (`ldpc_128_90_reordered_parity.f90`, `ldpc_128_90_generator.f90`; K1JT and the WSJT Development Group), converted to Python in `msk144_ldpc.py` | MSK144 decoder (`msk144.py`, own code) | GPL v3 (that file) | <https://sourceforge.net/projects/wsjt/> |
 | liquid-dsp 1.8.3 | used by dumphfdl | MIT | <https://github.com/jgaeddert/liquid-dsp> |
 | rs1729 radiosonde decoders (RS, commit ce44855, `demod/mod`: rs41mod, dfm09mod, m10m20mod, lms6Xmod, imet54mod, mp3h1mod, meisei100mod, mts01mod, cf06ht03mod), not changed, built by `installer/build_sonde.sh` | radiosonde decoders in `lib\sonde` (separate programs, fed through a pipe) | GPL v3 | <https://github.com/rs1729/RS> |
 | FFTW 3.3.10 | used by dumphfdl | GPL v2 or later | <https://www.fftw.org> |
@@ -78,6 +80,7 @@ that release, for at least three years after it was published. The source packag
 - The VDL2 ground station list (`VDL2_Ground_Stations.txt`) comes from <https://acars-vdl2.groups.io/>, redistributed
   with approval.
 - The airport tables in `airports.py` come from OurAirports (public domain).
+- DNR NR4 (`nrx.py`) is own code after the ideas of libspecbleach (L. Romero, LGPL v2.1, <https://github.com/lucianodato/libspecbleach>); no code of it is used.
 - The SATELLITES tab shows pages of AMSAT (<https://www.amsat.org/>), downloaded by the running program. They belong to AMSAT and are not in the repository or the release packages.
 - The orbital elements for pass prediction (TLE, amateur group) come from CelesTrak (<https://celestrak.org/>), downloaded by the running program once a day into `data\sat_tle.txt`; they are not in the repository or the release packages.
 - The list of satellite transmitters (SATELLITES tab, TRACK) comes from SatNOGS DB (<https://db.satnogs.org/>, Libre Space Foundation; data under CC BY-SA 4.0), downloaded by the running program once a week into `data\sat_transmitters.json`; it is not in the repository or the release packages.
@@ -88,6 +91,9 @@ that release, for at least three years after it was published. The source packag
   Radio Observatory (GIRO), Earth, Planets and Space 63, 377–381, 2011, doi:10.5047/eps.2011.03.001), as collected by KC2G
   (<https://prop.kc2g.com>), downloaded by the running program for its own use only. None of these data are in the repository
   or the release packages.
+- The DX CLUSTER tab (DX key) shows the spots of the public DX cluster feed of HamQTH (<https://www.hamqth.com>), read by the
+  running program at most once a minute and kept in memory for 30 minutes; nothing about the station is sent and the spots are
+  not in the repository or the release packages.
 - The magnetogram in the same tab shows the 1-minute values of the magnetometer of the Kiruna geophysical observatory of the
   Swedish Institute of Space Physics (IRF, <https://www2.irf.se/maggraphs/>), downloaded by the running program into
   `data\spacewx` for its own use only; they are not in the repository or the release packages.

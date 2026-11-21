@@ -19,6 +19,10 @@ estimate_ssb below finds the carrier from the harmonics of the voice instead (no
      scored well by all of them (a comb shifted by one F0 fits only frames with that particular pitch).
   With no speech (only the edge found) the coarse estimate is used, with nothing found the tuning stays.
 LSB is handled as USB on the mirrored spectrum (complex conjugate).
+
+CW (estimate_cw, zero beat): the keyed carrier is the strongest narrow line within +-CW_SEARCH_HZ of the click in a held
+spectrum (the maximum of 0.2 s frames, so the pauses between the dots and dashes do not hide it, ~5 Hz bins), found
+between bins. The tuning moves onto it, so the BFO puts it exactly on the CW pitch.
 """
 import json
 import os
@@ -27,11 +31,15 @@ import time
 
 import numpy as np
 
-MODES = ("AM", "USB", "LSB")
+MODES = ("AM", "USB", "LSB", "CW")
 SETTLE_S = 0.25            # skip after retuning: the decimator still holds samples from the old frequency
 AM_LISTEN_S = 0.6
 SSB_TRIES_S = (2.0, 3.5, 5.0, 6.5)   # SSB: analysed after this much speech-or-not; the last try decides
 AM_SEARCH_HZ = 3000.0      # carrier within ± this of the click
+CW_TRIES_S = (1.0, 2.0, 3.0)         # CW: analysed after this much keying; the last try decides
+CW_SEARCH_HZ = 400.0       # CW: the keyed carrier within ± this of the click
+CW_FRAME_S = 0.2           # CW: held spectrum of frames this long (5 Hz bins)
+CW_OVER_DB = 10.0          # CW: the line at least this far above the median of the held spectrum
 SSB_SEARCH_HZ = (-3800.0, 1500.0)    # carrier relative to the click (USB orientation): a click lands on the voice above it,
                                      # wheel tuning leaves it near the tuned frequency
 SSB_SPAN_HZ = 4500.0       # analysed band around the click
@@ -99,6 +107,34 @@ def estimate_am(x, fs, dc_hz=None):
     if p[i] < 30 * floor:                                   # ~15 dB above the surroundings
         return None
     if 0 < i < len(p) - 1:                                  # parabola through the log of the peak and its neighbours
+        a, b, c = np.log(p[i - 1] + 1e-30), np.log(p[i] + 1e-30), np.log(p[i + 1] + 1e-30)
+        d = a - 2 * b + c
+        off = 0.5 * (a - c) / d if d < 0 else 0.0
+    else:
+        off = 0.0
+    return float(f[i] + off * (f[1] - f[0]))
+
+
+def estimate_cw(x, fs, dc_hz=None):
+    """Offset (Hz from the click) of the keyed CW carrier, or None."""
+    n = 1 << int(np.ceil(np.log2(fs * CW_FRAME_S)))
+    if len(x) < n:
+        return None
+    w = np.hanning(n).astype(np.float32)
+    frames = [np.abs(np.fft.fft(x[i:i + n] * w)) ** 2 for i in range(0, len(x) - n + 1, n // 2)]
+    p = np.fft.fftshift(np.max(frames, axis=0))             # max hold: the key down frames
+    f = np.fft.fftshift(np.fft.fftfreq(n, 1 / fs))
+    sel = np.abs(f) <= CW_SEARCH_HZ
+    if dc_hz is not None:
+        sel &= np.abs(f - dc_hz) > 30                       # the dongle's DC remainder is not a signal
+    if not sel.any():
+        return None
+    idx = np.flatnonzero(sel)
+    i = idx[np.argmax(p[idx])]
+    floor = np.median(p[np.abs(f) <= CW_SEARCH_HZ + 1000])
+    if p[i] < floor * 10 ** (CW_OVER_DB / 10):
+        return None
+    if 0 < i < len(p) - 1:
         a, b, c = np.log(p[i - 1] + 1e-30), np.log(p[i] + 1e-30), np.log(p[i + 1] + 1e-30)
         d = a - 2 * b + c
         off = 0.5 * (a - c) / d if d < 0 else 0.0
@@ -415,10 +451,11 @@ class AutoTune:
         job["fs"] = fs
         if self.busy:
             return
-        need = AM_LISTEN_S if mode == "AM" else SSB_TRIES_S[min(job["try"], len(SSB_TRIES_S) - 1)]
+        tries = CW_TRIES_S if mode == "CW" else SSB_TRIES_S
+        need = AM_LISTEN_S if mode == "AM" else tries[min(job["try"], len(tries) - 1)]
         if job["len"] < need * fs:
             return
-        last = mode == "AM" or job["try"] >= len(SSB_TRIES_S) - 1
+        last = mode == "AM" or job["try"] >= len(tries) - 1
         job["try"] += 1
         x = np.concatenate(job["chunks"])
         job["chunks"], job["len"] = [x], len(x)
@@ -431,6 +468,9 @@ class AutoTune:
                 if job["mode"] == "AM":
                     c = estimate_am(x, fs, dc_hz=job["center"] - job["tune"])
                     res = None if c is None else (c, "carrier", True)
+                elif job["mode"] == "CW":
+                    c = estimate_cw(x, fs, dc_hz=job["center"] - job["tune"])
+                    res = None if c is None else (c, "zero beat", True)
                 else:
                     res = estimate_ssb_carrier(x, fs, lsb=job["mode"] == "LSB")
             except Exception:                   # never take the receiver down
@@ -448,7 +488,7 @@ class AutoTune:
             if res is None:
                 self.result = {**self.result, "state": "none"}
                 return
-            if job["mode"] == "AM":
+            if job["mode"] in ("AM", "CW"):
                 shift = round(res[0])
             elif ROUND_HZ:                      # SSB: the carrier on a round frequency (to ROUND_HZ)
                 car = job["tune"] + res[0]
