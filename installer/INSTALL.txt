@@ -80,6 +80,9 @@ Change log
 ----------
 (also in CHANGELOG.md)
 
+Ver. 1.1rc2
+(second release candidate, GitHub branch 1.1rc2; continues 1.1rc1, whose changes are below)
+
 Ver. 1.1rc1
 (release candidate, GitHub branch 1.1rc1; continues the test betas 1.1beta1 and 1.1beta2)
 New
