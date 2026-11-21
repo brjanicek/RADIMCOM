@@ -319,7 +319,9 @@ function vmCountryName(c) {
   if (!vmCtryNames) { try { const d = new Intl.DisplayNames(["en"], { type: "region" }); vmCtryNames = (x) => d.of(x); } catch { vmCtryNames = (x) => x; } }
   try { return c === "XK" ? "Kosovo" : vmCtryNames(c) || c; } catch { return c; }
 }
-let vmFind = "", vmBusy = false;   // the filter of the country list (this page)
+let vmFind = "", vmBusy = false;
+// the download icon: an arrow into a tray
+const VM_DL_ICON = `<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M8 2v8M4.5 6.5 8 10l3.5-3.5M2.5 11v2.5h11V11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;   // the filter of the country list (this page)
 function vmFindApply(box) {   // the rows of the country list that match the filter
   const q = vmFind.trim().toLowerCase();
   box.querySelectorAll("tr[data-vmfind]").forEach((tr) => { tr.hidden = !!q && !tr.dataset.vmfind.includes(q); });
@@ -339,12 +341,12 @@ function vmSourcesHtml() {
       `<label>API key <input type="text" class="map-opts-url" data-key="openaip" value="${escHtml((mapKeys && mapKeys.openaip) || "")}" placeholder="from openaip.net (free account)" spellcheck="false"></label>` +
       `<label>Find <input type="search" class="vm-find" data-vmfind value="${escHtml(vmFind)}" placeholder="country or code" spellcheck="false">` +
       `<button type="button" class="vm-btn" data-vmupd${list.length ? "" : " disabled"} title="Download all the downloaded countries again">Update all</button></label>` +
-      `<p class="map-opts-note">${vmList ? `${list.length} of ${VM_COUNTRIES.length} downloaded (highlighted): ⬇ downloads a country, ↻ updates it, ✕ deletes it.` : "Loading…"}</p>` +
+      `<p class="map-opts-note">${vmList ? `${list.length} of ${VM_COUNTRIES.length} downloaded (on top, highlighted): the download button downloads a country, ↻ updates it, ✕ deletes it.` : "Loading…"}</p>` +
       `<p class="map-opts-note vm-msg"></p><div class="vm-ctry"><table class="map-opts-t vm-maps">` +
-      [...new Set([...VM_COUNTRIES, ...have.keys()])].map((c) => [c, vmCountryName(c)]).sort((a, b) => a[1].localeCompare(b[1])).map(([c, name]) => {
+      [...new Set([...VM_COUNTRIES, ...have.keys()])].map((c) => [c, vmCountryName(c)]).sort((a, b) => (have.has(b[0]) - have.has(a[0])) || a[1].localeCompare(b[1])).map(([c, name]) => {
         const m = have.get(c), q = escHtml(`${name} ${c}`.toLowerCase());
         if (!m) return `<tr data-vmfind="${q}"><th><span class="vm-cn">${escHtml(name)} <small class="muted">${c}</small></span></th><td></td>` +
-          `<td><button type="button" class="vm-get" data-vmget="${c}" title="Download ${escHtml(name)}">⬇</button></td></tr>`;
+          `<td><button type="button" class="vm-get vm-dl" data-vmget="${c}" title="Download ${escHtml(name)}">${VM_DL_ICON}</button></td></tr>`;
         return `<tr class="vm-have" data-vmfind="${q}"><th><label title="${n(m.n)} objects, ${Math.max(1, Math.round(m.size / 1024))} kB · shown on the map">` +
           `${chk(`data-vmmap="${escHtml(m.id)}"`, vmMapOn(m.id))} ${escHtml(name)} <small class="muted">${c}</small></label></th>` +
           `<td class="${m.stale ? "vm-stale" : "muted"}" title="${m.stale ? "Older than an AIRAC cycle (28 days): update it" : "Downloaded"}">${day(m.fetched)}${m.stale ? " ⚠" : ""}</td>` +

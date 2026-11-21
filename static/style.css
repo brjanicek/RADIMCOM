@@ -4530,3 +4530,7 @@ details[data-sec=vmaps] > .map-opts-body:empty { display: none; }
 .vm-get:hover { border-color: #3a4a60; color: #fff; }
 .vm-get:disabled { opacity: .4; cursor: default; }
 .vm-ctry th, .vm-ctry td { padding: 1px 4px; }
+.vm-get.vm-dl { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 18px; padding: 0; border: 1px solid #2f6fb0; background: #1d4f82; color: #fff; }
+.vm-get.vm-dl:hover { background: #2f6fb0; border-color: #6cb8ff; }
+.vm-ctry tr.vm-have + tr:not(.vm-have) th, .vm-ctry tr.vm-have + tr:not(.vm-have) td { border-top: 1px solid #3a4a60; }
+.vm-ctry td { white-space: nowrap; }

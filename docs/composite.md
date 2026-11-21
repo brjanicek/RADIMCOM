@@ -97,7 +97,7 @@ at once in all open tabs and windows of the same address.
   below has every country (**Find** filters it by name or code), the downloaded ones highlighted with the date of the
   download (⚠ when it is older than an AIRAC cycle, 28 days) and a checkbox that shows them on the map. ⬇ downloads a
   country into `data\vectormaps` (one file per country, a few seconds each), ↻ updates it, ✕ deletes it and
-  **Update all** downloads all the downloaded ones again. The tree in **Maps** (▸ opens a kind or a part) switches the
+  **Update all** downloads all the downloaded ones again; the downloaded countries are at the top. The tree in **Maps** (▸ opens a kind or a part) switches the
   kinds (**Airspaces**, **Airports**, **Navaids**, **Reporting points**, **Obstacles**: off at first) and their parts
   (CTR, TMA, R, D, … / international, civil, ultralight, … / VOR-DME, NDB, …) on and off; each part opens to its objects
   one by one with a checkbox. **Names on the map** per kind (from a zoom on, names that would overlap are left out);
