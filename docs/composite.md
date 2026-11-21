@@ -119,7 +119,7 @@ at once in all open tabs and windows of the same address.
   circle / square / diamond / triangle / cross or a symbol of the aeronautical charts: aerodrome paved / grass /
   military / closed, heliport, glider and ultralight site, VOR, VOR-DME, VORTAC, TACAN, DME, NDB, NDB-DME, compulsory and
   on-request reporting point, obstacle, wind turbine, transmitter mast; these are the defaults of the matching parts;
-  size, opacity) of a point, and its name (colour, size, from which zoom; **This zoom** takes the zoom the map
+  size, opacity, **Shown** at every zoom or from a zoom on) of a point, and its name (colour, size, from which zoom; **This zoom** takes the zoom the map
   has now); ✕ closes the style, **Default** returns to the built-in look. What is shown, hidden and styled is stored in the map files on the server, the
   same in every browser and computer, and kept by Update. openAIP data: CC BY-NC.
 - **Own layers:** **Add** a GeoJSON, KML or GPX file (KMZ: unpack the KML from it first; KML / GPX are turned into
