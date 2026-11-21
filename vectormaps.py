@@ -41,6 +41,8 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
+import zipfile
 
 from flask import Blueprint, jsonify, request
 
@@ -1076,14 +1078,231 @@ def ifr_collection(country, layers, fetched=None):
         "features": feats}
 
 
-def ifr_update(country, get=_ifr_get):
-    """Downloads the IFR waypoints of a country and stores them as ifr_<CC>. Answers the list entry."""
+# Eurocontrol: the FRA points of the whole ECAC area, one xlsx per AIRAC cycle (no licence text: "not for operational use")
+FRA_PAGE = "https://www.eurocontrol.int/publication/free-route-airspace-fra-points-list-ecac-area"
+FRA_DIR = os.path.join(VMAP_DIR, "_eurocontrol")
+FRA_KEEP_S = 86400
+FRA_ATTR = "FRA points © EUROCONTROL (not for operational use)"
+# the first two letters of a FIR / ACC (ICAO) -> the country (ISO 3166)
+ICAO_CTRY = {"ED": "DE", "ET": "DE", "LO": "AT", "LZ": "SK", "LK": "CZ", "EP": "PL", "LH": "HU", "LJ": "SI", "LD": "HR", "LR": "RO",
+             "LI": "IT", "LF": "FR", "EB": "BE", "EH": "NL", "EL": "LU", "EK": "DK", "ES": "SE", "EN": "NO", "EF": "FI", "EE": "EE",
+             "EV": "LV", "EY": "LT", "EI": "IE", "EG": "GB", "LE": "ES", "GC": "ES", "LP": "PT", "LS": "CH", "LG": "GR", "LB": "BG",
+             "LW": "MK", "LY": "RS", "LQ": "BA", "LA": "AL", "LU": "MD", "UK": "UA", "LT": "TR", "LC": "CY", "LM": "MT", "BI": "IS",
+             "UD": "AM", "UG": "GE", "UB": "AZ", "LN": "MC", "LX": "GI", "GM": "MA", "DA": "DZ", "DT": "TN", "LL": "IL"}
+_fra_lock = threading.Lock()
+
+
+def airac_id(t=None):
+    """The AIRAC cycle in force at time t as "YYNN" (2501 = 23 Jan 2025, every 28 days)."""
+    day = int((t or time.time()) // 86400)
+    d, year, n = 20111, 2025, 1   # 2025-01-23 in days since 1970
+    while d + 28 <= day:
+        d += 28
+        y = time.gmtime(d * 86400).tm_year
+        n = n + 1 if y == year else 1
+        year = y
+    return f"{year % 100:02d}{n:02d}"
+
+
+def _fra_get(url):
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (RADIMCOM)"})
+    with urllib.request.urlopen(req, timeout=120) as r:
+        return r.read()
+
+
+def fra_pick(html, now=None):
+    """The xlsx of the cycle in force from the links of the publication page (the newest one not in the future)."""
+    links = re.findall(r'href="([^"]+?(?:airac-)?(\d{4})-fra-points[^"]*?\.xlsx)"', html, re.I)
+    if not links:
+        raise ValueError("no FRA points list on the EUROCONTROL page")
+    cur = airac_id(now)
+    ok = sorted(((c, u) for u, c in links if c <= cur), reverse=True) or sorted(((c, u) for u, c in links), reverse=True)
+    url = ok[0][1]
+    return (url if url.startswith("http") else "https://www.eurocontrol.int" + url), ok[0][0]
+
+
+def xlsx_rows(raw, sheet):
+    """The rows of one sheet of an xlsx file as lists of strings (no other library needed)."""
+    ns = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+    rid = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"
+    with zipfile.ZipFile(io.BytesIO(raw)) as z:
+        shared = []
+        if "xl/sharedStrings.xml" in z.namelist():
+            for si in ET.fromstring(z.read("xl/sharedStrings.xml")).findall("m:si", ns):
+                shared.append("".join(t.text or "" for t in si.iter("{%s}t" % ns["m"])))
+        wb = ET.fromstring(z.read("xl/workbook.xml"))
+        rels = {r.get("Id"): r.get("Target") for r in ET.fromstring(z.read("xl/_rels/workbook.xml.rels"))}
+        target = next((rels.get(sh.get(rid)) for sh in wb.iter("{%s}sheet" % ns["m"]) if sh.get("name", "").strip().lower() == sheet.lower()), None)
+        if not target:
+            raise ValueError(f"no sheet {sheet!r} in the xlsx")
+        target = target.lstrip("/")
+        path = target if target.startswith("xl/") else "xl/" + target
+        rows = []
+        for row in ET.fromstring(z.read(path)).iter("{%s}row" % ns["m"]):
+            out = []
+            for c in row.findall("m:c", ns):
+                col = 0
+                for ch in re.match(r"[A-Z]+", c.get("r", "A")).group(0):
+                    col = col * 26 + ord(ch) - 64
+                v = c.find("m:v", ns)
+                if c.get("t") == "s" and v is not None:
+                    txt = shared[int(v.text)]
+                elif c.get("t") == "inlineStr":
+                    txt = "".join(t.text or "" for t in c.iter("{%s}t" % ns["m"]))
+                else:
+                    txt = v.text if v is not None else ""
+                out += [""] * (col - 1 - len(out))
+                out.append((txt or "").strip())
+            rows.append(out)
+        return rows
+
+
+def _dms(t, deg):
+    """N501234 / E0174453 (degrees, minutes, seconds[.s]) -> decimal degrees, None when not so."""
+    m = re.fullmatch(r"([NSEW])(\d{%d})(\d{2})(\d{2}(?:[.,]\d+)?)" % deg, str(t or "").strip().upper())
+    if not m:
+        return None
+    v = int(m.group(2)) + int(m.group(3)) / 60 + float(m.group(4).replace(",", ".")) / 3600
+    return round(-v if m.group(1) in "SW" else v, 6)
+
+
+def fra_points(raw):
+    """The FRA points of the xlsx, one per name and place: {country: [point props with lon / lat]}; navaids left out."""
+    rows = xlsx_rows(raw, "FRA Points")
+    head = [h.strip().lower() for h in rows[0]]
+    ix = lambda name: head.index(name) if name in head else None
+    need = {k: ix(k) for k in ("fra point", "fra point latitude", "fra point longitude")}
+    if None in need.values():
+        raise ValueError("the FRA points list has other columns than expected")
+    col = {k: ix(k) for k in ("point type", "fra name", "fra relevance en-route", "fra relevance arr/dep", "arrival airport",
+                              "departure airport", "level availability", "time availability", "loc. indicators", "change record")}
+    get = lambda r, k: (r[col[k]] if col[k] is not None and col[k] < len(r) else "").strip()
+    pts = {}
+    for r in rows[1:]:
+        cell = lambda i: r[i].strip() if i < len(r) else ""
+        name = cell(need["fra point"]).upper()
+        if not re.fullmatch(r"[A-Z]{5}", name) or get(r, "point type") or get(r, "change record").upper().startswith("DEL"):
+            continue
+        lat, lon = _dms(cell(need["fra point latitude"]), 2), _dms(cell(need["fra point longitude"]), 3)
+        if lat is None or lon is None:
+            continue
+        p = pts.setdefault((name, round(lon, 3), round(lat, 3)), {"name": name, "lon": lon, "lat": lat, "roles": set(), "ad": set(),
+                                                                  "arr": set(), "dep": set(), "areas": set(), "levels": set(), "firs": set()})
+        for x in re.split(r"[^A-Z]+", get(r, "fra relevance en-route").upper()):
+            p["roles"].update(x)
+        p["ad"].update(c for c in get(r, "fra relevance arr/dep").upper() if c in "AD")
+        p["arr"].update(re.findall(r"[A-Z]{4}", get(r, "arrival airport").upper()))
+        p["dep"].update(re.findall(r"[A-Z]{4}", get(r, "departure airport").upper()))
+        if get(r, "fra name"):
+            p["areas"].add(get(r, "fra name"))
+        if get(r, "level availability"):
+            p["levels"].add(re.sub(r"\s+", " ", get(r, "level availability")))
+        p["firs"].update(re.findall(r"[A-Z]{4}", get(r, "loc. indicators").upper()))
+    by = {}
+    for p in pts.values():
+        for c in {ICAO_CTRY.get(f[:2]) for f in p["firs"]} - {None}:
+            by.setdefault(c, []).append(p)
+    return by
+
+
+def fra_table(get=_fra_get, now=None):
+    """The FRA points per country from the xlsx of the cycle in force (downloaded again after a day). Answers (by, cycle)."""
+    now = now or time.time()
+    with _fra_lock:
+        os.makedirs(FRA_DIR, exist_ok=True)
+        path = os.path.join(FRA_DIR, "fra_points.xlsx")
+        meta = os.path.join(FRA_DIR, "fra_points.txt")
+        if not os.path.exists(path) or now - os.path.getmtime(path) > FRA_KEEP_S:
+            url, cyc = fra_pick(get(FRA_PAGE).decode("utf-8", "replace"), now)
+            raw = get(url)
+            if not raw.startswith(b"PK"):
+                raise ValueError("EUROCONTROL sent no xlsx")
+            with open(path + ".tmp", "wb") as f:
+                f.write(raw)
+            os.replace(path + ".tmp", path)
+            with open(meta, "w", encoding="utf-8") as f:
+                f.write(cyc)
+        with open(path, "rb") as f:
+            raw = f.read()
+        try:
+            with open(meta, encoding="utf-8") as f:
+                cyc = f.read().strip()
+        except OSError:
+            cyc = ""
+        return fra_points(raw), cyc
+
+
+def _near(a, b, km=5):
+    (x1, y1), (x2, y2) = a, b
+    return abs(y1 - y2) * 111 < km and abs(x1 - x2) * 111 * 0.7 < km
+
+
+def fra_merge(coll, country, fra, cycle=""):
+    """Adds the FRA points of a country to its IFR waypoints: the same name near by gets the FRA marks, the others are added."""
+    feats = coll["features"]
+    by_name = {}
+    for f in feats:
+        by_name.setdefault(f["properties"]["name"], []).append(f)
+    for p in fra:
+        ll = [p["lon"], p["lat"]]
+        extra = {"fra": True}
+        if p["roles"]:
+            extra["fraRole"] = "".join(r for r in "EXIAD" if r in p["roles"])
+        if p["ad"]:
+            extra["fraAD"] = "".join(r for r in "AD" if r in p["ad"])
+        for k in ("arr", "dep", "levels", "areas"):
+            if p[k]:
+                extra[{"levels": "fl", "areas": "fraArea"}.get(k, k)] = " · ".join(sorted(p[k]))[:200]
+        if cycle:
+            extra["airac"] = cycle
+        f = next((f for f in by_name.get(p["name"], []) if _near(f["geometry"]["coordinates"], ll)), None)
+        if f:
+            f["properties"].update(extra)
+            continue
+        props = {"kind": "wpt", "cat": "enroute", "name": p["name"], "src": f"ifr_{country}", "srcId": p["name"], **extra}
+        if by_name.get(p["name"]):
+            props["srcId"] = f"{p['name']}-{len(by_name[p['name']]) + 1}"
+        f = {"type": "Feature", "geometry": {"type": "Point", "coordinates": ll}, "properties": props}
+        feats.append(f)
+        by_name.setdefault(p["name"], []).append(f)
+    return coll
+
+
+def ifr_countries():
+    """The countries with IFR waypoints: the INSPIRE ones and all of the EUROCONTROL FRA list."""
+    return sorted(set(IFR_SOURCES) | set(ICAO_CTRY.values()))
+
+
+def ifr_update(country, get=_ifr_get, fra_get=_fra_get):
+    """Downloads the IFR waypoints of a country (its INSPIRE service, if it has one, and the EUROCONTROL FRA points)
+    and stores them as ifr_<CC>. Answers the list entry."""
     country = _country(country)
-    if country not in IFR_SOURCES:
-        raise ValueError(f"no free source of IFR waypoints for {country} (there are: {', '.join(IFR_SOURCES)})")
-    coll = ifr_collection(country, ifr_download(country, get))
+    if country not in ifr_countries():
+        raise ValueError(f"no free source of IFR waypoints for {country}")
+    errs = []
+    if country in IFR_SOURCES:
+        try:
+            coll = ifr_collection(country, ifr_download(country, get))
+        except (OSError, ValueError, urllib.error.URLError) as e:
+            errs.append(f"INSPIRE: {getattr(e, 'reason', e)}")
+            coll = ifr_collection(country, [])
+    else:
+        coll = {"type": "FeatureCollection", "features": [], "radimcom": {
+            "version": VERSION, "name": f"IFR waypoints {country}", "source": "ifr", "country": country,
+            "fetched": round(time.time()), "license": "", "attribution": ""}}
+    try:
+        by, cyc = fra_table(fra_get)
+        n0 = len(coll["features"])
+        fra_merge(coll, country, by.get(country, []), cyc)
+        meta = coll["radimcom"]
+        if by.get(country):
+            meta["attribution"] = " · ".join(x for x in (meta["attribution"], FRA_ATTR + (f", AIRAC {cyc}" if cyc else "")) if x)
+            meta["license"] = " · ".join(x for x in (meta["license"], "EUROCONTROL FRA points list, not for operational use") if x)
+        meta["fra"] = {"n": len(coll["features"]) - n0, "cycle": cyc}
+    except (OSError, ValueError, urllib.error.URLError, zipfile.BadZipFile, ET.ParseError) as e:
+        errs.append(f"EUROCONTROL: {getattr(e, 'reason', e)}")
     if not coll["features"]:
-        raise ValueError(f"the source of {country} answered no waypoints")
+        raise ValueError(f"no waypoints for {country}" + (f" ({'; '.join(errs)})" if errs else ""))
     return _store(f"ifr_{country}", coll)
 
 

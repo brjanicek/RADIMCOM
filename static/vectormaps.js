@@ -283,7 +283,16 @@ function vmTip(p, src) {
   if (p.kind === "airspace") rows.push(`${escHtml(cat)}${p.cls && p.cls !== "SUA" ? ` · class ${escHtml(p.cls)}` : ""}`, `${vmLim(p.lower) || "?"} – ${vmLim(p.upper) || "?"}`);
   else if (p.kind === "fua") rows.push(`<b class="vm-fua-${p.cat === "active" ? "on" : "plan"}">${escHtml(cat)}</b>${[p.type, p.activity, p.mil, p.origin].filter(Boolean).map((x) => ` · ${escHtml(x)}`).join("")}`,
     `${vmLim(p.lower) || "?"} – ${vmLim(p.upper) || "?"}`, vmFuaTime(p), ...(p.place ? [escHtml(p.place)] : []));
-  else if (p.kind === "wpt") rows.push(`IFR waypoint · ${escHtml(cat)}${p.fra ? " · FRA" : ""}${p.fir ? " · FIR boundary" : ""}`, ...(p.valid ? [`<span class="muted">Valid from ${escHtml(p.valid)}</span>`] : []));
+  else if (p.kind === "wpt") {
+    const role = { E: "entry", X: "exit", I: "intermediate", A: "arrival", D: "departure" };
+    rows.push(`IFR waypoint · ${escHtml(cat)}${p.fra ? " · FRA" : ""}${p.fir ? " · FIR boundary" : ""}`);
+    if (p.fraRole || p.fraAD) rows.push(`FRA ${[...(p.fraRole || ""), ...(p.fraAD || "")].map((c) => role[c] || c).join(", ")}`);
+    if (p.arr) rows.push(`Arrival ${escHtml(p.arr)}`);
+    if (p.dep) rows.push(`Departure ${escHtml(p.dep)}`);
+    if (p.fl) rows.push(escHtml(p.fl));
+    if (p.fraArea) rows.push(`<span class="muted">${escHtml(p.fraArea)}</span>`);
+    if (p.valid || p.airac) rows.push(`<span class="muted">${[p.valid ? `Valid from ${escHtml(p.valid)}` : "", p.airac ? `AIRAC ${escHtml(p.airac)}` : ""].filter(Boolean).join(" · ")}</span>`);
+  }
   else rows.push(escHtml(cat) + (p.elev != null ? ` · ${p.elev} m` : "") + (p.height != null ? ` · ${p.height} m AGL` : "") + (p.channel ? ` · ch ${escHtml(p.channel)}` : ""));
   if (p.operator) rows.push(escHtml(String(p.operator).slice(0, 80)));
   if (p.rwy && p.rwy.length) rows.push(`RWY ${p.rwy.map(escHtml).join(" ")}`);
@@ -496,7 +505,7 @@ const VM_SRC_NOTE = {
   openaip: "Airspaces, airports, navaids, reporting points, obstacles per country (CC BY-NC).",
   ourairports: "Airports with frequencies and runways (drawn where both ends are known), navaids, per country (public domain, no key; the whole world is downloaded once a day, about 20 MB).",
   fua: "The airspaces activated today in Slovakia (TRA, TSA, R, D, … from the AUP / UUP of AMC Zvolen and the national areas), from the map of LPS SR (gis.lps.sk/vfrm). Kept up to date every 2 minutes while shown; Active now and Planned (later today) are drawn differently. Information only: check the airspace with the ATS unit before flying.",
-  ifr: "IFR waypoints (en-route ICAO five-letter points and terminal RNAV fixes) from the free services of the national air navigation providers (INSPIRE): Slovakia (LPS SR), Germany (DFS, CC BY 4.0), Austria (Austro Control), Finland (Traficom, CC BY 4.0); no key. Other countries (Czechia, Poland, Hungary, …) publish them only in their AIP. Information only.",
+  ifr: "IFR waypoints, no key: the free route airspace (FRA) points of the EUROCONTROL list (all of Europe, the AIRAC cycle in force, with their FRA role, levels and aerodromes; the list, about 1.6 MB, is downloaded at most once a day) together with the en-route points and terminal RNAV fixes of the national INSPIRE services of Slovakia (LPS SR), Germany (DFS, CC BY 4.0), Austria (Austro Control) and Finland (Traficom, CC BY 4.0). Not for operational use.",
   osm: "Transmitter sites (broadcasting, mobile phone, radar, amateur and other radio) and the layout of aerodromes (boundary, runways, taxiways, aprons, helipads) per country (ODbL, no key; a big country takes a minute or two).",
 };
 // the countries openAIP can be downloaded for (ISO 3166 and Kosovo); their names come from the browser
@@ -506,7 +515,7 @@ const VM_COUNTRIES = ("AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD 
   "LU LV LY MA MC MD ME MF MG MH MK ML MM MN MO MP MQ MR MS MT MU MV MW MX MY MZ NA NC NE NF NG NI NL NO NP NR NU NZ OM PA PE PF PG PH PK PL " +
   "PM PN PR PS PT PW PY QA RE RO RS RU RW SA SB SC SD SE SG SH SI SJ SK SL SM SN SO SR SS ST SV SX SY SZ TC TD TF TG TH TJ TK TL TM TN TO TR " +
   "TT TV TW TZ UA UG UM US UY UZ VA VC VE VG VI VN VU WF WS XK YE YT ZA ZM ZW").split(" ");
-const VM_SRC_COUNTRIES = { ifr: ["SK", "DE", "AT", "FI"] };   // a source for a few countries only
+const VM_SRC_COUNTRIES = { ifr: "AL AM AT AZ BA BE BG CH CY CZ DE DK DZ EE ES FI FR GB GE GI GR HR HU IE IL IS IT LT LU LV MA MC MD MK MT NL NO PL PT RO RS SE SI SK TN TR UA".split(" ") };   // a source for a few countries only (ifr: vectormaps.ifr_countries())
 let vmCtryNames = null;
 function vmCountryName(c) {
   if (!vmCtryNames) { try { const d = new Intl.DisplayNames(["en"], { type: "region" }); vmCtryNames = (x) => d.of(x); } catch { vmCtryNames = (x) => x; } }

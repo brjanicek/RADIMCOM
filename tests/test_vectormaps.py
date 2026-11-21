@@ -316,10 +316,68 @@ def test_ifr_wfs_pages_and_turned_axes(monkeypatch):
 def test_ifr_unknown_country():
     import pytest
     with pytest.raises(ValueError):
-        vm.ifr_update("CZ", get=lambda u: {})
+        vm.ifr_update("US", get=lambda u: {})
 
 
 def test_ifr_nil_valid_left_out():
     c = vm.ifr_collection("AT", [(vm.IFR_SOURCES["AT"]["layers"][0], [_pt(16.62, 48.78, designator="MIKOV", validFrom={"@nilReason": "unknown"},
                                                                           beginLifespanVersion="2025-05-16T00:00:00Z")])])
     assert c["features"][0]["properties"]["valid"] == "2025-05-16"
+
+
+def _xlsx(rows, sheet="FRA Points"):
+    """A minimal xlsx with inline strings."""
+    import io
+    import zipfile
+    cells = "".join("<row>" + "".join(f'<c r="{chr(65 + i)}{n + 1}" t="inlineStr"><is><t>{v}</t></is></c>' for i, v in enumerate(r) if v != "") + "</row>"
+                    for n, r in enumerate(rows))
+    m = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    rel = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+    b = io.BytesIO()
+    with zipfile.ZipFile(b, "w") as z:
+        z.writestr("xl/workbook.xml", f'<workbook xmlns="{m}" xmlns:r="{rel}"><sheets><sheet name="COVER" sheetId="1" r:id="rId1"/>'
+                                      f'<sheet name="{sheet}" sheetId="2" r:id="rId2"/></sheets></workbook>')
+        z.writestr("xl/_rels/workbook.xml.rels", '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                   '<Relationship Id="rId1" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Target="worksheets/sheet2.xml"/></Relationships>')
+        z.writestr("xl/worksheets/sheet1.xml", f'<worksheet xmlns="{m}"><sheetData/></worksheet>')
+        z.writestr("xl/worksheets/sheet2.xml", f'<worksheet xmlns="{m}"><sheetData>{cells}</sheetData></worksheet>')
+    return b.getvalue()
+
+
+FRA_HEAD = ["Change Record", "Point Type", "FRA Point", "FRA Point Latitude", "FRA Point Longitude", "FRA Name", "FRA Relevance En-Route",
+            "FRA Relevance ARR/DEP", "Arrival Airport", "Departure Airport", "FLOS", "Level Availability", "Time Availability", "Loc. indicators", "Remarks"]
+
+
+def test_airac_and_pick():
+    assert vm.airac_id(1795294958) == "2611"   # 21 Nov 2026
+    html = ('<a href="/sites/default/files/2026-10/eurocontrol-airac-2612-fra-points-26-nov-2026.xlsx">x</a>'
+            '<a href="https://www.eurocontrol.int/sites/default/files/2026-10/eurocontrol-airac-2611-fra-points-29-oct-2026.xlsx">y</a>'
+            '<a href="/sites/default/files/2023-12/eurocontrol-2401-fra-points-25jan2024.xlsx">z</a>')
+    url, cyc = vm.fra_pick(html, 1795294958)
+    assert cyc == "2611" and url.endswith("2611-fra-points-29-oct-2026.xlsx") and url.startswith("https://")
+
+
+def test_fra_points_and_merge(tmp_path, monkeypatch):
+    raw = _xlsx([FRA_HEAD,
+                 ["", "", "ADLET", "N483403", "E0141757", "SEE", "I", "AD", "LOWL", "LKCS", "", "FL095 / FL660", "H24", "LOVV,LKAA"],
+                 ["", "", "ADLET", "N483403", "E0141757", "SEE", "X", "-", "", "", "", "FL195 / FL660", "H24", "LOVV,LKAA"],
+                 ["", "VORDME", "BNO", "N490900", "E0164100", "SEE", "I", "", "", "", "", "", "", "LKAA"],
+                 ["DEL", "", "GONEX", "N490000", "E0160000", "SEE", "I", "", "", "", "", "", "", "LKAA"],
+                 ["", "", "ROBTU", "N485339", "E0214854", "SEE", "EX", "", "", "", "", "", "", "LZBB"],
+                 [], ["", "", "", "", ""]])
+    by = vm.fra_points(raw)
+    assert sorted(by) == ["AT", "CZ", "SK"] and [p["name"] for p in by["CZ"]] == ["ADLET"]
+    a = by["AT"][0]
+    assert a["roles"] == {"I", "X"} and a["ad"] == {"A", "D"} and a["arr"] == {"LOWL"} and abs(a["lat"] - 48.5675) < 1e-4
+    monkeypatch.setattr(vm, "VMAP_DIR", str(tmp_path))
+    monkeypatch.setattr(vm, "FRA_DIR", str(tmp_path / "_eurocontrol"))
+    page = b'<a href="/f/eurocontrol-airac-2611-fra-points-29-oct-2026.xlsx">'
+    fra_get = lambda url: page if url == vm.FRA_PAGE else raw
+    sk = [_pt(21.815, 48.894, IDENT_TXT="ROBTU")]
+    m = vm.ifr_update("SK", get=lambda u: {"features": sk if "DPN/" in u else []}, fra_get=fra_get)
+    assert m["n"] == 1 and "EUROCONTROL" in m["attribution"]
+    p = vm._load(vm._path("ifr_SK"))["features"][0]["properties"]
+    assert p["fra"] and p["fraRole"] == "EX" and p["airac"] == "2611"
+    m = vm.ifr_update("CZ", fra_get=fra_get)   # no INSPIRE: the FRA points only
+    p = vm._load(vm._path("ifr_CZ"))["features"][0]["properties"]
+    assert m["n"] == 1 and p["name"] == "ADLET" and p["fraRole"] == "XI" and p["fraAD"] == "AD" and p["fl"] == "FL095 / FL660 · FL195 / FL660"
