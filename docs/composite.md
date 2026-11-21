@@ -78,15 +78,15 @@ windows. The same defaults are used the first time the page opens in a browser; 
 The keys in the top right corner of the map (settings ⚙, full screen, new tab) are one bar. **⚙** opens its settings (**Settings** shows beside it while open) in
 sections that open and close with a click (which are open is remembered): **Sources** (**Aircrafts**, **Radiosondes** and **Ships**,
 each a part that opens with a click, one at a time: the local decoders, one switch per VFO and decoder with the number of
-objects, and **Sharing** from other stations), **Maps** (with the parts **Vector maps** with **Map sources** and **Maps** (one of the two open at a time), **Base map** with OpenSeaMap, own layers and
-the station, **A/D map** and **ADS-B range**, each opening with a click),
+objects, and **Sharing** from other stations), **Maps** (with the parts **Vector maps** with **Map sources** and **Maps** (one of the two open at a time), **Base map** with OpenSeaMap,
+**A/D map**, **ADS-B range** and, at the bottom, **Station**, each opening with a click),
 **Weather** (precipitation, clouds), **Aircrafts**, **Radiosondes** and **Ships** (each with the parts **Symbol**, **Label**
 and **List**, one open at a time). All sections are closed the first time. In the small map of the tab the window takes
 the right edge of the map (never taller than the map) and the full screen / new tab keys hide while it is open. The
 settings and the open sections are remembered in the browser (also from the map opened alone in a new tab) and applied
 at once in all open tabs and windows of the same address.
 
-- **Station** (Map): the icon of your location (circle, square, triangle, diamond, star, cross, house) and its colour.
+- **Station** (Maps, at the bottom): the icon of your location (circle, square, triangle, diamond, star, cross, house) and its colour.
 - **Base map:** (the map zooms in to zoom 18) OpenStreetMap (the default), Esri dark grey, OpenTopoMap, Esri satellite, **Own tile address**
   (an XYZ address `https://…/{z}/{x}/{y}.png`) or **Plain colour** (no tiles, a background of the colour chosen, black
   by default), with **darken** (on by default: the tiles turned dark so the marks
@@ -122,11 +122,8 @@ at once in all open tabs and windows of the same address.
   on-request reporting point, obstacle, wind turbine, transmitter mast; these are the defaults of the matching parts;
   size, opacity, **Shown** at every zoom or from a zoom on) of a point, and its name (colour, size, from which zoom; **This zoom** takes the zoom the map
   has now); ✕ closes the style, **Default** returns to the built-in look. What is shown, hidden and styled is stored in the map files on the server, the
-  same in every browser and computer, and kept by Update. openAIP data: CC BY-NC.
-- **Own layers:** **Add** a GeoJSON, KML or GPX file (KMZ: unpack the KML from it first; KML / GPX are turned into
-  GeoJSON in the browser): points, lines and areas, with the name and description as a tooltip. The layers are stored
-  on the server in `data\maplayers` (one folder for all VFOs, up to 20 MB each), so every window and computer has
-  them; on / off, **colour** and **opacity** of each are per browser; ✕ deletes a layer for everyone.
+  same in every browser and computer, and kept by Update. openAIP data: CC BY-NC. (The former own layers of the base map
+  are gone: add such files on **Own files** of Map sources.)
 - **Precipitation:** the RainViewer radar (no position sent, only the map tiles) on / off; **only the latest frame**
   or a **loop of the last 20 / 30 / 60 / 90 / 120 min** (frames every 10 minutes, the newest held a moment; 30 min by
   default); opacity 10–100 % (60 % by default). The time of the frame shown is in the status row under the map. A new frame

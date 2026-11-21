@@ -17964,29 +17964,8 @@ function mapBaseInit(map) {
     }
     if (cloud) cloud.setOpacity(o.cldOpa);
     await vmApply(map);   // vector maps (vectormaps.js)
-    // own layers
-    const list = await mapLayListGet();
-    const ids = new Set(list.map((x) => x.id));
-    for (const [id, x] of lays) if (!ids.has(id) || !mapLayOpt(id).on) { map.removeLayer(x.layer); lays.delete(id); }
-    for (const it of list) {
-      const lo = mapLayOpt(it.id), s2 = `${lo.c}|${lo.o}`;
-      if (!lo.on) continue;
-      const had = lays.get(it.id);
-      if (had && had.sig === s2) continue;
-      const gj = await mapLayGet(it.id);
-      if (!gj || !mapLayOpt(it.id).on) continue;
-      if (had) map.removeLayer(had.layer);
-      const st = { color: lo.c, weight: 2, opacity: lo.o, fillColor: lo.c, fillOpacity: lo.o * 0.2, interactive: true };
-      const layer = L.geoJSON(gj, {
-        style: () => st,
-        pointToLayer: (f, ll) => L.circleMarker(ll, { ...st, radius: 4, fillOpacity: lo.o }),
-        onEachFeature: (f, l) => {
-          const p = f.properties || {}, n = p.name || p.Name || p.title || "";
-          if (n || p.description) l.bindTooltip(`${n ? `<b>${escHtml(String(n))}</b>` : ""}${p.description ? `${n ? "<br>" : ""}${escHtml(String(p.description).replace(/<[^>]*>/g, " ").slice(0, 300))}` : ""}`, { className: "ais-label", sticky: true });
-        },
-      }).addTo(map);
-      lays.set(it.id, { sig: s2, layer });
-    }
+    for (const x of lays.values()) map.removeLayer(x.layer);   // own layers: replaced by Own files of the vector maps
+    lays.clear();
   };
 }
 
@@ -18876,19 +18855,10 @@ function comMapSettings(map, kind, rerender, noTrails) {
       (o.base === "solid" ? `<label>Colour <input type="color" class="map-opts-cp" data-o="baseColor" value="${o.baseColor}"></label>` : "") +
       (o.base === "custom" ? `<label><input type="text" class="map-opts-url" data-o="baseUrl" value="${escHtml(o.baseUrl)}" placeholder="https://…/{z}/{x}/{y}.png" spellcheck="false"></label>` : "") +
       `<label><input type="checkbox" data-o="sea"${o.sea ? " checked" : ""}> OpenSeaMap <small class="muted">(sea marks, waterways)</small></label>` +
-      sub("Own layers", "GeoJSON, KML, GPX") +
-      (lays.length ? `<table class="map-opts-t map-opts-lays">` + lays.map((it) => {
-        const lo = mapLayOpt(it.id), id = escHtml(it.id);
-        return `<tr><th><label title="${it.n} object${it.n === 1 ? "" : "s"}, ${Math.max(1, Math.round(it.size / 1024))} kB"><input type="checkbox" data-lay="${id}" data-k="on"${lo.on ? " checked" : ""}> ${escHtml(it.name)}</label></th>` +
-          `<td><input type="color" class="map-opts-cp" data-lay="${id}" data-k="c" value="${lo.c}"></td>` +
-          `<td><select data-lay="${id}" data-k="o">${MAP_LAY_OPA.map((v) => `<option value="${v}"${v === lo.o ? " selected" : ""}>${pc(v)}</option>`).join("")}</select></td>` +
-          `<td><button type="button" class="map-opts-del" data-laydel="${id}" title="Delete the layer (for all windows)">✕</button></td></tr>`;
-      }).join("") + `</table>` : `<p class="map-opts-note">${mapLayList ? "No layer yet." : "Loading…"}</p>`) +
-      `<label class="map-opts-up">Add <input type="file" data-up accept=".geojson,.json,.kml,.gpx"></label><p class="map-opts-note map-opts-msg"></p>` +
-      (kind === "com" ? sub("Station", "your location (MENU › SETUP › LOCATION)") +
-        `<label>Icon <select data-o="stIcon">${MAP_ST_ICONS.map(([v, n]) => `<option value="${v}"${v === o.stIcon ? " selected" : ""}>${n}</option>`).join("")}</select>` +
-        `<input type="color" class="map-opts-cp" data-o="cSt" value="${o.cSt}" title="Colour of the station"></label>` : "") +
       (extra.length ? sub("This map") + extra.map(([l, n], i) => `<label><input type="checkbox" data-x="${i}"${map.hasLayer(l) ? " checked" : ""}> ${escHtml(n)}</label>`).join("") : "");
+    const stSec = kind !== "com" ? "" :
+      `<label>Icon <select data-o="stIcon">${MAP_ST_ICONS.map(([v, n]) => `<option value="${v}"${v === o.stIcon ? " selected" : ""}>${n}</option>`).join("")}</select>` +
+      `<input type="color" class="map-opts-cp" data-o="cSt" value="${o.cSt}" title="Colour of the station"></label>`;
     const adSec =
       `<label><input type="checkbox" data-o="ad"${o.ad ? " checked" : ""}> Show the rings and azimuths</label>` +
       `<label>Up to <select data-o="adMax">${MAP_AD_MAX.map((v) => `<option value="${v}"${v === o.adMax ? " selected" : ""}>${v}</option>`).join("")}</select>` +
@@ -18907,8 +18877,9 @@ function comMapSettings(map, kind, rerender, noTrails) {
       `</table>`;
     const mapSec = part("vmaps", "Vector maps", "airspaces, airports, navaids, transmitters, channels", "",
       part("vsrc", "Map sources", "openAIP, OurAirports, OSM, MEMORIES, own files", vmSourcesHtml()) + part("vlist", "Maps", "what is shown", vmSettingsHtml())) +
-      part("mbase", "Base map", "tiles, own layers" + (kind === "com" ? ", station" : ""), baseSec) +
-      part("mad", "A/D map", "azimuth / distance rings", adSec) + part("mrng", "ADS-B range", "farthest positions per altitude", rngSec);
+      part("mbase", "Base map", "tiles, OpenSeaMap", baseSec) +
+      part("mad", "A/D map", "azimuth / distance rings", adSec) + part("mrng", "ADS-B range", "farthest positions per altitude", rngSec) +
+      (stSec ? part("mst", "Station", "your location (MENU › SETUP › LOCATION)", stSec) : "");
     const weatherSec =
       sub("Precipitation", "RainViewer radar") +
       `<label><input type="checkbox" data-o="precip"${o.precip ? " checked" : ""}> Show the precipitation</label>` +
