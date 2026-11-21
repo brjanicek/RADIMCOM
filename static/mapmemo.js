@@ -44,6 +44,7 @@ function mapMemoBarHtml() {
   return mapMemos().map((m, i) => `<button type="button" data-tb="mm" data-mm="${i}"${m ? "" : " disabled"} ` +
     `title="${m ? `Recall ${escHtml(mapMemoName(m, i))} (stored ${new Date(m.at || 0).toLocaleString()})` : "Empty: Save actual stores the maps shown now"}">${escHtml(mapMemoName(m, i))}</button>`).join("") +
     `<button type="button" data-tb="mminfo" class="mm-info${vmInfoOn() ? " on" : ""}" title="The info of a point or area of the vector maps under the mouse (on / off)">Map info ${vmInfoOn() ? "ON" : "OFF"}</button>` +
+    `<button type="button" data-tb="mmedit" class="mm-edit${vmEditOn() ? " on" : ""}" title="The right click card of a point or area of the vector maps: own name, note, hide (on / off)">Map edit ${vmEditOn() ? "ON" : "OFF"}</button>` +
     `<button type="button" data-tb="mmsave" title="Store the maps shown now (vector maps, base map, A/D map, ADS-B range) into a memory">Save actual</button>` +
     `<button type="button" data-tb="mmexp" title="Save chosen memories into a .json file">Export</button>` +
     `<button type="button" data-tb="mmimp" title="Load memories from a .json file (Export) into chosen memories">Import</button>`;
@@ -55,6 +56,7 @@ function mapMemoClick(b) {
   if (b.dataset.tb === "mmsave") mapMemoDialog(b);
   else if (b.dataset.tb === "mmexp") mapMemoExport(b);
   else if (b.dataset.tb === "mminfo") { vmInfoSet(!vmInfoOn()); mapMemoRedraw(); }
+  else if (b.dataset.tb === "mmedit") { vmEditSet(!vmEditOn()); mapMemoRedraw(); }
   else if (b.dataset.tb === "mmimp") mapMemoImportPick(b);
 }
 
@@ -215,5 +217,5 @@ function mapMemoDialog(btn) {
 
 // another tab or window stored a memory: its keys show it
 window.addEventListener("storage", (e) => {
-  if ((e.key === MAP_MEMO_KEY || e.key === "vmMapInfo") && typeof renderComTbar === "function" && typeof comMap !== "undefined" && comMap) renderComTbar();
+  if ((e.key === MAP_MEMO_KEY || e.key === "vmMapInfo" || e.key === "vmMapEdit") && typeof renderComTbar === "function" && typeof comMap !== "undefined" && comMap) renderComTbar();
 });

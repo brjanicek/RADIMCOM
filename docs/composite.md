@@ -52,7 +52,8 @@ over the whole width of the map (remembered).
 Under them the **Maps** bar (Map memory): ten keys **MapMemo 1** … **MapMemo 10**, each recalling a stored setup of
 the maps (the vector maps with what is shown and their styles, the base map, the A/D map, the ADS-B range and the
 station); an empty memory is grey. **Map info** (OFF at first, per browser) switches the info of a vector maps point or
-area under the mouse on and off; the right click card works either way. **Save actual** opens a small window: the memory and its name (MapMemo 1 … at first);
+area under the mouse on and off; **Map edit** (OFF at first, per browser) switches the right click card of a point or area
+(own name, note, Hide this object) on and off; the right click on a track keeps its Track menu either way. **Save actual** opens a small window: the memory and its name (MapMemo 1 … at first);
 **OK** stores what the maps show now into an empty memory at once and asks before overwriting a used one. **Export**
 saves the memories ticked in its window (all at first) into a `.json` file; **Import** reads such a file and lists its
 memories, each with a checkbox and the memory it goes into (its own number at first), and asks before overwriting used ones. The memories

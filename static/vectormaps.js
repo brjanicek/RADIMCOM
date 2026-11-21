@@ -450,7 +450,7 @@ function vmInit(map) {
     L.popup({ className: "vm-pop", maxWidth: 320 }).setLatLng(ob.ll || e.latlng).setContent(box).openOn(map);
     if (edit) box.querySelector('[data-f="name"]').focus();
   };
-  map.on("contextmenu", (e) => card(e));
+  map.on("contextmenu", (e) => { if (vmEditOn()) card(e); });   // the card only with Map edit on (the Maps bar)
   /** The names of the objects in the view (from a zoom on per kind, at most VM_LBL_MAX). */
   st.labels = () => {
     lblLayer.clearLayers();
@@ -912,4 +912,17 @@ function vmInfoSet(on) {
   vmInfo = !!on;
   try { localStorage.setItem("vmMapInfo", vmInfo ? "1" : "0"); } catch { /* this page only */ }
 }
-window.addEventListener("storage", (e) => { if (e.key === "vmMapInfo") vmInfo = e.newValue === "1"; });
+// Map edit (the key on the Maps bar): the right click card of a point / area (own name, note, hide); off at first, per browser
+let vmEdit = null;
+function vmEditOn() {
+  if (vmEdit === null) { try { vmEdit = localStorage.getItem("vmMapEdit") === "1"; } catch { vmEdit = false; } }
+  return vmEdit;
+}
+function vmEditSet(on) {
+  vmEdit = !!on;
+  try { localStorage.setItem("vmMapEdit", vmEdit ? "1" : "0"); } catch { /* this page only */ }
+}
+window.addEventListener("storage", (e) => {
+  if (e.key === "vmMapInfo") vmInfo = e.newValue === "1";
+  else if (e.key === "vmMapEdit") vmEdit = e.newValue === "1";
+});
