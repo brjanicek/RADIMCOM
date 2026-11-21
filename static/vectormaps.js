@@ -330,7 +330,7 @@ function vmSourcesHtml() {
 }
 function vmRefillAll() {   // both sections in every open settings window of this page
   document.querySelectorAll(".map-opts-panel").forEach((p) => {
-    const b = p.querySelector("details[data-sec=vsrc] > .map-opts-body"), v = p.querySelector("details[data-sec=vmaps] > .map-opts-body");
+    const b = p.querySelector("details[data-sec=vsrc] > .map-opts-body"), v = p.querySelector("details[data-sec=vlist] > .map-opts-body");
     if (b && !b.contains(document.activeElement)) b.innerHTML = vmSourcesHtml();
     if (v && !v.contains(document.activeElement)) v.innerHTML = vmSettingsHtml();
   });
@@ -342,7 +342,7 @@ function vmSettingsHtml() {
   const chk = (attr, on) => `<input type="checkbox" ${attr}${on ? " checked" : ""}>`;
   if (!vmList) vmListGet().then(() => vmRefillAll());
   let h = `<label>${chk('data-vm="on"', o.on)} Show the vector maps</label>` +
-    (vmList && !list.length ? `<p class="map-opts-note">No map downloaded yet: see Map sources.</p>` : "");
+    (vmList && !list.length ? `<p class="map-opts-note">No map downloaded yet: see Map sources above.</p>` : "");
   // the tree: kind › part, the counts of all shown maps together
   const cnt = {};
   for (const m of list) if (vmMapOn(m.id)) for (const [k, cs] of Object.entries(m.cats || {})) for (const [c, x] of Object.entries(cs)) { cnt[k] = cnt[k] || {}; cnt[k][c] = (cnt[k][c] || 0) + x; }
@@ -447,7 +447,7 @@ function vmOnInput(e, panel) {
   return true;
 }
 function vmRefill(panel) {
-  const b = panel.querySelector("details[data-sec=vmaps] > .map-opts-body"), c = panel.querySelector("details[data-sec=vsrc] > .map-opts-body");
+  const b = panel.querySelector("details[data-sec=vlist] > .map-opts-body"), c = panel.querySelector("details[data-sec=vsrc] > .map-opts-body");
   if (b) b.innerHTML = vmSettingsHtml();
   if (c) c.innerHTML = vmSourcesHtml();
 }
@@ -516,6 +516,11 @@ function vmOnClick(e, panel) {
   return false;
 }
 document.addEventListener("toggle", (e) => {   // a kind / part of the tree opened / closed: remembered in this browser
+  if (e.target.matches && e.target.open && e.target.matches("details[data-sec=vsrc], details[data-sec=vlist]")) {   // Map sources or Maps: one open at a time
+    const other = e.target.parentElement.querySelector(`:scope > details[data-sec=${e.target.dataset.sec === "vsrc" ? "vlist" : "vsrc"}]`);
+    if (other) other.open = false;
+    return;
+  }
   if (e.target.matches && e.target.matches("details[data-vmcatd]")) {
     const d = e.target, open = new Set(vmCatOpen());
     if (d.open) { open.add(d.dataset.vmcatd); vmFillObjs(d.querySelector("[data-vmobjs]")); } else open.delete(d.dataset.vmcatd);

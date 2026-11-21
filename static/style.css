@@ -4512,3 +4512,9 @@ body.map-only #comStatus, #comPane:fullscreen #comStatus { display: flex; }
 .vm-tab { padding: 3px 10px; border: 1px solid transparent; border-bottom: none; border-radius: 4px 4px 0 0; background: none; color: #8fa3bd; font-size: 12px; cursor: pointer; margin-bottom: -1px; }
 .vm-tab:hover { color: #dfe4ea; }
 .vm-tab.on { border-color: #2a3546; background: rgba(20, 27, 38, .9); color: #fff; }
+.vm-kind > summary, .vm-cat > summary { list-style: none; }
+.vm-kind > summary::-webkit-details-marker, .vm-cat > summary::-webkit-details-marker { display: none; }
+.vm-kind > summary::before, .vm-cat > summary::before { content: "▸"; width: 10px; flex: none; color: #8fa3bd; transition: transform .15s; }
+.vm-kind[open] > summary::before, .vm-cat[open] > summary::before { transform: rotate(90deg); }
+.vm-kind > summary:hover::before, .vm-cat > summary:hover::before { color: #fff; }
+details[data-sec=vmaps] > .map-opts-body:empty { display: none; }

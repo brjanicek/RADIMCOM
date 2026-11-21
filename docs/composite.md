@@ -78,7 +78,7 @@ windows. The same defaults are used the first time the page opens in a browser; 
 The keys in the top right corner of the map (settings ⚙, full screen, new tab) are one bar. **⚙** opens its settings (**Settings** shows beside it while open) in
 sections that open and close with a click (which are open is remembered): **Sources** (**Aircrafts**, **Radiosondes** and **Ships**,
 each a part that opens with a click, one at a time: the local decoders, one switch per VFO and decoder with the number of
-objects, and **Sharing** from other stations), **Maps** (with the parts **Vector maps** with its **Map sources**, **Base map** with OpenSeaMap, own layers and
+objects, and **Sharing** from other stations), **Maps** (with the parts **Vector maps** with **Map sources** and **Maps** (one of the two open at a time), **Base map** with OpenSeaMap, own layers and
 the station, **A/D map** and **ADS-B range**, each opening with a click),
 **Weather** (precipitation, clouds), **Aircrafts**, **Radiosondes** and **Ships** (each with the parts **Symbol**, **Label**
 and **List**, one open at a time). All sections are closed the first time. In the small map of the tab the window takes
@@ -95,7 +95,7 @@ at once in all open tabs and windows of the same address.
   map under the tracks and kept on the server, so they work offline. They are downloaded in **Map sources** (inside **Vector
   maps**), on the tab of the source: on the **openAIP** tab type the free **API key** of an openaip.net account (stored in `data\mapkeys.json`) and the **Countries** (two letters each, `SK CZ AT HU PL UA` by default), then
   **Update** downloads them into `data\vectormaps` (one file per country, a few seconds each); the date of each download
-  shows beside it, ⚠ when it is older than an AIRAC cycle (28 days); ✕ deletes one. The tree below switches the maps, the
+  shows beside it, ⚠ when it is older than an AIRAC cycle (28 days); ✕ deletes one. The tree in **Maps** (▸ opens a kind or a part) switches the maps, the
   kinds (**Airspaces**, **Airports**, **Navaids**, **Reporting points**, **Obstacles**: off at first) and their parts
   (CTR, TMA, R, D, … / international, civil, ultralight, … / VOR-DME, NDB, …) on and off; each part opens to its objects
   one by one with a checkbox. **Names on the map** per kind (from a zoom on, names that would overlap are left out);
