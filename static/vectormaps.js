@@ -658,16 +658,30 @@ function vmZoomHtml(cnt) {
   const zs = (i, w, v) => `<select data-vmz="${i}" data-w="${w}">${Array.from({ length: 18 }, (_, n) => n + 1).map((z) =>
     `<option value="${z}"${z === v ? " selected" : ""}>${(w === "s0" || w === "l0") && z === 1 ? "all" : (w === "s1" || w === "l1") && z === 18 ? "all" : z}</option>`).join("")}</select>`;
   return `<div class="map-opts-sub2">Zoom levels <small>from – to which zoom the symbol (or outline) and the name are drawn</small></div>` +
-    `<table class="map-opts-t vm-zoom"><tr class="vm-sty-h"><th></th><td>Symbol / outline</td><td>Name</td></tr>` +
+    `<table class="map-opts-t vm-zoom"><tr class="vm-sty-h"><th></th><td>Symbol / outline</td><td>Name</td><td></td></tr>` +
     rows.map(([k, c, name]) => {
       const i = VM_ZOOM_ROWS.findIndex((r) => r[0] === k && r[1] === c), cats = vmZoomCats(k, c, cnt).filter((x) => !cnt[k] || cnt[k][x]);
       const y = vmSty(k, cats[0] || c || ""), area = vmIsArea(k, cats[0] || c || "");
       const own = cats.some((x) => ["sz", "sx", "cz", "cx", "fz", "fx", "lz", "lx"].some((q) => q in (((vmOpt().style || {})[`${k}.${x}`]) || {})));
-      const mixed = own && cats.some((x) => { const z = vmSty(k, x); return area ? z.cz !== y.cz || z.cx !== y.cx : z.sz !== y.sz || z.sx !== y.sx; }) ||
-        cats.some((x) => { const z = vmSty(k, x); return z.lz !== y.lz || z.lx !== y.lx; });
+      const mixed = own && (cats.some((x) => { const z = vmSty(k, x); return area ? z.cz !== y.cz || z.cx !== y.cx : z.sz !== y.sz || z.sx !== y.sx; }) ||
+        cats.some((x) => { const z = vmSty(k, x); return z.lz !== y.lz || z.lx !== y.lx; }));
       return `<tr><th title="${mixed ? "Some parts have their own zooms: a change here sets all of them" : ""}">${escHtml(name)}${mixed ? " *" : ""}</th>` +
-        `<td>${zs(i, "s0", area ? y.cz : y.sz)} – ${zs(i, "s1", area ? y.cx : y.sx)}</td><td>${zs(i, "l0", y.lz)} – ${zs(i, "l1", y.lx)}</td></tr>`;
-    }).join("") + `</table>`;
+        `<td>${zs(i, "s0", area ? y.cz : y.sz)} – ${zs(i, "s1", area ? y.cx : y.sx)}</td><td>${zs(i, "l0", y.lz)} – ${zs(i, "l1", y.lx)}</td>` +
+        `<td><button type="button" class="vm-get" data-vmzdef="${i}"${own ? "" : " disabled"} title="The default zooms of ${escHtml(name)}">↺</button></td></tr>`;
+    }).join("") + `</table><button type="button" class="vm-btn" data-vmzdef="*" title="The default zooms of all kinds (colours and shapes stay)">All default</button>`;
+}
+/** ↺ of a row (or All default): the own zooms of its parts removed (the colours and shapes stay). */
+function vmZoomDefault(i) {
+  const zk = ["sz", "sx", "cz", "cx", "fz", "fx", "lz", "lx"], style = { ...(vmOpt().style || {}) };
+  const rows = i === "*" ? VM_ZOOM_ROWS : [VM_ZOOM_ROWS[+i]].filter(Boolean);
+  for (const [kind, cat] of rows) for (const c of vmZoomCats(kind, cat)) {
+    const key = `${kind}.${c}`;
+    if (!style[key]) continue;
+    const cur = { ...style[key] };
+    for (const k of zk) delete cur[k];
+    if (Object.keys(cur).length) style[key] = cur; else delete style[key];
+  }
+  vmSet({ style });
 }
 /** A zoom of Zoom levels changed: written into the style of every part of that row (the default left out). */
 function vmZoomSet(i, w, v) {
@@ -888,6 +902,8 @@ function vmOnClick(e, panel) {
     return true;
   }
   if (e.target.closest("button[data-vmstyclose]")) { vmStyOpen = ""; vmRefill(panel); return true; }
+  const zd = e.target.closest("button[data-vmzdef]");
+  if (zd) { vmZoomDefault(zd.dataset.vmzdef); vmRefill(panel); return true; }
   const tz = e.target.closest("button[data-vmthiszoom]");
   if (tz) {   // the names (lz) or the symbols (sz) of the part from the zoom the map has now
     const box = panel.closest(".leaflet-container"), map = box && box._vmMap;

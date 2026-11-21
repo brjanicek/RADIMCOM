@@ -135,7 +135,8 @@ at once in all open tabs and windows of the same address.
   the outline of an area) and the name are drawn, for all its parts: at first the airport symbol up to zoom 11 and the
   aerodrome layout (runways, aprons, …) from 12, navaids always with names from 9, en-route waypoints from 7 (names from 9),
   terminal ones and reporting points from 9 (names from 11), obstacles from 11, transmitters from 9 (* = some parts have
-  their own zooms; a change sets them all). The tree in **Maps** (▸ opens a kind or a part) switches the
+  their own zooms; a change sets them all; ↺ returns a row to the default zooms, **All default** every row, the
+  colours and shapes stay). The tree in **Maps** (▸ opens a kind or a part) switches the
   kinds (**Airspaces**, **Airports**, **Navaids**, **Reporting points**, **Obstacles**: off at first) and their parts
   (CTR, TMA, R, D, … / international, civil, ultralight, … / VOR-DME, NDB, …) on and off; each part opens to its objects
   in groups by country (by map for MEMORIES and own files), each group with a checkbox for all its objects, and in them
