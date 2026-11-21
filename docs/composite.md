@@ -110,7 +110,8 @@ at once in all open tabs and windows of the same address.
   show under **Own files** in the tree (a file in this format keeps its kinds), the same name again replaces it. The tree in **Maps** (▸ opens a kind or a part) switches the
   kinds (**Airspaces**, **Airports**, **Navaids**, **Reporting points**, **Obstacles**: off at first) and their parts
   (CTR, TMA, R, D, … / international, civil, ultralight, … / VOR-DME, NDB, …) on and off; each part opens to its objects
-  one by one with a checkbox. **Names on the map** per kind (from a zoom on, names that would overlap are left out);
+  in groups by country (by map for MEMORIES and own files), each group with a checkbox for all its objects, and in them
+  the objects one by one with a checkbox. **Names on the map** per kind (from a zoom on, names that would overlap are left out);
   **Only starting below** FL… shows only the airspaces whose lower limit is below that level. The mouse over an object
   shows its name, class, vertical limits and frequencies; a click opens it with **Hide this object** (**Show all** in
   the settings brings the hidden ones back). A click on the colour mark of a part opens its **style**: line (colour,

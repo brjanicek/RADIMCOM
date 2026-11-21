@@ -4484,13 +4484,13 @@ body.map-only #comStatus, #comPane:fullscreen #comStatus { display: flex; }
 .vm-cats { padding-left: 18px; }
 .vm-cat > summary { cursor: pointer; display: flex; align-items: center; gap: 6px; margin: 1px 0; }
 .vm-cat > summary input { margin: 0; }
-.vm-objs { max-height: 180px; overflow-y: auto; padding-left: 22px; margin-bottom: 3px; }
+.vm-objs { max-height: 260px; overflow-y: auto; padding-left: 18px; margin-bottom: 3px; }
 .vm-objs, .vm-ctry { scrollbar-width: thin; scrollbar-color: #3a4a60 transparent; }
 .vm-objs::-webkit-scrollbar, .vm-ctry::-webkit-scrollbar { width: 5px; }
 .vm-objs::-webkit-scrollbar-thumb, .vm-ctry::-webkit-scrollbar-thumb { background: #3a4a60; border-radius: 3px; }
 .vm-objs label { margin: 0; overflow: hidden; text-overflow: ellipsis; }
 .vm-cats label { margin: 1px 0; }
-.vm-kind > label { padding-left: 18px; }
+.vm-kind > label { padding-left: 22px; }
 .vm-sw { display: inline-block; width: 14px; height: 9px; border: 2px solid var(--c); background: color-mix(in srgb, var(--c) 25%, transparent); border-radius: 2px; flex: none; }
 .vm-sw.pt { width: 8px; height: 8px; border: 1px solid #000; background: var(--c); border-radius: 50%; }
 .vm-tip .muted { color: #8fa3bd; }
@@ -4515,7 +4515,7 @@ body.map-only #comStatus, #comPane:fullscreen #comStatus { display: flex; }
 .vm-tab.on { border-color: #2a3546; background: rgba(20, 27, 38, .9); color: #fff; }
 .vm-kind > summary, .vm-cat > summary { list-style: none; }
 .vm-kind > summary::-webkit-details-marker, .vm-cat > summary::-webkit-details-marker { display: none; }
-.vm-kind > summary::before, .vm-cat > summary::before { content: "▸"; width: 10px; flex: none; color: #8fa3bd; transition: transform .15s; }
+.vm-kind > summary::before, .vm-cat > summary::before { content: "▶"; width: 16px; flex: none; font-size: 12px; line-height: 1; text-align: center; color: #8fa3bd; transition: transform .15s; }
 .vm-kind[open] > summary::before, .vm-cat[open] > summary::before { transform: rotate(90deg); }
 .vm-kind > summary:hover::before, .vm-cat > summary:hover::before { color: #fff; }
 details[data-sec=vmaps] > .map-opts-body:empty { display: none; }
@@ -4540,3 +4540,7 @@ details[data-sec=vmaps] > .map-opts-body:empty { display: none; }
 .vm-tabs { flex-wrap: wrap; }
 .vm-tab { white-space: nowrap; padding: 3px 7px; }
 .vm-srcbar { flex-wrap: wrap; justify-content: flex-start; }
+.vm-grp { margin-left: 2px; }
+.vm-grp > summary { font-size: 11px; }
+.vm-grp-objs { padding-left: 22px; }
+.vm-grp-objs label { display: block; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

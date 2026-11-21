@@ -526,17 +526,36 @@ function vmCatOpen() {   // the parts open in the tree (this browser)
   try { const v = JSON.parse(localStorage.getItem("vmCatOpen") || "[]"); return Array.isArray(v) ? v : []; } catch { return []; }
 }
 /** The objects of one part (kind.cat) in all shown maps, by name, as checkboxes (checked = shown). */
+// the objects of a part in groups by country (by map where a map has no country); a group opened / closed is remembered
+const vmGrpKeys = new Map();   // group id -> the keys of its objects (its checkbox shows / hides them all)
+function vmGrpOpen() { try { const v = JSON.parse(localStorage.getItem("vmGrpOpen") || "[]"); return Array.isArray(v) ? v : []; } catch { return []; } }
 async function vmFillObjs(box) {
   const [kind, cat] = box.dataset.vmobjs.split(".");
   const list = (await vmListGet()).filter(vmShown);
   const gjs = await Promise.all(list.map((m) => vmGet(m.id)));
-  const rows = [];
-  gjs.forEach((gj, i) => { for (const f of (gj && gj.features) || []) { const p = f.properties || {}; if (p.kind === kind && p.cat === cat) rows.push({ p, cc: list[i].country }); } });
-  rows.sort((a, b) => String(a.p.name).localeCompare(String(b.p.name)));
-  const hidden = new Set(vmOpt().hidden), many = list.length > 1;
-  box.innerHTML = rows.length ? rows.slice(0, 3000).map(({ p, cc }) => `<label title="${escHtml(p.name || "")}"><input type="checkbox" data-vmobj="${escHtml(vmKey(p))}"${hidden.has(vmKey(p)) ? "" : " checked"}> ` +
-    `${escHtml(p.name || p.ident || "?")}${p.ident && p.kind !== "airspace" ? ` <small class="muted">${escHtml(p.ident)}</small>` : ""}${many && cc ? ` <small class="muted">${escHtml(cc)}</small>` : ""}</label>`).join("")
-    : `<p class="map-opts-note">None in the shown maps.</p>`;
+  const groups = new Map();   // name -> rows
+  gjs.forEach((gj, i) => {
+    const m = list[i], g = m.country ? `${vmCountryName(m.country)} (${m.country})` : m.name || m.id;
+    for (const f of (gj && gj.features) || []) {
+      const p = f.properties || {};
+      if (p.kind === kind && p.cat === cat) { if (!groups.has(g)) groups.set(g, new Map()); groups.get(g).set(vmKey(p), p); }   // one object once per group
+    }
+  });
+  const hidden = new Set(vmOpt().hidden), open = vmGrpOpen();
+  const item = (p) => `<label title="${escHtml(p.name || "")}"><input type="checkbox" data-vmobj="${escHtml(vmKey(p))}"${hidden.has(vmKey(p)) ? "" : " checked"}> ` +
+    `${escHtml(vmName(p) || p.ident || "?")}${p.ident && p.kind !== "airspace" ? ` <small class="muted">${escHtml(p.ident)}</small>` : ""}</label>`;
+  let left = 3000;
+  box.innerHTML = groups.size ? [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([g, rowsMap]) => {
+    const rows = [...rowsMap.values()].sort((a, b) => String(vmName(a) || a.ident || "").localeCompare(String(vmName(b) || b.ident || "")));
+    const id = `${kind}.${cat}.${g}`, keys = rows.map(vmKey), on = keys.filter((k) => !hidden.has(k)).length;
+    vmGrpKeys.set(id, keys);
+    const body = rows.slice(0, Math.max(0, left)).map(item).join("");
+    left -= rows.length;
+    return `<details class="vm-cat vm-grp" data-vmgrpd="${escHtml(id)}"${open.includes(id) ? " open" : ""}><summary>` +
+      `<input type="checkbox" data-vmgrp="${escHtml(id)}"${on ? " checked" : ""}${on && on < keys.length ? ' data-mixed="1"' : ""}> ${escHtml(g)} <small class="muted">${on < keys.length ? `${on} / ` : ""}${keys.length}</small></summary>` +
+      `<div class="vm-grp-objs">${body}</div></details>`;
+  }).join("") : `<p class="map-opts-note">None in the shown maps.</p>`;
+  box.querySelectorAll("input[data-mixed]").forEach((x) => { x.indeterminate = true; });
 }
 function vmKindOpen() {   // the kinds open in the tree (this browser; the first time all closed)
   try { const v = JSON.parse(localStorage.getItem("vmKindOpen") || "[]"); return Array.isArray(v) ? v : []; } catch { return []; }
@@ -595,6 +614,15 @@ function vmOnInput(e, panel) {
     const style = { ...(o.style || {}) };
     if (Object.keys(cur).length) style[key] = cur; else delete style[key];
     vmSet({ style });
+  }
+  else if (t.dataset.vmgrp) {   // all objects of a country group shown / hidden
+    const h = new Set(o.hidden), keys = vmGrpKeys.get(t.dataset.vmgrp) || [];
+    for (const k of keys) if (t.checked) h.delete(k); else h.add(k);
+    vmSet({ hidden: [...h] });
+    const d = t.closest("details");
+    if (d) d.querySelectorAll("input[data-vmobj]").forEach((x) => { x.checked = t.checked; });
+    t.indeterminate = false;
+    return true;
   }
   else if (t.dataset.vmobj) {   // one object shown / hidden: the list keeps its place (no new section)
     const h = new Set(o.hidden);
@@ -697,6 +725,12 @@ document.addEventListener("toggle", (e) => {   // a kind / part of the tree open
     const d = e.target, open = new Set(vmCatOpen());
     if (d.open) { open.add(d.dataset.vmcatd); vmFillObjs(d.querySelector("[data-vmobjs]")); } else open.delete(d.dataset.vmcatd);
     try { localStorage.setItem("vmCatOpen", JSON.stringify([...open])); } catch { /* this page only */ }
+    return;
+  }
+  if (e.target.matches && e.target.matches("details[data-vmgrpd]")) {
+    const open = new Set(vmGrpOpen());
+    if (e.target.open) open.add(e.target.dataset.vmgrpd); else open.delete(e.target.dataset.vmgrpd);
+    try { localStorage.setItem("vmGrpOpen", JSON.stringify([...open].slice(-300))); } catch { /* this page only */ }
     return;
   }
   if (!e.target.matches || !e.target.matches("details[data-vmkind]")) return;
