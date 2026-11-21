@@ -160,7 +160,7 @@ function vmLowerFL(l) {
 const vmLim = (l) => (!l ? "" : l.u === "FL" ? `FL${l.v}` : l.v === 0 && l.ref === "GND" ? "GND" : `${l.v} ${l.u} ${l.ref === "STD" ? "" : l.ref}`.trim());
 const vmFreq = (f) => `${f.type ? `${escHtml(f.type)} ` : ""}${f.f < 1 ? `${Math.round(f.f * 1e6) / 1000} kHz` : `${f.f.toFixed(3)}`}${f.name ? ` <span class="muted">${escHtml(f.name)}</span>` : ""}`;
 function vmTip(p) {
-  const head = `<b>${escHtml(p.name || p.ident || "")}</b>${p.ident && p.name ? ` ${escHtml(p.ident)}` : ""}`;
+  const head = `<b>${escHtml(vmName(p) || p.ident || vmCatName(p.cat))}</b>${p.ident && p.name ? ` ${escHtml(p.ident)}` : ""}`;
   const cat = vmCatName(p.cat);
   const rows = [];
   if (p.kind === "airspace") rows.push(`${escHtml(cat)}${p.cls && p.cls !== "SUA" ? ` · class ${escHtml(p.cls)}` : ""}`, `${vmLim(p.lower) || "?"} – ${vmLim(p.upper) || "?"}`);
@@ -186,11 +186,14 @@ function vmInRing(lon, lat, ring) {
   }
   return inside;
 }
+// the name of an object; transmitter sites in OpenStreetMap are often unnamed: their operator or ref then
+const vmName = (p) => p.name || (p.kind === "tx" ? p.operator || p.ident || "" : "");
 function vmLabel(p) {
   if (p.kind === "airspace") return `${escHtml(p.name)}<small>${escHtml(vmLim(p.lower))} – ${escHtml(vmLim(p.upper))}</small>`;
   if (p.kind === "navaid") return `${escHtml(p.ident || p.name)}<small>${p.freq && p.freq[0] ? (p.freq[0].f < 1 ? Math.round(p.freq[0].f * 1e6) / 1000 : p.freq[0].f.toFixed(2)) : ""}</small>`;
   if (p.kind === "airport") return escHtml(p.ident || p.name);
   if (p.kind === "obstacle") return `${escHtml(p.name || "")}${p.height != null ? `<small>${p.height} m</small>` : ""}`;
+  if (p.kind === "tx") return `${escHtml(vmName(p))}${p.name && p.operator ? `<small>${escHtml(p.operator)}</small>` : ""}`;
   return escHtml(p.name || "");
 }
 
@@ -304,7 +307,8 @@ function vmInit(map) {
     for (const ob of out) {
       if (placed.length >= VM_LBL_MAX) break;
       const pt = !ob.ring, y = vmSty(ob.p.kind, ob.p.cat), col = y.lc;
-      const q = map.latLngToContainerPoint(ob.ll || ob.c), txt = String(ob.p.ident && ob.p.kind !== "airspace" ? ob.p.ident : ob.p.name || "");
+      const q = map.latLngToContainerPoint(ob.ll || ob.c), txt = String(ob.p.ident && ob.p.kind !== "airspace" && ob.p.kind !== "tx" ? ob.p.ident : vmName(ob.p));
+      if (!txt) continue;   // nothing to write
       const w = Math.max(20, txt.length * 6), hh = ob.p.kind === "airspace" || ob.p.kind === "navaid" ? 24 : 12;
       const r = [q.x - w / 2, pt ? q.y + 6 : q.y - hh / 2, q.x + w / 2, (pt ? q.y + 6 : q.y - hh / 2) + hh];
       if (placed.some((o) => r[0] < o[2] && r[2] > o[0] && r[1] < o[3] && r[3] > o[1])) continue;
