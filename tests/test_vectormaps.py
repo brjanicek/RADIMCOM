@@ -258,3 +258,14 @@ def test_fua_update_stores(tmp_path, monkeypatch):
     monkeypatch.setattr(vm, "VMAP_DIR", str(tmp_path))
     m = vm.fua_update(get=lambda: {"features": []}, now=1795300000)
     assert m["id"] == "fua_SK" and m["n"] == 0
+
+
+def test_fua_limit_from_text():
+    assert vm._fua_limit_text("GND") == {"v": 0, "u": "ft", "ref": "GND"}
+    assert vm._fua_limit_text("125 FL") == {"v": 125, "u": "FL", "ref": "STD"}
+    assert vm._fua_limit_text("5000 FEET") == {"v": 5000, "u": "ft", "ref": "MSL"}
+    assert vm._fua_limit_text("3000 FT AGL")["ref"] == "GND"
+    c = vm.fua_collection({"features": [{"type": "Feature", "geometry": {"type": "Polygon", "coordinates": [[[17, 48], [17.1, 48], [17.1, 48.1], [17, 48]]]},
+                                         "properties": {"airspace": "LZR2", "startdate": 0, "enddate": 4e12, "lower_val": None, "base": "GND", "top_": "FL 95"}}]}, 1795300000)
+    p = c["features"][0]["properties"]
+    assert p["lower"]["ref"] == "GND" and p["upper"] == {"v": 95, "u": "FL", "ref": "STD"}

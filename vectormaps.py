@@ -851,6 +851,22 @@ def _fua_limit(val, uom, unit):
     return {"v": v, "u": "ft", "ref": "GND" if uom in ("GND", "SFC", "AGL") else "MSL"}
 
 
+def _fua_limit_text(t):
+    """A limit from the text of the layer ("GND", "5000 FEET", "125 FL", "FL 95", "3000 FT AGL") when no number is given."""
+    t = str(t or "").upper().strip()
+    if not t:
+        return None
+    if t in ("GND", "SFC", "0", "0 GND"):
+        return {"v": 0, "u": "ft", "ref": "GND"}
+    m = re.search(r"FL\s*(\d+)|(\d+)\s*FL", t)
+    if m:
+        return {"v": int(m.group(1) or m.group(2)), "u": "FL", "ref": "STD"}
+    m = re.search(r"(\d+)\s*(FEET|FT|M)\b", t)
+    if m:
+        return {"v": int(m.group(1)), "u": "m" if m.group(2) == "M" else "ft", "ref": "GND" if re.search(r"AGL|GND|SFC", t) else "MSL"}
+    return None
+
+
 def fua_collection(gj, now=None):
     """The activations as kind "fua": part "active" (now inside its window) or "planned" (later today); past ones left out."""
     now = now or time.time()
@@ -872,8 +888,8 @@ def fua_collection(gj, now=None):
                   "start": iso(start), "end": iso(end),
                  "type": p.get("type_code") or "", "activity": p.get("activity_code") or "", "mil": p.get("mil_code") or "",
                  "place": p.get("label2") or "", "origin": p.get("airspace_type") or "",
-                 "lower": _fua_limit(p.get("lower_val"), p.get("lower_uom"), "FL" if "FL" in (str(p.get("lower_fl")).upper(), str(p.get("lower_ft")).upper()) else ""),
-                 "upper": _fua_limit(p.get("upper_val"), p.get("upper_uom"), "FL" if "FL" in (str(p.get("upper_fl")).upper(), str(p.get("upper_ft")).upper()) else "")}
+                 "lower": _fua_limit(p.get("lower_val"), p.get("lower_uom"), "FL" if "FL" in (str(p.get("lower_fl")).upper(), str(p.get("lower_ft")).upper()) else "") or _fua_limit_text(p.get("base")),
+                 "upper": _fua_limit(p.get("upper_val"), p.get("upper_uom"), "FL" if "FL" in (str(p.get("upper_fl")).upper(), str(p.get("upper_ft")).upper()) else "") or _fua_limit_text(p.get("top_"))}
         feats.append({"type": "Feature", "geometry": g, "properties": {k: v for k, v in props.items() if v not in ("", None)}})
     return {"type": "FeatureCollection", "features": feats,
             "radimcom": {"version": 1, "name": "FUA Slovakia (LPS SR)", "source": "fua", "country": "SK", "fetched": round(now),
