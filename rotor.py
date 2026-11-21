@@ -434,15 +434,16 @@ class RotorLink:
 # Versions up to 0.114beta1 kept them in the config of one VFO (config_X.json, key "rotor"); migrate() moves them.
 SETTINGS_KEYS = ("enabled", "port", "usb_serial", "az_cal", "k3ng_az", "links")
 # Sources of the wanted AZ / EL that can be disconnected from the rotor (RCTRL › CONNECTION): the satellite tracker,
-# the recall of a memory with a location, the map of RCTRL. Connected unless switched off.
-LINK_SOURCES = ("sat", "mem", "map", "sonde")
-LINK_NAMES = {"sat": "SAT TRACKER", "mem": "MEMORY RECALL", "map": "RCTRL MAP", "sonde": "SONDE TRACKER"}
+# the recall of a memory with a location, the map of RCTRL, the sonde follow, POINT of DECODERS › METEORS (GRAVES).
+# Connected unless switched off (the sonde: off until switched on).
+LINK_SOURCES = ("sat", "mem", "map", "sonde", "meteor")
+LINK_NAMES = {"sat": "SAT TRACKER", "mem": "MEMORY RECALL", "map": "RCTRL MAP", "sonde": "SONDE TRACKER", "meteor": "METEORS (GRAVES)"}
 # disconnected until switched on: the sonde follow turns the rotor by itself whenever a sonde is heard
 LINK_OFF_BY_DEFAULT = ("sonde",)
 
 
 def links_of(settings):
-    """{"sat", "mem", "map", "sonde": True / False} from the rotor settings (missing = connected, the sonde
+    """{"sat", "mem", "map", "sonde", "meteor": True / False} from the rotor settings (missing = connected, the sonde
     disconnected)."""
     links = settings.get("links")
     links = links if isinstance(links, dict) else {}
