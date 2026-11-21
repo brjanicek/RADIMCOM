@@ -405,7 +405,7 @@ function vmInit(map) {
     if (raf) return;
     raf = requestAnimationFrame(() => {
       raf = 0;
-      const ob = vmOpt().on ? hit(last.containerPoint) : null;
+      const ob = vmOpt().on && vmInfoOn() ? hit(last.containerPoint) : null;   // the info under the mouse only with Map info on
       if (!ob) { if (shown) { map.closeTooltip(tip); shown = null; } return; }
       if (ob !== shown) { tip.setContent(vmTip(ob.p, ob.m)); shown = ob; }
       tip.setLatLng(ob.ll || last.latlng);
@@ -901,3 +901,15 @@ setInterval(() => {
     mapOptsSet({});   // the maps draw again (vmApply replaces the FUA layer)
   }).catch(() => { /* the server is away: the next minute */ });
 }, 60000);
+
+// Map info (the key on the Maps bar, mapmemo.js): the info of a point / area under the mouse; off at first, per browser
+let vmInfo = null;
+function vmInfoOn() {
+  if (vmInfo === null) { try { vmInfo = localStorage.getItem("vmMapInfo") === "1"; } catch { vmInfo = false; } }
+  return vmInfo;
+}
+function vmInfoSet(on) {
+  vmInfo = !!on;
+  try { localStorage.setItem("vmMapInfo", vmInfo ? "1" : "0"); } catch { /* this page only */ }
+}
+window.addEventListener("storage", (e) => { if (e.key === "vmMapInfo") vmInfo = e.newValue === "1"; });
