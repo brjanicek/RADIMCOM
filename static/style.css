@@ -4492,7 +4492,7 @@ body.map-only #comStatus, #comPane:fullscreen #comStatus { display: flex; }
 .vm-cats label { margin: 1px 0; }
 .vm-kind > label { padding-left: 22px; }
 .vm-sw { display: inline-block; width: 14px; height: 9px; border: 2px solid var(--c); background: color-mix(in srgb, var(--c) 25%, transparent); border-radius: 2px; flex: none; }
-.vm-sw.pt { width: 8px; height: 8px; border: 1px solid #000; background: var(--c); border-radius: 50%; }
+.vm-sw.pt { width: 20px; height: 20px; border: 0; background: none; border-radius: 3px; }
 .vm-tip .muted { color: #8fa3bd; }
 .vm-lbl { background: none; border: none; }
 .vm-lbl span { display: block; transform: translate(-50%, -50%); white-space: nowrap; text-align: center; font: 600 10px/1.15 system-ui, sans-serif; color: var(--c); text-shadow: 0 0 2px #000, 0 0 2px #000, 0 0 3px #000; }
@@ -4505,7 +4505,8 @@ body.map-only #comStatus, #comPane:fullscreen #comStatus { display: flex; }
 .vm-sw[data-vmswatch] { cursor: pointer; }
 .vm-sw[data-vmswatch]:hover { outline: 1px solid #dfe4ea; }
 .vm-sty { position: relative; margin: 2px 0 4px 22px; padding: 4px 22px 4px 6px; border: 1px solid #2a3546; border-radius: 4px; background: rgba(20, 27, 38, .6); }
-.vm-sty-row { display: flex; align-items: center; gap: 5px; margin: 2px 0; }
+.vm-sty-row { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin: 2px 0; }
+.vm-sty-row select { max-width: 130px; }
 .vm-sty-row > span { width: 46px; color: #8fa3bd; font-size: 11px; }
 .vm-sty-x { position: absolute; top: 2px; right: 3px; padding: 0 4px; border: none; background: none; color: #8fa3bd; font-size: 13px; line-height: 1; cursor: pointer; }
 .vm-sty-x:hover { color: #fff; }
@@ -4544,3 +4545,9 @@ details[data-sec=vmaps] > .map-opts-body:empty { display: none; }
 .vm-grp > summary { font-size: 11px; }
 .vm-grp-objs { padding-left: 22px; }
 .vm-grp-objs label { display: block; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vm-syms { display: flex; flex-wrap: wrap; gap: 2px; flex: 1 1 0; min-width: 0; }
+.vm-symopt { display: inline-flex; margin: 0; padding: 1px; border: 1px solid transparent; border-radius: 3px; cursor: pointer; }
+.vm-symopt input { display: none; }
+.vm-symopt img { width: 22px; height: 22px; display: block; }
+.vm-symopt:hover { border-color: #3a4a60; }
+.vm-symopt.on { border-color: #6cb8ff; background: rgba(108, 184, 255, .15); }

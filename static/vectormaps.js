@@ -169,6 +169,32 @@ function vmAeroDraw(ctx, sym, x, y, r, color, alpha) {
   }
   ctx.restore();
 }
+function vmBasicPath(ctx, sym, x, y, r) {   // circle, square, diamond, triangle, cross
+  if (sym === "square") ctx.rect(x - r, y - r, 2 * r, 2 * r);
+  else if (sym === "diamond") { ctx.moveTo(x, y - r * 1.3); ctx.lineTo(x + r * 1.3, y); ctx.lineTo(x, y + r * 1.3); ctx.lineTo(x - r * 1.3, y); ctx.closePath(); }
+  else if (sym === "triangle") { ctx.moveTo(x, y - r * 1.3); ctx.lineTo(x + r * 1.15, y + r * 0.8); ctx.lineTo(x - r * 1.15, y + r * 0.8); ctx.closePath(); }
+  else if (sym === "cross") { const t = Math.max(1, r / 2.5); ctx.rect(x - r, y - t, 2 * r, 2 * t); ctx.rect(x - t, y - r, 2 * t, 2 * r); }
+  else ctx.arc(x, y, r, 0, 2 * Math.PI);
+}
+// a symbol as a small picture (the tree and the style editor): drawn as on the map, cached
+const vmIcons = new Map();
+function vmSymIcon(sym, color, size = 20) {
+  const id = `${sym}|${color}|${size}`;
+  if (vmIcons.has(id)) return vmIcons.get(id);
+  let url = "";
+  try {
+    const k = 2, cv = document.createElement("canvas");
+    cv.width = cv.height = size * k;
+    const ctx = cv.getContext("2d");
+    ctx.scale(k, k);
+    const x = size / 2, y = size / 2, r = size / 4.2;
+    if (VM_AERO_DRAW[sym]) vmAeroDraw(ctx, sym, x, y, r, color, 1);
+    else { ctx.beginPath(); vmBasicPath(ctx, sym, x, y, r); ctx.fillStyle = color; ctx.fill(); ctx.strokeStyle = "rgba(0,0,0,.8)"; ctx.lineWidth = 1; ctx.stroke(); }
+    url = cv.toDataURL();
+  } catch { /* no canvas */ }
+  vmIcons.set(id, url);
+  return url;
+}
 // a point drawn as a symbol on the canvas (one canvas for thousands of points); made when first needed, since
 // Leaflet is loaded after this file
 let VmSymCls = null;
@@ -180,10 +206,7 @@ const vmSymMarker = (ll, opt) => new (VmSymCls = VmSymCls || L.CircleMarker.exte
     const ctx = rd._ctx, { x, y } = this._point, r = Math.max(this._radius, 1);
     if (VM_AERO_DRAW[sym]) { vmAeroDraw(ctx, sym, x, y, r, this.options.fillColor, this.options.fillOpacity); return; }
     ctx.beginPath();
-    if (sym === "square") ctx.rect(x - r, y - r, 2 * r, 2 * r);
-    else if (sym === "diamond") { ctx.moveTo(x, y - r * 1.3); ctx.lineTo(x + r * 1.3, y); ctx.lineTo(x, y + r * 1.3); ctx.lineTo(x - r * 1.3, y); ctx.closePath(); }
-    else if (sym === "triangle") { ctx.moveTo(x, y - r * 1.3); ctx.lineTo(x + r * 1.15, y + r * 0.8); ctx.lineTo(x - r * 1.15, y + r * 0.8); ctx.closePath(); }
-    else if (sym === "cross") { const t = Math.max(1, r / 2.5); ctx.rect(x - r, y - t, 2 * r, 2 * t); ctx.rect(x - t, y - r, 2 * t, 2 * r); }
+    vmBasicPath(ctx, sym, x, y, r);
     rd._fillStroke(ctx, this);
   },
 }))(ll, opt);
@@ -489,7 +512,8 @@ function vmSettingsHtml() {
     if (!cs) continue;
     const cats = [...order.filter((c) => cs[c]), ...Object.keys(cs).filter((c) => !order.includes(c))];
     const tot = Object.values(cs).reduce((a, b) => a + b, 0);
-    const sw = (c) => { const y = vmSty(k, c); return `<i class="vm-sw${vmIsArea(k, c) ? "" : " pt"}" data-vmswatch="${escHtml(`${k}.${c}`)}" title="Style (click)" style="--c:${vmIsArea(k, c) ? y.c : y.fc}"></i>`; };
+    const sw = (c) => { const y = vmSty(k, c); return `${vmIsArea(k, c) ? `<i class="vm-sw" data-vmswatch="${escHtml(`${k}.${c}`)}" title="Style (click)" style="--c:${y.c}"></i>`
+      : `<img class="vm-sw pt" data-vmswatch="${escHtml(`${k}.${c}`)}" title="Style (click)" alt="" src="${vmSymIcon(y.sym, y.fc)}">`}`; };
     h += `<details class="vm-kind" data-vmkind="${k}"${vmKindOpen().includes(k) ? " open" : ""}><summary>${chk(`data-vmcat="${k}"`, vmCatOn(k))} ${name} <small class="muted">${n(tot)}</small></summary>` +
       `<div class="vm-cats">${cats.map((c) => { const id = escHtml(`${k}.${c}`);   // a part: its objects one by one when opened
         return `<details class="vm-cat" data-vmcatd="${id}"${vmCatOpen().includes(`${k}.${c}`) ? " open" : ""}><summary>${chk(`data-vmcat="${id}"`, vmCatOn(k, c))}${sw(c)} ` +
@@ -514,7 +538,9 @@ function vmStyEditor(kind, cat) {
     ["Line", col("c") + sel("w", [0.5, 1, 1.5, 2, 3, 4, 5], (v) => `${v} px`) + sel("d", Object.keys(VM_DASH)) + sel("o", [0.2, 0.4, 0.6, 0.8, 0.9, 1], pc)],
     ["Fill", col("fc") + sel("fo", [0, 0.03, 0.05, 0.08, 0.1, 0.15, 0.2, 0.3, 0.5], pc)],
   ] : [
-    ["Symbol", col("fc") + sel("sym", VM_SYMS.map(([v]) => v), (v) => VM_SYMS.find(([x]) => x === v)[1]) + sel("r", [2, 3, 4, 5, 6, 7, 8, 10], (v) => `${v} px`) + sel("fo", [0.3, 0.5, 0.7, 0.95, 1], pc)],
+    ["Symbol", col("fc") + sel("r", [2, 3, 4, 5, 6, 7, 8, 10], (v) => `${v} px`) + sel("fo", [0.3, 0.5, 0.7, 0.95, 1], pc)],
+    ["", `<div class="vm-syms">${VM_SYMS.map(([v, name]) => `<label class="vm-symopt${v === y.sym ? " on" : ""}" title="${escHtml(name)}">` +
+      `<input type="radio" name="vmsym-${key}" data-vmsty="${key}" data-k="sym" value="${v}"${v === y.sym ? " checked" : ""}><img alt="${escHtml(name)}" src="${vmSymIcon(v, y.fc, 22)}"></label>`).join("")}</div>`],
   ];
   const zs = [...new Set([5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, y.lz])].sort((a, b) => a - b);
   rows.push(["Name", col("lc") + sel("ls", [8, 9, 10, 11, 12, 14, 16], (v) => `${v} px`) + sel("lz", zs, (v) => `from zoom ${v}`) +
