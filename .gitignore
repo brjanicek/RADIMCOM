@@ -52,3 +52,4 @@ dist/
 # bundled Python of an installed copy; NuGet downloads and the prepared Python of the setup build
 /python/
 installer/cache/
+/backup/

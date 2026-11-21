@@ -414,6 +414,7 @@ body {
 .vfo-row:not(.active) .vfo-foot .vfo-adcv { color: #7d8794; text-shadow: none; }
 
 .vfo-row.offline { opacity: .45; }
+.vfo-row.nosrc { opacity: .35; }   /* VFO without an SDR (no dongles assigned yet): dark, still clickable */
 /* free VFO window without an assigned SDR: in place, but dark and without function */
 .vfo-row.spare { opacity: .35; cursor: default; }
 .vfo-row.spare * { cursor: default !important; }
@@ -820,17 +821,14 @@ canvas.axis { height: 39px; background: #1c1e22; border-bottom: 1px solid #44474
 /* "Loading…" bubble over a tab while a slow read runs (busy() in app.js) */
 .body-tabs button { position: relative; }
 .tab-busy {
-  position: absolute; left: 50%; bottom: calc(100% + 5px); transform: translateX(-50%); z-index: 50; pointer-events: none;
-  padding: 2px 8px; border: 1px solid #3a6ea5; border-radius: 9px; background: #10243a; color: #9fd0ff;
-  font: 600 10px system-ui, sans-serif; letter-spacing: .04em; white-space: nowrap; box-shadow: 0 2px 8px #0009;
+  position: fixed; transform: translate(-50%, -50%); z-index: 500; pointer-events: none;
+  padding: 6px 16px; border: 1px solid #3a6ea5; border-radius: 12px; background: #10243a; color: #9fd0ff;
+  font: 700 13px system-ui, sans-serif; letter-spacing: .06em; white-space: nowrap; box-shadow: 0 4px 16px #000c;
   animation: tabBusy 1s ease-in-out infinite alternate;
-}
-.tab-busy::after {
-  content: ""; position: absolute; left: 50%; top: 100%; margin-left: -4px;
-  border: 4px solid transparent; border-top-color: #3a6ea5;
 }
 @keyframes tabBusy { from { opacity: .55; } to { opacity: 1; } }
 .dec-count { color: var(--muted); font-weight: 600; }
+.dec-count.run { color: var(--green); }   /* the running decoder named in the DECODERS tab */
 /* SATELLITES tab: covers the spectrum and waterfall like the decoders; only the list scrolls */
 .amsat-pane { position: absolute; inset: 0; z-index: 6; display: flex; flex-direction: column; gap: 8px; padding: 10px; background: #07090c; }
 .amsat-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -965,6 +963,9 @@ canvas.axis { height: 39px; background: #1c1e22; border-bottom: 1px solid #44474
 .dec-pane .ft8-empty.dec-na { color: var(--amber); }
 .dec-pages .key { position: relative; }
 .dec-pages .dec-sep { width: 1px; align-self: stretch; background: var(--line2); margin: 0 4px; }   /* between the groups of decoders */
+/* the running decoder (one at a time): a lit green bar on top of its key, seen also while another page is open */
+.dec-pages .key.running::before { content: ""; position: absolute; left: 3px; right: 3px; top: -1px; height: 3px;
+  border-radius: 2px; background: var(--green); box-shadow: 0 0 6px var(--green); }
 .dec-pages .key.new::after { content: "●"; position: absolute; top: -6px; right: -3px; font-size: 10px; color: var(--green); }   /* over the corner: the keys do not move */
 /* the card of the open page is shown also while its decoder is off (ON key in its top left corner); DSD is a mode, not a key */
 .dec-pane .card[data-dec][hidden]:not(.off-page):not(#dsdCard) { display: flex !important; }
@@ -1921,6 +1922,13 @@ body.map-only .ft8-map.map-only-box { flex-direction: column; }
 #recsPlayKey .pp-ico { margin-right: 7px; }
 .recs-table .del { width: 20px; color: var(--muted); text-align: center; }
 .recs-table .del:hover { color: var(--red); }
+/* ★ of a recording (RECORDINGS): ☆ dim, a click stars it; a folder shows how many starred are inside */
+#recsPane .recs-table .star { width: 26px; padding-left: 2px; padding-right: 2px; text-align: center; white-space: nowrap;
+  color: #4a5463; font-size: 15px; cursor: pointer; }
+#recsPane .recs-table td.star:hover { color: #ffd84a; }
+#recsPane .recs-table td.star.on { color: #ffd84a; text-shadow: 0 0 6px #ffd84a66; }
+#recsPane .recs-table td.dir-star { color: #c9a93a; font-size: 11px; cursor: default; }
+#recsPane .recs-table th.star { color: #ffd84a; }
 /* folder tree: path keys, up / TODAY, sortable header, tick boxes, folder rows, source badges, download */
 .recs-path { display: flex; align-items: center; gap: 3px; flex: 0 1 auto; min-width: 0; flex-wrap: wrap; }
 .recs-path .key { white-space: nowrap; }
@@ -2912,11 +2920,17 @@ html[data-skin="alu-light"] .r-bands, html[data-ink="dark"] .r-bands { border-to
    SATELLITES / ROTOR CONTROL = TRACKING, RECORDINGS = AUDIO (RECS), MEMORIES / SCAN / SETTINGS = MENU; SPECTRUM stays yellow */
 .body-tabs button { --tc: var(--yellow); }
 .body-tabs button[data-tab="dab"], .body-tabs button[data-tab="dsd"] { --tc: #ffd84a; }
-.body-tabs button[data-tab="dec"] { --tc: #e45cff; }
+.body-tabs button[data-tab="dec"], .body-tabs button[data-tab="com"] { --tc: #e45cff; }
+.body-tabs button[data-tab="prop"] { --tc: #ffb84d; }
 .body-tabs button[data-tab="sat"], .body-tabs button[data-tab="rot"] { --tc: #6db3ff; }
 .body-tabs button[data-tab="recs"] { --tc: #b693ff; }
 .body-tabs button[data-tab="mem"], .body-tabs button[data-tab="scan"], .body-tabs button[data-tab="set"] { --tc: #2fe0c0; }
 .body-tabs button.on { background: #0f1620; color: var(--tc); border-color: #1d2733; box-shadow: inset 0 2px 0 var(--tc); }
+/* red × that closes a tab (and switches its key off) */
+.body-tabs button:has(.tab-x) { white-space: nowrap; flex-shrink: 0; }
+.body-tabs .tab-x { display: inline-block; margin: 0 -8px 0 7px; padding: 0 3px; border-radius: 3px; color: #ff3b3b;
+  font: 900 15px/1 system-ui, sans-serif; vertical-align: -1px; }
+.body-tabs .tab-x:hover { background: #ff3b3b; color: #fff; }
 /* inside a tab the accent (--yellow: lit sub-tab keys, headings, table heads, values, markers) is the colour of its tab;
    SPECTRUM, DAB and DSD stay yellow. The LED line of a lit key follows it. */
 #decPane { --yellow: #e45cff; }
@@ -3918,8 +3932,8 @@ html.app-shell .r-master .r-logo { margin-top: 10px; }
 .agc-nums .agc-kind { grid-column: 1 / -1; height: 1.45em; }
 /* fixed heights: the warning one line, the why two lines; the place stays when empty, so the keys below do not jump */
 .agc-warn { margin: 4px 0 0; font-size: 11px; line-height: 1.45; height: 1.45em; color: var(--amber);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.agc-why { margin: 4px 0 0; font-size: 11px; line-height: 1.45; height: 2.9em; color: var(--text); overflow: hidden;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: help; }
+.agc-warn.info { color: var(--muted); }.agc-why { margin: 4px 0 0; font-size: 11px; line-height: 1.45; height: 2.9em; color: var(--text); overflow: hidden;
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .agc-diagram .z-ok { fill: color-mix(in srgb, var(--muted) 35%, transparent); }
 .agc-diagram .agc-ceil { stroke: var(--amber); stroke-width: 1.5; stroke-dasharray: 4 3; }
@@ -4398,7 +4412,9 @@ body.map-only #comStatus, #comPane:fullscreen #comStatus { display: flex; }
 .srcs-lo i { font-style: normal; color: var(--muted); }
 .srcs-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .srcs-foot .small { font-size: 11px; max-width: 640px; }
-.srcs-msg { border-radius: 6px; padding: 6px 10px; font-size: 12px; }
+.srcs-msg { position: relative; border-radius: 6px; padding: 6px 26px 6px 10px; font-size: 12px; }
+.srcs-msg-x { position: absolute; top: 4px; right: 7px; cursor: pointer; color: var(--yellow); font-size: 13px; line-height: 1; }
+.srcs-msg-x:hover { color: #fff; }
 .srcs-msg.warn { background: rgba(255, 181, 71, .08); border: 1px solid rgba(255, 181, 71, .35); color: #ffd9a0; }
 .srcs-msg.err { background: rgba(255, 75, 62, .1); border: 1px solid rgba(255, 75, 62, .45); color: #ffb3ab; }
 .srcs-msg.ok { background: rgba(60, 240, 124, .08); border: 1px solid rgba(60, 240, 124, .35); color: #b6f7cb; }
@@ -4428,7 +4444,11 @@ body.map-only #comStatus, #comPane:fullscreen #comStatus { display: flex; }
 .srcs-dir-bar .grow { flex: 1; }
 .srcs-dir-bar a { color: var(--amber); }
 .srcs-dir-err { color: var(--red); }
-.srcs-dir-scroll { max-height: 250px; overflow: auto; }
+.srcs-dir-scroll { max-height: 290px; overflow: auto; }
+.srcs-dir-map { height: 340px; border-radius: 6px; }
+.srcs-dir-tbl .cflag { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; color: var(--muted); }
+.srcs-dir-tbl .cflag img { width: 18px; height: 13px; object-fit: cover; border-radius: 2px; box-shadow: 0 0 0 1px rgba(255, 255, 255, .15); }
+.srcs-dir-pager { display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 12px; }
 .srcs-dir-tbl { width: 100%; border-collapse: collapse; font-size: 11.5px; }
 .srcs-dir-tbl th { position: sticky; top: 0; background: var(--bg, #07090c); text-align: left; font-size: 10px; letter-spacing: .08em; color: var(--muted); padding: 3px 6px; }
 .srcs-dir-tbl td { padding: 3px 6px; border-top: 1px solid var(--line); white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
@@ -4473,3 +4493,29 @@ body.map-only #comStatus, #comPane:fullscreen #comStatus { display: flex; }
 .com-find input[type=text] { width: 16em; }
 .com-find label button { width: auto; display: inline-block; padding: 1px 10px; border: 1px solid #3a4a60; border-radius: 4px; background: #18202b; }
 .com-find-err { padding: 2px 10px 4px; color: #ff6b5e; }
+.srcs-dir-tbl td.ping { min-width: 74px; }
+.srcs-dir-tbl td.ping i { display: inline-block; height: 6px; margin-right: 5px; border-radius: 2px; vertical-align: 1px; background: currentColor; }
+.srcs-dir-tbl td.ping.good { color: var(--green); } .srcs-dir-tbl td.ping.mid { color: var(--amber); }
+.srcs-dir-tbl td.ping.slow, .srcs-dir-tbl td.ping.none { color: var(--red); } .srcs-dir-tbl td.ping.wait { color: var(--muted); }
+
+/* SETTINGS › GENERAL › BACKUP: export, restore, factory reset */
+.set-subpanel.set-backup { max-width: 1100px; }
+.bk-items { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 6px 14px; margin: 6px 0 8px; }
+.bk-item { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; }
+.bk-item input { margin-top: 3px; }
+.bk-item span { display: flex; flex-direction: column; min-width: 0; }
+.bk-item small { color: var(--muted); font-size: 11px; line-height: 1.35; }
+.bk-item em { color: var(--amber); font-style: normal; font-size: 10px; text-transform: uppercase; margin-left: 4px; }
+.bk-file { cursor: pointer; }
+.bk-stored { display: flex; flex-direction: column; gap: 4px; margin: 4px 0 6px; }
+.bk-row { display: flex; align-items: center; gap: 10px; font-size: 12px; }
+.bk-row span { font-family: ui-monospace, Consolas, monospace; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.bk-row small { color: var(--muted); margin-right: auto; }
+.bk-restore { border-top: 1px solid var(--line2); margin-top: 6px; padding-top: 6px; }
+.bk-warn { color: var(--amber); font-size: 12px; }
+.bk-warn p { margin: 2px 0; }
+.bk-danger { color: var(--red) !important; border-color: color-mix(in srgb, var(--red) 60%, transparent) !important; }
+.bk-confirm { margin-top: 6px; padding: 8px 10px; border: 1px solid color-mix(in srgb, var(--red) 60%, transparent);
+  border-radius: 6px; background: color-mix(in srgb, var(--red) 10%, transparent); }
+.bk-confirm p { margin: 0 0 6px; }
+.bk-confirm input { width: 90px; font-family: ui-monospace, Consolas, monospace; }

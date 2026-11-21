@@ -23,13 +23,13 @@ import numpy as np
 # Settings of AGC+ (SETTINGS › VFO › ADVANCED), name: (default, min, max). Kept in the config as "sagc".
 # The defaults = BOLD (SAGC_PRESETS.bold in app.js); from 1.1beta1 the only one (the others set too little gain on HF).
 SAGC_PARAMS = {
-    "headroom_adj": (-4.0, -10, 10),  # dB added to the headroom target of the signal kind and band
+    "headroom_adj": (-4.0, -30, 10),  # dB added to the headroom target of the signal kind and band
     "window_db": (3.0, 1, 10),        # dead band around the headroom target
-    "clip_ppm": (300, 0, 2000),       # clipped samples per million in a block above which the gain is cut at once
+    "clip_ppm": (1000, 0, 300000),    # clipped samples per million (mean of 1 s) above which the gain steps back
     "down_db": (2.0, 1, 10),          # the cut on a mild overload (6 / 9 / 14 / 30 dB on heavier ones)
     "up_db": (6.0, 1, 12),            # at most per step up
     "hold_s": (1.5, 0.2, 10),         # at least this between steps up
-    "wasted_db": (18.0, 6, 30),       # no step up while the noise floor is this far over the goal ("gain wasted")
+    "wasted_db": (18.0, 0, 60),       # no step up while the noise floor is this far over the goal ("gain wasted")
     "settle": (2, 0, 20),             # blocks ignored after a gain change (the tuner settles), plus those already queued
 }
 SAGC_SETTLE = SAGC_PARAMS["settle"][0]
@@ -38,6 +38,8 @@ OLD_PRESETS = (
     {"headroom_adj": 6, "window_db": 3, "clip_ppm": 0, "down_db": 4, "up_db": 3, "hold_s": 4, "wasted_db": 12, "settle": 3},
     {"headroom_adj": 3, "window_db": 3, "clip_ppm": 20, "down_db": 3, "up_db": 4, "hold_s": 3, "wasted_db": 15, "settle": 2},
     {"headroom_adj": 0, "window_db": 3, "clip_ppm": 100, "down_db": 3, "up_db": 6, "hold_s": 2.5, "wasted_db": 15, "settle": 2},
+    # BOLD up to 1.1beta2 (clipping limit 0.03 % of every block): from smart clipping 0.1 % of the mean of 1 s
+    {"headroom_adj": -4, "window_db": 3, "clip_ppm": 300, "down_db": 2, "up_db": 6, "hold_s": 1.5, "wasted_db": 18, "settle": 2},
 )
 
 
@@ -240,6 +242,12 @@ class SmartAgc:
         self.limit, self.last, self.last_t = "", "", None
         self.step_db = {}                       # (band, low gain, high gain): the headroom it really moved, measured
         self.pend = None                        # the last change (old gain, new gain, headroom before), to measure it
+        self.fails = {}                         # SMART CLIPPING: gain -> how many probes of it clipped (longer waits)
+        self.up_from = None                     # SMART CLIPPING: the gain before the last step up
+        self.up_ref = (0.0, 0.0)                # and its clipping (ppm, worst block of 2 s) and headroom (dB) then
+        self.ceil_ref = None                    # the same under the ceiling when the probe failed
+        self.calm_since = 0.0                   # since when the band is quieter than at ceil_ref
+        self.cwin, self.cwin_gain = deque(), None   # (time, clipped ppm) of the blocks at this gain, 2 s
         self.reset()
 
     def reset(self, settle=0, acquire=True):
@@ -248,6 +256,7 @@ class SmartAgc:
         if acquire:
             self.acq_until = self.t + self.ACQ_S
             self.before = None
+            self.fails = {}                     # another band or a start: the probes start again
 
     def _note(self, text):
         self.last, self.last_t = text, time.time()
@@ -315,7 +324,9 @@ class SmartAgc:
         # HF with the floor under its goal (+ the dead band as hysteresis): the headroom may go down to head_min
         sens = tgt.head_min is not None and margin is not None and margin < tgt.goal + win
         low = min(tgt.head - win, tgt.head_min) if sens else tgt.head - win
-        if ppm > p["clip_ppm"]:
+        if tgt.kind != "pulsed":
+            new = self._smart(gains, gain, p, dpu, tgt, ppm, margin, t)
+        elif ppm > p["clip_ppm"]:
             # overload: cut at once by how bad it is; a soft ceiling 3 dB under this gain, longer when it repeats
             cut = _cut_db(ppm, p["down_db"])
             if t - self.last_clip_t > 3.0:
@@ -409,6 +420,92 @@ class SmartAgc:
         self.pend = (gain, new, head)
         return new
 
+    def _smart(self, gains, gain, p, dpu, tgt, ppm, margin, t):
+        """SMART CLIPPING (the AGC+ way except for ADS-B): the A/D used to its top. No headroom target: the gain
+        climbs until samples hit full scale now and then, and it is judged by the MEAN clipping of the last second
+        at this gain, not by single blocks: on HF a block now and then clips 0.5 % while the mean stays at 0.04 %
+        and the reception is best there (2026-11-21, VFO A, 7 MHz LSB: one tuner step higher than when every block
+        over the limit cut it). Down: the mean over the limit, or one block over 10x the limit (at least 1 %).
+        With the mean under the limit it probes the next step of the tuner (whatever its size: R828D has 2.6-4 dB
+        steps); a probe that went over the limit goes back where it was and leaves a ceiling under it for 20 s,
+        doubled each time the same gain fails again (up to 5 min), so on a steady band it settles and probes rarely.
+        The band may change fast: when for 10 s the headroom stays 3 dB over and the clipping 4x under what they
+        were when the probe failed, the ceiling and its count go at once and it probes again.
+        The "gain wasted" rule still stops the climb (more gain under the antenna's noise buys nothing)."""
+        lim = p["clip_ppm"]
+        if self.cwin_gain != gain:
+            self.cwin.clear()                       # the clipping of another gain does not count
+            self.cwin_gain = gain
+        self.cwin.append((t, ppm))
+        while self.cwin and self.cwin[0][0] < t - 2.0:
+            self.cwin.popleft()
+        span = t - self.cwin[0][0]
+        last1 = [c for tt, c in self.cwin if tt >= t - 1.0]
+        mean1 = sum(last1) / len(last1)             # the mean clipping of the last second at this gain
+        mean2 = sum(c for _t, c in self.cwin) / len(self.cwin)
+        head = self.meter.headroom(False)
+        if self.ceil is not None and t < self.ceil_until:
+            ref_ppm, ref_head = self.ceil_ref or (0.0, 99.0)
+            if mean1 > ref_ppm / 4 or head < ref_head + 3.0:
+                self.calm_since = t
+            elif t - self.calm_since >= 10.0:
+                # the band got quieter: the ceiling of the old conditions goes
+                self.fails.pop(next((g for g in self.fails if g > self.ceil), None), None)
+                self.ceil, self.ceil_until = None, 0.0
+                self._note("the clipping dropped (the band got quieter): probing again")
+        heavy = ppm > max(10 * lim, 1e4)
+        if heavy or (span >= 0.5 and mean1 > lim):
+            if t - self.last_clip_t > 3.0:
+                self.episodes.append(t)
+            self.last_clip_t = t
+            while self.episodes and self.episodes[0] < t - 60:
+                self.episodes.popleft()
+            self.limit = "overload"
+            # a probe that went over (even heavily): back to the gain before it, which was fine a moment ago
+            probe = t - self.last_up < 5.0 and self.up_from is not None and self.up_from < gain
+            cut = _cut_db(ppm, p["down_db"]) if heavy else p["down_db"]
+            new = self.up_from if probe else _down(gains, gain, cut, dpu)
+            if new == gain:
+                return None
+            n = self.fails[gain] = self.fails.get(gain, 0) + 1
+            below = [g for g in gains if g < gain]
+            self.ceil = below[-1] if below else new   # held under the gain that clipped (climbs back up to it)
+            self.ceil_until = t + min(20.0 * 2 ** (n - 1), 300.0)
+            self.ceil_ref, self.calm_since = (self.up_ref if probe else (mean2, head)), t
+            what = f"one block {ppm / 1e4:.3f} %" if heavy else f"{mean1 / 1e4:.3f} % in the mean of 1 s"
+            self._note(f"down {(gain - new) * dpu:.1f} dB: the A/D clipped {what} (limit {lim / 1e4:.3f} %)")
+            self.last_down = t
+            return new
+        wasted = margin is not None and margin > tgt.goal + p["wasted_db"]
+        if wasted:
+            self.limit = "wasted"
+            return None
+        ceil = self.ceil if t < self.ceil_until else None
+        if t - self.last_up < p["hold_s"] or t - self.last_clip_t < p["hold_s"] or span < 1.0:
+            self.limit = "smart"
+            return None
+        if mean2 > lim:
+            self.limit = "smart"                   # at the limit: stays (clipping under it is the aim)
+            return None
+        # no clipping: up by up_db; some already: the next step of the tuner only (a probe)
+        clean = max(c for _t, c in self.cwin) == 0
+        if clean:
+            db = p["up_db"]
+            if margin is not None:
+                db = min(db, max(tgt.goal + p["wasted_db"] - margin + 1.0, 1.0))
+            up = _up(gains, gain, db, dpu, ceil)
+        else:
+            nxt = [g for g in gains if g > gain and (ceil is None or g <= ceil + 1e-9)]
+            up = nxt[0] if nxt else None
+        if up is None or up == gain:
+            self.limit = "top" if not [g for g in gains if g > gain] else "ceiling" if ceil is not None else "smart"
+            return None
+        self._note(f"up {(up - gain) * dpu:.1f} dB: " + ("no clipping" if clean else
+                                                        f"clipping {mean2 / 1e4:.4f} % (mean) under the limit, probing"))
+        self.last_up, self.up_from, self.up_ref = t, gain, (mean2, head)
+        self.limit = ""
+        return up
+
     def _hunting(self, hunt, new, t):
         """A step down right after a step up: hold the gain under the one that was too hot for 30 s."""
         if not hunt:
@@ -421,13 +518,14 @@ class SmartAgc:
         """The line "why this gain" for the page."""
         m, s = self.meter, self.meter.spec
         head = m.headroom(tgt.use_hold)
-        parts = [f"{gain_text}: headroom {head:.1f} dB (target {tgt.head:.0f})"]
+        parts = [f"{gain_text}: headroom {head:.1f} dB " + ("(smart clipping)" if tgt.kind != "pulsed" else f"(target {tgt.head:.0f})")]
         if "margin" in s:
             parts.append(f"floor {s['margin']:.0f} dB over the A/D's noise (goal {tgt.goal:.0f})")
         lim = {"overload": "limited by an overload",
                "ceiling": f"held under the gain that clipped ({max(0, self.ceil_until - self.t):.0f} s)",
                "wasted": "more gain buys nothing (the antenna's noise is far over the A/D's)",
-               "top": "top of the gain range", "sensitivity": "raising the sensitivity"}.get(self.limit)
+               "top": "top of the gain range", "sensitivity": "raising the sensitivity",
+               "smart": f"smart clipping: the A/D at its top, spikes under {p['clip_ppm'] / 1e4:.3g} %"}.get(self.limit)
         if self.limit == "headroom":
             nb = s.get("nb_db")
             lim = "limited by the headroom" + (f" – strong signal at {s['nb_hz'] / 1e6:.3f} MHz ({nb:.0f} dBFS)"
@@ -437,18 +535,25 @@ class SmartAgc:
         return ", ".join(parts)
 
 
-def warning(meter, tgt, wasted_db):
-    """The first warning in plain words (OnAir's meter strip), or ""."""
+def warning(meter, tgt, wasted_db, clip_ok_ppm=0.0):
+    """The first warning of the meter strip as (level, short line, whole text), or ("", "", ""): level "warn" (amber,
+    act on it) or "info" (muted, only good to know). The short line fits the card, the whole text is its tooltip.
+    clip_ok_ppm: clipping of a block up to this is no warning (smart clipping aims at some clipping)."""
     s = meter.spec
-    if meter.clip > 0:
-        return "The A/D clips: a strong signal overloads the dongle – lower the gain or add a filter"
+    if meter.clip * 1e6 > clip_ok_ppm:
+        return ("warn", "A/D overloaded by a strong signal",
+                "The A/D clips: a strong signal overloads the dongle – lower the gain or add a filter")
     nb = s.get("nb_db")
     if nb is not None and nb > -12:
-        return (f"Strong signal nearby ({s['nb_hz'] / 1e6:.3f} MHz, {nb:.0f} dBFS): reduce the gain or add a filter "
+        f = s["nb_hz"] / 1e6
+        return ("warn", f"Strong signal at {f:.3f} MHz ({nb:.0f} dBFS)",
+                f"Strong signal nearby ({f:.3f} MHz, {nb:.0f} dBFS): reduce the gain or add a filter "
                 "(band-pass, or an FM / GSM notch)")
     mg = s.get("margin")
     if mg is not None and mg < 3:
-        return "Gain too low: the A/D's own noise limits the sensitivity"
+        return ("warn", "Gain too low for the A/D",
+                "Gain too low: the A/D's own noise limits the sensitivity")
     if mg is not None and mg > tgt.goal + wasted_db:
-        return "The antenna's noise is far over the A/D's: more gain buys nothing, less gives more room for strong signals"
-    return ""
+        return ("info", "More gain buys nothing here",
+                "The antenna's noise is far over the A/D's: more gain buys nothing, less gives more room for strong signals")
+    return ("", "", "")

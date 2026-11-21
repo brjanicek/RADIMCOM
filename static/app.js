@@ -2406,13 +2406,13 @@ function renderGain() {
   $("gainAuto").checked = auto;
   $("agcKey").classList.toggle("on", auto);
   $("agcPlusKey").classList.toggle("on", smart);
-  $("agcPlusKey").classList.toggle("clip", smart && !!st.adc_clip);
+  $("agcPlusKey").classList.toggle("clip", smart && adcClip(st).over);
   // The browser hides a tooltip whose text changes (several times a second here): under the mouse it keeps
   // the values from the moment the mouse came, and they are refreshed when it comes again.
   const a = st.agc || {};
   const plusTip = "AGC+ (AUTO): the tuner gain keeps the A/D headroom of the signal kind and band, cuts at once on clipping, " +
     "stops climbing when more gain buys nothing (SETTINGS › VFO › RX CHAIN)" +
-    (smart ? `\nnow ${gainLabel(st)}, A/D peak ${st.adc_peak} dBFS${st.adc_clip ? `, clipping ${ppmPct(st.adc_clip_ppm)} of the samples` : ""}` +
+    (smart ? `\nnow ${gainLabel(st)}, A/D ${minusSign(adcLevel(st) ?? "–")} dBFS${adcClip(st).any ? `, clipping ${ppmPct(adcClip(st).ppm)} of the samples` : ""}` +
       (a.why ? `\n${a.why}` : "") : "");
   if (!$("agcPlusKey").matches(":hover")) $("agcPlusKey").title = plusTip;
   $("rtlAgc").checked = !!st.rtl_agc;
@@ -2799,13 +2799,13 @@ $("gainAuto").addEventListener("change", () => setAgc($("gainAuto").checked));
 $("agcKey").addEventListener("click", () => { if (st) setAgc(st.gain !== "auto" || st.smart_agc); });
 // AGC+ settings in SET: one slider per parameter, sent shortly after moving (as one "sagc" object)
 const SAGC_UI = [
-  ["headroom_adj", "Headroom: target ±", -10, 10, 1, "dB"],
+  ["headroom_adj", "Headroom: target ±", -30, 10, 1, "dB"],
   ["window_db", "Dead band ±", 1, 10, 0.5, "dB"],
-  ["clip_ppm", "Overload: clipping above", 0, 2000, 5, "ppm"],
+  ["clip_ppm", "Overload: clipping above", 0, 1000, 1, "ppm"],
   ["down_db", "Overload: cut at least", 1, 10, 0.5, "dB"],
   ["up_db", "Up at most", 1, 12, 0.5, "dB"],
   ["hold_s", "Between steps up", 0.2, 10, 0.1, "s"],
-  ["wasted_db", "Gain wasted: floor over goal +", 6, 30, 1, "dB"],
+  ["wasted_db", "Gain wasted: floor over goal +", 0, 60, 1, "dB"],
   ["settle", "Settle", 0, 10, 1, "blocks"],
 ];
 // shown in the units of the legend: clipping as % of the samples (kept in ppm: 100 ppm = 0.01 %),
@@ -2813,6 +2813,24 @@ const SAGC_UI = [
 const ppmPct = (ppm) => `${+(Number(ppm) / 1e4).toFixed(4)} %`;
 const dbfsPct = (db) => `${Math.round(100 * 10 ** (Number(db) / 20))} %`;
 const minusSign = (v) => String(v).replace("-", "−");
+// the A/D level shown everywhere (VFO window, AGC+ card, diagram): the 99.9 % peak AGC+ measures, else the block peak
+const adcLevel = (s) => {
+  const a = (s && s.agc) || {};
+  return a.head != null ? Number((-a.head).toFixed(1)) : s && s.adc_peak != null ? Number(s.adc_peak) : null;
+};
+// the A/D clipping shown everywhere: the worst block of the last 2 s against the AGC+ limit;
+// any = some samples hit full scale, over = more than the limit (red: AGC+ cuts the gain), else only spikes (amber)
+const adcClip = (s) => {
+  const a = (s && s.agc) || {};
+  const ppm = Math.max(a.clip_ppm_2s ?? 0, s.adc_clip_ppm ?? 0), limit = a.clip_limit_ppm ?? 300;
+  const any = !!s.adc_clip || !!a.lamp;
+  return { ppm, limit, any, over: any && ppm > limit };
+};
+// the clipping slider is logarithmic: position 0..1000 = 0, then 1 ppm .. 300000 ppm (30 %, the A/D driven hard on HF)
+const CLIP_LOG = Math.log10(300000) / 1000;
+const clipFromPos = (pos) => (Number(pos) <= 0 ? 0 : Number((10 ** (Number(pos) * CLIP_LOG)).toPrecision(2)));
+const clipToPos = (ppm) => (Number(ppm) <= 1 ? Math.max(0, Number(ppm)) : Math.round(Math.log10(Number(ppm)) / CLIP_LOG));
+const sagcFromEl = (k, v) => (k === "clip_ppm" ? clipFromPos(v) : Number(v));
 function sagcText(k, v, unit) {
   if (unit === "ppm") return ppmPct(v);
   if (k === "headroom_adj") return Number(v) ? `${Number(v) > 0 ? "+" : "−"}${Math.abs(Number(v))} dB` : "0 dB";
@@ -2826,7 +2844,7 @@ const SAGC_PRESETS = {
   conservative: { headroom_adj: 6, window_db: 3, clip_ppm: 0, down_db: 4, up_db: 3, hold_s: 4, wasted_db: 12, settle: 3 },
   careful: { headroom_adj: 3, window_db: 3, clip_ppm: 20, down_db: 3, up_db: 4, hold_s: 3, wasted_db: 15, settle: 2 },
   moderate: { headroom_adj: 0, window_db: 3, clip_ppm: 100, down_db: 3, up_db: 6, hold_s: 2.5, wasted_db: 15, settle: 2 },
-  bold: { headroom_adj: -4, window_db: 3, clip_ppm: 300, down_db: 2, up_db: 6, hold_s: 1.5, wasted_db: 18, settle: 2 },
+  bold: { headroom_adj: -4, window_db: 3, clip_ppm: 1000, down_db: 2, up_db: 6, hold_s: 1.5, wasted_db: 18, settle: 2 },
 };
 $("sagcRows").innerHTML = SAGC_UI.map(([k, label, min, max, step]) =>
   `<div class="sagc-row"><div class="row"><span>${label}</span><span id="sagc_${k}_t" class="value"></span></div>` +
@@ -2843,12 +2861,12 @@ function agcdInterp(v, xs, ys) {
 // diagram beside AGC+ (SETTINGS › VFO › RX CHAIN): the values of the sliders and the live state in its labels
 function renderAgcLive() {
   const p = st.sagc || {}, a = st.agc || {}, auto = st.gain === "auto", smart = !!st.smart_agc && !auto;
-  const live = !auto && a.head != null, clip = live && !!st.adc_clip;
+  const live = !auto && a.head != null, clip = live && adcClip(st).over;
   $("agcdState").textContent = smart ? "AUTO" : "OFF";
   $("agcdState").classList.toggle("off", !smart);
   $("agcdState").classList.toggle("clip", smart && clip);
   $("agcdGain").textContent = auto ? "auto" : gainLabel(st);
-  $("agcdAdc").textContent = live ? `${minusSign(st.adc_peak)} dBFS` : "converter";
+  $("agcdAdc").textContent = live ? `${minusSign(adcLevel(st))} dBFS` : "converter";
   $("agcdAdc").classList.toggle("clip", clip);
   $("agcdKind").textContent = a.kind_text ? `${a.kind_text}${a.band ? `, ${a.band.split(":")[0]}` : ""}` : "";
   $("agcdTarget").textContent = a.target != null ? `${a.target} dB` : "";
@@ -2886,8 +2904,7 @@ function renderAgcMeter() {
   const live = !auto && head != null;
   const lvl = live ? Math.max(0, Math.min(1, (40 - head) / 40)) : 0;
   // red only over the AGC+ clipping limit (as the dBFS value of the VFO window); a few clipped samples: amber
-  const anyClip = !!st.adc_clip || !!a.lamp;
-  const overLimit = anyClip && Math.max(a.clip_ppm_2s ?? 0, st.adc_clip_ppm ?? 0) > (a.clip_limit_ppm ?? 300);
+  const { any: anyClip, over: overLimit } = adcClip(st);
   const col = !live ? "" : overLimit ? "clip" : anyClip || head < a.target - w ? "hot" : head > a.target + w + 6 ? "quiet" : "ok";
   $("agcBarFill").style.width = `${(lvl * 100).toFixed(1)}%`;
   $("agcBarFill").className = `fill ${col}`;
@@ -2908,8 +2925,10 @@ function renderAgcMeter() {
   setT("agcNKind", kind);
   if ($("agcNKind").title !== kind) $("agcNKind").title = kind;
   // fixed lines (the place stays when empty, long text is cut with … and is whole in the tooltip): nothing jumps
-  $("agcWarn").textContent = a.warn || "";
-  $("agcWarn").title = a.warn || "";
+  // a short line that fits; the whole text in the tooltip; amber = act on it, muted = only good to know
+  setT("agcWarn", a.warn ? `${a.warn_level === "info" ? "ⓘ" : "⚠"} ${a.warn}` : "");
+  if ($("agcWarn").title !== (a.warn_long || "")) $("agcWarn").title = a.warn_long || "";
+  $("agcWarn").classList.toggle("info", a.warn_level === "info");
   // (1.1beta1: the "Why" line is gone from the card; the why is still in the tooltip of the AGC+ key)
 }
 function renderSagc() {
@@ -2917,13 +2936,13 @@ function renderSagc() {
   for (const [k, , , , , unit] of SAGC_UI) {
     const el = $(`sagc_${k}`);
     if (p[k] == null) continue;
-    if (document.activeElement !== el && Date.now() - sagcLocalAt > 1500) el.value = p[k];
-    $(`sagc_${k}_t`).textContent = sagcText(k, el.value, unit);
+    if (document.activeElement !== el && Date.now() - sagcLocalAt > 1500) el.value = k === "clip_ppm" ? clipToPos(p[k]) : p[k];
+    $(`sagc_${k}_t`).textContent = sagcText(k, sagcFromEl(k, el.value), unit);
   }
   renderAgcDiagram();
   renderAgcMeter();
   const smart = st.smart_agc && st.gain !== "auto";
-  $("sagcNow").textContent = smart ? `AUTO · ${gainLabel(st)} · A/D ${st.adc_peak} dBFS${st.adc_clip ? ` · clip ${ppmPct(st.adc_clip_ppm)}` : ""}` : "off";
+  $("sagcNow").textContent = smart ? `AUTO · ${gainLabel(st)} · A/D ${minusSign(adcLevel(st) ?? "–")} dBFS${adcClip(st).any ? ` · clip ${ppmPct(adcClip(st).ppm)}` : ""}` : "off";
   for (const b of document.querySelectorAll("#sagcPresets [data-preset]")) {
     const pre = SAGC_PRESETS[b.dataset.preset];
     b.classList.toggle("on", Object.keys(pre).every((k) => Number(p[k]) === pre[k]));
@@ -2932,11 +2951,12 @@ function renderSagc() {
 for (const [k, , , , , unit] of SAGC_UI) {
   $(`sagc_${k}`).addEventListener("input", (e) => {
     sagcLocalAt = Date.now();
-    $(`sagc_${k}_t`).textContent = sagcText(k, e.target.value, unit);
-    st.sagc = { ...(st.sagc || {}), [k]: Number(e.target.value) };
+    const v = sagcFromEl(k, e.target.value);
+    $(`sagc_${k}_t`).textContent = sagcText(k, v, unit);
+    st.sagc = { ...(st.sagc || {}), [k]: v };
     renderAgcDiagram();
     clearTimeout(sagcTimer);
-    sagcTimer = setTimeout(() => send({ sagc: { [k]: Number(e.target.value) } }), 150);
+    sagcTimer = setTimeout(() => send({ sagc: { [k]: v } }), 150);
   });
 }
 document.querySelectorAll("#sagcPresets [data-preset]").forEach((b) => b.addEventListener("click", () => {
@@ -3835,6 +3855,11 @@ function guessBodyTab() {
 
 function setBodyTab(tab, save = true) {
   if (MAP_ONLY === "com") tab = "com";   // the COMPOSITE map tab stays on its map
+  if (tab === "dec" && bodyTab !== "dec") {
+    // DECODERS opened: the page of the running decoder, with none the page last chosen on this VFO
+    const run = DEC_PAGES.find((p) => decRunning(p.key)), saved = recall(decPageKey());
+    decPage = run ? run.key : DEC_PAGES.some((p) => p.key === saved) ? saved : decPage;
+  }
   bodyTab = tab;
   if (save) store(tabKey(), tab);
   if (tab === "sat" && save) store(satOnKey(), "1");   // the SATELLITES tab open → SAT on for this VFO
@@ -3927,14 +3952,18 @@ function setDecPage(key, save = true) {
 /** Page keys (green ● = a new message not seen yet) and the card of the open page, shown also while
  *  its decoder is off (its ON key is in the top left corner). */
 function renderDecTab() {
-  const n = DEC_PAGES.filter((p) => decRunning(p.key)).length;
-  $("decCount").textContent = n ? `(${n})` : "";
+  // one decoder at a time (the server switches the others off): its name in the DECODERS tab, a lit bar on its key
+  const run = DEC_PAGES.filter((p) => decRunning(p.key));
+  $("decCount").textContent = run.length ? run.map((p) => p.title).join(" · ") : "";
+  $("decCount").classList.toggle("run", run.length > 0);
+  $("decTab").title = run.length ? `Running: ${run.map((p) => p.title).join(", ")}` : "No decoder running";
   for (const b of $("decPages").querySelectorAll("button[data-page]")) {
     const k = b.dataset.page, na = decUnavailable(k);
     b.classList.toggle("on", k === decPage);
+    b.classList.toggle("running", decRunning(k));
     b.classList.toggle("new", decNewPages.has(k));
     b.classList.toggle("na", !!na);
-    b.title = na ? "Unsupported on this dongle" : "";
+    b.title = na ? "Unsupported on this dongle" : decRunning(k) ? "Running (only one decoder at a time)" : "";
   }
   for (const el of $("decPane").querySelectorAll("[data-dec-on]")) el.hidden = el.dataset.decOn !== decPage;
   // not on the receiver of this VFO: the reason instead of the card
@@ -4109,8 +4138,37 @@ function renderPropKey() {
   $("propTab").hidden = !on;
 }
 $("propKey").addEventListener("click", () => setPropOn(!propTabShown()));
-for (const id of ["ft8On", "wefaxOn", "cwOn", "rttyOn", "sstvOn", "packetOn", "pocsagOn", "sondeOn", "acarsOn", "vdl2On", "hfdlOn", "aisOn", "adsbOn"]) {
-  $(id).addEventListener("change", () => renderDecTab());
+/** Red × on the tabs that a key opens: closes the tab the same way as its key (the key goes dark too). */
+const TAB_CLOSERS = { dec: setDecOn, sat: setSatOn, rot: setRotOn, prop: setPropOn, com: setComOn,
+                      mem: setMemOn, recs: setRecsOn, scan: setScanOn, set: setSetOn };
+for (const b of $("bodyTabs").querySelectorAll("button[data-tab]")) {
+  if (!TAB_CLOSERS[b.dataset.tab]) continue;
+  const x = document.createElement("span");
+  x.className = "tab-x";
+  x.textContent = "×";
+  x.title = "Close the tab (switches its key off)";
+  b.append(x);
+}
+$("bodyTabs").addEventListener("click", (e) => {
+  const x = e.target.closest(".tab-x");
+  if (!x) return;
+  e.stopPropagation();
+  TAB_CLOSERS[x.closest("button[data-tab]").dataset.tab](false);
+}, true);
+/** One decoder at a time (the server switches the others off too): the others shown off at once. */
+function decOnlyThis(key) {
+  for (const p of DEC_PAGES) {
+    if (p.key === key || p.key === "ism") continue;
+    const box = $(`${p.key}On`);
+    if (box && box.checked) { box.checked = false; if (st) st[p.key] = false; }
+  }
+  if (key !== "ism" && st) st.ism = false;
+}
+for (const id of ["ft8On", "wefaxOn", "cwOn", "rttyOn", "sstvOn", "packetOn", "pocsagOn", "sondeOn", "acarsOn", "vdl2On", "hfdlOn", "aisOn", "adsbOn", "wsprOn"]) {
+  $(id).addEventListener("change", (e) => {
+    if (e.target.checked) decOnlyThis(id.slice(0, -2));
+    renderDecTab();
+  });
 }
 setBodyTab(bodyTab, false);
 
@@ -6349,12 +6407,22 @@ async function pollDab() {
 
 /** "Loading…" bubble over a body tab while a slow read runs (recordings, maps with history, decoder logs):
  *  shown only when the read takes over 250 ms, so quick polls never blink. busy(tab, promise) → the same promise. */
+const BUSY_PANES = { dec: "decPane", dab: "dabPane", dsd: "dsdPane", sat: "amsatPane", set: "settingsCard", mem: "memPane",
+                     recs: "recsPane", rot: "rotPane", scan: "scanPane", com: "comPane", prop: "propPane" };
 function busyShow(tab, on) {
-  const b = $("bodyTabs").querySelector(`button[data-tab="${tab}"]`);
-  if (!b) return;
-  let el = b.querySelector(".tab-busy");
-  if (on && !el) { el = document.createElement("span"); el.className = "tab-busy"; el.textContent = "Loading…"; b.append(el); }
-  else if (!on && el) el.remove();
+  let el = document.querySelector(`.tab-busy[data-tab="${tab}"]`);
+  if (!on) { if (el) el.remove(); return; }
+  if (!el) {
+    el = document.createElement("div"); el.className = "tab-busy"; el.dataset.tab = tab; el.textContent = "Loading…";
+    document.body.append(el);
+  }
+  // in the middle of the visible part of the tab's pane (the bubble over the tab button got cut off)
+  const pane = $(BUSY_PANES[tab]), r = pane && !pane.hidden ? pane.getBoundingClientRect() : null;
+  if (!r || !r.width) { el.hidden = true; return; }
+  const top = Math.max(r.top, 0), bottom = Math.min(r.bottom, innerHeight);
+  el.hidden = bottom <= top;
+  el.style.left = `${r.left + r.width / 2}px`;
+  el.style.top = `${(top + bottom) / 2}px`;
 }
 function busy(tab, p, delay = 250) {
   busy.n = busy.n || new Map();   // tab → reads running (a property: the function is hoisted, a const would not be)
@@ -9020,6 +9088,7 @@ function renderIsm(s) {
 }
 
 function ismOn() {
+  decOnlyThis("ism");
   st.ism = true;
   if (st.acars || st.vdl2 || st.dab) { st.acars = st.vdl2 = st.dab = false; $("acarsOn").checked = $("vdl2On").checked = false; }
   send({ ism: true });
@@ -10052,6 +10121,8 @@ function setHfdlInfo(on) {
   store("hfdlInfo", on ? "1" : "0");
   $("hfdlInfoKey").classList.toggle("on", on);
   $("hfdlNote").hidden = !on;
+  // the channels listened to, the heard ground stations and their table too: more room for the map
+  document.querySelector("#hfdlCard .hfdl-status").hidden = !on;
   if (hfdlMap) setTimeout(() => hfdlMap.invalidateSize());
 }
 $("hfdlInfoKey").addEventListener("click", () => setHfdlInfo($("hfdlNote").hidden));
@@ -11770,6 +11841,7 @@ function setSubOpened(name) {
   if (name === "gen:location") setTimeout(() => locLoad());
   if (name === "gen:ant") setTimeout(() => antLoad(true));
   if (name === "gen:recs") setTimeout(() => recDirLoad());
+  if (name === "gen:backup") setTimeout(() => bkLoad());                   // SETTINGS › GENERAL › BACKUP (declared further down)
   if (name.startsWith("logs:")) setTimeout(() => lgOpened(name));          // SETTINGS › LOGS (declared further down)
   if (name === "" && !document.querySelector('[data-set-panel="sta"]').hidden) setTimeout(sdgStart);   // STATION: no sub-pages
   if (name === "" && !document.querySelector('[data-set-panel="rtl"]').hidden) setTimeout(rtlStart);   // RTL_TCP: no sub-pages
@@ -11796,7 +11868,7 @@ function openSetPage(name) {
   showSetTab(page);
   store("setTab", page);
 }
-const SET_PAGE_OF = { ui: "gen:skins", display: "gen:skins", skins: "gen:skins", meter: "gen:meter", wheel: "gen:wheel", location: "gen:location", ant: "gen:ant", antennas: "gen:ant", recs: "gen:recs",
+const SET_PAGE_OF = { ui: "gen:skins", display: "gen:skins", skins: "gen:skins", meter: "gen:meter", wheel: "gen:wheel", location: "gen:location", ant: "gen:ant", antennas: "gen:ant", recs: "gen:recs", backup: "gen:backup",
   dongle: "vfo:dongle", adv: "vfo:dongle", audio: "vfo:audio", tx: "vfo:tx" };
 
 // SETTINGS › VFO: one key per VFO window, like the VFO keys beside the S-meter; the lit one (= the active VFO)
@@ -14266,6 +14338,19 @@ const USB_ICON = `<svg class="usb-icon" viewBox="0 0 690 440" aria-label="runnin
   `<rect x="430" y="322" width="118" height="118" rx="10"/></g><g fill="none" stroke="currentColor" stroke-width="38">` +
   `<path d="M140 222 H580"/><path d="M200 222 C250 160 250 56 370 56"/><path d="M290 222 C340 280 330 381 440 381"/></g></svg>`;
 // Lightning next to the network symbol: the rtl_tcp server of this VFO has under-voltage (or overheats).
+/** Owner, country and antenna of a SpyServer from the Airspy directory (launcher /api/sources/spyinfo), for the tooltip
+ *  of the network icon; null until it is read (asked once per address, again after 30 s while the directory has none). */
+const spyInfoCache = new Map();
+function spyInfo(addr) {
+  if (!addr) return null;
+  const c = spyInfoCache.get(addr);
+  if (c && (c.data || Date.now() - c.t < 30000)) return c.data;
+  spyInfoCache.set(addr, { t: Date.now(), data: c ? c.data : null });
+  fetch(`/api/sources/spyinfo?addr=${encodeURIComponent(addr)}`).then((r) => r.json())
+    .then((j) => spyInfoCache.set(addr, { t: Date.now(), data: j && Object.keys(j).length ? j : null }))
+    .catch(() => {});
+  return c ? c.data : null;
+}
 // SpyServer paused (network icon of the VFO display): two bars beside the network icon
 const NET_PAUSE_ICON = `<svg class="net-pause" viewBox="0 0 24 24" aria-label="paused"><path fill="currentColor" d="M5 3h5v18H5zM14 3h5v18h-5z"/></svg>`;
 const fmtRate = (bps) => bps >= 1e6 ? `${(bps / 1e6).toFixed(2)} MB/s` : `${Math.round(bps / 1e3)} kB/s`;
@@ -14321,7 +14406,7 @@ function renderVfoAnns(row, s) {
   const agc = a("agc");
   agc.classList.toggle("on", auto || smart);
   agc.classList.toggle("plus", smart);   // the + is always there, lit only with AGC+
-  agc.classList.toggle("clip", smart && !!s.adc_clip);
+  agc.classList.toggle("clip", smart && adcClip(s).over);
   a("nf").classList.toggle("on", ["AM", "LSB", "USB"].includes(s.mode) && !!s.notch);
   a("sp").classList.toggle("on", !!s.spur_on);
   a("alc").classList.toggle("on", ["AM", "LSB", "USB", "CW"].includes(s.mode) && s.audio_agc !== false);
@@ -14493,9 +14578,8 @@ function renderVfoAdc(row, s) {
   bar.style.setProperty("--z3", pos(-1, last));
   // red only when the A/D clipped more than the AGC+ limit (that cuts the gain); a few clipped samples under it
   // (an impulse, a spike) only amber – the value is the 99.9 % peak, far under full scale then
-  const cppm = Math.max(a.clip_ppm_2s ?? 0, s.adc_clip_ppm ?? 0), limit = a.clip_limit_ppm ?? 300;
-  const clip = (!!s.adc_clip || !!a.lamp) && cppm > limit, spikes = (!!s.adc_clip || !!a.lamp) && !clip;
-  const zone = lvl == null ? "" : clip || lvl > -1 ? "clip" : spikes || lvl > -(t - w) ? "hot" : lvl < -(t + w + 6) ? "quiet" : "ok";
+  const { ppm: cppm, limit, over: clip, any } = adcClip(s), spikes = any && !clip;
+  const zone = lvl == null ? "" : clip ? "clip" : spikes || lvl > -1 || lvl > -(t - w) ? "hot" : lvl < -(t + w + 6) ? "quiet" : "ok";
   val.className = `vfo-adcv ${zone}`;
   val.textContent = lvl == null ? "---" : `${minusSign(lvl.toFixed(1))} dBFS`;
   const tip = lvl == null ? "A/D converter: not measured" :
@@ -14596,6 +14680,7 @@ function renderVfoDisplays() {
       : s.status === "opening dongle" ? ["OPENING", "wait", "opening dongle"]
       : s.status === "calibrating" ? ["CAL", "wait", "LimeSDR calibration"]
       : s.status === "paused" ? ["PAUSED", "paused", "SpyServer paused: disconnected from the server, no data (click to connect)"]
+      : s.status === "no source" ? ["NO SDR", "off", "no SDR assigned to this VFO: SETTINGS › SDR SOURCES"]
       : ["OFFLINE", "off", `receiver ${s.status}`];
     // Connection as a USB icon (network icon for rtl_tcp and SpyServer): green = running, blinking orange = connecting (WAIT / OPENING / CAL),
     // grey = disconnected (OFFLINE); CHAIN and OOR stay as text. Details in the tooltip.
@@ -14609,14 +14694,19 @@ function renderVfoDisplays() {
     const netSlow = net && stTxt === "RUNNING" && s.net_ratio != null && s.net_ratio < 0.97;
     const netErr = net && stTxt === "OFFLINE" && v.online && !!s;
     stat.className = `vfo-stat ${netErr ? "neterr" : netSlow ? "netslow" : stCls}${connecting ? " blink" : ""}${s && s.net_pausable ? " pausable" : ""}`;
-    stat.title = netSlow ? `NETWORK TOO SLOW: only ${Math.round(s.net_ratio * 100)} % of the samples arrive, `
+    let tip = netSlow ? `NETWORK TOO SLOW: only ${Math.round(s.net_ratio * 100)} % of the samples arrive, `
       + "the rest is lost on the rtl_tcp server (lower the sample rate or use a faster link)" : `${stTxt}: ${stTitle}`;
+    const spy = net && ((s && s.driver) || v.driver) === "spyserver" ? spyInfo(v.serial) : null;
+    if (spy) tip += `\nSpyServer: ${spy.owner || "?"}${spy.country ? ` · ${spy.country}` : ""}`
+      + `${spy.antenna ? ` · ${spy.antenna}` : ""}\n${v.serial}`;
     if (s && s.net_pausable) {
       // SpyServer: the click on the icon disconnects (pause) / connects again; the data rate while running
-      if (stTxt !== "PAUSED") stat.title += (s.net_bps ? `\nSpyServer ${fmtRate(s.net_bps)}` : "") + "\nclick: PAUSE (disconnect from the SpyServer)";
+      if (stTxt !== "PAUSED") tip += (s.net_bps ? `\nSpyServer ${fmtRate(s.net_bps)}` : "") + "\nclick: PAUSE (disconnect from the SpyServer)";
     }
-    if (netWarn) stat.title += `
+    if (netWarn) tip += `
 rtl_tcp SERVER: ${netWarn.join(", ").toUpperCase()} (SETTINGS › RTL_TCP SERVER)`;
+    // a new title closes the open tooltip: not while the mouse is over the icon (the data rate changes every update)
+    if (stat.title !== tip && !stat.matches(":hover")) stat.title = tip;
     const mode = row.querySelector(".vfo-mode"), gain = row.querySelector(".vfo-gain"), sql = row.querySelector(".vfo-sql");
     // without a state only make it invisible, so the layout does not shift
     const adcv = row.querySelector(".vfo-adcv");
@@ -14662,6 +14752,7 @@ rtl_tcp SERVER: ${netWarn.join(", ").toUpperCase()} (SETTINGS › RTL_TCP SERVER
     if (cue) cue.title = v.cue ? `CUE on: VFO ${v.name} stays audible at CUE level (click to turn off)`
       : `CUE off (click to keep hearing VFO ${v.name} when another VFO is selected)`;
     row.classList.toggle("tx", !!(s && s.tx));
+    row.classList.toggle("nosrc", !!(s && s.status === "no source"));   // no SDR assigned: the display dark
     // Squelch open on an inactive VFO: the button lights up to show activity.
     row.classList.toggle("busy", !!(s && !isActive && (s.squelch > SQUELCH_OFF || s.tsq_on) && s.squelch_open));
   }
@@ -15445,9 +15536,12 @@ function recsGo(dir) {
 function recsShown() {
   const files = recsData ? recsData.files : [];
   const q = $("recsFilter").value.trim().toLowerCase();
-  const out = q ? files.filter((f) => `${f.name} ${f.memory} ${f.hz / 1e3} ${f.mode} ${f.start} ${(RECS_SRC[f.src] || [""])[0]}`.toLowerCase().includes(q)) : files.slice();
+  const starOnly = $("recsStarOnly").checked;
+  const out = files.filter((f) => (!starOnly || f.starred)
+    && (!q || `${f.name} ${f.memory} ${f.hz / 1e3} ${f.mode} ${f.start} ${(RECS_SRC[f.src] || [""])[0]}`.toLowerCase().includes(q)));
   const k = recsSort.k, d = recsSort.d;
-  const val = (f) => (k === "src" ? (RECS_SRC[f.src] || [""])[0] : k === "start" ? (f.start || "") + f.name : f[k] ?? "");
+  const val = (f) => (k === "src" ? (RECS_SRC[f.src] || [""])[0] : k === "start" ? (f.start || "") + f.name
+    : k === "starred" ? (f.starred ? 1 : 0) : f[k] ?? "");
   out.sort((a, b) => { const x = val(a), y = val(b); return (typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y))) * d; });
   return out;
 }
@@ -15482,7 +15576,8 @@ function renderRecordings() {
     tr.dataset.dir = d.path;
     tr.title = "Open the folder";
     tr.innerHTML = `<td class="sel"><input type="checkbox"${recsSel.has(d.path) ? " checked" : ""} title="Tick to delete the folder with all in it"></td>`
-      + `<td class="play">${RECS_DIR_ICO}</td><td class="dname" colspan="5">${escHtml(recsDirLabel(d.path))}</td>`
+      + `<td class="play">${RECS_DIR_ICO}</td>`
+      + `<td class="star dir-star"${d.starred ? ` title="${d.starred} starred recording${d.starred > 1 ? "s" : ""} inside">★${d.starred}` : ">"}</td><td class="dname" colspan="5">${escHtml(recsDirLabel(d.path))}</td>`
       + `<td class="num">${d.files} rec.</td><td class="num">${recsSize(d.size)}</td><td></td><td></td><td class="del" title="Delete the folder with all in it">✕</td>`;
     rows.push(tr);
   }
@@ -15496,6 +15591,7 @@ function renderRecordings() {
     const [sl, sc] = RECS_SRC[f.src] || [f.src ? f.src.toUpperCase() : "—", "#8a95a3"];
     tr.innerHTML = `<td class="sel"><input type="checkbox"${recsSel.has(f.path) ? " checked" : ""}${f.writing ? " disabled" : ""}></td>`
       + `<td class="play">${recsPlayable(f) ? PP_ICO[f.path === recsPlaying && playing ? "pause" : "play"] : ""}</td>`
+      + `<td class="star${f.starred ? " on" : ""}" title="${f.starred ? "Starred: click to remove the star" : "Click to star the recording"}">${f.starred ? "★" : "☆"}</td>`
       + `<td>${escHtml(f.start || "—")}</td><td><span class="recs-src" style="--sc:${sc}">${escHtml(sl)}</span></td>`
       + `<td>${escHtml(f.memory)}</td><td class="num">${f.hz ? `${(f.hz / 1e6).toFixed(6)} MHz` : ""}</td><td>${escHtml(f.mode)}</td>`
       + `<td class="num">${recsSecs(f.secs)}</td><td class="num">${recsSize(f.size)}</td>`
@@ -15558,7 +15654,10 @@ async function recsDelete(paths) {
   const what = [dirs.length ? `${dirs.length} folder${dirs.length > 1 ? "s" : ""} (${inDirs} recordings in ${dirs.length > 1 ? "them" : "it"})` : "",
     nf ? `${nf} recording${nf > 1 ? "s" : ""}` : ""].filter(Boolean).join(" and ");
   const list = paths.slice(0, 8).map((p) => p.split("/").pop()).join("\n") + (paths.length > 8 ? "\n…" : "");
-  if (!confirm(`Delete ${what}?\n\n${list}`)) return;
+  const stars = dirs.reduce((a, d) => a + (d.starred || 0), 0)
+    + (recsData ? recsData.files.filter((f) => f.starred && paths.includes(f.path)).length : 0);
+  const warn = stars ? `\n\n★ ${stars} of them ${stars > 1 ? "are" : "is"} starred!` : "";
+  if (!confirm(`Delete ${what}?${warn}\n\n${list}`)) return;
   const r = await fetch(`${vbase}/api/recordings/delete`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ paths }) });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) { adError(j.error || `Delete: HTTP ${r.status}`); return; }
@@ -15568,6 +15667,19 @@ async function recsDelete(paths) {
   loadRecordings();
 }
 
+/** ★ of one recording (recorder.py: <recordings>/starred.json, shared by all VFOs); shown at once, saved on the server. */
+async function recsStar(path) {
+  const f = recsData && recsData.files.find((x) => x.path === path);
+  if (!f) return;
+  f.starred = !f.starred;
+  renderRecordings();
+  const r = await fetch(`${vbase}/api/recordings/star`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path, on: f.starred }) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { f.starred = !f.starred; renderRecordings(); adError(j.error || `Star: HTTP ${r.status}`); }
+}
+$("recsStarOnly").addEventListener("change", () => { store("recsStarOnly", $("recsStarOnly").checked ? "1" : ""); renderRecordings(); });
+$("recsStarOnly").checked = recall("recsStarOnly") === "1";
+
 $("recsRows").addEventListener("click", (e) => {
   const tr = e.target.closest("tr");
   if (!tr || e.target.closest("td.dl")) return;
@@ -15575,6 +15687,7 @@ $("recsRows").addEventListener("click", (e) => {
   const box = e.target.closest("td.sel input");
   if (box) { if (box.checked) recsSel.add(path); else recsSel.delete(path); renderRecordings(); return; }
   if (e.target.closest("td.sel")) return;
+  if (e.target.closest("td.star") && tr.dataset.path) { recsStar(tr.dataset.path); return; }
   if (e.target.closest("td.del") && e.target.closest("td.del").textContent) { recsDelete([path]); return; }
   if (tr.dataset.dir) { recsGo(tr.dataset.dir); return; }
   const f = recsData && recsData.files.find((x) => x.path === path);
@@ -15590,7 +15703,7 @@ $("recsHead").addEventListener("click", (e) => {
   }
   const th = e.target.closest("th[data-k]");
   if (!th) return;
-  recsSort = th.dataset.k === recsSort.k ? { k: recsSort.k, d: -recsSort.d } : { k: th.dataset.k, d: th.dataset.k === "start" ? 1 : th.dataset.k === "size" || th.dataset.k === "secs" ? -1 : 1 };
+  recsSort = th.dataset.k === recsSort.k ? { k: recsSort.k, d: -recsSort.d } : { k: th.dataset.k, d: th.dataset.k === "start" ? 1 : th.dataset.k === "size" || th.dataset.k === "secs" || th.dataset.k === "starred" ? -1 : 1 };
   store("recsSort", JSON.stringify(recsSort));
   renderRecordings();
 });
@@ -19682,7 +19795,7 @@ function sdgLane(v) {
   // dongle
   const chained = s.chain_owner ? `shares VFO-${s.chain_owner}` : s.chained_vfos ? `+${s.chained_vfos} VFO` : "";
   // the dongle as one block with its TUNER (gain) and A/D (sample rate, peak) inside
-  const auto = s.gain === "auto", smart = s.smart_agc && !auto, clip = !auto && s.adc_clip;
+  const auto = s.gain === "auto", smart = s.smart_agc && !auto, clip = !auto && adcClip(s).over;
   const devName = { rtl: "RTL-SDR", rtltcp: "RTL_TCP", airspy: "AIRSPY", lime: "LimeSDR" }[s.driver] || String(s.driver || "SDR").toUpperCase();
   const tuner = `<div class="sdg-in" title="Tuner gain: SETTINGS › VFO › RX CHAIN › AGC+ and the RF GAIN key"><b>TUNER</b>` +
     `<span class="v">${auto ? "auto" : gainLabel(s)}</span><span>${smart ? "AGC+" : auto ? (s.rtl_agc ? "RTL AGC" : "tuner auto") : "manual"}</span></div>`;
@@ -21029,7 +21142,18 @@ const srcsKey = (d) => d.driver + "|" + d.serial;
 const srcsIsDev = (v) => !!v && v.includes("|");
 const srcsIsChain = (v) => !!v && v.startsWith("chain:");
 const srcsEmpty = () => ({ dev: "", ppm: 0, up: false, lo: "100", note: "" });
-function srcsBox(id, cls, html) { $(id).innerHTML = html ? `<div class="srcs-msg ${cls}">${html}</div>` : ""; }
+// a message under the sources; warnings and errors have a ✕ to close them
+function srcsBox(id, cls, html) {
+  $(id).innerHTML = html ? `<div class="srcs-msg ${cls}">${cls === "warn" || cls === "err"
+    ? '<span class="srcs-msg-x" title="Close">✕</span>' : ""}${html}</div>` : "";
+}
+document.addEventListener("click", (e) => {
+  const x = e.target.closest(".srcs-msg-x");
+  if (x) x.parentElement.remove();
+});
+/** The SpyServers of the servers list that a VFO slot uses now ("host:port"). */
+const srcsSpyInUse = () => new Set(srcs.slots.map((s) => s.dev).filter((d) => d.startsWith("spyserver|")).map((d) => d.slice(10)));
+const srcsIsSpyAddr = (a) => /^(sdr|spyserver):\/\//i.test(a);
 
 async function srcsApi(path, body) {
   const r = await fetch(path, body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -21101,9 +21225,12 @@ function srcsChip(k, where) {
   return `<div class="srcs-chip ${net ? "net" : ""} ${srcs.picked === k ? "picked" : ""} ${srcs.found === k ? "found" : ""}" draggable="true"
       data-key="${escHtml(k)}" data-from="${where}" title="Drag onto a VFO (or click it, then click a VFO)">
     <b><i class="srcs-tag ${d.driver}">${SRCS_TYPE[d.driver] || d.driver}</i>${net ? " network" : " USB"}</b>
-    <span class="ser">${escHtml(d.serial) || "(no serial)"}</span>
+    ${d.owner || d.country
+      ? `<span class="ser" title="${escHtml(d.serial)}${d.antenna ? `\n${escHtml(d.antenna)}` : ""}">${srcsDirFlag(d)} ${escHtml(d.owner || "?")}${d.country ? ` · ${escHtml(d.country)}` : ""}</span>`
+      : `<span class="ser">${escHtml(d.serial) || "(no serial)"}</span>`}
     <span class="sub" title="${escHtml(d.name)}">${usb}</span>${more ? `<span class="sub">${more}</span>` : ""}
-    ${where !== "pool" ? `<span class="x" data-x="${where}" title="Back to the sources">✕</span>` : ""}</div>`;
+    ${where !== "pool" ? `<span class="x" data-x="${where}" title="Back to the sources">✕</span>`
+      : d.driver === "spyserver" ? `<span class="x" data-drop-server="${escHtml(d.serial)}" title="Remove this SpyServer from the list (no connection to it)">✕</span>` : ""}</div>`;
 }
 
 function srcsDraw() {
@@ -21195,6 +21322,17 @@ function srcsPlace(k, to, from) {
     srcsPlace(m.key, +z.dataset.drop, m.from);
   });
   panel.addEventListener("click", async (e) => {
+    const drop = e.target.closest(".srcs-chip .x[data-drop-server]");
+    if (drop) {
+      // a SpyServer not on a VFO: out of the servers list, so it is not connected again
+      const hp = drop.dataset.dropServer;
+      $("srcsServers").value = $("srcsServers").value.split(/[,;\s]+/).filter(Boolean)
+        .filter((a) => a.replace(/^[a-z]+:\/\//i, "") !== hp).join(", ");
+      srcs.serversEdited = true;
+      srcsBox("srcsMsg", "", "");
+      srcsLoad(true);
+      return;
+    }
     const x = e.target.closest(".srcs-chip .x, .srcs-shared .x");
     if (x) { srcsRelease(+x.dataset.x); srcsDraw(); return; }
     const c = e.target.closest(".srcs-chip[draggable]");
@@ -21404,7 +21542,35 @@ function srcsOpenFromUrl() {
 
 // ---------- SETTINGS › SDR SOURCES › DIRECTORY: the public SpyServers (airspy.com/directory, via the launcher) ----------
 // A click on a row adds its sdr://host:port to the network servers and looks for it (FIND); owner e-mails are not shown.
-var srcsDir = { list: null, busy: false };
+var srcsDir = { list: null, busy: false, ping: {}, pinging: false, page: 0, view: "list", map: null, layer: null };
+const srcsDirFlag = (s) => (s.cc ? `<span class="cflag" title="${escHtml(s.country)}"><img src="${flagUrl(s.cc)}" alt="${s.cc.toUpperCase()}"` +
+  ` onerror="this.replaceWith(this.alt)"><span>${s.cc.toUpperCase()}</span></span>` : '<span class="muted">?</span>');
+const SRCS_DIR_PAGE = 10;                // rows per page
+/** PING cell: a small bar (shorter = faster) and ms; green < 80 ms, amber < 200 ms, red over it, grey = no answer. */
+function srcsPingCell(addr) {
+  if (!(addr in srcsDir.ping)) return `<td class="ping wait" data-ping="${escHtml(addr)}">…</td>`;
+  const ms = srcsDir.ping[addr];
+  if (ms == null) return `<td class="ping none" data-ping="${escHtml(addr)}" title="no answer within 2 s">✕</td>`;
+  const cls = ms < 80 ? "good" : ms < 200 ? "mid" : "slow";
+  const w = Math.max(3, Math.min(30, Math.round(Math.log10(Math.max(ms, 5)) * 12 - 6)));
+  return `<td class="ping ${cls}" data-ping="${escHtml(addr)}"><i style="width:${w}px"></i>${ms} ms</td>`;
+}
+/** Measures every server of the filter that has no value yet, the rows shown first and then by distance (the launcher
+ *  opens a TCP connection to each and closes it). The directory says "online" for all it lists, so only the answer tells
+ *  whether a server is really there: the list and the map show only the servers that answer (or are still being tried). */
+async function srcsPingShown() {
+  if (srcsDir.pinging || $("srcsDir").hidden) return;
+  const shown = [...$("srcsDirRows").querySelectorAll("td.ping.wait")].map((td) => td.dataset.ping);
+  const want = [...new Set([...shown, ...(srcsDir.rows || []).map((s) => s.addr)])].filter((a) => !(a in srcsDir.ping)).slice(0, 40);
+  if (!want.length) return;
+  srcsDir.pinging = true;
+  try {
+    const r = await fetch("/api/sources/ping", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ addrs: want }) });
+    Object.assign(srcsDir.ping, await r.json());
+  } catch (e) { for (const a of want) srcsDir.ping[a] = null; }
+  srcsDir.pinging = false;
+  if (!$("srcsDir").hidden) srcsDirRender();   // drops the servers that do not answer and goes on with the next ones
+}
 async function srcsDirLoad() {
   if (srcsDir.busy) return;
   srcsDir.busy = true;
@@ -21412,6 +21578,11 @@ async function srcsDirLoad() {
   try {
     const j = await fetch("/api/sources/directory").then((r) => r.json());
     srcsDir.list = j.servers || [];
+    const ccs = new Map(srcsDir.list.filter((s) => s.cc).map((s) => [s.cc, s.country]));
+    const keepCc = $("srcsDirCc").value;
+    $("srcsDirCc").innerHTML = `<option value="">all countries</option>` + [...ccs].sort((a, b) => a[1].localeCompare(b[1]))
+      .map(([cc, n]) => `<option value="${cc}">${escHtml(n)} (${srcsDir.list.filter((s) => s.cc === cc && s.online).length})</option>`).join("");
+    $("srcsDirCc").value = ccs.has(keepCc) ? keepCc : "";
     const devs = [...new Set(srcsDir.list.map((s) => s.device).filter(Boolean))].sort();
     const keep = $("srcsDirDev").value;
     $("srcsDirDev").innerHTML = `<option value="">all devices</option>` + devs.map((d) => `<option>${escHtml(d)}</option>`).join("");
@@ -21423,29 +21594,81 @@ async function srcsDirLoad() {
 }
 function srcsDirRender() {
   const list = srcsDir.list || [];
-  const q = $("srcsDirQ").value.trim().toLowerCase(), dev = $("srcsDirDev").value;
+  const q = $("srcsDirQ").value.trim().toLowerCase(), dev = $("srcsDirDev").value, cc = $("srcsDirCc").value;
   const band = $("srcsDirBand").value.split("-").map(Number);
   const free = $("srcsDirFree").checked, ctl = $("srcsDirCtl").checked;
   const mine = new Set($("srcsServers").value.split(/[,;\s]+/).filter(Boolean));
-  const rows = list.filter((s) => s.online
+  const all = list.filter((s) => s.online
       && (!dev || s.device === dev)
+      && (!cc || s.cc === cc)
       && (!free || s.clients < s.max_clients)
       && (!ctl || s.control)
       && (band.length < 2 || (s.min_hz <= band[0] * 1e6 && s.max_hz >= band[1] * 1e6))
-      && (!q || [s.owner, s.device, s.antenna, s.addr, s.desc].join(" ").toLowerCase().includes(q)))
+      && (!q || [s.owner, s.device, s.antenna, s.addr, s.desc, s.country].join(" ").toLowerCase().includes(q)))
     .sort((a, b) => (a.km ?? 1e9) - (b.km ?? 1e9));
+  srcsDir.rows = all;
+  // only the active servers: those that answered or are still being tried (a server in the own list always stays)
+  const rows = all.filter((s) => srcsDir.ping[s.addr] !== null || mine.has(s.addr));
+  const dead = all.length - rows.length, waiting = all.filter((s) => !(s.addr in srcsDir.ping)).length;
   const mhz = (h) => (h == null ? "?" : +(h / 1e6).toFixed(h < 1e6 ? 2 : 0));
-  $("srcsDirRows").innerHTML = rows.slice(0, 300).map((s) => {
+  const pages = Math.max(1, Math.ceil(rows.length / SRCS_DIR_PAGE));
+  srcsDir.page = Math.min(srcsDir.page, pages - 1);
+  $("srcsDirPage").textContent = `${srcsDir.page + 1} / ${pages}`;
+  $("srcsDirPrev").disabled = srcsDir.page === 0;
+  $("srcsDirNext").disabled = srcsDir.page >= pages - 1;
+  $("srcsDirRows").innerHTML = rows.slice(srcsDir.page * SRCS_DIR_PAGE, (srcsDir.page + 1) * SRCS_DIR_PAGE).map((s) => {
     const full = s.clients >= s.max_clients;
     return `<tr data-addr="${escHtml(s.addr)}" class="${mine.has(s.addr) ? "mine" : ""} ${full ? "full" : ""}"
       title="${escHtml([s.desc, s.km != null ? `${s.km} km, ${s.az}°` : "", "click: add to the network servers and FIND"].filter(Boolean).join("\n"))}">
-      <td>${escHtml(s.owner) || "—"}</td><td>${escHtml(s.device)}</td><td>${mhz(s.min_hz)}–${mhz(s.max_hz)}</td>
+      <td>${escHtml(s.owner) || "—"}</td><td>${srcsDirFlag(s)}</td><td>${escHtml(s.device)}</td><td>${mhz(s.min_hz)}–${mhz(s.max_hz)}</td>
       <td>${s.iq_rate ? +(s.iq_rate / 1e6).toFixed(2) + " M" : "?"}</td><td class="${full ? "bad" : ""}">${s.clients}/${s.max_clients}</td>
-      <td>${s.control ? "full" : "—"}</td><td>${s.km != null ? s.km.toLocaleString(LOCALE) : "?"}</td>
+      <td>${s.control ? "full" : "—"}</td><td>${s.km != null ? s.km.toLocaleString(LOCALE) : "?"}</td>${srcsPingCell(s.addr)}
       <td>${escHtml(s.antenna) || "—"}</td><td class="mono">${escHtml(s.addr.replace("sdr://", ""))}</td></tr>`;
-  }).join("") || `<tr><td colspan="9" class="muted">${srcsDir.list ? "no server matches" : ""}</td></tr>`;
+  }).join("") || `<tr><td colspan="11" class="muted">${srcsDir.list ? "no server matches" : ""}</td></tr>`;
   $("srcsDirInfo").innerHTML = srcsDir.err ? `<span class="srcs-dir-err">${escHtml(srcsDir.err)}</span>`
-    : `${rows.length} of ${list.filter((s) => s.online).length} online · <a href="https://airspy.com/directory/" target="_blank" rel="noopener">airspy.com/directory</a>`;
+    : `${rows.length - waiting} active${waiting ? ` · checking ${waiting}…` : ""}${dead ? ` · ${dead} not answering (hidden)` : ""}`
+      + ` · ${list.length} in <a href="https://airspy.com/directory/" target="_blank" rel="noopener">airspy.com/directory</a>`;
+  const map = srcsDir.view === "map";
+  $("srcsDirMap").hidden = !map;
+  document.querySelector(".srcs-dir-scroll").hidden = map;
+  document.querySelector(".srcs-dir-pager").hidden = map;
+  // the map: only the servers that answered (the others join it as their answer comes)
+  if (map) srcsDirMapRender(rows.filter((s) => srcsDir.ping[s.addr] != null || mine.has(s.addr)), mine);
+  srcsPingShown();
+}
+
+/** MAP view: all the servers of the filter on a map (green = a free slot, red = full, blue ring = in the list now);
+ * the tooltip shows the details, a click adds the server as a row of the list does. */
+async function srcsDirMapRender(rows, mine) {
+  if (!srcsDir.map) {
+    srcsDir.map = L.map($("srcsDirMap"), { worldCopyJump: true, minZoom: 1 }).setView([45, 10], 3);
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 12, className: "hfdl-dark",
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors',
+    }).addTo(srcsDir.map);
+    srcsDir.layer = L.layerGroup().addTo(srcsDir.map);
+    try {
+      const s = await satFetch("/api/location");
+      if (s && Number.isFinite(s.lat) && Number.isFinite(s.lon)) {
+        L.circleMarker([s.lat, s.lon], { radius: 5, color: "#000", weight: 2, fillColor: "#ff5a3c", fillOpacity: 1 }).bindTooltip("QTH").addTo(srcsDir.map);
+        srcsDir.map.setView([s.lat, s.lon], 4);
+      }
+    } catch (e) { /* no QTH */ }
+  }
+  setTimeout(() => srcsDir.map.invalidateSize(), 0);     // it had no size while hidden
+  srcsDir.layer.clearLayers();
+  const mhz = (h) => (h == null ? "?" : +(h / 1e6).toFixed(h < 1e6 ? 2 : 0));
+  for (const s of rows) {
+    if (!Number.isFinite(s.lat) || !Number.isFinite(s.lon)) continue;
+    const full = s.clients >= s.max_clients, inList = mine.has(s.addr);
+    const m = L.circleMarker([s.lat, s.lon], { radius: inList ? 7 : 5, weight: inList ? 3 : 1, color: inList ? "#6fb7ff" : "#000",
+      fillColor: full ? "#ff4b3e" : "#3cf07c", fillOpacity: full ? 0.55 : 0.9 });
+    m.bindTooltip(`<b>${escHtml(s.owner || s.addr)}</b> · ${escHtml(s.country || "?")}<br>${escHtml(s.device)} · ${mhz(s.min_hz)}–${mhz(s.max_hz)} MHz` +
+      ` · IQ ${s.iq_rate ? +(s.iq_rate / 1e6).toFixed(2) + " M" : "?"}<br>clients ${s.clients}/${s.max_clients} · ${s.control ? "full control" : "shared"}` +
+      `${s.km != null ? ` · ${s.km} km` : ""}${s.antenna ? `<br>${escHtml(s.antenna)}` : ""}<br><i>click: add ${escHtml(s.addr)}</i>`);
+    m.on("click", () => srcsDirPick(s.addr));
+    m.addTo(srcsDir.layer);
+  }
 }
 $("srcsDirKey").onclick = () => {
   const open = $("srcsDir").hidden;
@@ -21453,14 +21676,176 @@ $("srcsDirKey").onclick = () => {
   $("srcsDirKey").classList.toggle("on", open);
   if (open && !srcsDir.list) srcsDirLoad(); else if (open) srcsDirRender();
 };
-for (const id of ["srcsDirQ", "srcsDirDev", "srcsDirBand", "srcsDirFree", "srcsDirCtl"]) $(id).addEventListener("input", srcsDirRender);
+for (const id of ["srcsDirQ", "srcsDirDev", "srcsDirBand", "srcsDirFree", "srcsDirCtl"]) {
+  $(id).addEventListener("input", () => { srcsDir.page = 0; srcsDirRender(); });
+}
+$("srcsDirPrev").onclick = () => { srcsDir.page = Math.max(0, srcsDir.page - 1); srcsDirRender(); };
+$("srcsDirNext").onclick = () => { srcsDir.page++; srcsDirRender(); };
+$("srcsDirViewList").onclick = () => { srcsDir.view = "list"; $("srcsDirViewList").classList.add("on"); $("srcsDirViewMap").classList.remove("on"); srcsDirRender(); };
+$("srcsDirViewMap").onclick = () => { srcsDir.view = "map"; $("srcsDirViewMap").classList.add("on"); $("srcsDirViewList").classList.remove("on"); srcsDirRender(); };
+$("srcsDirCc").addEventListener("input", () => { srcsDir.page = 0; srcsDirRender(); });
 $("srcsDirRows").addEventListener("click", (e) => {
   const tr = e.target.closest("tr[data-addr]");
-  if (!tr) return;
-  const now = $("srcsServers").value.split(/[,;\s]+/).filter(Boolean);
+  if (tr) srcsDirPick(tr.dataset.addr);
+});
+/** A server of the directory picked (row or map): into the servers list (the only SpyServer there besides those on a VFO). */
+function srcsDirPick(addr) {
+  const tr = { dataset: { addr } };
+  // only one SpyServer from the directory at a time: the others go out of the list (no more connections to them),
+  // except those a VFO uses now; rtl_tcp servers stay
+  const used = srcsSpyInUse();
+  const now = $("srcsServers").value.split(/[,;\s]+/).filter(Boolean)
+    .filter((a) => !srcsIsSpyAddr(a) || used.has(a.replace(/^[a-z]+:\/\//i, "")));
   if (!now.includes(tr.dataset.addr)) now.push(tr.dataset.addr);
+  srcsBox("srcsMsg", "", "");
   $("srcsServers").value = now.join(", ");
   srcs.serversEdited = true;
   srcsLoad(true);
   srcsDirRender();
+}
+
+// ---------- SETTINGS › GENERAL › BACKUP: the settings of the whole station to a ZIP and back, factory reset (backup.py) ----------
+
+const bk = { info: null, token: "", have: [] };
+const bkEsc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const bkSize = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : n >= 1e3 ? `${Math.round(n / 1e3)} kB` : `${n} B`);
+
+/** The page settings of this browser (its localStorage) for a backup. */
+function bkBrowser() {
+  const out = {};
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      out[k] = localStorage.getItem(k);
+    }
+  } catch (e) { /* no storage */ }
+  return out;
+}
+
+/** Checkboxes of the items: all of the backup (export) or those a backup holds (restore). */
+function bkItemsHtml(items, prefix, checked) {
+  return items.map((it) => {
+    const size = it.key === "browser" ? "" : it.size != null ? ` · ${bkSize(it.size)}` : "";
+    return `<label class="bk-item${it.secret ? " secret" : ""}" title="${bkEsc((it.files || []).join(", "))}">` +
+      `<input type="checkbox" data-bk="${it.key}" id="${prefix}_${it.key}"${checked(it) ? " checked" : ""}>` +
+      `<span><b>${bkEsc(it.title)}</b>${it.secret ? ' <em>secret</em>' : ""}<small>${bkEsc(it.note)}${size}</small></span></label>`;
+  }).join("");
+}
+
+async function bkLoad() {
+  let j;
+  try { j = await fetch("/api/backup/info").then((r) => r.json()); } catch (e) {
+    $("bkExportItems").innerHTML = `<p class="note">The backup needs the RADIMCOM launcher (VFOs set up in SETTINGS › SDR SOURCES).</p>`;
+    return;
+  }
+  bk.info = j;
+  $("bkExportItems").innerHTML = bkItemsHtml(j.items, "bkx", (it) => it.default);
+  $("bkDir").textContent = j.dir;
+  $("bkStoredNote").textContent = j.stored.length ? `or one of ${j.dir}:` : "";
+  $("bkStored").innerHTML = j.stored.map((s) =>
+    `<div class="bk-row"><span>${bkEsc(s.name)}</span><small>${new Date(s.mtime * 1000).toLocaleString(LOCALE)} · ${bkSize(s.size)}</small>` +
+    `<button class="key small" data-bk-use="${bkEsc(s.name)}">RESTORE…</button>` +
+    `<a class="key small" href="/api/backup/stored/${encodeURIComponent(s.name)}" download>DOWNLOAD</a></div>`).join("");
+}
+
+$("bkExport").addEventListener("click", async () => {
+  const items = [...$("bkExportItems").querySelectorAll("[data-bk]:checked")].map((b) => b.dataset.bk);
+  if (!items.length) { $("bkExportMsg").textContent = "Choose what to back up."; return; }
+  $("bkExportMsg").textContent = "Preparing…";
+  try {
+    const r = await fetch("/api/backup/export", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ items, browser: items.includes("browser") ? bkBrowser() : null }) });
+    if (!r.ok) throw new Error((await r.json()).error || r.statusText);
+    const name = (r.headers.get("Content-Disposition") || "").match(/filename="?([^";]+)/)?.[1] || "RADIMCOM_backup.zip";
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(await r.blob());
+    a.download = name;
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    $("bkExportMsg").textContent = `Saved: ${name}`;
+  } catch (e) { $("bkExportMsg").textContent = `Backup failed: ${e.message}`; }
+});
+
+/** A backup chosen (uploaded file or one of RADIMCOM\backup): what it holds, the items to restore. */
+async function bkInspect(form) {
+  $("bkRestore").hidden = true;
+  $("bkRestoreMsg").textContent = "";
+  let j;
+  try {
+    const r = await fetch("/api/backup/inspect", { method: "POST", body: form });
+    j = await r.json();
+    if (!r.ok) throw new Error(j.error || r.statusText);
+  } catch (e) { $("bkStoredNote").textContent = `Not a backup: ${e.message}`; return; }
+  bk.token = j.token;
+  bk.have = j.items;
+  const all = (bk.info && bk.info.items) || [];
+  $("bkRestoreName").textContent = j.source;
+  $("bkRestoreInfo").textContent = `${j.created || ""}${j.version ? ` · RADIMCOM ${j.version}` : ""}`;
+  $("bkRestoreItems").innerHTML = bkItemsHtml(all.filter((it) => j.items.includes(it.key)).map((it) => ({ ...it, size: null })),
+    "bkr", () => true);
+  $("bkRestoreWarn").hidden = !j.warnings.length;
+  $("bkRestoreWarn").innerHTML = j.warnings.map((w) => `<p>⚠ ${bkEsc(w)}</p>`).join("");
+  $("bkRestore").hidden = false;
+}
+$("bkFile").addEventListener("change", (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const form = new FormData();
+  form.append("file", f);
+  bkInspect(form);
+  e.target.value = "";
+});
+$("bkStored").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-bk-use]");
+  if (!b) return;
+  const form = new FormData();
+  form.append("name", b.dataset.bkUse);
+  bkInspect(form);
+});
+$("bkRestoreCancel").addEventListener("click", () => { $("bkRestore").hidden = true; bk.token = ""; });
+$("bkRestoreGo").addEventListener("click", async () => {
+  const items = [...$("bkRestoreItems").querySelectorAll("[data-bk]:checked")].map((b) => b.dataset.bk);
+  if (!items.length || !bk.token) { $("bkRestoreMsg").textContent = "Choose what to restore."; return; }
+  $("bkRestoreGo").disabled = true;
+  $("bkRestoreMsg").textContent = "Restoring – the VFOs restart…";
+  try {
+    const r = await fetch("/api/backup/restore", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: bk.token, items }) });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || r.statusText);
+    if (j.browser) {
+      try { localStorage.clear(); for (const [k, v] of Object.entries(j.browser)) localStorage.setItem(k, v); } catch (e) { /* no storage */ }
+    }
+    const warn = j.warnings.length ? `\n\n${j.warnings.join("\n")}` : "";
+    $("bkRestoreMsg").textContent = `Restored (${j.written.length} files${j.browser ? " + page settings" : ""}). The page reloads…`;
+    if (warn) alert(`Restored.${warn}`);
+    setTimeout(() => location.reload(), 4000);
+  } catch (e) {
+    $("bkRestoreMsg").textContent = `Restore failed: ${e.message}`;
+    $("bkRestoreGo").disabled = false;
+  }
+});
+
+// factory reset in two steps: FACTORY RESET… opens the confirmation, ERASE EVERYTHING only after typing RESET
+$("bkReset").addEventListener("click", () => { $("bkConfirm").hidden = false; $("bkConfirmText").value = ""; $("bkResetGo").disabled = true; $("bkConfirmText").focus(); });
+$("bkResetCancel").addEventListener("click", () => { $("bkConfirm").hidden = true; });
+$("bkConfirmText").addEventListener("input", (e) => { $("bkResetGo").disabled = e.target.value.trim() !== "RESET"; });
+$("bkResetGo").addEventListener("click", async () => {
+  $("bkResetGo").disabled = true;
+  $("bkResetMsg").textContent = "Saving a full backup, then deleting…";
+  try {
+    const r = await fetch("/api/backup/reset", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirm: "RESET", browser: bkBrowser() }) });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || r.statusText);
+    try { localStorage.clear(); } catch (e) { /* no storage */ }
+    $("bkConfirm").hidden = true;
+    $("bkResetMsg").textContent = `Backup ${j.backup} saved, settings deleted. RADIMCOM restarts…`;
+    setTimeout(() => location.reload(), 15000);
+  } catch (e) {
+    $("bkResetMsg").textContent = `Factory reset failed: ${e.message}`;
+    $("bkResetGo").disabled = false;
+  }
 });

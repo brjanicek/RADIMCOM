@@ -56,8 +56,12 @@ keep running. The Start menu *RADIMCOM SDR setup* and `RADIMCOM.exe --setup` ope
 
 ### SDR setup in the window
 
-When RADIMCOM does not run yet (the end of a new installation, `RADIMCOM.exe --setup` with no working `vfos.json`),
-RADIMCOM.exe runs `setup_web.py` (port 8433, only from this PC) and shows one page:
+When RADIMCOM does not run yet and no dongles are assigned (the end of a new installation, any start without
+`data\vfos.json`, e.g. after a factory reset, or `RADIMCOM.exe --setup`), RADIMCOM.exe runs `setup_web.py` (port 8433,
+only from this PC) and shows one page, in a window in the middle of the screen (not full screen; afterwards RADIMCOM comes
+back in full screen). **Cancelled without saving**, RADIMCOM starts in its normal layout with the four VFO windows: VFO A
+without a source (**NO SDR**, dark and silent, an empty waterfall), B–D free; nothing is written, so the next start offers
+the SDR setup again, and SETTINGS › SDR SOURCES assigns the dongles at any time. The page:
 
 - **Connected SDR dongles:** every connected RTL-SDR, LimeSDR and Airspy as a card with its serial number; REFRESH after replugging.
 - **Serial numbers:** every connected RTL-SDR dongle with its serial number; type a new one (up to the length of the old one, letters,

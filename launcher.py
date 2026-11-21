@@ -16,6 +16,7 @@ import time
 
 from flask import Flask, jsonify, request, send_from_directory
 
+import backup
 import rotor
 import serverlog
 import sources
@@ -61,8 +62,13 @@ def ensure_configs(vfos):
 
 
 def main():
-    with open(VFOS_PATH, encoding="utf-8") as f:
-        setup = json.load(f)
+    if os.path.exists(VFOS_PATH):
+        with open(VFOS_PATH, encoding="utf-8") as f:
+            setup = json.load(f)
+    else:
+        from paths import no_source_setup
+        setup = no_source_setup()           # no dongles assigned yet: VFO A without a source, nothing written
+        print("No vfos.json: VFO A without a source (assign the dongles in SETTINGS › SDR SOURCES)")
     vfos = setup["vfos"]
     ensure_configs(vfos)
     # one rotor for the station: its settings move from the VFO configs (up to 0.114beta1) to rotor.json
@@ -76,7 +82,8 @@ def main():
     procs.start_all(vfos)
 
     app = Flask(__name__, static_folder="static")
-    sources.register(app, procs, {"setup": setup, "vfos": vfos, "path": VFOS_PATH}, ensure_configs)
+    src_state = {"setup": setup, "vfos": vfos, "path": VFOS_PATH}   # shared by SDR SOURCES and BACKUP
+    sources.register(app, procs, src_state, ensure_configs)
 
     @app.route("/")
     def index():
@@ -127,6 +134,9 @@ def main():
                 p.terminate()
         serverlog.close()
         os._exit(code)
+
+    # SETTINGS › GENERAL › BACKUP: export / restore of the settings, factory reset (backup.py)
+    backup.register(app, procs, src_state, ensure_configs, shutdown)
 
     if os.environ.get("RADIMCOM_SHELL"):
         # started by RADIMCOM.exe: it stops the server by closing our input (Exit in its tray menu)

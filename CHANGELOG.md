@@ -6,6 +6,35 @@ Test beta (GitHub branch `1.1beta2`; continues 1.1beta1).
 
 ### Main Features
 
+- **AGC+ much better: smart clipping.** The present algorithm is the result of hours of testing and tuning on real
+  signals of the short-wave bands (80 m, 40 m, 20 m, SSB). The aim was to get the most out of the RF signal while keeping
+  the quality: a clearly better sensitivity for weak stations on short waves, at the cost of less reserve for very strong
+  signals, which AGC+ guards by the clipping. Together with the audio **NTH** expander and, where needed, **DNR**, it makes
+  such weak signals much more readable. AGC+ no longer keeps an A/D headroom target (about 15 dB on HF,
+  which left the A/D mostly unused: 2.7–3.7 dB of gain on 80 m / 40 m, the band's noise only 6–10 dB over the A/D's own
+  noise). It drives the A/D to its top: the gain climbs until samples hit full scale now and then, and it is judged by the
+  **mean clipping of the last second** (limit 0.1 %), not by single blocks – a block clipping 0.5 % now and then does not
+  cut it; only one block over 10× the limit (at least 1 %) does. With the clipping under the limit it **probes the next
+  tuner step**; a probe that goes over returns at once to the step before, and the same step is tried again after 20, 40,
+  80 … s (at most every 5 min), so on a steady band it settles. When the band gets quieter (headroom 3 dB more and 4× less
+  clipping for 10 s) it climbs again at once. On 40 m LSB it now sits at about 30 dB of gain with the band's noise 22–28 dB
+  over the A/D's – the weak stations clearly better. Listening tests show it better also on FM broadcast, DAB and
+  airband AM. "Gain wasted" still stops the climb; ADS-B keeps the headroom of its
+  pulses. The defaults change (clipping limit 0.1 % instead of 0.03 %); a VFO with the former defaults gets the new ones.
+  **AGC+ is on by default** for every VFO with its own dongle except SpyServer and rtl_tcp sources (a VFO where it was
+  switched off keeps it off).
+  The A/D values of the VFO window and of the AGC+ card are now the same (99.9 % peak, clipping of the worst block of 2 s).
+- **SETTINGS › GENERAL › BACKUP:** the settings of the whole station to a ZIP file and back, e.g. to move RADIMCOM to
+  another PC. Chosen by ticks: VFO settings, VFO sources, memories, station (location, antennas, rotor, recordings folder),
+  satellites, ISM devices, map API keys (secret, not ticked by default) and the page settings of the browser. **Restore**
+  from a file or from `RADIMCOM\backup\`: the VFOs restart with the settings and the page reloads; a VFO whose dongle is not
+  on this PC stays without a source, with a warning to set up the dongles first. **Factory reset** in two steps (type
+  RESET): a full backup goes to `RADIMCOM\backup\` first, then all the settings are deleted and RADIMCOM restarts like a
+  new installation (logs, recordings and decoder pictures stay). See docs/controls.md.
+- **No dongles assigned yet** (new installation, factory reset): RADIMCOM.exe opens the **SDR setup** by itself, in a
+  window in the middle of the screen (no longer full screen). Cancelled without saving, RADIMCOM starts in its normal
+  layout with the four VFO windows, VFO A dark and silent (NO SDR), the waterfall empty; SETTINGS › SDR SOURCES assigns
+  the dongles later.
 - **PROPAGATION tab (PROP key):** space weather from NOAA SWPC (solar flux, X-ray, solar wind, Kp and A, R / S / G scales,
   alerts) as blocks in the STATION style, charts of Kp (3 days with the forecast), X-ray (6 h) and the **magnetogram of
   Kiruna** (IRF, X / Y / Z, ΔX over 3 h). **HF BANDS · ESTIMATE NEXT 24 H:** the bands 160–6 m against the next 24 hours
@@ -58,6 +87,19 @@ Test beta (GitHub branch `1.1beta2`; continues 1.1beta1).
   the page is ready (no flash of the start page in full screen).
 - SDR setup: an `sdr://` (SpyServer) address no longer gives an rtl_tcp error.
 - `make_installer.py --exe` works while RADIMCOM runs (the running RADIMCOM.exe is renamed to `.old`).
+- **Decoders: one at a time** per VFO: switching one on (its ON key, a band key, a memory, ISM) switches the running one off.
+  The DECODERS tab names the running decoder in green (*DECODERS FT8*), its key has a lit green bar on top also while
+  another page is open, and the tab opens on the page of the running decoder (with none, on the page last chosen on the VFO).
+- **Bottom tabs:** a red **×** closes a tab (and switches its key off), never wrapping to a second line; the *Loading…*
+  bubble is in the middle of the pane; the COMPOSITE tab has the purple of its COM key.
+- **RECORDINGS:** a recording can be tagged with a **star** (kept in `starred.json` of the recordings folder; a filter shows only the starred ones).
+- RADIMCOM.exe: a restart of the server (tray menu or page) shows the small *Restarting RADIMCOM…* window like the start.
+- **SpyServer:** SDR SOURCES › DIRECTORY (table and map) lists only the servers that answer; the source chip shows the
+  owner and country of the server instead of its address (also in the tooltip of the network icon of the VFO window,
+  which no longer flickers). The country comes from the Natural Earth borders in `countries.json`.
+- HFDL: the status lines moved under INFO, so the map gets more room.
+- AGC+ card: a warning is one short line (the whole text in its tooltip); "more gain buys nothing" is grey information,
+  only the warnings to act on are amber. The A/D value and clipping of the AGC+ card are those of the VFO window.
 
 - **Development:** git workflow for working on one version branch together without conflicts: pull requests from short
   topic branches rebased onto the version branch, the change log written by the maintainer from the PR description,

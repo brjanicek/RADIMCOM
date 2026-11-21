@@ -83,6 +83,18 @@ Change log
 Ver. 1.1beta2
 (test beta, GitHub branch 1.1beta2; continues 1.1beta1)
 New
+- AGC+ much better (smart clipping), the result of hours of testing and tuning on real short-wave signals. The aim was to
+  get the most out of the RF signal while keeping the quality: clearly better sensitivity for weak stations on short
+  waves, at the cost of less reserve for very strong signals, which AGC+ guards by the clipping. Together with the audio
+  NTH expander and, where needed, DNR, it makes such weak signals much more readable. Instead of a
+  headroom target it drives the A/D to its top, judged by the mean clipping of 1 s (limit 0.1 %), probes the next tuner
+  step and returns at once when it clips too much, and climbs again when the band gets quieter. On 40 m about 30 dB of
+  gain instead of 3.7 dB – the weak stations clearly better; better also on FM broadcast, DAB and airband AM. On by default (not for SpyServer and rtl_tcp). The VFO window and the AGC+ card show the same A/D values.
+- SETTINGS > GENERAL > BACKUP: back up the settings of the whole station to a ZIP (tick what: VFO settings and sources,
+  memories, station, satellites, ISM devices, map API keys, page settings) and restore them, e.g. on a new PC; FACTORY
+  RESET in two steps saves a full backup to RADIMCOM\backup first, then starts like a new installation.
+- No dongles assigned yet: the SDR setup opens by itself, in a window; cancelled, RADIMCOM starts with the four VFO
+  windows, VFO A dark (NO SDR) until the dongles are assigned in SETTINGS > SDR SOURCES.
 - PROPAGATION tab (PROP key): space weather (NOAA SWPC), Kp, X-ray and the Kiruna magnetogram, and the HF bands at the
   station for the next 24 h, corrected by the GIRO ionosondes and by what FT8 and WSPR hear; FT8 BAND TEST checks the
   bands and returns the VFO afterwards. A chip under the S-meter shows SFI, Kp, A and the NOAA scales.
@@ -101,6 +113,10 @@ Changes
   SETTINGS > LOGS is now DATA/LOG.
 - Decoder band keys stay lit on the band of the VFO; the log switches of other VFOs no longer flicker; no strip of the
   waterfall under the bottom tabs; the start window goes to full screen only when the page is ready.
+- Decoders: one at a time per VFO; the DECODERS tab names the running one and opens on its page, its key has a green bar.
+- Bottom tabs close with a red x; Loading... in the middle; COMPOSITE tab purple. Recordings can be starred.
+- A restart of the server shows the small start window. SpyServer DIRECTORY lists only the servers that answer; the
+  source shows the owner and country of the server. HFDL status under INFO. AGC+ warnings shorter (whole text in the tooltip).
 - Development: rules for working on the code together without git conflicts (CONTRIBUTING.md, CLAUDE.md).
 
 Ver. 1.1beta1

@@ -49,6 +49,8 @@ NAME_RE = re.compile(r"^(?:(?P<memory>.+?)_)?(?P<mhz>\d+\.\d{6})MHz_(?P<mode>[A-
 IQ_RE = re.compile(r"^RADIMCOM(?:_.+?)?_(?P<start>\d{8}_\d{6})Z_(?P<hz>\d+)Hz_IQ(?:_\d+)?\.wav$")
 AUDIO_EXT = (".mp3", ".wav")
 TAG_SRC = {"": "rec", "SQ": "sq", "SCAN": "scan"}   # tag in the file name → source shown in RECORDINGS
+STARS_FILE = "starred.json"   # in the root of the recordings folder: the recordings starred (★) in RECORDINGS
+_stars_lock = threading.Lock()
 
 
 def day_folder(root, t=None):
@@ -408,6 +410,51 @@ class Recorder:
     def rel(self, path):
         return os.path.relpath(path, os.path.abspath(self.folder)).replace(os.sep, "/")
 
+    # ---------- stars (★ in RECORDINGS): <root>/starred.json, a list of paths relative to the root ----------
+    def stars(self):
+        """Set of the starred recordings (relative paths); empty when the file is missing or broken."""
+        try:
+            with open(os.path.join(self.folder, STARS_FILE), encoding="utf-8") as f:
+                data_ = json.load(f)
+            return {p for p in data_ if isinstance(p, str)} if isinstance(data_, list) else set()
+        except (OSError, ValueError):
+            return set()
+
+    def _save_stars(self, stars):
+        path = os.path.join(self.folder, STARS_FILE)
+        if not stars:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+            return
+        os.makedirs(self.folder, exist_ok=True)
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(sorted(stars), f, indent=0)
+        os.replace(tmp, path)
+
+    def set_star(self, rel, on):
+        """Stars or unstars one recording; ValueError for a path that is not a recording."""
+        path = self.resolve(rel)
+        if not os.path.isfile(path) or not path.lower().endswith(AUDIO_EXT):
+            raise ValueError("No such recording")
+        rel = self.rel(path)
+        with _stars_lock:
+            stars = self.stars()
+            if bool(on) == (rel in stars):
+                return
+            (stars.add if on else stars.discard)(rel)
+            self._save_stars(stars)
+
+    def _forget_stars(self):
+        """Drops the stars of recordings that are gone (after a delete)."""
+        with _stars_lock:
+            stars = self.stars()
+            alive = {p for p in stars if os.path.isfile(os.path.join(self.folder, *p.split("/")))}
+            if alive != stars:
+                self._save_stars(alive)
+
     def file_info(self, path, writing, stat=None):
         name = os.path.basename(path)
         stat = stat or os.stat(path)
@@ -439,6 +486,11 @@ class Recorder:
                     files.append(self.file_info(e.path, writing, e.stat()))
             except OSError:
                 continue
+        stars = self.stars()
+        for f in files:
+            f["starred"] = f["path"] in stars
+        for d in dirs:
+            d["starred"] = sum(1 for p in stars if p.startswith(d["path"] + "/"))
         dirs.sort(key=lambda d: d["name"], reverse=True)
         files.sort(key=lambda f: (f["start"] or "", f["name"]))
         return {"dir": self.rel(folder) if os.path.normcase(folder) != os.path.normcase(os.path.abspath(self.folder)) else "",
@@ -481,6 +533,7 @@ class Recorder:
             parents.add(os.path.dirname(p))
         for d in parents:
             prune_empty(d, self.folder)
+        self._forget_stars()
         return {"deleted": deleted, "kept": kept}
 
     def find(self, name):

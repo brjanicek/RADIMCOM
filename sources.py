@@ -158,6 +158,26 @@ def list_devices(vfos, procs, servers):
         local.append({"driver": k[0], "serial": k[1], "name": name, "busy": v["name"], "tuner": i.get("tuner"),
                       "index": i.get("index", (blank or {}).get("index"))})
     net, errors = setup_sdr.net_devices(servers) if servers else ([], [])
+    # a network source that a running VFO is connected to: a second connection (the probe) can be refused by the
+    # server (its client slots, one connection per address), yet the source works – listed as busy, not as missing
+    nkeys = {(d["driver"], d["serial"]): d for d in net}
+    for v in vfos:
+        drv = v.get("driver", "rtl")
+        if v.get("chain") or drv not in ("spyserver", "rtltcp") or not procs.alive(v["name"]):
+            continue
+        k = (drv, str(v.get("serial", "")))
+        if k in nkeys:
+            nkeys[k]["busy"] = v["name"]
+            continue
+        d = {"driver": drv, "serial": k[1], "name": f"{setup_sdr.DEVICE_NAMES[drv]} · connected to VFO {v['name']}",
+             "busy": v["name"]}
+        net.append(d)
+        nkeys[k] = d
+        where = k[1].split("@")[-1]
+        errors = [e for e in errors if not e.split(": ")[0].endswith(where)]
+    for d in net:
+        if d["driver"] == "spyserver":
+            d.update(spy_info(d["serial"]))
     devs = local + net
     rtl = [d for d in devs if d["driver"] == "rtl" and not d.get("busy")]
     bad = {d["index"] for d in setup_sdr.to_rewrite(rtl)}
@@ -166,6 +186,9 @@ def list_devices(vfos, procs, servers):
     for d in devs:
         x = {"driver": d["driver"], "serial": d["serial"], "name": d.get("name", ""), "index": d.get("index"),
              "busy": d.get("busy"), "tuner": d.get("tuner")}
+        for k in ("owner", "country", "cc", "antenna"):
+            if d.get(k):
+                x[k] = d[k]
         if d["driver"] == "rtl" and d.get("index") in bad and not d.get("busy"):
             x["rewrite"] = True
             new = setup_sdr.unique_serial(d["serial"] or "00000000", taken)
@@ -187,6 +210,54 @@ def servers_arg(raw):
 
 
 # ---------- the public SpyServer directory (https://airspy.com/directory/) ----------
+
+_countries = None
+
+
+def country_of(lat, lon):
+    """(ISO code, name) of the country at lat / lon from countries.json (Natural Earth 1:50m, simplified); a point just
+    off the simplified coast takes the nearest country within ~0.7°; ("", "") when none."""
+    global _countries
+    if _countries is None:
+        try:
+            with open(os.path.join(BASE, "countries.json"), encoding="utf-8") as f:
+                d = json.load(f)
+            q = d["q"]
+            _countries = []
+            for iso, name, rings in d["countries"]:
+                for r in rings:
+                    xs, ys = r[0::2], r[1::2]
+                    pts = [(x / q, y / q) for x, y in zip(xs, ys)]
+                    _countries.append((iso, name, min(xs) / q, max(xs) / q, min(ys) / q, max(ys) / q, pts))
+        except (OSError, ValueError, KeyError):
+            _countries = []
+    best = None
+    for iso, name, x0, x1, y0, y1, pts in _countries:
+        if not (x0 <= lon <= x1 and y0 <= lat <= y1):
+            continue
+        inside, j = False, len(pts) - 1
+        for i in range(len(pts)):
+            xi, yi = pts[i]
+            xj, yj = pts[j]
+            if (yi > lat) != (yj > lat) and lon < (xj - xi) * (lat - yi) / (yj - yi) + xi:
+                inside = not inside
+            j = i
+        if inside:
+            area = (x1 - x0) * (y1 - y0)       # an enclave (Lesotho, San Marino …) wins over the country around it
+            if best is None or area < best[0]:
+                best = (area, iso, name)
+    if best:
+        return best[1], best[2]
+    near = None
+    for iso, name, x0, x1, y0, y1, pts in _countries:
+        if not (x0 - .7 <= lon <= x1 + .7 and y0 - .7 <= lat <= y1 + .7):
+            continue
+        for x, y in pts:
+            d = (x - lon) ** 2 + (y - lat) ** 2
+            if d < .5 and (near is None or d < near[0]):
+                near = (d, iso, name)
+    return (near[1], near[2]) if near else ("", "")
+
 
 DIRECTORY_URL = "https://airspy.com/directory/status.json"
 DIRECTORY_KEEP_S = 300
@@ -222,8 +293,10 @@ def directory():
             continue
         loc = s.get("antennaLocation") or {}
         km = az = None
+        cc = cname = ""
         try:
             lat, lon = float(loc["lat"]), float(loc["long"])
+            cc, cname = country_of(lat, lon)
             if qlat is not None:
                 p2, l2 = math.radians(lat), math.radians(lon)
                 d = 2 * math.asin(math.sqrt(math.sin((p2 - qlat) / 2) ** 2
@@ -237,13 +310,93 @@ def directory():
         out.append({"addr": f"sdr://{host}:{port}", "owner": str(s.get("ownerName") or "")[:40],
                     "device": s.get("deviceType") or "", "antenna": str(s.get("antennaType") or "")[:40],
                     "desc": "" if s.get("generalDescription") in (None, "no description") else str(s["generalDescription"])[:120],
-                    "lat": lat, "lon": lon, "km": km, "az": az,
+                    "lat": lat, "lon": lon, "km": km, "az": az, "cc": cc, "country": cname,
                     "min_hz": s.get("minimumFrequency"), "max_hz": s.get("maximumFrequency"),
                     "center_hz": s.get("currentCenterFrequency"), "iq_rate": s.get("maximumIQSampleRate"),
                     "clients": s.get("currentClientCount", 0), "max_clients": s.get("maxClients", 0),
                     "control": bool(s.get("fullControlAllowed")), "online": bool(s.get("online"))})
     return {"servers": out, "error": _directory["error"], "age_s": round(now - _directory["t"]) if _directory["t"] else None,
             "source": "https://airspy.com/directory/"}
+
+
+_resolved = {}          # host name of the directory -> its IP (a VFO knows its SpyServer by the address it connected to)
+_dir_fetching = [False]
+
+
+def spy_info(addr):
+    """Owner, country and antenna of a SpyServer ("host:port" or "sdr://host:port") from the Airspy directory, {} when it
+    is not listed. Uses the directory already read; the first call reads it in the background (the next one has it)."""
+    import socket
+    raw = _directory["servers"]
+    if raw is None:
+        if not _dir_fetching[0]:
+            _dir_fetching[0] = True
+
+            def fetch():
+                try:
+                    directory()
+                finally:
+                    _dir_fetching[0] = False
+            threading.Thread(target=fetch, name="spy_directory", daemon=True).start()
+        return {}
+    want = str(addr or "").split("://")[-1].strip().lower()
+    host, _, port = want.rpartition(":")
+
+    def hit(s):
+        loc = s.get("antennaLocation") or {}
+        cc, cname = ("", "")
+        try:
+            cc, cname = country_of(float(loc["lat"]), float(loc["long"]))
+        except (KeyError, TypeError, ValueError):
+            pass
+        return {k: v for k, v in (("owner", str(s.get("ownerName") or "")[:40]), ("country", cname), ("cc", cc),
+                                  ("antenna", str(s.get("antennaType") or "")[:40])) if v}
+    same_port = [s for s in raw if str(s.get("streamingPort")) == port]
+    for s in same_port:
+        if str(s.get("streamingHost") or "").strip().lower() == host:
+            return hit(s)
+    for s in same_port:                  # the VFO may know it by the IP of a host name of the directory
+        h = str(s.get("streamingHost") or "").strip().lower()
+        if h not in _resolved:
+            try:
+                _resolved[h] = socket.gethostbyname(h)
+            except OSError:
+                _resolved[h] = ""
+        if _resolved[h] == host:
+            return hit(s)
+    return {}
+
+
+PING_KEEP_S = 300
+_pings = {}                                  # "sdr://host:port" -> (time, ms or None)
+
+
+def ping(addrs, timeout=2.0):
+    """Latency of opening a TCP connection to each SpyServer (ms, None = no answer); the connection is closed at once,
+    no SpyServer HELLO. Kept 5 minutes; up to 32 at the same time."""
+    import socket
+    from concurrent.futures import ThreadPoolExecutor
+    now = time.time()
+
+    def one(a):
+        hit = _pings.get(a)
+        if hit and now - hit[0] < PING_KEEP_S:
+            return a, hit[1]
+        host, _, port = a.split("://", 1)[-1].rpartition(":")
+        ms = None
+        try:
+            t0 = time.perf_counter()
+            with socket.create_connection((host, int(port)), timeout=timeout):
+                ms = round((time.perf_counter() - t0) * 1000)
+        except (OSError, ValueError):
+            pass
+        _pings[a] = (time.time(), ms)
+        return a, ms
+    addrs = [str(a) for a in addrs[:120] if "://" in str(a)]
+    if not addrs:
+        return {}
+    with ThreadPoolExecutor(min(32, len(addrs))) as ex:
+        return dict(ex.map(one, addrs))
 
 
 # ---------- APPLY ----------
@@ -424,6 +577,16 @@ def register(app, procs, state, ensure_configs):
     def api_sources_directory():
         """The public SpyServers (Airspy directory) to pick from."""
         return jsonify(directory())
+
+    @app.route("/api/sources/spyinfo", methods=["GET"])
+    def api_sources_spyinfo():
+        """?addr=host:port -> {owner, country, cc, antenna} of a SpyServer from the Airspy directory ({} if not listed)."""
+        return jsonify(spy_info(request.args.get("addr", "")))
+
+    @app.route("/api/sources/ping", methods=["POST"])
+    def api_sources_ping():
+        """{"addrs": ["sdr://host:port", …]} -> {addr: ms or null}: TCP connect latency for the DIRECTORY list."""
+        return jsonify(ping((request.get_json(force=True, silent=True) or {}).get("addrs", [])))
 
     @app.route("/api/sources/apply", methods=["POST"])
     def api_sources_apply():

@@ -357,7 +357,11 @@ namespace Radimcom
             BeginInvoke(new Action(async () =>
             {
                 var w = InitWeb();         // finishes only when the window is shown (the control needs its handle)
-                if (StartSetupArg) EnterSetup();
+                // --setup, or no configuration yet (no data\vfos.json: a new installation, a factory reset): the SDR setup
+                // first; a server already answering elsewhere (start.bat) is attached to as before
+                bool noSetup = !File.Exists(Path.Combine(Program.Base, "data", "vfos.json"))
+                               && !await Task.Run(() => Answers(port, 800));
+                if (StartSetupArg || noSetup) EnterSetup();
                 else await StartOrAttach();
                 await w;
             }));
@@ -457,16 +461,28 @@ namespace Radimcom
             if (!setupServer.Running || !setupMode) return;
             setupReady = true;
             tray.Text = "RADIMCOM: SDR setup";
-            EndSplash(true);
+            // the SDR setup in a window in the middle of the screen, not full screen; afterwards the receiver comes
+            // back as the window was before (full screen unless --window)
+            setupFromFull = fullScreen || (splash ? splashToFull : false);
+            EndSplash(false);
+            if (fullScreen) SetFullScreen(false);
+            WindowState = FormWindowState.Normal;
+            var wa = Screen.FromControl(this).WorkingArea;
+            var sz = new Size(Math.Min(1280, wa.Width - 80), Math.Min(900, wa.Height - 60));
+            Bounds = new Rectangle(wa.X + (wa.Width - sz.Width) / 2, wa.Y + (wa.Height - sz.Height) / 2, sz.Width, sz.Height);
             Home();
         }
 
         /// <summary>The wizard saved (or was cancelled / closed): it ends and the receiver starts with the new vfos.json.</summary>
+        bool setupFromFull = true;     // the window was full screen before the SDR setup (it comes back so after it)
+
         async void LeaveSetup()
         {
             if (!setupMode) return;
             setupMode = false;
             setupReady = false;
+            SplashAgain();                  // the small splash while the receiver starts, then the window as before the setup
+            splashToFull = setupFromFull;
             Page(StartingHtml());
             await Task.Run(() => setupServer.Stop(3000));
             if (exiting) return;
@@ -585,9 +601,12 @@ namespace Radimcom
         FormWindowState splashState = FormWindowState.Normal;   // the remembered state (maximized) for after the splash
         static readonly Size SplashSize = new Size(520, 230);
 
+        bool splashToFull = true;   // after the splash: full screen (start: unless --window; restart: as it was before)
+
         void BeginSplash()
         {
             splash = true;
+            splashToFull = !StartWindowArg;
             splashState = WindowState;
             WindowState = FormWindowState.Normal;
             MinimumSize = Size.Empty;
@@ -606,7 +625,25 @@ namespace Radimcom
             Bounds = lastBounds;
             WindowState = splashState;
             SetWindowIcons();
-            if (full && !StartWindowArg && Visible) SetFullScreen(true);
+            if (full && splashToFull && Visible) SetFullScreen(true);
+        }
+
+        /// <summary>Restart / start of the server from the tray or the page: the small splash again, like at the start;
+        /// afterwards the window comes back as it was (full screen or the window).</summary>
+        void SplashAgain()
+        {
+            if (splash || !Visible || !webOk || WindowState == FormWindowState.Minimized) return;
+            bool wasFull = fullScreen;
+            FormWindowState before = WindowState;
+            if (fullScreen)
+            {
+                fullScreen = false;
+                before = savedState;
+                WindowState = FormWindowState.Normal;
+            }
+            BeginSplash();
+            splashState = before;
+            splashToFull = wasFull;
         }
         void SetFullScreen(bool on)
         {
@@ -747,6 +784,22 @@ namespace Radimcom
         void ServerExited(int code)
         {
             if (server.Stopping || exiting) return;
+            if (code == 75)
+            {
+                // the server asked for a restart (backup.py: factory reset, RESTART_CODE): it starts again like at the start;
+                // without data\vfos.json (no dongles assigned) the SDR setup comes first, as at the end of an installation
+                if (!File.Exists(Path.Combine(Program.Base, "data", "vfos.json")))
+                {
+                    ready = false;
+                    EnterSetup();
+                    return;
+                }
+                SplashAgain();
+                Page(StartingHtml("Restarting RADIMCOM…"));
+                busy = true;
+                BeginInvokeSafe(async () => { try { await StartOrAttach(); } finally { busy = false; } });
+                return;
+            }
             Page(Html("The RADIMCOM server has ended", "Exit code " + code + ". Its output (also in data\\server_logs):\n\n"
                       + server.Tail(), false));
             ShowWindow();
@@ -765,7 +818,7 @@ namespace Radimcom
         }
 
         /// <summary>The start-up splash: "Starting RADIMCOM…" with the animated RADIMCOM icon after it, nothing more.</summary>
-        string StartingHtml()
+        string StartingHtml(string title = "Starting RADIMCOM…")
         {
             string img = "";
             try
@@ -780,7 +833,7 @@ namespace Radimcom
                 + "img{width:44px;height:44px;animation:p 1.6s ease-in-out infinite}"
                 + "@keyframes p{0%,100%{transform:scale(.88);filter:drop-shadow(0 0 2px rgba(255,216,74,.2)) brightness(.85)}"
                 + "50%{transform:scale(1.06);filter:drop-shadow(0 0 12px rgba(255,216,74,.75)) brightness(1.25)}}"
-                + "</style></head><body><main><h1>Starting RADIMCOM…</h1>"
+                + "</style></head><body><main><h1>" + Esc(title) + "</h1>"
                 + (img != "" ? "<img src='" + img + "' alt=''>" : "")
                 + "</main></body></html>";
         }
@@ -949,6 +1002,7 @@ namespace Radimcom
         {
             if (setupMode || busy || exiting || (ownServer && server.Running)) { ShowWindow(); return; }
             ShowWindow();
+            SplashAgain();
             busy = true;
             BeginInvokeSafe(async () => { try { await StartOrAttach(); } finally { busy = false; } });
         }
@@ -993,7 +1047,8 @@ namespace Radimcom
                 MessageBox.Show(this, "The server was started elsewhere (start.bat?); restart it there.", "RADIMCOM");
                 return;
             }
-            Page(Html("Restarting RADIMCOM…", "Stopping the server.", true));
+            SplashAgain();
+            Page(StartingHtml("Restarting RADIMCOM…"));
             var t = new Thread(() =>
             {
                 server.Stop(20000);

@@ -27,6 +27,7 @@ class FakeRx:
     scan_tune = sdr.Receiver.scan_tune
     scan_center = sdr.Receiver.scan_center
     _recenter = sdr.Receiver._recenter
+    _usable = sdr.Receiver._usable
 
     def __init__(self):
         self.cfg = {"tune_hz": 118e6, "center_hz": 118.3e6, "mode": "AM", "bandwidth": {}, "squelch": {},

@@ -50,6 +50,7 @@ does not contain the binaries; the release packages do, except where noted.
 | uPlot 1.6.31 | charts of the ISM device tab; in `static/uplot` | MIT (`static/uplot/LICENSE`) | <https://github.com/leeoniya/uPlot> |
 | Leaflet 1.9.4 | map for choosing the station place (SATELLITES tab, SETUP); in `static/leaflet` | BSD 2-Clause (`static/leaflet/LICENSE`) | <https://leafletjs.com> |
 | Natural Earth 1:50m land and country borders | world map (SATELLITES tab, MAP); simplified in `static/world.js` by `installer/make_world.py` | public domain | <https://www.naturalearthdata.com/> |
+| Natural Earth 1:50m admin 0 countries | the country of a SpyServer in SETTINGS › SDR SOURCES › DIRECTORY; outer borders simplified in `countries.json` by `installer/make_countries.py` | public domain | <https://www.naturalearthdata.com/> |
 | sgp4 | satellite positions (SATELLITES tab, PASSES); in the Python of the setup (`python\`), `install.bat` installs it from PyPI | MIT | <https://github.com/brandon-rhodes/python-sgp4> |
 | lameenc (with the LAME MP3 encoder) | MP3 recording; in the Python of the setup (`python\`), `install.bat` installs it from PyPI | LGPL v3 or later (LAME: LGPL) | <https://github.com/chrisstaite/lameenc> |
 

@@ -47,6 +47,7 @@ TUNER_MAX_HZ = 1766e6
 # LimeSDR Mini officially starts at 10 MHz; lower (via the NCO) it receives weaker, but usable.
 TUNER_LIMITS = {"rtl": (TUNER_MIN_HZ, TUNER_MAX_HZ), "rtltcp": (TUNER_MIN_HZ, TUNER_MAX_HZ), "lime": (1e6, 3500e6), "airspy": (24e6, 1750e6)}
 TUNER_LIMITS["spyserver"] = (0.0, 1800e6)     # SpyServer: the opened device tells its own range (spyserver.py)
+TUNER_LIMITS["none"] = TUNER_LIMITS["rtl"]        # no SDR assigned yet (paths.no_source_setup): as an RTL-SDR
 SSB_LOW_CUT = 300.0   # Hz, lower edge of the SSB passband
 CW_PITCH = 700.0      # Hz, tone pitch of a CW signal tuned exactly to the frequency
 SQUELCH_OFF = -120.0  # dBFS, squelch at this level and below is off
@@ -1831,6 +1832,16 @@ class Receiver:
 
     def _run(self):
         self.fail_streak, self.fail_last, self.fail_hint = 0, None, False
+        if self.cfg.get("driver") == "none" and not self.chained:
+            # no SDR assigned (paths.no_source_setup): no device, no samples – silent, an empty waterfall
+            self.sdr = None
+            self.error = None
+            self.status = "no source"
+            self.on_status()
+            while not self._stop.is_set():
+                self._wake.wait(1)
+                self._wake.clear()
+            return
         while not self._stop.is_set():
             if self.cfg.get("net_pause") and self.net_pausable():
                 # SpyServer paused: no connection until the network icon is clicked again
@@ -1853,6 +1864,10 @@ class Receiver:
                 self.sdr = sdr
                 self.opened += 1
                 self.gains = sdr.gains
+                c0 = self.cfg
+                if c0.get("smart_agc") and not self.chained and self.gains and c0.get("gain", "auto") == "auto":
+                    c0["gain"] = self.gains[len(self.gains) // 2]   # AGC+ (on by default) needs a tuner gain to start from
+                    c0["rtl_agc"] = False
                 self.has_bias_tee, self.has_rtl_agc = sdr.has_bias_tee, sdr.has_rtl_agc
                 self.dev_tuner_min = getattr(sdr, "tuner_min_hz", None)
                 self.dev_tuner_max = getattr(sdr, "tuner_max_hz", None)
@@ -2462,7 +2477,8 @@ class Receiver:
                "lamp": self.sagc.t - m.clip_t < 2.0,
                "clip_ppm_2s": round(m.clip_max() * 1e6, 1), "clip_limit_ppm": p["clip_ppm"],
                "why": self.sagc.why(tgt, gtxt, p) if smart else "", "last": self.sagc.last if smart else "",
-               "warn": warning(m, tgt, p["wasted_db"])}
+               **dict(zip(("warn_level", "warn", "warn_long"),
+                          warning(m, tgt, p["wasted_db"], 0.0 if tgt.kind == "pulsed" else max(10 * p["clip_ppm"], 1e4))))}
         for k in ("margin", "snr", "floor_db", "nb_db", "nb_hz"):
             if k in s:
                 out[k] = round(s[k]) if k == "nb_hz" else round(s[k], 1)

@@ -31,8 +31,9 @@ if __name__ == "__main__":
     else:
         serverlog.start()
 
-# Without arguments and with vfos.json: the launcher, which starts one receiver (process) per VFO.
-if __name__ == "__main__" and "--vfo" not in sys.argv and os.path.exists(VFOS_PATH):
+# Without arguments: the launcher, which starts one receiver (process) per VFO (without vfos.json: VFO A without a
+# source, paths.no_source_setup).
+if __name__ == "__main__" and "--vfo" not in sys.argv:
     import launcher
     launcher.main()
     sys.exit(0)
@@ -86,8 +87,12 @@ def vfo_from_args():
     if "--vfo" not in sys.argv:
         return None
     name = sys.argv[sys.argv.index("--vfo") + 1]
-    with open(VFOS_PATH, encoding="utf-8") as f:
-        vfos = json.load(f)["vfos"]
+    if os.path.exists(VFOS_PATH):
+        with open(VFOS_PATH, encoding="utf-8") as f:
+            vfos = json.load(f)["vfos"]
+    else:
+        from paths import no_source_setup
+        vfos = no_source_setup()["vfos"]
     return next(v for v in vfos if v["name"] == name), vfos
 
 
@@ -175,6 +180,10 @@ if VFO:
         cfg["ism"] = False           # ISM too
     else:
         cfg.pop("chain", None)
+if "smart_agc" not in cfg and not cfg.get("chain"):
+    # AGC+ on by default (1.1beta2, smart clipping), not for a network source: on a SpyServer the gain is the server's,
+    # over rtl_tcp every step goes over the network; a VFO where it was switched off keeps it off
+    cfg["smart_agc"] = cfg.get("driver", "rtl") not in ("spyserver", "rtltcp")
 # VDL2, DAB and ISM need the rates and raw samples of an RTL dongle (over USB or rtl_tcp)
 RTL_DONGLE = cfg.get("driver", "rtl") in ("rtl", "rtltcp")
 if not RTL_DONGLE:
@@ -2671,6 +2680,17 @@ def api_recordings_delete():
         return jsonify({"error": str(e)}), 400
 
 
+@app.route("/api/recordings/star", methods=["POST"])
+def api_recordings_star():
+    """{"path": relative path of a recording, "on": true / false} → stars it (★ in RECORDINGS) or not."""
+    body = request.get_json(force=True, silent=True) or {}
+    try:
+        recorder.set_star(str(body.get("path", "")), bool(body.get("on")))
+    except (ValueError, OSError) as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify({"ok": True})
+
+
 @app.route("/api/recording_folder", methods=["GET", "POST"])
 def api_recording_folder():
     """Folder of the recordings (SETTINGS › GENERAL › RECORDINGS), shared by all VFOs: {"folder", "custom", "default"};
@@ -2830,10 +2850,25 @@ def forward_to_owner(changes):
         return f"VFO {OWNER['name']} (owner of the shared dongle) is not reachable"
 
 
+# the decoders of the DECODERS tab: at most one runs on a VFO (switching one on switches the others off)
+ONE_DECODER = ("cw", "ft8", "packet", "pocsag", "rtty", "sstv", "wefax", "wspr", "acars", "adsb", "hfdl", "vdl2", "ais",
+               "sonde", "ism")
+
+
 @app.route("/api/set", methods=["POST"])
 def api_set():
     body = request.get_json(force=True)
     changes = {}
+    turned_on = {k for k in ONE_DECODER if body.get(k) is True}
+    if body.get("hfdl_band") is not None:
+        turned_on.add("hfdl")                 # a band of HFDL switches HFDL on
+    if body.get("ais_center"):
+        turned_on.add("ais")
+    if turned_on:
+        now = state()
+        for k in ONE_DECODER:
+            if k not in turned_on and now.get(k):
+                body[k] = False               # only one decoder: the one running goes off
     try:
         for k in ("tune_hz", "center_hz", "lo_offset_hz", "view_hz"):
             if k in body:

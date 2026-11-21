@@ -751,7 +751,7 @@
       <div class="ft8-head">
         <label class="key small toggle" data-dec-on="hfdl" title="HFDL (aircraft data link on HF, 2.9–22 MHz) on/off. Decodes all HFDL channels inside the band the VFO receives; mutes the audio of the VFO"><input id="hfdlOn" type="checkbox">ON</label>
         <div class="bands" id="hfdlBands"></div>
-        <button id="hfdlInfoKey" class="key small" title="Show / hide the description of the decoder (the table or map takes its place)">INFO</button>
+        <button id="hfdlInfoKey" class="key small" title="Show / hide the description of the decoder, the channels listened to, the heard ground stations and the table of the ground stations (the table or map takes their place)">INFO</button>
         <span id="hfdlInfo" class="muted"></span>
         <span id="hfdlPaused" class="scroll-paused" hidden title="A click on a message holds the list still. Turn the mouse wheel over the messages to resume.">SCROLL PAUSED</span>
         <div class="bands" id="hfdlViews">
@@ -1425,6 +1425,7 @@
           <span class="recs-now" id="recsNow" title="The recording being played"></span>
         </div>
         <label class="key small toggle" title="When a recording ends, the next one of the playlist (the next row as sorted) plays by itself"><input id="recsNext" type="checkbox">AUTO-NEXT</label>
+        <label class="key small toggle" title="Shows only the starred (★) recordings of this folder"><input id="recsStarOnly" type="checkbox">★ ONLY</label>
         <input id="recsFilter" class="recs-filter" type="search" placeholder="filter: name, memory, kHz, mode, source…" title="Shows only the recordings of this folder whose name, memory, frequency, mode or source contain the text">
         <button id="recsDel" class="key small recs-del" disabled title="Delete the ticked recordings and folders (a folder with all in it; files being written stay)">DELETE</button>
         <button id="recsReload" class="key small" title="Read the folder again (it is read by itself when the tab opens and every 10 s while a recording runs)">⟳</button>
@@ -1432,7 +1433,7 @@
       </div>
       <div class="amsat-body recs-body">
         <table class="recs-table">
-          <thead id="recsHead"><tr><th class="sel"><input id="recsAll" type="checkbox" title="Tick all shown (folders and recordings)"></th><th></th><th data-k="start">Start</th><th data-k="src">Source</th><th data-k="memory">Memory</th><th data-k="hz">Frequency</th><th data-k="mode">Mode</th><th data-k="secs">Length</th><th data-k="size">Size</th><th data-k="name">File</th><th></th><th></th></tr></thead>
+          <thead id="recsHead"><tr><th class="sel"><input id="recsAll" type="checkbox" title="Tick all shown (folders and recordings)"></th><th></th><th class="star" data-k="starred" title="Starred recordings first (a click on ☆ in a row stars it)">★</th><th data-k="start">Start</th><th data-k="src">Source</th><th data-k="memory">Memory</th><th data-k="hz">Frequency</th><th data-k="mode">Mode</th><th data-k="secs">Length</th><th data-k="size">Size</th><th data-k="name">File</th><th></th><th></th></tr></thead>
           <tbody id="recsRows"></tbody>
         </table>
         <p class="note" id="recsEmpty" hidden></p>
@@ -1626,6 +1627,7 @@
             <button class="key small" data-set-sub="gen:location" role="tab" aria-selected="false">LOCATION</button>
             <button class="key small" data-set-sub="gen:ant" role="tab" aria-selected="false">ANTENNAS</button>
             <button class="key small" data-set-sub="gen:recs" role="tab" aria-selected="false">RECORDINGS</button>
+            <button class="key small" data-set-sub="gen:backup" role="tab" aria-selected="false">BACKUP</button>
           </div>
           <!-- ===== SKINS, S-METER, TOUCHPAD (look and handling of the page) ===== -->
           <div class="set-subpanel set-skins" data-set-subpanel="gen:skins" role="tabpanel">
@@ -1721,6 +1723,46 @@
                 REC of the scan and DAB as MP3, REC IQ as WAV in its <code>iq</code> subfolder; the RECORDINGS tab browses it.
                 Enter a full path on this PC (for example <code>D:\Recordings</code>); a missing folder is created. A recording that is
                 running finishes its file in the old folder. Files already recorded are not moved to a new folder.</p>
+            </div>
+          </div>
+          <!-- ===== BACKUP: the settings of the whole station to a file and back, factory reset (backup.py on the launcher) ===== -->
+          <div class="set-subpanel set-backup" data-set-subpanel="gen:backup" role="tabpanel" hidden>
+            <div class="setting">
+              <div class="row"><span>Backup</span><small>all VFOs and this browser</small></div>
+              <div class="bk-items" id="bkExportItems"></div>
+              <div class="sats-row"><button class="key small accent" id="bkExport">DOWNLOAD BACKUP</button>
+                <span class="note" id="bkExportMsg"></span></div>
+              <p class="note">A ZIP file with the settings chosen, e.g. to move RADIMCOM to another PC. Logs, recordings and decoder
+                pictures are not settings: SETTINGS › DATA/LOG exports them.</p>
+            </div>
+            <div class="setting">
+              <div class="row"><span>Restore</span><small>from a backup file</small></div>
+              <div class="sats-row"><label class="key small bk-file">CHOOSE FILE…<input type="file" id="bkFile" accept=".zip" hidden></label>
+                <span class="note" id="bkStoredNote"></span></div>
+              <div class="bk-stored" id="bkStored"></div>
+              <div class="bk-restore" id="bkRestore" hidden>
+                <div class="row"><span id="bkRestoreName"></span><small id="bkRestoreInfo"></small></div>
+                <div class="bk-items" id="bkRestoreItems"></div>
+                <div class="bk-warn" id="bkRestoreWarn" hidden></div>
+                <div class="sats-row"><button class="key small accent" id="bkRestoreGo">RESTORE</button>
+                  <button class="key small" id="bkRestoreCancel">CANCEL</button><span class="note" id="bkRestoreMsg"></span></div>
+              </div>
+              <p class="note">On a new PC set up the dongles first (SETTINGS › SDR SOURCES), then restore: a VFO whose dongle is
+                not on this PC stays without a source. The VFOs restart with the settings restored and the page reloads.</p>
+            </div>
+            <div class="setting bk-reset">
+              <div class="row"><span>Factory reset</span><small>everything back to a fresh installation</small></div>
+              <p class="note">Deletes all the settings above – VFO settings and sources, memories, station, satellites, ISM devices,
+                map API keys and the page settings of this browser. A full backup is saved first to <code id="bkDir"></code>
+                (restore it here). Logs, recordings and decoder pictures stay. RADIMCOM then restarts like a new installation.</p>
+              <div class="sats-row"><button class="key small bk-danger" id="bkReset">FACTORY RESET…</button>
+                <span class="note" id="bkResetMsg"></span></div>
+              <div class="bk-confirm" id="bkConfirm" hidden>
+                <p><b>Really delete all the settings?</b> Type <code>RESET</code> and press ERASE EVERYTHING.</p>
+                <div class="sats-row"><input id="bkConfirmText" spellcheck="false" autocomplete="off" placeholder="RESET">
+                  <button class="key small bk-danger" id="bkResetGo" disabled>ERASE EVERYTHING</button>
+                  <button class="key small" id="bkResetCancel">CANCEL</button></div>
+              </div>
             </div>
           </div>
         </div>
@@ -1845,7 +1887,8 @@
                   <span class="k">SNR</span><b id="agcNSnr"></b><span>channel</span>
                   <span class="agc-kind" id="agcNKind"></span>
                 </div>
-                <p class="agc-warn" id="agcWarn"></p>                <!-- only BOLD from 1.1beta1 (the others set too little gain on HF); kept hidden for DEFAULT -->
+                <p class="agc-warn" id="agcWarn"></p>
+                <!-- only BOLD from 1.1beta1 (the others set too little gain on HF); kept hidden for DEFAULT -->
                 <div class="sagc-presets" id="sagcPresets" hidden>
                   <button data-preset="bold" class="key small">BOLD</button></div>
                 <div id="sagcRows"></div>
@@ -1862,14 +1905,14 @@
                   <dt>s · blocks</dt><dd><b>Time</b>: between steps up in seconds, <i>settle</i> in blocks of samples (1 block ≈ 55–130 ms by the bandwidth).</dd>
                 </dl>
                 <label class="switch" title="Smooth gain of the audio ALC: the gain rises in a ramp instead of steps every 2.5 ms (falls at once). Off = the old steps"><input id="agcSmooth" type="checkbox"><span></span> Smooth ALC gain</label>
-                <p class="note">AGC+ key (GAIN) = <b>AUTO</b>: the tuner gain keeps the A/D headroom at its target instead of driving the
-                  A/D to the top (that gave intermodulation on HF and near FM stations). An overload (clipping above the limit) cuts at once –
-                  at least <i>cut</i>, 6 / 9 / 14 / 30 dB when 0.1 / 1 / 5 / 20 % of the samples clip – and leaves a ceiling 3 dB under that
-                  gain for 20 s (90 s after three overloads in a minute); then the gain climbs back to where it was (4 dB per 1.2 s).
-                  Too hot (headroom under the target − dead band): down by the error. Room: up by at most <i>up</i> every <i>between steps</i>,
-                  not while the noise floor is <i>gain wasted</i> over its goal (3 dB more: a step down); inside the dead band a floor under
-                  its goal raises the gain 3 dB. After a step down, a step up needs 1.5× the dead band for 8 s. The first 8 s after a start or a
-                  retune climb faster. The meter strip shows the A/D level, the clip lamp, the numbers, the first
+                <p class="note">AGC+ key (GAIN) = <b>AUTO</b> with <b>smart clipping</b> (tuned for hours on real short-wave signals):
+                  the tuner gain drives the A/D to its top. It is judged by the <b>mean clipping of the last second</b> at the gain
+                  (<i>clipping above</i>, 0.1 % by default), not by single blocks; only one block over 10× the limit (at least 1 %) cuts at
+                  once (at least <i>cut</i>, 6 / 9 / 14 / 30 dB when 0.1 / 1 / 5 / 20 % clip). No clipping: up by at most <i>up</i> every
+                  <i>between steps</i>; some clipping under the limit: it probes the next tuner step, and a probe that goes over returns at once
+                  to the step before; the same step is tried again after 20, 40, 80 … s (at most every 5 min). A quieter band (headroom 3 dB
+                  more, clipping 4× less for 10 s) lets it climb again at once. No step up while the noise floor is <i>gain wasted</i> over its
+                  goal. <i>Headroom</i> and <i>dead band</i> are used only for ADS-B (the headroom of its pulses). The meter strip shows the A/D level, the clip lamp, the numbers, the first
                   warning and <i>why</i> the gain is where it is. Inspired by the auto gain of OnAir (adswill/OnAir, the ideas, no code).
                   <b>PRESETS</b> from conservative to bold, the one matching the sliders is lit.
                   With WFM a block with a gain step is played in mono (the step would turn the stereo into noise).
@@ -2213,6 +2256,9 @@
             <div class="srcs-dir" id="srcsDir" hidden>
               <div class="srcs-dir-bar">
                 <input type="text" id="srcsDirQ" spellcheck="false" placeholder="filter: call, device, antenna, host…">
+                <button class="key small on" id="srcsDirViewList" title="The servers as a list (10 per page, with ping)">LIST</button>
+                <button class="key small" id="srcsDirViewMap" title="The servers on a map: a click on one adds it">MAP</button>
+                <select id="srcsDirCc"><option value="">all countries</option></select>
                 <select id="srcsDirDev"><option value="">all devices</option></select>
                 <select id="srcsDirBand" title="Only servers that receive this band">
                   <option value="">any band</option><option value="0.1-30">HF 0–30 MHz</option><option value="50-54">6 m</option>
@@ -2221,8 +2267,11 @@
                 <label class="switch"><input type="checkbox" id="srcsDirCtl"><span></span> full control</label>
                 <span class="grow"></span><span class="muted" id="srcsDirInfo"></span>
               </div>
-              <div class="srcs-dir-scroll"><table class="srcs-dir-tbl"><thead><tr><th>CALL / OWNER</th><th>DEVICE</th><th>RANGE MHz</th>
-                <th>IQ</th><th>CLIENTS</th><th>CTL</th><th>KM</th><th>ANTENNA</th><th>ADDRESS</th></tr></thead><tbody id="srcsDirRows"></tbody></table></div>
+              <div class="srcs-dir-scroll"><table class="srcs-dir-tbl"><thead><tr><th>CALL / OWNER</th><th>COUNTRY</th><th>DEVICE</th><th>RANGE MHz</th>
+                <th>IQ</th><th>CLIENTS</th><th>CTL</th><th>KM</th><th title="Time to open a TCP connection from this PC (measured for the rows shown, kept 5 min)">PING</th><th>ANTENNA</th><th>ADDRESS</th></tr></thead><tbody id="srcsDirRows"></tbody></table></div>
+              <div class="srcs-dir-map" id="srcsDirMap" hidden></div>
+              <div class="srcs-dir-pager"><button class="key small" id="srcsDirPrev" title="Previous 10">◀</button>
+                <span class="muted" id="srcsDirPage"></span><button class="key small" id="srcsDirNext" title="Next 10">▶</button></div>
             </div>
             <div class="srcs-pool" id="srcsPool"><span class="muted">looking for the sources…</span></div>
             <div id="srcsMsg"></div>
