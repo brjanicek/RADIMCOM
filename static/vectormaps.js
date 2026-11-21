@@ -8,6 +8,7 @@ const VM_KINDS = [
   ["airspace", "Airspaces", ["CTR", "TMA", "CTA", "ATZ", "MCTR", "R", "D", "P", "TRA", "TSA", "RMZ", "TMZ", "GLIDING", "SPORT", "MTA",
     "FIS", "FIR", "UIR", "ACC", "AWY", "ADIZ", "MATZ", "HTZ", "TIZ", "TIA", "LTA", "UTA", "LOWFLY", "VFR", "TRP", "MTR", "MRT", "TFR",
     "ALERT", "WARNING", "PROTECTED", "OTHER"]],
+  ["fua", "FUA (activated airspaces)", ["active", "planned"]],
   ["airport", "Airports", ["intl", "large", "medium", "ifr", "airport", "small", "civil", "military", "glider", "ul", "heli", "heli_mil", "water", "strip", "agri", "altiport", "balloon", "closed"]],
   ["navaid", "Navaids", ["VOR", "VOR-DME", "DVOR", "DVOR-DME", "VORTAC", "DVORTAC", "TACAN", "DME", "NDB", "NDB-DME"]],
   ["point", "Reporting points", ["RP", "RP_OPT"]],
@@ -17,7 +18,7 @@ const VM_KINDS = [
   ["own", "Own files", ["area", "line", "point"]],
   ["aero", "Aerodrome layout", ["aerodrome", "runway", "apron", "taxiway", "helipad"]],
 ];
-const vmIsArea = (kind, cat) => kind === "airspace" || kind === "aero" || (kind === "own" && cat !== "point");   // drawn with line and fill
+const vmIsArea = (kind, cat) => kind === "airspace" || kind === "aero" || kind === "fua" || (kind === "own" && cat !== "point");   // drawn with line and fill
 function vmCatName(c) {   // the name of a part; the groups of the MEMORIES channels come with their map
   if (VM_CAT_NAME[c]) return VM_CAT_NAME[c];
   for (const m of vmList || []) if (m.catNames && m.catNames[c]) return m.catNames[c];
@@ -31,7 +32,7 @@ const VM_CAT_NAME = {
   altiport: "Altiports", closed: "Closed", large: "Large airports", medium: "Medium airports", small: "Small airfields", balloon: "Balloon ports", RP: "Compulsory", RP_OPT: "On request", tower: "Towers / masts", chimney: "Chimneys",
   wind: "Wind turbines", building: "Buildings", obstacle: "Other",
   area: "Areas", line: "Lines", point: "Points", aerodrome: "Aerodrome boundary", runway: "Runways", apron: "Aprons",
-  taxiway: "Taxiways", helipad: "Helipads", bcast: "Broadcasting (radio, TV)", radar: "Radar", ham: "Amateur radio", comm: "Other radio", mobile: "Mobile phone",
+  taxiway: "Taxiways", helipad: "Helipads", active: "Active now", planned: "Planned (later today)", bcast: "Broadcasting (radio, TV)", radar: "Radar", ham: "Amateur radio", comm: "Other radio", mobile: "Mobile phone",
 };
 // shown at first (later: as the person set it)
 const VM_OFF = new Set(["airspace.FIR", "airspace.UIR", "airspace.ACC", "airspace.FIS", "airspace.OTHER", "airport.closed", "obstacle", "tx.mobile"]);
@@ -64,11 +65,11 @@ const vmCatOn = (kind, cat) => {
 const vmMapOn = (id) => vmOpt().maps[id] !== false;
 const vmSrcOn = (src) => (vmOpt().srcs || {})[src || "openaip"] !== false;
 const vmShown = (m) => vmSrcOn(m.source) && vmMapOn(m.id);   // drawn: its source used and the map on
-const VM_LBL_DEF = { airspace: true, airport: true, navaid: true, point: false, obstacle: false, tx: true, chan: true, own: true, aero: true };
+const VM_LBL_DEF = { fua: true, airspace: true, airport: true, navaid: true, point: false, obstacle: false, tx: true, chan: true, own: true, aero: true };
 const vmLblOn = (kind) => { const l = vmOpt().lbl; return l[kind] != null ? l[kind] : !!VM_LBL_DEF[kind]; };
 const vmKey = (p) => `${p.src || "x"}:${p.srcId || p.name}`;   // an object, for hiding it
 // names on the map from this zoom on (per kind; big airports earlier); at most VM_LBL_MAX in the view
-const VM_LBL_ZOOM = { airspace: 8, airport: 9, navaid: 7, point: 9, obstacle: 11, tx: 10, chan: 9, own: 9, aero: 13 };
+const VM_LBL_ZOOM = { fua: 7, airspace: 8, airport: 9, navaid: 7, point: 9, obstacle: 11, tx: 10, chan: 9, own: 9, aero: 13 };
 const VM_LBL_MAX = 300;
 
 // default look per kind / part (stage 2 makes these settable)
@@ -80,6 +81,7 @@ const VM_AS_STYLE = {
   FIR: ["#8fa3bd", 2, "10 6", 0], UIR: ["#8fa3bd", 2, "10 6", 0], FIS: ["#8fa3bd", 1.2, "10 6", 0],
 };
 const VM_AS_DEF = ["#9fb3c8", 1, "4 4", 0.03];
+const VM_FUA_STYLE = { active: ["#ff2a2a", 2.5, "", 0.2], planned: ["#ffb020", 1.5, "8 4", 0.05] };   // FUA: active now / later today
 const VM_AERO_STYLE = {   // the layout of aerodromes: colour, width, dash, fill
   aerodrome: ["#4fd2ff", 1.5, "4 4", 0.04], runway: ["#e6e6e6", 1, "", 0.75], apron: ["#9aa5b1", 1, "", 0.35],
   taxiway: ["#e0c050", 1.5, "", 0], helipad: ["#e6e6e6", 1, "", 0.5],
@@ -110,7 +112,8 @@ const VM_AERO_SYM = {
 };
 function vmStyDef(kind, cat) {
   if (vmIsArea(kind, cat)) {
-    const [c, w, dash, fo] = kind === "own" ? ["#c8a0ff", 2, "", cat === "line" ? 0 : 0.06] : kind === "aero" ? VM_AERO_STYLE[cat] || VM_AS_DEF : VM_AS_STYLE[cat] || VM_AS_DEF;
+    const [c, w, dash, fo] = kind === "own" ? ["#c8a0ff", 2, "", cat === "line" ? 0 : 0.06] : kind === "aero" ? VM_AERO_STYLE[cat] || VM_AS_DEF
+      : kind === "fua" ? VM_FUA_STYLE[cat] || VM_AS_DEF : VM_AS_STYLE[cat] || VM_AS_DEF;
     return { c, w, d: VM_DASH_OF[dash] || "solid", o: 0.9, fc: c, fo, lc: c, ls: 10, lz: VM_LBL_ZOOM[kind], cz: 1, fz: 1 };   // cz / fz: the line / fill from this zoom on
   }
   const [c, r] = VM_PT_STYLE[kind] || ["#ffffff", 3];
@@ -274,6 +277,8 @@ function vmTip(p, src) {
   const cat = vmCatName(p.cat);
   const rows = [];
   if (p.kind === "airspace") rows.push(`${escHtml(cat)}${p.cls && p.cls !== "SUA" ? ` · class ${escHtml(p.cls)}` : ""}`, `${vmLim(p.lower) || "?"} – ${vmLim(p.upper) || "?"}`);
+  else if (p.kind === "fua") rows.push(`<b class="vm-fua-${p.cat === "active" ? "on" : "plan"}">${escHtml(cat)}</b>${[p.type, p.activity, p.mil, p.origin].filter(Boolean).map((x) => ` · ${escHtml(x)}`).join("")}`,
+    `${vmLim(p.lower) || "?"} – ${vmLim(p.upper) || "?"}`, vmFuaTime(p), ...(p.place ? [escHtml(p.place)] : []));
   else rows.push(escHtml(cat) + (p.elev != null ? ` · ${p.elev} m` : "") + (p.height != null ? ` · ${p.height} m AGL` : "") + (p.channel ? ` · ch ${escHtml(p.channel)}` : ""));
   if (p.operator) rows.push(escHtml(String(p.operator).slice(0, 80)));
   if (p.rwy && p.rwy.length) rows.push(`RWY ${p.rwy.map(escHtml).join(" ")}`);
@@ -300,9 +305,15 @@ function vmInRing(lon, lat, ring) {
 }
 // the name of an object; transmitter sites in OpenStreetMap are often unnamed: their operator or ref then
 const vmName = (p) => vmNote(p).name || p.name || (p.kind === "tx" ? p.operator || p.ident || "" : p.kind === "aero" ? p.ident || "" : "");
+/** The window of a FUA activation: "21.11. 06:00 – 22.11. 06:00 UTC". */
+function vmFuaTime(p) {
+  const f = (t) => (t ? `${t.slice(8, 10)}.${t.slice(5, 7)}. ${t.slice(11, 16)}` : "?");
+  return `${f(p.start)} – ${f(p.end)} UTC`;
+}
 function vmLabel(p) {
   const own = vmNote(p).name;
   if (own) return `${escHtml(own)}${p.kind === "airspace" ? `<small>${escHtml(vmLim(p.lower))} – ${escHtml(vmLim(p.upper))}</small>` : ""}`;
+  if (p.kind === "fua") return `${escHtml(p.name)}<small>${escHtml(vmLim(p.lower))} – ${escHtml(vmLim(p.upper))}${p.cat === "planned" ? ` · from ${escHtml((p.start || "").slice(11, 16))}Z` : ""}</small>`;
   if (p.kind === "airspace") return `${escHtml(p.name)}<small>${escHtml(vmLim(p.lower))} – ${escHtml(vmLim(p.upper))}</small>`;
   if (p.kind === "navaid") return `${escHtml(p.ident || p.name)}<small>${p.freq && p.freq[0] ? (p.freq[0].f < 1 ? Math.round(p.freq[0].f * 1e6) / 1000 : p.freq[0].f.toFixed(2)) : ""}</small>`;
   if (p.kind === "airport") return escHtml(p.ident || p.name);
@@ -319,7 +330,8 @@ async function vmApply(map) {
   const want = new Set(list.filter(vmShown).map((m) => m.id));
   const sig = JSON.stringify([o.cats, o.maxFL, o.rev, o.hidden, o.style]);
   let changed = false;
-  for (const [id, x] of st.layers) if (!want.has(id) || x.sig !== sig) { map.removeLayer(x.layer); st.layers.delete(id); changed = true; }
+  const fetchedOf = new Map(list.map((m) => [m.id, m.fetched]));
+  for (const [id, x] of st.layers) if (!want.has(id) || x.sig !== sig || x.fetched !== fetchedOf.get(id)) { map.removeLayer(x.layer); st.layers.delete(id); changed = true; }
   const hidden = new Set(o.hidden);
   for (const m of list) {
     if (!want.has(m.id) || st.layers.has(m.id)) continue;
@@ -344,7 +356,7 @@ async function vmApply(map) {
       style: (f) => ({ ...vmStyle(f.properties || {}, map.getZoom()), renderer: st.renderer, interactive: false }),
       pointToLayer: (f, ll) => vmSymMarker(ll, { ...vmStyle(f.properties || {}), renderer: st.renderer, pane: "vmaps", interactive: false }),
     }).addTo(map);
-    st.layers.set(m.id, { sig, layer, objs });
+    st.layers.set(m.id, { sig, layer, objs, fetched: m.fetched });
     changed = true;
   }
   st.zsig = vmZoomSig(map.getZoom());
@@ -446,7 +458,7 @@ function vmInit(map) {
     const ok = (p) => vmLblOn(p.kind) && z >= vmSty(p.kind, p.cat).lz;
     for (const ob of st.pts) if (ok(ob.p) && b.contains(ob.ll)) out.push(ob);
     for (const ob of st.polys) if (ok(ob.p) && b.contains(ob.c) && ob.area > 0) out.push(ob);
-    const rank = { chan: 0, navaid: 1, airport: 2, tx: 3, aero: 4, airspace: 5, own: 6, point: 7, obstacle: 8 };
+    const rank = { chan: 0, navaid: 1, airport: 2, tx: 3, aero: 4, fua: 5, airspace: 5, own: 6, point: 7, obstacle: 8 };
     out.sort((a, c) => (rank[a.p.kind] ?? 8) - (rank[c.p.kind] ?? 8));
     const placed = [];   // boxes of the names already placed: a name that would overlap one is left out
     for (const ob of out) {
@@ -474,10 +486,11 @@ function vmInit(map) {
 
 /** The Vector maps section of the map settings window. */
 // the sources of the vector maps, one tab each (openAIP now; more sources come as more tabs)
-const VM_SOURCES = [["openaip", "openAIP"], ["ourairports", "OurAirports"], ["osm", "OpenStreetMap"], ["memories", "MEMORIES"], ["file", "Own files"]];
+const VM_SOURCES = [["openaip", "openAIP"], ["ourairports", "OurAirports"], ["osm", "OpenStreetMap"], ["fua", "FUA"], ["memories", "MEMORIES"], ["file", "Own files"]];
 const VM_SRC_NOTE = {
   openaip: "Airspaces, airports, navaids, reporting points, obstacles per country (CC BY-NC).",
   ourairports: "Airports with frequencies and runways (drawn where both ends are known), navaids, per country (public domain, no key; the whole world is downloaded once a day, about 20 MB).",
+  fua: "The airspaces activated today in Slovakia (TRA, TSA, R, D, … from the AUP / UUP of AMC Zvolen and the national areas), from the map of LPS SR (gis.lps.sk/vfrm). Kept up to date every 2 minutes while shown; Active now and Planned (later today) are drawn differently. Information only: check the airspace with the ATS unit before flying.",
   osm: "Transmitter sites (broadcasting, mobile phone, radar, amateur and other radio) and the layout of aerodromes (boundary, runways, taxiways, aprons, helipads) per country (ODbL, no key; a big country takes a minute or two).",
 };
 // the countries openAIP can be downloaded for (ISO 3166 and Kosovo); their names come from the browser
@@ -519,6 +532,13 @@ function vmSourcesHtml() {
         `${chk(`data-vmmap="${escHtml(m.id)}"`, vmMapOn(m.id))} ${escHtml(m.name)} <small class="muted">${n(m.n)}</small></label></th><td class="muted">${day(m.fetched)}</td>` +
         `<td><button type="button" class="map-opts-del" data-vmdel="${escHtml(m.id)}" title="Remove the file">✕</button></td></tr>`).join("") + `</table></div>`
         : `<p class="map-opts-note">${vmList ? "No own file yet." : "Loading…"}</p>`);
+  } else if (tab === "fua") {   // one map (Slovakia), downloaded again by the server every 2 minutes while it exists
+    const m = list[0], hm = (t) => new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+    h += `<p class="map-opts-note">${VM_SRC_NOTE.fua}</p><p class="map-opts-note vm-msg"></p>` + (m ? `<div class="vm-ctry"><table class="map-opts-t vm-maps"><tr class="vm-have"><th><label title="${n(m.n)} activations">` +
+      `${chk(`data-vmmap="${escHtml(m.id)}"`, vmMapOn(m.id))} FUA Slovakia <small class="muted">${n(m.n)}</small></label></th><td class="muted" title="Last downloaded">${hm(m.fetched)}</td>` +
+      `<td><button type="button" class="vm-get" data-vmfua title="Download now">↻</button>` +
+      `<button type="button" class="map-opts-del" data-vmdel="${escHtml(m.id)}" title="Remove (no more downloads)">✕</button></td></tr></table></div>`
+      : `<button type="button" class="vm-btn" data-vmfua>Download the FUA of Slovakia</button>`);
   } else if (tab === "memories") {   // no countries: one map, made again whenever MEMORIES change
     const m = list[0];
     h += `<p class="map-opts-note">The MEMORIES channels that have a location (LAT / LON), one part per group; kept up to date when the channels change.</p>` +
@@ -742,7 +762,14 @@ function vmRefill(panel) {
 function vmOnClick(e, panel) {
   const upd = e.target.closest("button[data-vmupd], button[data-vmget]"), del = e.target.closest("button[data-vmdel]");
   const msg = () => panel.querySelector(".vm-msg");
-  const mem = e.target.closest("button[data-vmmem]");
+  const mem = e.target.closest("button[data-vmmem]"), fua = e.target.closest("button[data-vmfua]");
+  if (fua) {   // the FUA activations downloaded now
+    fua.disabled = true;
+    mapLayApi("/api/vectormaps/fua", { method: "POST" })
+      .then((j) => { vmSet({ rev: Date.now() }); return vmListGet(true).then(() => { vmRefill(panel); if (msg()) msg().textContent = `${(j.map && j.map.n) || 0} activations today.`; }); })
+      .catch((err) => { fua.disabled = false; if (msg()) msg().textContent = `Not downloaded: ${err.message}`; });
+    return true;
+  }
   if (mem) {   // the map of the MEMORIES channels made (again)
     mem.disabled = true;
     mapLayApi("/api/vectormaps/memories", { method: "POST" })
@@ -854,3 +881,18 @@ document.addEventListener("toggle", (e) => {   // a kind / part of the tree open
   if (e.target.open) open.add(e.target.dataset.vmkind); else open.delete(e.target.dataset.vmkind);
   try { localStorage.setItem("vmKindOpen", JSON.stringify([...open])); } catch { /* this page only */ }
 }, true);
+
+// FUA: while its map is shown, the list is asked every minute (the server downloads the activations every 2 minutes);
+// a newer FUA map is loaded again and drawn on all maps of this page
+setInterval(() => {
+  if (!vmList || !vmOpt().on || document.hidden) return;
+  const old = vmList.find((m) => m.source === "fua");
+  if (!old || !vmShown(old)) return;
+  mapLayApi("/api/vectormaps").then((j) => {
+    const now = (j.maps || []).find((m) => m.id === old.id);
+    if (!now || now.fetched === old.fetched || !vmList) return;
+    vmList = vmList.map((m) => (m.id === old.id ? now : m));
+    vmGj.delete(old.id);
+    mapOptsSet({});   // the maps draw again (vmApply replaces the FUA layer)
+  }).catch(() => { /* the server is away: the next minute */ });
+}, 60000);

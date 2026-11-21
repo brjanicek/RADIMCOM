@@ -822,6 +822,96 @@ def memories_sync():
         pass
 
 
+# ---------- FUA: the activated airspaces of Slovakia (LPS SR, the map gis.lps.sk/vfrm) ----------
+# a public ArcGIS layer of the activations from the AUP / UUP (AMC Zvolen) and the national areas, updated every
+# 2 minutes; one feature per activation window (start / end in UTC). No key. Refreshed by the server while the map exists.
+FUA_ID = "fua_SK"
+FUA_URL = ("https://gis.lps.sk/server/rest/services/Hosted/Reservation_(Public)2/FeatureServer/0/query"
+           "?where=1%3D1&outFields=*&outSR=4326&f=geojson")
+FUA_REFRESH_S = 120
+_fua_busy = threading.Lock()
+
+
+def _fua_fetch():
+    req = urllib.request.Request(FUA_URL, headers={"User-Agent": "RADIMCOM", "Accept": "application/geo+json, application/json"})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        return json.loads(r.read().decode("utf-8"))
+
+
+def _fua_limit(val, uom, unit):
+    """A vertical limit of the layer as {"v", "u", "ref"} (as the airspaces of openAIP)."""
+    try:
+        v = float(val)
+    except (TypeError, ValueError):
+        return None
+    v = int(v) if v == int(v) else v
+    uom, unit = str(uom or "").upper(), str(unit or "").upper()
+    if unit == "FL" or not uom:
+        return {"v": v, "u": "FL", "ref": "STD"}
+    return {"v": v, "u": "ft", "ref": "GND" if uom in ("GND", "SFC", "AGL") else "MSL"}
+
+
+def fua_collection(gj, now=None):
+    """The activations as kind "fua": part "active" (now inside its window) or "planned" (later today); past ones left out."""
+    now = now or time.time()
+    feats = []
+    for f in (gj or {}).get("features") or []:
+        p, g = f.get("properties") or {}, f.get("geometry")
+        if not isinstance(g, dict) or g.get("type") not in ("Polygon", "MultiPolygon"):
+            continue
+        try:
+            start, end = float(p.get("startdate")) / 1000, float(p.get("enddate")) / 1000
+        except (TypeError, ValueError):
+            continue
+        if end <= now:
+            continue
+        name = str(p.get("airspace") or p.get("label") or "").strip()
+        iso = lambda t: time.strftime("%Y-%m-%dT%H:%MZ", time.gmtime(t))
+        props = {"kind": "fua", "cat": "active" if start <= now else "planned", "name": name,
+                 "src": "fua", "srcId": name,   # the same area on any day: hidden / own note kept
+                  "start": iso(start), "end": iso(end),
+                 "type": p.get("type_code") or "", "activity": p.get("activity_code") or "", "mil": p.get("mil_code") or "",
+                 "place": p.get("label2") or "", "origin": p.get("airspace_type") or "",
+                 "lower": _fua_limit(p.get("lower_val"), p.get("lower_uom"), "FL" if "FL" in (str(p.get("lower_fl")).upper(), str(p.get("lower_ft")).upper()) else ""),
+                 "upper": _fua_limit(p.get("upper_val"), p.get("upper_uom"), "FL" if "FL" in (str(p.get("upper_fl")).upper(), str(p.get("upper_ft")).upper()) else "")}
+        feats.append({"type": "Feature", "geometry": g, "properties": {k: v for k, v in props.items() if v not in ("", None)}})
+    return {"type": "FeatureCollection", "features": feats,
+            "radimcom": {"version": 1, "name": "FUA Slovakia (LPS SR)", "source": "fua", "country": "SK", "fetched": round(now),
+                         "license": "LPS SR, gis.lps.sk/vfrm (check with the ATS unit before flying)", "attribution": "FUA © LPS SR"}}
+
+
+def fua_update(get=_fua_fetch, now=None):
+    """Downloads the activations and stores them as fua_SK (also when none is active: an empty map)."""
+    gj = get()
+    if not isinstance(gj, dict) or "features" not in gj:
+        raise ValueError("the FUA layer answered nothing usable")
+    return _store(FUA_ID, fua_collection(gj, now))
+
+
+def fua_sync():
+    """Downloads the activations again (in the background) when the FUA map exists and is older than FUA_REFRESH_S."""
+    mp = _path(FUA_ID)
+    try:
+        if not os.path.exists(mp) or time.time() - os.path.getmtime(mp) < FUA_REFRESH_S:
+            return
+    except OSError:
+        return
+    if not _fua_busy.acquire(blocking=False):
+        return
+
+    def run():
+        try:
+            fua_update()
+        except (OSError, ValueError, urllib.error.URLError):
+            try:
+                os.utime(mp)   # offline: try again after FUA_REFRESH_S, the last activations stay
+            except OSError:
+                pass
+        finally:
+            _fua_busy.release()
+    threading.Thread(target=run, daemon=True).start()
+
+
 # ---------- own files ----------
 OWN_MAX = 30 * 1024 * 1024        # bytes of one imported file (as JSON)
 KINDS = ("airspace", "airport", "navaid", "point", "obstacle", "tx", "chan")
@@ -923,6 +1013,7 @@ def set_note(key, name, note):
 def api_vectormaps():
     """The stored maps [{id, name, source, country, fetched, stale, n, size, cats: {kind: {cat: n}}}]."""
     memories_sync()
+    fua_sync()
     return jsonify(maps=list_maps(), view=get_view(), notes=load_notes(), staleDays=STALE_S // 86400)
 
 
@@ -934,6 +1025,17 @@ def api_vectormaps_view():
         return jsonify(error="JSON object expected"), 400
     set_view(d)
     return jsonify(view=get_view())
+
+
+@bp.route("/api/vectormaps/fua", methods=["POST"])
+def api_vectormaps_fua():
+    """POST: downloads the activated airspaces of Slovakia (LPS SR) as fua_SK; kept up to date while it exists."""
+    try:
+        return jsonify(map=fua_update())
+    except (OSError, urllib.error.URLError) as e:
+        return jsonify(error=f"gis.lps.sk: {e}"), 502
+    except ValueError as e:
+        return jsonify(error=str(e)), 502
 
 
 @bp.route("/api/vectormaps/note", methods=["POST"])

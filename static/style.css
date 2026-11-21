@@ -4576,6 +4576,8 @@ details[data-sec=vmaps] > .map-opts-body:empty { display: none; }
 .vm-sty-act { display: flex; flex-wrap: wrap; gap: 4px; }
 .vm-sty-wd { display: flex; flex-direction: column; gap: 2px; }
 .vm-note { color: #ffd479; font-style: italic; }
+.vm-fua-on { color: #ff5a5a; }
+.vm-fua-plan { color: #ffb020; }
 .vm-note-f label { display: block; margin: 2px 0; }
 .vm-note-f input, .vm-note-f textarea { display: block; width: 260px; box-sizing: border-box; font: inherit; }
 .vm-sty-t td { white-space: nowrap; }

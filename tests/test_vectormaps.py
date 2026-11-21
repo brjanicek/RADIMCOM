@@ -237,3 +237,24 @@ def test_notes_set_and_remove(tmp_path, monkeypatch):
     vm.set_note("osm:n5", "", "mast seen from the hill")
     assert vm.load_notes()["osm:n5"] == {"note": "mast seen from the hill"}
     assert "openaip:a1" not in vm.set_note("openaip:a1", "", "")
+
+
+def test_fua_active_planned_and_past():
+    now = 1795300000
+    def feat(name, start, end, **kw):
+        p = {"airspace": name, "startdate": start * 1000, "enddate": end * 1000, "type_code": "TRA", "airspace_type": "AMA",
+             "lower_val": 5000, "lower_uom": "AMSL", "lower_ft": "ft", "upper_val": 125, "upper_uom": "", "upper_fl": "FL", **kw}
+        return {"type": "Feature", "properties": p, "geometry": {"type": "Polygon", "coordinates": [[[17, 48], [17.1, 48], [17.1, 48.1], [17, 48]]]}}
+    gj = {"features": [feat("LZTRA3", now - 60, now + 3600), feat("LZR10", now + 600, now + 7200), feat("LZD2", now - 7200, now - 1)]}
+    c = vm.fua_collection(gj, now)
+    got = {f["properties"]["name"]: f["properties"] for f in c["features"]}
+    assert set(got) == {"LZTRA3", "LZR10"}
+    assert got["LZTRA3"]["cat"] == "active" and got["LZR10"]["cat"] == "planned"
+    assert got["LZTRA3"]["lower"] == {"v": 5000, "u": "ft", "ref": "MSL"} and got["LZTRA3"]["upper"] == {"v": 125, "u": "FL", "ref": "STD"}
+    assert got["LZTRA3"]["srcId"] == "LZTRA3" and c["radimcom"]["source"] == "fua"
+
+
+def test_fua_update_stores(tmp_path, monkeypatch):
+    monkeypatch.setattr(vm, "VMAP_DIR", str(tmp_path))
+    m = vm.fua_update(get=lambda: {"features": []}, now=1795300000)
+    assert m["id"] == "fua_SK" and m["n"] == 0

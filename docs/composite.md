@@ -114,7 +114,11 @@ at once in all open tabs and windows of the same address.
   (masts, towers and antennas: broadcasting, radar, amateur radio, other radio and mobile phone, the last off at first)
   through the Overpass API (ODbL, no key; a big country takes a minute or two); they show as **Transmitters** in the
   tree, with the operator and the height. The same download brings the aerodrome layout mapped in OpenStreetMap
-  (aerodrome boundaries, runways, taxiways, aprons and helipads) as **Aerodrome layout**, with the runway numbers and surface. The **MEMORIES** tab shows the MEMORIES channels that have a location (LAT / LON) as
+  (aerodrome boundaries, runways, taxiways, aprons and helipads) as **Aerodrome layout**, with the runway numbers and surface. The **FUA** tab downloads the airspaces activated today in Slovakia (TRA, TSA, R, D, … from the AUP / UUP of
+  AMC Zvolen and the national areas) from the public map of LPS SR (gis.lps.sk/vfrm, no key) as **FUA (activated
+  airspaces)** with the parts **Active now** (red) and **Planned (later today)** (orange, dashed), with the vertical
+  limits and the time window (UTC); while the map exists the server downloads it again every 2 minutes and the maps
+  shown follow. Information only: check the airspace with the ATS unit before flying. The **MEMORIES** tab shows the MEMORIES channels that have a location (LAT / LON) as
   **MEMORIES channels**, one part per group, with the frequency and mode; the map is made again whenever the channels
   change. On **Own files** **Add** stores a GeoJSON, KML or GPX file as a vector map: its areas, lines and points
   show under **Own files** in the tree (a file in this format keeps its kinds), the same name again replaces it. The tree in **Maps** (▸ opens a kind or a part) switches the
