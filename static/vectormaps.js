@@ -330,7 +330,7 @@ function vmSourcesHtml() {
 }
 function vmRefillAll() {   // both sections in every open settings window of this page
   document.querySelectorAll(".map-opts-panel").forEach((p) => {
-    const b = p.querySelector("details[data-sec=vsrc] .map-opts-body"), v = p.querySelector("details[data-sec=vmaps] .map-opts-body");
+    const b = p.querySelector("details[data-sec=vsrc] > .map-opts-body"), v = p.querySelector("details[data-sec=vmaps] > .map-opts-body");
     if (b && !b.contains(document.activeElement)) b.innerHTML = vmSourcesHtml();
     if (v && !v.contains(document.activeElement)) v.innerHTML = vmSettingsHtml();
   });
@@ -447,7 +447,7 @@ function vmOnInput(e, panel) {
   return true;
 }
 function vmRefill(panel) {
-  const b = panel.querySelector("details[data-sec=vmaps] .map-opts-body"), c = panel.querySelector("details[data-sec=vsrc] .map-opts-body");
+  const b = panel.querySelector("details[data-sec=vmaps] > .map-opts-body"), c = panel.querySelector("details[data-sec=vsrc] > .map-opts-body");
   if (b) b.innerHTML = vmSettingsHtml();
   if (c) c.innerHTML = vmSourcesHtml();
 }

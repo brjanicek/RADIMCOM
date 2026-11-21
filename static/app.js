@@ -18865,11 +18865,12 @@ function comMapSettings(map, kind, rerender, noTrails) {
       `<button type="button" data-cr="${k}" title="Automatic: the map's own colours">auto</button></span>`;
     const sec = (id, title, hint, body) => `<details class="map-opts-sec" data-sec="${id}"${open.includes(id) ? " open" : ""}><summary>${title}` +
       `${hint ? ` <small>${hint}</small>` : ""}</summary><div class="map-opts-body">${body}</div></details>`;
+    const part = (id, title, hint, body, first = "") => `<details class="map-opts-subsec" data-sec="${id}"${open.includes(id) ? " open" : ""}><summary>${title}` +
+      `${hint ? ` <small>${hint}</small>` : ""}</summary>${first}<div class="map-opts-body">${body}</div></details>`;
     const sub = (t, hint) => `<div class="map-opts-sub2">${t}${hint ? ` <small>${hint}</small>` : ""}</div>`;
     if (!mapLayList) mapLayListGet().then(() => { if (!panel.hidden) fill(); });
     const lays = mapLayList || [];
-    const mapSec =
-      sub("Base map") +
+    const baseSec =
       `<label><select data-o="base">${Object.entries(MAP_BASES).map(([k, [n]]) => `<option value="${k}"${k === o.base ? " selected" : ""}>${n}</option>`).join("")}</select>` +
       `<input type="checkbox" data-o="dark"${o.dark ? " checked" : ""}> darken</label>` +
       (o.base === "solid" ? `<label>Colour <input type="color" class="map-opts-cp" data-o="baseColor" value="${o.baseColor}"></label>` : "") +
@@ -18887,22 +18888,26 @@ function comMapSettings(map, kind, rerender, noTrails) {
       (kind === "com" ? sub("Station", "your location (MENU › SETUP › LOCATION)") +
         `<label>Icon <select data-o="stIcon">${MAP_ST_ICONS.map(([v, n]) => `<option value="${v}"${v === o.stIcon ? " selected" : ""}>${n}</option>`).join("")}</select>` +
         `<input type="color" class="map-opts-cp" data-o="cSt" value="${o.cSt}" title="Colour of the station"></label>` : "") +
-      sub("A/D map", "azimuth / distance rings around the station") +
+      (extra.length ? sub("This map") + extra.map(([l, n], i) => `<label><input type="checkbox" data-x="${i}"${map.hasLayer(l) ? " checked" : ""}> ${escHtml(n)}</label>`).join("") : "");
+    const adSec =
       `<label><input type="checkbox" data-o="ad"${o.ad ? " checked" : ""}> Show the rings and azimuths</label>` +
       `<label>Up to <select data-o="adMax">${MAP_AD_MAX.map((v) => `<option value="${v}"${v === o.adMax ? " selected" : ""}>${v}</option>`).join("")}</select>` +
       `<select data-o="adUnit"><option value="km"${o.adUnit === "km" ? " selected" : ""}>km</option><option value="nm"${o.adUnit === "nm" ? " selected" : ""}>NM</option></select></label>` +
       `<label><input type="checkbox" data-o="adFine"${o.adFine ? " checked" : ""}> Also every 10 km / NM and 10°</label>` +
       `<table class="map-opts-t"><tr><th></th><th>50 · 30°</th><th>10 · 10°</th></tr>` +
       `<tr><th>Colour</th><td><input type="color" class="map-opts-cp" data-o="cAd" value="${o.cAd}"></td><td><input type="color" class="map-opts-cp" data-o="cAdFine" value="${o.cAdFine}"></td></tr>` +
-      `<tr><th>Brightness</th><td>${sel(MAP_AD_OPA, pc)("adOpa")}</td><td>${sel(MAP_AD_OPA, pc)("adFineOpa")}</td></tr></table>` +
-      `<label class="map-opts-sub2" title="The farthest positions decoded by the ADS-B decoder, per altitude band"><input type="checkbox" data-o="rng"${o.rng ? " checked" : ""}> ADS-B range</label>` +
+      `<tr><th>Brightness</th><td>${sel(MAP_AD_OPA, pc)("adOpa")}</td><td>${sel(MAP_AD_OPA, pc)("adFineOpa")}</td></tr></table>`;
+    const rngSec =
+      `<label title="The farthest positions decoded by the ADS-B decoder, per altitude band"><input type="checkbox" data-o="rng"${o.rng ? " checked" : ""}> Show the ADS-B range</label>` +
       `<table class="map-opts-t"><tr><th></th><th colspan="2">Line</th><th colspan="2">Fill</th></tr>` +
       ADSB_RANGE_BANDS.map(([, label], i) => `<tr><th>${label}</th><td><input type="color" class="map-opts-cp" data-o="cRng${i}" value="${o["cRng" + i]}"></td>` +
         `<td><select data-o="oRng${i}" title="Brightness of the line">${MAP_RNG_OPA.map((v) => `<option value="${v}"${v === o["oRng" + i] ? " selected" : ""}>${v ? pc(v) : "none"}</option>`).join("")}</select></td>` +
         `<td><input type="color" class="map-opts-cp" data-o="fRng${i}" value="${o["fRng" + i]}"></td>` +
         `<td><select data-o="pRng${i}" title="Opacity of the fill">${MAP_LBL_BG.map((v) => `<option value="${v}"${v === o["pRng" + i] ? " selected" : ""}>${v ? pc(v) : "none"}</option>`).join("")}</select></td></tr>`).join("") +
-      `</table>` +
-      (extra.length ? sub("This map") + extra.map(([l, n], i) => `<label><input type="checkbox" data-x="${i}"${map.hasLayer(l) ? " checked" : ""}> ${escHtml(n)}</label>`).join("") : "");
+      `</table>`;
+    const mapSec = part("vmaps", "Vector maps", "airspaces, airports, navaids", vmSettingsHtml(), part("vsrc", "Map sources", "openAIP", vmSourcesHtml())) +
+      part("mbase", "Base map", "tiles, own layers" + (kind === "com" ? ", station" : ""), baseSec) +
+      part("mad", "A/D map", "azimuth / distance rings", adSec) + part("mrng", "ADS-B range", "farthest positions per altitude", rngSec);
     const weatherSec =
       sub("Precipitation", "RainViewer radar") +
       `<label><input type="checkbox" data-o="precip"${o.precip ? " checked" : ""}> Show the precipitation</label>` +
@@ -18976,7 +18981,7 @@ function comMapSettings(map, kind, rerender, noTrails) {
       MAP_LBL.map(([id, n]) => `<tr><th>${n}</th><td>${box("lblSel", id)}</td><td>${box("lbl", id)}</td><td>${box("lblShr", id)}</td></tr>`).join("") +
       `</table><p class="map-opts-note">Drag a label to move it (this window only), a double click puts it back.</p>`;
     panel.innerHTML = (kind === "com" ? sec("sources", "Sources", "aircrafts, radiosondes, ships", srcHtml()) : "") +
-      sec("map", "Map", "base map, layers, rings, range", mapSec) + sec("vsrc", "Map sources", "openAIP", vmSourcesHtml()) + sec("vmaps", "Vector maps", "airspaces, airports, navaids", vmSettingsHtml()) + sec("weather", "Weather", "precipitation, clouds", weatherSec) +
+      sec("map", "Maps", "vector maps, base map, rings, range", mapSec) + sec("weather", "Weather", "precipitation, clouds", weatherSec) +
       (rerender ? sec("objects", "Aircrafts", "symbol, label", kindSec("", true)) + sec("sondes", "Radiosondes", "symbol, label", kindSec("s_", false)) +
         sec("ships", "Ships", "symbol, label", kindSec("w_", false)) : "") +
       `<p class="map-opts-note">Remembered in the browser, the same in all windows.</p>`;
