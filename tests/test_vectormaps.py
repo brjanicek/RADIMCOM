@@ -228,3 +228,12 @@ def test_ourairports_runway_strip():
     c = vm.ourairports_collection("SK", t)
     rw = [f for f in c["features"] if f["properties"]["kind"] == "aero"]
     assert len(rw) == 1 and rw[0]["properties"]["name"] == "04/22" and rw[0]["geometry"]["type"] == "Polygon"
+
+
+def test_notes_set_and_remove(tmp_path, monkeypatch):
+    monkeypatch.setattr(vm, "NOTES_PATH", str(tmp_path / "notes.json"))
+    assert vm.load_notes() == {}
+    assert vm.set_note("openaip:a1", " Home strip ", "") == {"openaip:a1": {"name": "Home strip"}}
+    vm.set_note("osm:n5", "", "mast seen from the hill")
+    assert vm.load_notes()["osm:n5"] == {"note": "mast seen from the hill"}
+    assert "openaip:a1" not in vm.set_note("openaip:a1", "", "")

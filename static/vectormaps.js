@@ -225,6 +225,8 @@ const vmSymMarker = (ll, opt) => new (VmSymCls = VmSymCls || L.CircleMarker.exte
 
 // the list of the stored maps and their GeoJSON (asked from the VFO of the page or any VFO, like the own layers)
 let vmList = null, vmListP = null, vmListRev = -1, vmViewRev = -1;
+let vmNotes = {};   // own names and notes of objects {key: {name, note}} (server: data/vectormaps_notes.json)
+const vmNote = (p) => vmNotes[vmKey(p)] || {};
 const vmGj = new Map();   // id -> Promise of the GeoJSON
 function vmListGet(force) {
   const b = mapOpts.vm || vmOptsNorm(null);
@@ -234,6 +236,7 @@ function vmListGet(force) {
   if (vmList) return Promise.resolve(vmList);
   return (vmListP = vmListP || mapLayApi("/api/vectormaps").then((j) => {
     const v = j.view || {};
+    vmNotes = j.notes || {};
     vmView = { cats: v.cats || {}, lbl: v.lbl || {}, maxFL: +v.maxFL || 0, maps: v.maps || {}, hidden: v.hidden || [], style: v.style || {}, srcs: v.srcs || {} };
     if (!v.stored && (j.maps || []).length && VM_VIEW_KEYS.some((k) => { const x = b[k]; return Array.isArray(x) ? x.length : x && typeof x === "object" ? Object.keys(x).length : x; })) {
       vmView = Object.fromEntries(VM_VIEW_KEYS.map((k) => [k, b[k]]));   // once: what this browser had before goes to the server
@@ -263,8 +266,11 @@ function vmLowerFL(l) {
 }
 const vmLim = (l) => (!l ? "" : l.u === "FL" ? `FL${l.v}` : l.v === 0 && l.ref === "GND" ? "GND" : `${l.v} ${l.u} ${l.ref === "STD" ? "" : l.ref}`.trim());
 const vmFreq = (f) => `${f.type ? `${escHtml(f.type)} ` : ""}${f.f < 1 ? `${Math.round(f.f * 1e6) / 1000} kHz` : `${f.f.toFixed(3)}`}${f.name ? ` <span class="muted">${escHtml(f.name)}</span>` : ""}`;
-function vmTip(p) {
-  const head = `<b>${escHtml(vmName(p) || p.ident || vmCatName(p.cat))}</b>${p.ident && p.name ? ` ${escHtml(p.ident)}` : ""}`;
+/** The tooltip / card of an object; src: the name of its map. */
+function vmTip(p, src) {
+  const nt = vmNote(p);
+  const head = `<b>${escHtml(vmName(p) || p.ident || vmCatName(p.cat))}</b>${p.ident && p.name ? ` ${escHtml(p.ident)}` : ""}` +
+    (nt.name && p.name && nt.name !== p.name ? ` <span class="muted">(${escHtml(p.name)})</span>` : "");
   const cat = vmCatName(p.cat);
   const rows = [];
   if (p.kind === "airspace") rows.push(`${escHtml(cat)}${p.cls && p.cls !== "SUA" ? ` · class ${escHtml(p.cls)}` : ""}`, `${vmLim(p.lower) || "?"} – ${vmLim(p.upper) || "?"}`);
@@ -273,6 +279,8 @@ function vmTip(p) {
   if (p.rwy && p.rwy.length) rows.push(`RWY ${p.rwy.map(escHtml).join(" ")}`);
   for (const f of (p.freq || []).slice(0, 6)) rows.push(vmFreq(f));
   if (p.remarks) rows.push(`<span class="muted">${escHtml(String(p.remarks).slice(0, 120))}</span>`);
+  if (nt.note) rows.push(`<span class="vm-note">${escHtml(nt.note.slice(0, 300)).replace(/\n/g, "<br>")}</span>`);
+  if (src) rows.push(`<span class="muted">Source: ${escHtml(src)}</span>`);
   return `${head}<br>${rows.join("<br>")}`;
 }
 
@@ -291,8 +299,10 @@ function vmInRing(lon, lat, ring) {
   return inside;
 }
 // the name of an object; transmitter sites in OpenStreetMap are often unnamed: their operator or ref then
-const vmName = (p) => p.name || (p.kind === "tx" ? p.operator || p.ident || "" : p.kind === "aero" ? p.ident || "" : "");
+const vmName = (p) => vmNote(p).name || p.name || (p.kind === "tx" ? p.operator || p.ident || "" : p.kind === "aero" ? p.ident || "" : "");
 function vmLabel(p) {
+  const own = vmNote(p).name;
+  if (own) return `${escHtml(own)}${p.kind === "airspace" ? `<small>${escHtml(vmLim(p.lower))} – ${escHtml(vmLim(p.upper))}</small>` : ""}`;
   if (p.kind === "airspace") return `${escHtml(p.name)}<small>${escHtml(vmLim(p.lower))} – ${escHtml(vmLim(p.upper))}</small>`;
   if (p.kind === "navaid") return `${escHtml(p.ident || p.name)}<small>${p.freq && p.freq[0] ? (p.freq[0].f < 1 ? Math.round(p.freq[0].f * 1e6) / 1000 : p.freq[0].f.toFixed(2)) : ""}</small>`;
   if (p.kind === "airport") return escHtml(p.ident || p.name);
@@ -322,10 +332,10 @@ async function vmApply(map) {
     });
     const objs = feats.map((f) => {   // what the mouse and the names need
       const g = f.geometry, p = f.properties || {};
-      if (g.type === "Point") return { p, ll: [g.coordinates[1], g.coordinates[0]], sz: vmSty(p.kind, p.cat).sz || 1 };
+      if (g.type === "Point") return { p, m: m.name, ll: [g.coordinates[1], g.coordinates[0]], sz: vmSty(p.kind, p.cat).sz || 1 };
       const ring = g.type === "Polygon" ? g.coordinates[0] : g.type === "MultiPolygon" ? g.coordinates[0][0] : null;
       const y = vmSty(p.kind, p.cat);
-      return ring ? { p, ring, vz: Math.min(y.cz || 1, y.fz || 1), ...vmRingInfo(ring) } : null;
+      return ring ? { p, m: m.name, ring, vz: Math.min(y.cz || 1, y.fz || 1), ...vmRingInfo(ring) } : null;
     }).filter(Boolean);
     const area = (f) => { const g = f.geometry; return g.type === "Polygon" ? vmRingInfo(g.coordinates[0]).area : g.type === "MultiPolygon" ? vmRingInfo(g.coordinates[0][0]).area : 0; };
     feats.sort((a, b) => area(b) - area(a));
@@ -384,21 +394,50 @@ function vmInit(map) {
       raf = 0;
       const ob = vmOpt().on ? hit(last.containerPoint) : null;
       if (!ob) { if (shown) { map.closeTooltip(tip); shown = null; } return; }
-      if (ob !== shown) { tip.setContent(vmTip(ob.p)); shown = ob; }
+      if (ob !== shown) { tip.setContent(vmTip(ob.p, ob.m)); shown = ob; }
       tip.setLatLng(ob.ll || last.latlng);
       if (!map.hasLayer(tip)) map.openTooltip(tip);
     });
   });
   map.on("mouseout", () => { if (shown) { map.closeTooltip(tip); shown = null; } });
-  map.on("click", (e) => {   // a click on an object: its card with "Hide this object"
+  map.on("click", (e) => {   // a click on an object: its card with "Name / note" and "Hide this object"
     const ob = vmOpt().on ? hit(e.containerPoint) : null;
     if (!ob) return;
     const box = document.createElement("div");
     box.className = "vm-card";
-    box.innerHTML = `${vmTip(ob.p)}<div class="vm-card-act"><button type="button" class="vm-btn">Hide this object</button></div>`;
-    box.querySelector("button").addEventListener("click", () => {
-      vmSet({ hidden: [...new Set([...vmOpt().hidden, vmKey(ob.p)])] });
-      map.closePopup();
+    const card = () => {
+      box.innerHTML = `${vmTip(ob.p, ob.m)}<div class="vm-card-act"><button type="button" class="vm-btn" data-a="edit">Name / note</button>` +
+        `<button type="button" class="vm-btn" data-a="hide">Hide this object</button></div>`;
+    };
+    const form = () => {   // the own name and note: kept on the server apart from the map, so an update keeps them
+      const nt = vmNote(ob.p);
+      box.innerHTML = `<div class="vm-note-f"><label>Name <input type="text" data-f="name" maxlength="120" value="${escHtml(nt.name || "")}" placeholder="${escHtml(ob.p.name || ob.p.ident || "")}"></label>` +
+        `<label>Note <textarea data-f="note" rows="3" maxlength="2000">${escHtml(nt.note || "")}</textarea></label>` +
+        `<div class="vm-card-act"><button type="button" class="vm-btn" data-a="save">Save</button><button type="button" class="vm-btn" data-a="back">Cancel</button></div>` +
+        `<p class="map-opts-note vm-note-msg">Empty name: the name of the map.</p></div>`;
+      box.querySelector("input").focus();
+    };
+    card();
+    L.DomEvent.disableClickPropagation(box);
+    box.addEventListener("click", (ev) => {
+      ev.stopPropagation();   // the button is replaced below: Leaflet would no longer see it inside the card and take the click for the map
+      const a = ev.target.closest("button[data-a]");
+      if (!a) return;
+      if (a.dataset.a === "hide") { vmSet({ hidden: [...new Set([...vmOpt().hidden, vmKey(ob.p)])] }); map.closePopup(); }
+      else if (a.dataset.a === "edit") form();
+      else if (a.dataset.a === "back") card();
+      else if (a.dataset.a === "save") {
+        a.disabled = true;
+        mapLayApi("/api/vectormaps/note", { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ key: vmKey(ob.p), name: box.querySelector('[data-f="name"]').value, note: box.querySelector('[data-f="note"]').value }) })
+          .then((j) => {   // the names on every map and window again (the other windows ask the server as after a view change)
+            vmNotes = j.notes || {};
+            vmViewRev = Date.now();
+            mapOptsSet({ vm: { ...(mapOpts.vm || vmOptsNorm(null)), viewRev: vmViewRev } });
+            card();
+          })
+          .catch((err) => { a.disabled = false; box.querySelector(".vm-note-msg").textContent = `Not saved: ${err.message}`; });
+      }
     });
     L.popup({ className: "vm-pop", maxWidth: 320 }).setLatLng(ob.ll || e.latlng).setContent(box).openOn(map);
   });
@@ -416,7 +455,7 @@ function vmInit(map) {
     for (const ob of out) {
       if (placed.length >= VM_LBL_MAX) break;
       const pt = !ob.ring, y = vmSty(ob.p.kind, ob.p.cat), col = y.lc;
-      const q = map.latLngToContainerPoint(ob.ll || ob.c), txt = String(ob.p.ident && !["airspace", "tx", "aero"].includes(ob.p.kind) ? ob.p.ident : vmName(ob.p));
+      const q = map.latLngToContainerPoint(ob.ll || ob.c), txt = String(vmNote(ob.p).name || (ob.p.ident && !["airspace", "tx", "aero"].includes(ob.p.kind) ? ob.p.ident : vmName(ob.p)));
       if (!txt) continue;   // nothing to write
       const w = Math.max(20, txt.length * 6), hh = ob.p.kind === "airspace" || ob.p.kind === "navaid" ? 24 : 12;
       const r = [q.x - w / 2, pt ? q.y + 10 : q.y - hh / 2, q.x + w / 2, (pt ? q.y + 10 : q.y - hh / 2) + hh];
@@ -537,9 +576,10 @@ function vmSettingsHtml() {
     const tot = Object.values(cs).reduce((a, b) => a + b, 0);
     const sw = (c) => { const y = vmSty(k, c); return `${vmIsArea(k, c) ? `<i class="vm-sw" data-vmswatch="${escHtml(`${k}.${c}`)}" title="Style (click)" style="--c:${y.c}"></i>`
       : `<img class="vm-sw pt" data-vmswatch="${escHtml(`${k}.${c}`)}" title="Style (click)" alt="" src="${vmSymIcon(y.sym, y.fc)}">`}`; };
-    h += `<details class="vm-kind" data-vmkind="${k}"${vmKindOpen().includes(k) ? " open" : ""}><summary>${chk(`data-vmcat="${k}"`, vmCatOn(k))} ${name} <small class="muted">${n(tot)}</small></summary>` +
+    h += `<details class="vm-kind" data-vmkind="${k}"${vmKindOpen().includes(k) ? " open" : ""}><summary title="${escHtml(`Sources: ${list.filter((m) => vmShown(m) && m.cats && m.cats[k]).map((m) => m.name || m.id).join(", ")}`)}">${chk(`data-vmcat="${k}"`, vmCatOn(k))} ${name} <small class="muted">${n(tot)}</small></summary>` +
       `<div class="vm-cats">${cats.map((c) => { const id = escHtml(`${k}.${c}`);   // a part: its objects one by one when opened
-        return `<details class="vm-cat" data-vmcatd="${id}"${vmCatOpen().includes(`${k}.${c}`) ? " open" : ""}><summary>${chk(`data-vmcat="${id}"`, vmCatOn(k, c))}${sw(c)} ` +
+        const srcs = list.filter((m) => vmShown(m) && m.cats && m.cats[k] && m.cats[k][c]).map((m) => m.name || m.id);
+        return `<details class="vm-cat" data-vmcatd="${id}"${vmCatOpen().includes(`${k}.${c}`) ? " open" : ""}><summary title="${escHtml(`Source${srcs.length > 1 ? "s" : ""}: ${srcs.join(", ")}`)}">${chk(`data-vmcat="${id}"`, vmCatOn(k, c))}${sw(c)} ` +
           `${escHtml(vmCatName(c))} <small class="muted">${cs[c]}</small></summary><div class="vm-objs" data-vmobjs="${id}"><p class="map-opts-note">Loading…</p></div></details>` +
           (vmStyOpen === `${k}.${c}` ? vmStyEditor(k, c) : ""); }).join("")}</div>` +
       `<label>${chk(`data-vmlbl="${k}"`, vmLblOn(k))} Names on the map <small class="muted">from zoom ${VM_LBL_ZOOM[k]}</small></label>` +
@@ -593,16 +633,17 @@ async function vmFillObjs(box) {
   const [kind, cat] = box.dataset.vmobjs.split(".");
   const list = (await vmListGet()).filter(vmShown);
   const gjs = await Promise.all(list.map((m) => vmGet(m.id)));
-  const groups = new Map();   // name -> rows
+  const groups = new Map(), srcOf = new Map();   // name -> rows; object key -> the name of its map
   gjs.forEach((gj, i) => {
     const m = list[i], g = m.country ? `${vmCountryName(m.country)} (${m.country})` : m.name || m.id;
     for (const f of (gj && gj.features) || []) {
       const p = f.properties || {};
-      if (p.kind === kind && p.cat === cat) { if (!groups.has(g)) groups.set(g, new Map()); groups.get(g).set(vmKey(p), p); }   // one object once per group
+      if (p.kind === kind && p.cat === cat) { if (!groups.has(g)) groups.set(g, new Map()); groups.get(g).set(vmKey(p), p); srcOf.set(vmKey(p), m.name || m.id); }   // one object once per group
     }
   });
   const hidden = new Set(vmOpt().hidden), open = vmGrpOpen();
-  const item = (p) => `<label title="${escHtml(p.name || "")}"><input type="checkbox" data-vmobj="${escHtml(vmKey(p))}"${hidden.has(vmKey(p)) ? "" : " checked"}> ` +
+  const tipOf = (p) => [p.name || p.ident || "", vmNote(p).name ? `Own name: ${vmNote(p).name}` : "", vmNote(p).note || "", `Source: ${srcOf.get(vmKey(p)) || "?"}`].filter(Boolean).join("\n");
+  const item = (p) => `<label title="${escHtml(tipOf(p))}"><input type="checkbox" data-vmobj="${escHtml(vmKey(p))}"${hidden.has(vmKey(p)) ? "" : " checked"}> ` +
     `${escHtml(vmName(p) || p.ident || "?")}${p.ident && p.kind !== "airspace" ? ` <small class="muted">${escHtml(p.ident)}</small>` : ""}</label>`;
   let left = 3000;
   box.innerHTML = groups.size ? [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([g, rowsMap]) => {

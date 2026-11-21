@@ -47,6 +47,7 @@ from flask import Blueprint, jsonify, request
 from paths import data
 
 VMAP_DIR = data("vectormaps")
+NOTES_PATH = data("vectormaps_notes.json")   # own names and notes of objects, kept apart so an update never loses them
 MAPKEYS_PATH = data("mapkeys.json")
 VERSION = 1
 STALE_S = 28 * 86400            # an AIRAC cycle: older data is marked for an update
@@ -879,12 +880,50 @@ def own_import(name, gj):
     return _store(mid, coll)
 
 
+# ---------- own names and notes of objects ----------
+def load_notes():
+    """{object key: {"name": str, "note": str}} (the key as the browser makes it: src:srcId)."""
+    try:
+        with open(NOTES_PATH, encoding="utf-8") as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def set_note(key, name, note):
+    """Stores (or with both empty removes) the own name and note of one object; answers all notes."""
+    key = str(key or "")[:200]
+    if not key:
+        raise ValueError("no object")
+    name, note = str(name or "").strip()[:120], str(note or "").strip()[:2000]
+    with _lock:
+        notes = load_notes()
+        if name or note:
+            notes[key] = {k: v for k, v in (("name", name), ("note", note)) if v}
+        else:
+            notes.pop(key, None)
+        os.makedirs(os.path.dirname(NOTES_PATH), exist_ok=True)
+        tmp = NOTES_PATH + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(notes, f, ensure_ascii=False, indent=1)
+        for i in range(30):   # Windows: the file may be open for a moment
+            try:
+                os.replace(tmp, NOTES_PATH)
+                break
+            except PermissionError:
+                if i == 29:
+                    raise
+                time.sleep(0.1)
+    return notes
+
+
 # ---------- HTTP API ----------
 @bp.route("/api/vectormaps", methods=["GET"])
 def api_vectormaps():
     """The stored maps [{id, name, source, country, fetched, stale, n, size, cats: {kind: {cat: n}}}]."""
     memories_sync()
-    return jsonify(maps=list_maps(), view=get_view(), staleDays=STALE_S // 86400)
+    return jsonify(maps=list_maps(), view=get_view(), notes=load_notes(), staleDays=STALE_S // 86400)
 
 
 @bp.route("/api/vectormaps/view", methods=["POST"])
@@ -895,6 +934,18 @@ def api_vectormaps_view():
         return jsonify(error="JSON object expected"), 400
     set_view(d)
     return jsonify(view=get_view())
+
+
+@bp.route("/api/vectormaps/note", methods=["POST"])
+def api_vectormaps_note():
+    """POST {key, name, note}: the own name and note of an object (both empty: removed); answers {notes}."""
+    d = request.get_json(silent=True)
+    if not isinstance(d, dict):
+        return jsonify(error="JSON object expected"), 400
+    try:
+        return jsonify(notes=set_note(d.get("key"), d.get("name"), d.get("note")))
+    except ValueError as e:
+        return jsonify(error=str(e)), 400
 
 
 @bp.route("/api/vectormaps/<mid>", methods=["GET", "DELETE"])

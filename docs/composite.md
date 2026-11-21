@@ -112,9 +112,11 @@ at once in all open tabs and windows of the same address.
   kinds (**Airspaces**, **Airports**, **Navaids**, **Reporting points**, **Obstacles**: off at first) and their parts
   (CTR, TMA, R, D, … / international, civil, ultralight, … / VOR-DME, NDB, …) on and off; each part opens to its objects
   in groups by country (by map for MEMORIES and own files), each group with a checkbox for all its objects, and in them
-  the objects one by one with a checkbox. **Names on the map** per kind (from a zoom on, names that would overlap are left out);
+  the objects one by one with a checkbox (the mouse over a kind, part or object shows the maps it comes from). **Names on the map** per kind (from a zoom on, names that would overlap are left out);
   **Only starting below** FL… shows only the airspaces whose lower limit is below that level. The mouse over an object
-  shows its name, class, vertical limits and frequencies; a click opens it with **Hide this object** (**Show all** in
+  shows its name, class, vertical limits, frequencies, own note and the map it comes from; a click opens it with
+  **Name / note** (an own name shown instead of the map's one, empty = the map's name, and a note; kept on the server in
+  `data\vectormaps_notes.json`, apart from the maps, so an update or a new download keeps them) and **Hide this object** (**Show all** in
   the settings brings the hidden ones back). A click on the colour mark of a part opens its **style**: line (colour,
   width, solid / dash / long / dot / dash-dot, opacity, from which zoom) and fill (colour, opacity, from which zoom) of an area, symbol (colour,
   circle / square / diamond / triangle / cross or a symbol of the aeronautical charts: aerodrome paved / grass /
