@@ -17,6 +17,7 @@ import time
 from flask import Flask, jsonify, request, send_from_directory
 
 import backup
+import dxcluster
 import rotor
 import serverlog
 import sources
@@ -84,6 +85,7 @@ def main():
     app = Flask(__name__, static_folder="static")
     src_state = {"setup": setup, "vfos": vfos, "path": VFOS_PATH}   # shared by SDR SOURCES and BACKUP
     sources.register(app, procs, src_state, ensure_configs)
+    dxcluster.register(app)                 # /api/dxcluster: DX cluster spots for the DX tab
 
     @app.route("/")
     def index():
