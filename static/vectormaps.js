@@ -114,25 +114,25 @@ function vmStyDef(kind, cat) {
   if (vmIsArea(kind, cat)) {
     const [c, w, dash, fo] = kind === "own" ? ["#c8a0ff", 2, "", cat === "line" ? 0 : 0.06] : kind === "aero" ? VM_AERO_STYLE[cat] || VM_AS_DEF
       : kind === "fua" ? VM_FUA_STYLE[cat] || VM_AS_DEF : VM_AS_STYLE[cat] || VM_AS_DEF;
-    return { c, w, d: VM_DASH_OF[dash] || "solid", o: 0.9, fc: c, fo, lc: c, ls: 10, lz: VM_LBL_ZOOM[kind], cz: 1, fz: 1 };   // cz / fz: the line / fill from this zoom on
+    return { c, w, d: VM_DASH_OF[dash] || "solid", o: 0.9, fc: c, fo, lc: c, ls: 10, lz: VM_LBL_ZOOM[kind], lx: 18, cz: 1, cx: 18, fz: 1, fx: 18 };   // cz-cx / fz-fx / lz-lx: the line / fill / name from / to these zooms
   }
   const [c, r] = VM_PT_STYLE[kind] || ["#ffffff", 3];
   const major = kind === "airport" && ["intl", "ifr", "large", "medium"].includes(cat);
   const big = major || (kind === "airport" && cat === "military");
   const aero = (VM_AERO_SYM[kind] || {})[cat] || (kind === "navaid" ? "vor" : kind === "obstacle" ? "obst" : kind === "airport" ? "ad_civil" : "");
   return { fc: c, r: big ? r + 2 : r, sym: aero || (kind === "chan" ? "square" : "circle"), fo: cat === "closed" ? 0.6 : 0.95,
-    lc: c, ls: 10, lz: (VM_LBL_ZOOM[kind] || 9) - (major ? 2 : 0), sz: 1 };   // sz: the symbol from this zoom on
+    lc: c, ls: 10, lz: (VM_LBL_ZOOM[kind] || 9) - (major ? 2 : 0), lx: 18, sz: 1, sx: 18 };   // sz-sx: the symbol from / to these zooms
 }
 const vmSty = (kind, cat) => ({ ...vmStyDef(kind, cat), ...(((vmOpt().style || {})[`${kind}.${cat}`]) || {}) });
 /** The Leaflet style of an object; z: the zoom of the map (the line and the fill of an area each from their own zoom on). */
 function vmStyle(p, z = 99) {
   const y = vmSty(p.kind, p.cat);
-  if (vmIsArea(p.kind, p.cat)) return { color: y.c, weight: y.w, dashArray: VM_DASH[y.d] || null, opacity: z >= (y.cz || 1) ? y.o : 0,
-    fillColor: y.fc, fillOpacity: z >= (y.fz || 1) ? y.fo : 0 };
-  return { color: "#000", weight: 1, opacity: 0.8, fillColor: y.fc, fillOpacity: y.fo, radius: y.r, sym: y.sym, sz: y.sz || 1 };
+  if (vmIsArea(p.kind, p.cat)) return { color: y.c, weight: y.w, dashArray: VM_DASH[y.d] || null, opacity: z >= (y.cz || 1) && z <= (y.cx || 18) ? y.o : 0,
+    fillColor: y.fc, fillOpacity: z >= (y.fz || 1) && z <= (y.fx || 18) ? y.fo : 0 };
+  return { color: "#000", weight: 1, opacity: 0.8, fillColor: y.fc, fillOpacity: y.fo, radius: y.r, sym: y.sym, sz: y.sz || 1, sx: y.sx || 18 };
 }
 /** Which line / fill zooms of the styles the zoom z has reached (the areas are styled again when it changes). */
-const vmZoomSig = (z) => Object.values(vmOpt().style || {}).map((y) => `${z >= (y.cz || 1) ? 1 : 0}${z >= (y.fz || 1) ? 1 : 0}`).join("");
+const vmZoomSig = (z) => Object.values(vmOpt().style || {}).map((y) => `${z >= (y.cz || 1) && z <= (y.cx || 18) ? 1 : 0}${z >= (y.fz || 1) && z <= (y.fx || 18) ? 1 : 0}`).join("");
 const vmKindName = (k) => (VM_KINDS.find((x) => x[0] === k) || [k, k])[1];
 // the aeronautical symbols: drawn as lines in the colour of the part, with a dark edge so they stand out on any map
 function vmHex(ctx, x, y, R) { ctx.moveTo(x + R, y); for (let i = 1; i < 6; i++) ctx.lineTo(x + R * Math.cos(i * Math.PI / 3), y + R * Math.sin(i * Math.PI / 3)); ctx.closePath(); }
@@ -215,7 +215,8 @@ let VmSymCls = null;
 const vmSymMarker = (ll, opt) => new (VmSymCls = VmSymCls || L.CircleMarker.extend({
   _updatePath() {
     const rd = this._renderer, sym = this.options.sym || "circle";
-    if (this._map && this._map.getZoom() < (this.options.sz || 1)) return;   // not drawn below the zoom of its symbol
+    const mz = this._map && this._map.getZoom();
+    if (this._map && (mz < (this.options.sz || 1) || mz > (this.options.sx || 18))) return;   // not drawn outside the zooms of its symbol
     if (sym === "circle" || !rd._ctx) { L.CircleMarker.prototype._updatePath.call(this); return; }
     if (!rd._drawing || this._empty()) return;
     const ctx = rd._ctx, { x, y } = this._point, r = Math.max(this._radius, 1);
@@ -344,10 +345,10 @@ async function vmApply(map) {
     });
     const objs = feats.map((f) => {   // what the mouse and the names need
       const g = f.geometry, p = f.properties || {};
-      if (g.type === "Point") return { p, m: m.name, ll: [g.coordinates[1], g.coordinates[0]], sz: vmSty(p.kind, p.cat).sz || 1 };
+      if (g.type === "Point") return { p, m: m.name, ll: [g.coordinates[1], g.coordinates[0]], sz: vmSty(p.kind, p.cat).sz || 1, sx: vmSty(p.kind, p.cat).sx || 18 };
       const ring = g.type === "Polygon" ? g.coordinates[0] : g.type === "MultiPolygon" ? g.coordinates[0][0] : null;
       const y = vmSty(p.kind, p.cat);
-      return ring ? { p, m: m.name, ring, vz: Math.min(y.cz || 1, y.fz || 1), ...vmRingInfo(ring) } : null;
+      return ring ? { p, m: m.name, ring, vz: Math.min(y.cz || 1, y.fz || 1), vx: Math.max(y.cx || 18, y.fx || 18), ...vmRingInfo(ring) } : null;
     }).filter(Boolean);
     const area = (f) => { const g = f.geometry; return g.type === "Polygon" ? vmRingInfo(g.coordinates[0]).area : g.type === "MultiPolygon" ? vmRingInfo(g.coordinates[0][0]).area : 0; };
     feats.sort((a, b) => area(b) - area(a));
@@ -385,14 +386,14 @@ function vmInit(map) {
     let best = null, bd = tol * tol + 1;
     const z = map.getZoom();
     for (const ob of st.pts) {
-      if (z < ob.sz) continue;   // its symbol is not drawn at this zoom
+      if (z < ob.sz || z > ob.sx) continue;   // its symbol is not drawn at this zoom
       if (Math.abs(ob.ll[0] - ll.lat) > dLat || Math.abs(ob.ll[1] - ll.lng) > dLon) continue;
       const q = map.latLngToContainerPoint(ob.ll), dd = (q.x - cp.x) ** 2 + (q.y - cp.y) ** 2;
       if (dd < bd) { bd = dd; best = ob; }
     }
     if (best) return best;
     for (const ob of st.polys) {
-      if (z < ob.vz) continue;   // neither its line nor its fill is drawn at this zoom
+      if (z < ob.vz || z > ob.vx) continue;   // neither its line nor its fill is drawn at this zoom
       const [w, s, e, n] = ob.box;
       if (ll.lng >= w && ll.lng <= e && ll.lat >= s && ll.lat <= n && vmInRing(ll.lng, ll.lat, ob.ring)) return ob;
     }
@@ -455,7 +456,7 @@ function vmInit(map) {
     lblLayer.clearLayers();
     if (!vmOpt().on || !st.layers.size) return;
     const z = map.getZoom(), b = map.getBounds().pad(0.1), out = [];
-    const ok = (p) => vmLblOn(p.kind) && z >= vmSty(p.kind, p.cat).lz;
+    const ok = (p) => vmLblOn(p.kind) && z >= vmSty(p.kind, p.cat).lz && z <= (vmSty(p.kind, p.cat).lx || 18);
     for (const ob of st.pts) if (ok(ob.p) && b.contains(ob.ll)) out.push(ob);
     for (const ob of st.polys) if (ok(ob.p) && b.contains(ob.c) && ob.area > 0) out.push(ob);
     const rank = { chan: 0, navaid: 1, airport: 2, tx: 3, aero: 4, fua: 5, airspace: 5, own: 6, point: 7, obstacle: 8 };
@@ -616,22 +617,26 @@ function vmStyEditor(kind, cat) {
   const sel = (k, list, name) => `<select data-vmsty="${key}" data-k="${k}">${list.map((v) => `<option value="${v}"${String(v) === String(y[k]) ? " selected" : ""}>${name ? name(v) : v}</option>`).join("")}</select>`;
   const col = (k) => `<input type="color" class="map-opts-cp" data-vmsty="${key}" data-k="${k}" value="${y[k]}">`;
   const own = !!((vmOpt().style || {})[`${kind}.${cat}`]), clip = vmStyClip();
-  const thisZoom = (k) => `<button type="button" class="vm-btn" data-vmthiszoom="${key}" data-k="${k}" title="From the zoom the map has now">This zoom</button>`;
+  // a zoom: its list and This zoom under it; from (k) "all" = 1, to (x) "all" = 18
   const zoomSel = (k, first) => sel(k, [...new Set([first, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, y[k] || first])].sort((a, b) => a - b),
     (v) => (v <= 1 ? "all" : String(v)));
+  const toSel = (k) => sel(k, [...new Set([3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, y[k] || 18])].sort((a, b) => a - b),
+    (v) => (v >= 18 ? "all" : String(v)));
+  const thisZoom = (k, to) => `<button type="button" class="vm-btn" data-vmthiszoom="${key}" data-k="${k}" title="${to ? "Up to" : "From"} the zoom the map has now">This zoom</button>`;
+  const zf = (k, first) => `<div class="vm-sty-wd">${zoomSel(k, first)}${thisZoom(k)}</div>`, zt = (k) => `<div class="vm-sty-wd">${toSel(k)}${thisZoom(k, true)}</div>`;
   const cp = (k, ok) => `<div class="vm-sty-cp">${col(k)}${ok || ""}</div>`;   // a colour with its opacity under it
-  // one table: name | colour (opacity under it) | size | zoom | This zoom
+  // one table: name | colour (opacity under it) | size | from zoom | to zoom (each with This zoom under it)
   const rows = vmIsArea(kind, cat) ? [
     ["Line", cp("c", sel("o", [0.2, 0.4, 0.6, 0.8, 0.9, 1], pc)), `<div class="vm-sty-wd">${sel("w", [0.5, 1, 1.5, 2, 3, 4, 5], (v) => `${v} px`)}${sel("d", Object.keys(VM_DASH))}</div>`,
-      zoomSel("cz", 1), thisZoom("cz")],
-    ["Fill", cp("fc", sel("fo", [0, 0.03, 0.05, 0.08, 0.1, 0.15, 0.2, 0.3, 0.5], pc)), "", zoomSel("fz", 1), thisZoom("fz")],
+      zf("cz", 1), zt("cx")],
+    ["Fill", cp("fc", sel("fo", [0, 0.03, 0.05, 0.08, 0.1, 0.15, 0.2, 0.3, 0.5], pc)), "", zf("fz", 1), zt("fx")],
   ] : [
-    ["Symbol", cp("fc", sel("fo", [0.3, 0.5, 0.7, 0.95, 1], pc)), sel("r", [2, 3, 4, 5, 6, 7, 8, 10], (v) => `${v} px`), zoomSel("sz", 1), thisZoom("sz")],
+    ["Symbol", cp("fc", sel("fo", [0.3, 0.5, 0.7, 0.95, 1], pc)), sel("r", [2, 3, 4, 5, 6, 7, 8, 10], (v) => `${v} px`), zf("sz", 1), zt("sx")],
   ];
-  rows.push(["Name", cp("lc"), sel("ls", [8, 9, 10, 11, 12, 14, 16], (v) => `${v} px`), zoomSel("lz", 5), thisZoom("lz")]);
+  rows.push(["Name", cp("lc"), sel("ls", [8, 9, 10, 11, 12, 14, 16], (v) => `${v} px`), zf("lz", 5), zt("lx")]);
   const grid = vmIsArea(kind, cat) ? "" : `<tr><th>Shape</th><td colspan="4"><div class="vm-syms">${VM_SYMS.map(([v, name]) => `<label class="vm-symopt${v === y.sym ? " on" : ""}" title="${escHtml(name)}">` +
     `<input type="radio" name="vmsym-${key}" data-vmsty="${key}" data-k="sym" value="${v}"${v === y.sym ? " checked" : ""}><img alt="${escHtml(name)}" src="${vmSymIcon(v, y.fc, 22)}"></label>`).join("")}</div></td></tr>`;
-  const head = `<tr class="vm-sty-h"><th></th><td>Colour</td><td>Size</td><td>From zoom</td><td></td></tr>`;
+  const head = `<tr class="vm-sty-h"><th></th><td>Colour</td><td>Size</td><td>From zoom</td><td>To zoom</td></tr>`;
   return `<div class="vm-sty"><button type="button" class="vm-sty-x" data-vmstyclose title="Close">✕</button><table class="vm-sty-t">${head}` +
     rows.map((r) => `<tr><th>${r[0]}</th>${r.slice(1).map((c) => `<td>${c}</td>`).join("")}</tr>`).join("") + grid +
     `<tr><th></th><td colspan="4"><div class="vm-sty-act"><button type="button" class="vm-btn" data-vmstydef="${key}"${own ? "" : " disabled"}>Default</button>` +
@@ -812,7 +817,7 @@ function vmOnClick(e, panel) {
   if (tz) {   // the names (lz) or the symbols (sz) of the part from the zoom the map has now
     const box = panel.closest(".leaflet-container"), map = box && box._vmMap;
     if (!map) return true;
-    const key = tz.dataset.vmthiszoom, k = ["sz", "cz", "fz"].includes(tz.dataset.k) ? tz.dataset.k : "lz", [kind, cat] = key.split("."), style = { ...(vmOpt().style || {}) };
+    const key = tz.dataset.vmthiszoom, k = ["sz", "cz", "fz", "sx", "cx", "fx", "lx"].includes(tz.dataset.k) ? tz.dataset.k : "lz", [kind, cat] = key.split("."), style = { ...(vmOpt().style || {}) };
     const cur = { ...(style[key] || {}), [k]: Math.round(map.getZoom()) };
     if (cur[k] === vmStyDef(kind, cat)[k]) delete cur[k];
     if (Object.keys(cur).length) style[key] = cur; else delete style[key];

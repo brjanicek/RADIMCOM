@@ -131,11 +131,11 @@ at once in all open tabs and windows of the same address.
   **Hide this object** and **Name** and **Note** to fill in (**Save** or Enter; an own name shown instead of the map's one, empty = the map's name, and a note; kept on the server in
   `data\vectormaps_notes.json`, apart from the maps, so an update or a new download keeps them; the right click on a track stays its Track menu) (**Show all** in
   the settings brings the hidden ones back). A click on the colour mark of a part opens its **style**: line (colour,
-  width, solid / dash / long / dot / dash-dot, opacity, from which zoom) and fill (colour, opacity, from which zoom) of an area, symbol (colour,
+  width, solid / dash / long / dot / dash-dot, opacity, from which to which zoom) and fill (colour, opacity, from which to which zoom) of an area, symbol (colour,
   circle / square / diamond / triangle / cross or a symbol of the aeronautical charts: aerodrome paved / grass /
   military / closed, heliport, glider and ultralight site, VOR, VOR-DME, VORTAC, TACAN, DME, NDB, NDB-DME, compulsory and
   on-request reporting point, obstacle, wind turbine, transmitter mast; these are the defaults of the matching parts;
-  size, opacity, **Shown** at every zoom or from a zoom on) of a point, and its name (colour, size, from which zoom; **This zoom** takes the zoom the map
+  size, opacity, **Shown** at every zoom or from / to a zoom) of a point, and its name (colour, size, from which to which zoom; **This zoom** takes the zoom the map
   has now); ✕ closes the style, **Default** returns to the built-in look. **Copy** remembers the whole look of the part
   (in this browser), **Paste** puts it on the part open (a point takes no line or fill,
   an area no symbol). What is shown, hidden and styled is stored in the map files on the server, the
