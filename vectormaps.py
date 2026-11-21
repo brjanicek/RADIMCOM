@@ -840,6 +840,8 @@ def _fua_fetch():
 
 def _fua_limit(val, uom, unit):
     """A vertical limit of the layer as {"v", "u", "ref"} (as the airspaces of openAIP)."""
+    if str(uom or "").upper() in ("GND", "SFC") and val in (None, "", 0):
+        return {"v": 0, "u": "ft", "ref": "GND"}   # the ground (the layer leaves the number out)
     try:
         v = float(val)
     except (TypeError, ValueError):

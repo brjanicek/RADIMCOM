@@ -269,3 +269,7 @@ def test_fua_limit_from_text():
                                          "properties": {"airspace": "LZR2", "startdate": 0, "enddate": 4e12, "lower_val": None, "base": "GND", "top_": "FL 95"}}]}, 1795300000)
     p = c["features"][0]["properties"]
     assert p["lower"]["ref"] == "GND" and p["upper"] == {"v": 95, "u": "FL", "ref": "STD"}
+
+
+def test_fua_ground():
+    assert vm._fua_limit(None, "GND", "") == {"v": 0, "u": "ft", "ref": "GND"}
