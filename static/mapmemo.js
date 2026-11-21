@@ -43,13 +43,128 @@ function mapMemoRecall(i) {
 function mapMemoBarHtml() {
   return mapMemos().map((m, i) => `<button type="button" data-tb="mm" data-mm="${i}"${m ? "" : " disabled"} ` +
     `title="${m ? `Recall ${escHtml(mapMemoName(m, i))} (stored ${new Date(m.at || 0).toLocaleString()})` : "Empty: Save actual stores the maps shown now"}">${escHtml(mapMemoName(m, i))}</button>`).join("") +
-    `<button type="button" data-tb="mmsave" class="mm-save" title="Store the maps shown now (vector maps, base map, A/D map, ADS-B range) into a memory">Save actual</button>`;
+    `<button type="button" data-tb="mmsave" class="mm-save" title="Store the maps shown now (vector maps, base map, A/D map, ADS-B range) into a memory">Save actual</button>` +
+    `<button type="button" data-tb="mmexp" title="Save chosen memories into a .json file">Export</button>` +
+    `<button type="button" data-tb="mmimp" title="Load memories from a .json file (Export) into chosen memories">Import</button>`;
 }
 
 /** A key of the Maps bar pressed (from the click handler of the bars in app.js). */
 function mapMemoClick(b) {
   if (b.dataset.tb === "mm") { mapMemoRecall(+b.dataset.mm); return; }
   if (b.dataset.tb === "mmsave") mapMemoDialog(b);
+  else if (b.dataset.tb === "mmexp") mapMemoExport(b);
+  else if (b.dataset.tb === "mmimp") mapMemoImportPick(b);
+}
+
+/** A small window over the map above the bars (one at a time; the same key again closes it). */
+function mapMemoWin(btn, kind, html) {
+  const wrap = btn.closest(".com-bars"), box = wrap && wrap.parentElement;
+  if (!box) return null;
+  const had = box.querySelector(":scope > .mm-dlg");
+  if (had) { had.remove(); if (had.dataset.kind === kind) return null; }
+  const dlg = document.createElement("div");
+  dlg.className = "mm-dlg";
+  dlg.dataset.kind = kind;
+  dlg.innerHTML = html;
+  box.appendChild(dlg);
+  dlg.style.bottom = `${wrap.offsetHeight + 6}px`;
+  L.DomEvent.disableClickPropagation(dlg);
+  L.DomEvent.disableScrollPropagation(dlg);
+  dlg.addEventListener("keydown", (e) => { if (e.key === "Escape") dlg.remove(); });
+  return dlg;
+}
+const mapMemoRedraw = () => { if (typeof renderComTbar === "function" && comMap) { if (comMap._bars) comMap._bars._html = ""; renderComTbar(); } };
+
+/** Export: the used memories with a checkbox each (all checked); Export saves them as mapmemo.json. */
+function mapMemoExport(btn) {
+  const list = mapMemos(), used = list.map((m, i) => [m, i]).filter(([m]) => m);
+  const dlg = mapMemoWin(btn, "exp", `<div class="mm-dlg-h">Export <button type="button" class="mm-x" data-mmd="x" title="Close">✕</button></div>` +
+    (used.length ? `<div class="mm-dlg-list">${used.map(([m, i]) => `<label><span><input type="checkbox" data-mmi="${i}" checked> ${i + 1}: ${escHtml(mapMemoName(m, i))}</span></label>`).join("")}</div>` +
+      `<div class="mm-dlg-act"><button type="button" data-mmd="all">All / none</button><button type="button" data-mmd="ok">Export</button><button type="button" data-mmd="x">Cancel</button></div>`
+      : `<p class="mm-dlg-note">No memory stored yet.</p>`));
+  if (!dlg) return;
+  dlg.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const a = e.target.closest("button[data-mmd]");
+    if (!a) return;
+    const boxes = [...dlg.querySelectorAll("input[data-mmi]")];
+    if (a.dataset.mmd === "x") dlg.remove();
+    else if (a.dataset.mmd === "all") { const on = !boxes.every((x) => x.checked); boxes.forEach((x) => { x.checked = on; }); }
+    else if (a.dataset.mmd === "ok") {
+      const memos = boxes.filter((x) => x.checked).map((x) => ({ slot: +x.dataset.mmi + 1, ...list[+x.dataset.mmi] }));
+      if (!memos.length) return;
+      const blob = new Blob([JSON.stringify({ radimcom: "mapmemo", version: 1, exported: new Date().toISOString(), memos }, null, 1)], { type: "application/json" });
+      const url = URL.createObjectURL(blob), link = document.createElement("a");
+      link.href = url;
+      link.download = `mapmemo_${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      dlg.remove();
+    }
+  });
+}
+
+/** Import: a .json file of Export is chosen, then each of its memories gets a checkbox and the memory it goes into. */
+function mapMemoImportPick(btn) {
+  const inp = document.createElement("input");
+  inp.type = "file";
+  inp.accept = ".json,application/json";
+  inp.addEventListener("change", () => {
+    const f = inp.files && inp.files[0];
+    if (!f) return;
+    f.text().then((t) => {
+      let d = null;
+      try { d = JSON.parse(t); } catch { d = null; }
+      const memos = d && Array.isArray(d.memos) ? d.memos.filter((m) => m && typeof m === "object" && m.o && typeof m.o === "object") : [];
+      mapMemoImport(btn, memos, f.name);
+    });
+  });
+  inp.click();
+}
+function mapMemoImport(btn, memos, fname) {
+  const list = mapMemos();
+  const target = (j) => `<select data-mmt="${j}">${list.map((m, i) => `<option value="${i}"${i === Math.min(MAP_MEMO_N, Math.max(1, +memos[j].slot || j + 1)) - 1 ? " selected" : ""}>` +
+    `→ ${i + 1}: ${escHtml(m ? mapMemoName(m, i) : "(empty)")}</option>`).join("")}</select>`;
+  const dlg = mapMemoWin(btn, "imp", `<div class="mm-dlg-h">Import <small>${escHtml(fname)}</small> <button type="button" class="mm-x" data-mmd="x" title="Close">✕</button></div>` +
+    (memos.length ? `<div class="mm-dlg-list">${memos.map((m, j) => `<label><span><input type="checkbox" data-mmj="${j}" checked> ${escHtml(String(m.name || `MapMemo ${j + 1}`).slice(0, 30))}</span>${target(j)}</label>`).join("")}</div>` +
+      `<div class="mm-dlg-ask" hidden></div>` +
+      `<div class="mm-dlg-act"><button type="button" data-mmd="ok">Import</button><button type="button" data-mmd="x">Cancel</button></div>`
+      : `<p class="mm-dlg-note">No map memory in this file.</p>`));
+  if (!dlg) return;
+  const ask = dlg.querySelector(".mm-dlg-ask"), act = dlg.querySelector(".mm-dlg-act");
+  const chosen = () => [...dlg.querySelectorAll("input[data-mmj]")].filter((x) => x.checked).map((x) => [+x.dataset.mmj, +dlg.querySelector(`select[data-mmt="${x.dataset.mmj}"]`).value]);
+  const write = () => {
+    const cur = mapMemos();
+    for (const [j, i] of chosen()) {
+      const m = memos[j];
+      cur[i] = { name: String(m.name || "").trim().slice(0, 30) || `MapMemo ${i + 1}`, at: +m.at || Date.now(),
+        o: Object.fromEntries(Object.entries(m.o).filter(([k]) => MAP_MEMO_OPT.test(k))), vm: m.vm && typeof m.vm === "object" ? m.vm : null };
+    }
+    try { localStorage.setItem(MAP_MEMO_KEY, JSON.stringify(cur)); } catch { /* no storage */ }
+    dlg.remove();
+    mapMemoRedraw();
+  };
+  dlg.addEventListener("change", () => { if (ask) { ask.hidden = true; act.hidden = false; } });
+  dlg.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const a = e.target.closest("button[data-mmd]");
+    if (!a) return;
+    const k = a.dataset.mmd;
+    if (k === "x") { dlg.remove(); return; }
+    if (k === "no") { ask.hidden = true; act.hidden = false; return; }
+    if (k === "yes") { write(); return; }
+    if (k !== "ok") return;
+    const c = chosen(), into = c.map(([, i]) => i);
+    if (!c.length) return;
+    if (new Set(into).size < into.length) { ask.innerHTML = "Two memories go into the same place: choose another."; ask.hidden = false; return; }
+    const used = into.filter((i) => mapMemos()[i]);
+    if (!used.length) { write(); return; }
+    ask.innerHTML = `Overwrite ${used.map((i) => escHtml(mapMemoName(mapMemos()[i], i))).join(", ")}? <button type="button" data-mmd="yes">Overwrite</button><button type="button" data-mmd="no">No</button>`;
+    ask.hidden = false;
+    act.hidden = true;
+  });
 }
 
 /** The small "Save actual" window: which memory, its name; an empty one is written at once, a used one asks first. */

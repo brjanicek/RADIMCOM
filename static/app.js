@@ -17392,7 +17392,7 @@ document.addEventListener("click", (e) => {
     comTrkSave();
     renderComMap();
   } else if (a === "unlock") comLockSet(null);
-  else if (a === "mm" || a === "mmsave") mapMemoClick(b);
+  else if (a.startsWith("mm")) mapMemoClick(b);
 });
 
 // the border between the map and the lists beside it: dragged with the mouse, the width of the lists remembered
