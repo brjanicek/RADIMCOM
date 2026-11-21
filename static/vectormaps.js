@@ -537,23 +537,24 @@ function vmStyEditor(kind, cat) {
   const sel = (k, list, name) => `<select data-vmsty="${key}" data-k="${k}">${list.map((v) => `<option value="${v}"${String(v) === String(y[k]) ? " selected" : ""}>${name ? name(v) : v}</option>`).join("")}</select>`;
   const col = (k) => `<input type="color" class="map-opts-cp" data-vmsty="${key}" data-k="${k}" value="${y[k]}">`;
   const own = !!((vmOpt().style || {})[`${kind}.${cat}`]);
-  const rows = vmIsArea(kind, cat) ? [
-    ["Line", col("c") + sel("w", [0.5, 1, 1.5, 2, 3, 4, 5], (v) => `${v} px`) + sel("d", Object.keys(VM_DASH)) + sel("o", [0.2, 0.4, 0.6, 0.8, 0.9, 1], pc)],
-    ["Fill", col("fc") + sel("fo", [0, 0.03, 0.05, 0.08, 0.1, 0.15, 0.2, 0.3, 0.5], pc)],
-  ] : [
-    ["Symbol", col("fc") + sel("r", [2, 3, 4, 5, 6, 7, 8, 10], (v) => `${v} px`) + sel("fo", [0.3, 0.5, 0.7, 0.95, 1], pc)],
-    ["", `<div class="vm-syms">${VM_SYMS.map(([v, name]) => `<label class="vm-symopt${v === y.sym ? " on" : ""}" title="${escHtml(name)}">` +
-      `<input type="radio" name="vmsym-${key}" data-vmsty="${key}" data-k="sym" value="${v}"${v === y.sym ? " checked" : ""}><img alt="${escHtml(name)}" src="${vmSymIcon(v, y.fc, 22)}"></label>`).join("")}</div>`],
-  ];
-  const zs = [...new Set([5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, y.lz])].sort((a, b) => a - b);
   const thisZoom = (k) => `<button type="button" class="vm-btn" data-vmthiszoom="${key}" data-k="${k}" title="From the zoom the map has now">This zoom</button>`;
-  if (!vmIsArea(kind, cat)) {   // the symbol of a point: from its own zoom (always at first)
-    const szs = [...new Set([1, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, y.sz || 1])].sort((a, b) => a - b);
-    rows.push(["Shown", sel("sz", szs, (v) => (v <= 1 ? "at every zoom" : `from zoom ${v}`)) + thisZoom("sz")]);
-  }
-  rows.push(["Name", col("lc") + sel("ls", [8, 9, 10, 11, 12, 14, 16], (v) => `${v} px`) + sel("lz", zs, (v) => `from zoom ${v}`) + thisZoom("lz")]);
-  return `<div class="vm-sty"><button type="button" class="vm-sty-x" data-vmstyclose title="Close">✕</button>${rows.map(([n, c]) => `<div class="vm-sty-row"><span>${n}</span>${c}</div>`).join("")}` +
-    `<div class="vm-sty-row"><span></span><button type="button" class="vm-btn" data-vmstydef="${key}"${own ? "" : " disabled"}>Default</button></div></div>`;
+  const zoomSel = (k, first) => sel(k, [...new Set([first, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, y[k] || first])].sort((a, b) => a - b),
+    (v) => (v <= 1 ? "all" : String(v)));
+  const cp = (k, ok) => `<div class="vm-sty-cp">${col(k)}${ok || ""}</div>`;   // a colour with its opacity under it
+  // one table: name | colour (opacity under it) | size | zoom | This zoom
+  const rows = vmIsArea(kind, cat) ? [
+    ["Line", cp("c", sel("o", [0.2, 0.4, 0.6, 0.8, 0.9, 1], pc)), sel("w", [0.5, 1, 1.5, 2, 3, 4, 5], (v) => `${v} px`), sel("d", Object.keys(VM_DASH)), ""],
+    ["Fill", cp("fc", sel("fo", [0, 0.03, 0.05, 0.08, 0.1, 0.15, 0.2, 0.3, 0.5], pc)), "", "", ""],
+  ] : [
+    ["Symbol", cp("fc", sel("fo", [0.3, 0.5, 0.7, 0.95, 1], pc)), sel("r", [2, 3, 4, 5, 6, 7, 8, 10], (v) => `${v} px`), zoomSel("sz", 1), thisZoom("sz")],
+  ];
+  rows.push(["Name", cp("lc"), sel("ls", [8, 9, 10, 11, 12, 14, 16], (v) => `${v} px`), zoomSel("lz", 5), thisZoom("lz")]);
+  const grid = vmIsArea(kind, cat) ? "" : `<tr><th>Shape</th><td colspan="4"><div class="vm-syms">${VM_SYMS.map(([v, name]) => `<label class="vm-symopt${v === y.sym ? " on" : ""}" title="${escHtml(name)}">` +
+    `<input type="radio" name="vmsym-${key}" data-vmsty="${key}" data-k="sym" value="${v}"${v === y.sym ? " checked" : ""}><img alt="${escHtml(name)}" src="${vmSymIcon(v, y.fc, 22)}"></label>`).join("")}</div></td></tr>`;
+  const head = `<tr class="vm-sty-h"><th></th><td>Colour</td><td>Size</td><td>${vmIsArea(kind, cat) ? "Dash / from zoom" : "From zoom"}</td><td></td></tr>`;
+  return `<div class="vm-sty"><button type="button" class="vm-sty-x" data-vmstyclose title="Close">✕</button><table class="vm-sty-t">${head}` +
+    rows.map((r) => `<tr><th>${r[0]}</th>${r.slice(1).map((c) => `<td>${c}</td>`).join("")}</tr>`).join("") + grid +
+    `<tr><th></th><td colspan="4"><button type="button" class="vm-btn" data-vmstydef="${key}"${own ? "" : " disabled"}>Default</button></td></tr></table></div>`;
 }
 function vmCatOpen() {   // the parts open in the tree (this browser)
   try { const v = JSON.parse(localStorage.getItem("vmCatOpen") || "[]"); return Array.isArray(v) ? v : []; } catch { return []; }
