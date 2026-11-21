@@ -22,6 +22,7 @@ import numpy as np
 from sgp4.api import Satrec
 
 import location
+import moon
 from paths import data
 
 TLE_URL = "https://celestrak.org/NORAD/elements/gp.php?GROUP={}&FORMAT=tle"
@@ -189,13 +190,18 @@ def tle_state(refresh=False):
         return {"fetched": mtime, "error": _last_error}
 
 
+_MOON = {"name": moon.MOON_NAME, "sat": moon.MoonSat(), "epoch": 0.0, "moon": True}
+
+
 def satellites():
-    """{norad: {"name", "sat": Satrec, "epoch": unix time}} from the saved file, read again when it changes."""
+    """{norad: {"name", "sat": Satrec, "epoch": unix time}} from the saved file, read again when it changes; with the Moon
+    (moon.MOON_ID, EME) as one more "satellite" whose position is calculated (moon.py), so its "elements" are always new."""
+    _MOON["epoch"] = time.time()
     with _lock:
         try:
             mtime = os.path.getmtime(TLE_PATH)
         except OSError:
-            return {}
+            return {moon.MOON_ID: _MOON}
         if _cache["tle_mtime"] != mtime:
             with open(TLE_PATH, encoding="ascii", errors="replace") as f:
                 parsed = parse_tle(f.read())
@@ -206,6 +212,7 @@ def satellites():
                 except (ValueError, IndexError):
                     continue
                 sats[norad] = {"name": name, "sat": sat, "epoch": (sat.jdsatepoch + sat.jdsatepochF - 2440587.5) * 86400}
+            sats[moon.MOON_ID] = _MOON
             _cache.update(tle_mtime=mtime, sats=sats)
         return _cache["sats"]
 
@@ -377,14 +384,16 @@ def pass_detail(norad, aos, los):
     aos, los = float(aos), float(los)
     if not 0 < los - aos <= 24 * 3600:
         raise ValueError("wrong pass times")
-    t = np.arange(aos, los + DETAIL_S, DETAIL_S)
+    step = 60.0 if s.get("moon") else DETAIL_S      # a Moon pass lasts up to 16 hours and moves slowly
+    t = np.arange(aos, los + step, step)
     t[-1] = min(t[-1], los)
     lk = look(s["sat"], t, setup)
     return {"norad": int(norad), "name": s["name"], "setup": setup,
             "tle_epoch": s["epoch"],
             "samples": [{"t": round(float(t[i]), 1), "az": round(float(lk["az"][i]), 2), "el": round(float(lk["el"][i]), 2),
                          "range": round(float(lk["range"][i]), 1), "rate": round(float(lk["rate"][i]), 4),
-                         "doppler_hz_per_mhz": round(float(-lk["rate"][i] / C_KM_S * 1e6), 1)} for i in range(len(t))]}
+                         "doppler_hz_per_mhz": round(float(-lk["rate"][i] / C_KM_S * 1e6), 1)} for i in range(len(t))],
+            **({"eme": True} if s.get("moon") else {})}
 
 
 def world_map(start=None):
@@ -433,7 +442,8 @@ def catalog():
     tle = tle_state()
     now = time.time()
     groups = sat_groups()
-    return {"tle": tle, "groups": [{"key": k, "title": t} for k, t in TLE_GROUPS],
+    groups[moon.MOON_ID] = ["eme"]       # the Moon has its own tab in SETUP
+    return {"tle": tle, "groups": [{"key": k, "title": t} for k, t in TLE_GROUPS] + [{"key": "eme", "title": "Moon (EME)"}],
             "sats": sorted(({"norad": n, "name": s["name"], "tle_age_days": round((now - s["epoch"]) / 86400, 1),
                              "groups": groups.get(n, ["amateur"])}
                             for n, s in satellites().items()), key=lambda r: r["name"].lower())}
@@ -629,7 +639,11 @@ class Doppler:
                 self.f_sat, self.last_set = f_sat, cur
             f_rx = self.f_sat * factor
             self.now = {"rate": round(rate, 4), "factor": factor, "az": round(float(lk["az"][0]), 2),
-                        "el": round(float(lk["el"][0]), 2), "f_rx": round(f_rx, 1), "shift": round(f_rx - self.f_sat, 1)}
+                        "el": round(float(lk["el"][0]), 2), "f_rx": round(f_rx, 1), "shift": round(f_rx - self.f_sat, 1),
+                        "range": round(float(lk["range"][0]), 1)}
+            if sat.get("moon"):      # EME: the own echo and the path loss at the tracked frequency
+                self.now["eme"] = {"echo_hz": round(moon.echo_doppler(rate, self.f_sat), 1),
+                                   "loss_db": round(moon.path_loss_db(float(lk["range"][0]), self.f_sat), 1)}
             step = self.STEP_HZ.get(self.get_mode(), self.STEP_FINE_HZ)
             due = self.last_set is None or (abs(f_rx - self.last_set) >= step and now - self.last_set_at >= self.MIN_GAP_S)
             target = round(f_rx)
