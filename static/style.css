@@ -4496,7 +4496,7 @@ body.map-only #comStatus, #comPane:fullscreen #comStatus { display: flex; }
 .vm-tip .muted { color: #8fa3bd; }
 .vm-lbl { background: none; border: none; }
 .vm-lbl span { display: block; transform: translate(-50%, -50%); white-space: nowrap; text-align: center; font: 600 10px/1.15 system-ui, sans-serif; color: var(--c); text-shadow: 0 0 2px #000, 0 0 2px #000, 0 0 3px #000; }
-.vm-lbl.pt span { transform: translate(-50%, 6px); }
+.vm-lbl.pt span { transform: translate(-50%, 10px); }
 .vm-lbl small { display: block; font-weight: 400; font-size: 9px; color: #cfd6df; }
 .vm-pop .leaflet-popup-content-wrapper, .vm-pop .leaflet-popup-tip { background: rgba(20, 24, 30, .92); color: #fff; }
 .vm-pop .leaflet-popup-content { margin: 8px 10px; font: 12px/1.4 system-ui, sans-serif; }

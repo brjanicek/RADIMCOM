@@ -85,7 +85,23 @@ const VM_PT_STYLE = {   // colour, radius
 // the defaults above, what the person changed in view.style (stored on the server with the maps)
 const VM_DASH = { solid: null, dash: "8 5", long: "14 6", dot: "2 4", dashdot: "8 4 2 4" };
 const VM_DASH_OF = { "6 4": "dash", "8 4": "dash", "4 4": "dash", "2 4": "dot", "10 6": "long" };
-const VM_SYMS = [["circle", "Circle"], ["square", "Square"], ["diamond", "Diamond"], ["triangle", "Triangle"], ["cross", "Cross"]];
+const VM_SYMS = [["circle", "Circle"], ["square", "Square"], ["diamond", "Diamond"], ["triangle", "Triangle"], ["cross", "Cross"],
+  // the symbols of the aeronautical (ICAO VFR) charts
+  ["ad", "Aerodrome, paved runway"], ["ad_civil", "Aerodrome, grass"], ["ad_mil", "Military aerodrome"], ["heli", "Heliport"],
+  ["glider", "Glider site"], ["ul", "Ultralight site"], ["closed", "Closed aerodrome"], ["vor", "VOR"], ["vordme", "VOR-DME"],
+  ["vortac", "VORTAC"], ["tacan", "TACAN"], ["dme", "DME"], ["ndb", "NDB"], ["ndbdme", "NDB-DME"], ["rp", "Reporting point, compulsory"],
+  ["rp_opt", "Reporting point, on request"], ["obst", "Obstacle"], ["wind", "Wind turbine"], ["mast", "Transmitter mast"]];
+// the aeronautical symbol of a part at first (as on the ICAO VFR charts)
+const VM_AERO_SYM = {
+  airport: { intl: "ad", large: "ad", medium: "ad", ifr: "ad", airport: "ad", civil: "ad_civil", small: "ad_civil", strip: "ad_civil",
+    agri: "ad_civil", water: "ad_civil", altiport: "ad_civil", balloon: "ad_civil", military: "ad_mil", heli: "heli", heli_mil: "heli",
+    glider: "glider", ul: "ul", closed: "closed" },
+  navaid: { VOR: "vor", DVOR: "vor", "VOR-DME": "vordme", "DVOR-DME": "vordme", VORTAC: "vortac", DVORTAC: "vortac", TACAN: "tacan",
+    DME: "dme", NDB: "ndb", "NDB-DME": "ndbdme" },
+  point: { RP: "rp", RP_OPT: "rp_opt" },
+  obstacle: { wind: "wind", tower: "obst", chimney: "obst", building: "obst", obstacle: "obst" },
+  tx: { bcast: "mast", radar: "mast", ham: "mast", comm: "mast", mobile: "mast" },
+};
 function vmStyDef(kind, cat) {
   if (vmIsArea(kind, cat)) {
     const [c, w, dash, fo] = kind === "own" ? ["#c8a0ff", 2, "", cat === "line" ? 0 : 0.06] : VM_AS_STYLE[cat] || VM_AS_DEF;
@@ -94,7 +110,8 @@ function vmStyDef(kind, cat) {
   const [c, r] = VM_PT_STYLE[kind] || ["#ffffff", 3];
   const major = kind === "airport" && ["intl", "ifr", "large", "medium"].includes(cat);
   const big = major || (kind === "airport" && cat === "military");
-  return { fc: c, r: big ? r + 2 : r, sym: kind === "navaid" ? "diamond" : kind === "point" || kind === "tx" ? "triangle" : kind === "chan" ? "square" : "circle", fo: cat === "closed" ? 0.3 : 0.95,
+  const aero = (VM_AERO_SYM[kind] || {})[cat] || (kind === "navaid" ? "vor" : kind === "obstacle" ? "obst" : kind === "airport" ? "ad_civil" : "");
+  return { fc: c, r: big ? r + 2 : r, sym: aero || (kind === "chan" ? "square" : "circle"), fo: cat === "closed" ? 0.6 : 0.95,
     lc: c, ls: 10, lz: (VM_LBL_ZOOM[kind] || 9) - (major ? 2 : 0) };
 }
 const vmSty = (kind, cat) => ({ ...vmStyDef(kind, cat), ...(((vmOpt().style || {})[`${kind}.${cat}`]) || {}) });
@@ -102,6 +119,55 @@ function vmStyle(p) {
   const y = vmSty(p.kind, p.cat);
   if (vmIsArea(p.kind, p.cat)) return { color: y.c, weight: y.w, dashArray: VM_DASH[y.d] || null, opacity: y.o, fillColor: y.fc, fillOpacity: y.fo };
   return { color: "#000", weight: 1, opacity: 0.8, fillColor: y.fc, fillOpacity: y.fo, radius: y.r, sym: y.sym };
+}
+// the aeronautical symbols: drawn as lines in the colour of the part, with a dark edge so they stand out on any map
+function vmHex(ctx, x, y, R) { ctx.moveTo(x + R, y); for (let i = 1; i < 6; i++) ctx.lineTo(x + R * Math.cos(i * Math.PI / 3), y + R * Math.sin(i * Math.PI / 3)); ctx.closePath(); }
+const VM_AERO_DRAW = {
+  ad: (c, x, y, R) => { c.arc(x, y, R, 0, 2 * Math.PI); c.moveTo(x - R * 1.45, y); c.lineTo(x + R * 1.45, y); },
+  ad_civil: (c, x, y, R) => { c.arc(x, y, R, 0, 2 * Math.PI); for (const [a, b] of [[0, -1], [1, 0], [0, 1], [-1, 0]]) { c.moveTo(x + a * R, y + b * R); c.lineTo(x + a * R * 1.5, y + b * R * 1.5); } },
+  ad_mil: (c, x, y, R) => { c.arc(x, y, R, 0, 2 * Math.PI); c.moveTo(x + R * 0.55, y); c.arc(x, y, R * 0.55, 0, 2 * Math.PI); c.moveTo(x - R * 1.45, y); c.lineTo(x + R * 1.45, y); },
+  heli: (c, x, y, R) => { c.arc(x, y, R, 0, 2 * Math.PI); const h = R * 0.5; c.moveTo(x - h, y - h); c.lineTo(x - h, y + h); c.moveTo(x + h, y - h); c.lineTo(x + h, y + h); c.moveTo(x - h, y); c.lineTo(x + h, y); },
+  glider: (c, x, y, R) => { c.arc(x, y, R, 0, 2 * Math.PI); c.moveTo(x - R * 0.8, y - R * 0.1); c.quadraticCurveTo(x, y + R * 0.45, x + R * 0.8, y - R * 0.1); c.moveTo(x, y + R * 0.2); c.lineTo(x, y - R * 0.4); },
+  ul: (c, x, y, R) => { c.arc(x, y, R, 0, 2 * Math.PI); c.moveTo(x - R * 0.5, y - R * 0.4); c.lineTo(x, y + R * 0.45); c.lineTo(x + R * 0.5, y - R * 0.4); },
+  closed: (c, x, y, R) => { c.arc(x, y, R, 0, 2 * Math.PI); const d = R * 0.72; c.moveTo(x - d, y - d); c.lineTo(x + d, y + d); c.moveTo(x + d, y - d); c.lineTo(x - d, y + d); },
+  vor: (c, x, y, R) => { vmHex(c, x, y, R); },
+  vordme: (c, x, y, R) => { vmHex(c, x, y, R); c.rect(x - R * 1.1, y - R * 0.95, R * 2.2, R * 1.9); },
+  vortac: (c, x, y, R) => { vmHex(c, x, y, R); },
+  tacan: (c, x, y, R) => { vmHex(c, x, y, R); },
+  dme: (c, x, y, R) => { c.rect(x - R, y - R * 0.8, 2 * R, 1.6 * R); },
+  ndb: (c, x, y, R) => { for (let i = 0; i < 12; i++) { const a = i * Math.PI / 6, px = x + R * Math.cos(a), py = y + R * Math.sin(a); c.moveTo(px + 0.9, py); c.arc(px, py, 0.9, 0, 2 * Math.PI); } },
+  ndbdme: (c, x, y, R) => { VM_AERO_DRAW.ndb(c, x, y, R * 0.85); c.moveTo(x - R * 1.1, y - R * 1.1); c.rect(x - R * 1.1, y - R * 1.1, R * 2.2, R * 2.2); },
+  rp: (c, x, y, R) => { c.moveTo(x, y - R); c.lineTo(x + R * 0.9, y + R * 0.6); c.lineTo(x - R * 0.9, y + R * 0.6); c.closePath(); },
+  rp_opt: (c, x, y, R) => { c.moveTo(x, y - R); c.lineTo(x + R * 0.9, y + R * 0.6); c.lineTo(x - R * 0.9, y + R * 0.6); c.closePath(); },
+  obst: (c, x, y, R) => { c.moveTo(x - R * 0.55, y + R * 0.7); c.lineTo(x, y - R * 1.1); c.lineTo(x + R * 0.55, y + R * 0.7); },
+  wind: (c, x, y, R) => { c.moveTo(x, y + R); c.lineTo(x, y - R * 0.3); for (let i = 0; i < 3; i++) { const a = -Math.PI / 2 + i * 2 * Math.PI / 3; c.moveTo(x, y - R * 0.3); c.lineTo(x + R * 0.8 * Math.cos(a), y - R * 0.3 + R * 0.8 * Math.sin(a)); } },
+  mast: (c, x, y, R) => { c.moveTo(x - R * 0.5, y + R * 0.8); c.lineTo(x, y - R * 0.6); c.lineTo(x + R * 0.5, y + R * 0.8); c.moveTo(x - R * 0.25, y + R * 0.1); c.lineTo(x + R * 0.25, y + R * 0.1);
+    c.moveTo(x - R * 0.45, y - R * 1.05); c.arc(x, y - R * 0.6, R * 0.45, Math.PI * 1.25, Math.PI * 1.75); },
+};
+function vmAeroDraw(ctx, sym, x, y, r, color, alpha) {
+  const R = r * 1.5;
+  ctx.save();
+  ctx.globalAlpha = alpha == null ? 1 : alpha;
+  ctx.lineJoin = "round"; ctx.lineCap = "round";
+  ctx.beginPath();
+  VM_AERO_DRAW[sym](ctx, x, y, R);
+  ctx.strokeStyle = "rgba(0,0,0,.75)"; ctx.lineWidth = 3.4; ctx.stroke();   // the dark edge
+  ctx.strokeStyle = color; ctx.lineWidth = 1.6; ctx.stroke();
+  ctx.fillStyle = color;
+  if (sym === "rp") ctx.fill();
+  if (sym === "vortac" || sym === "tacan") {   // three filled lobes on every other side of the hexagon
+    for (let i = 0; i < 3; i++) {
+      const a = (2 * i + 0.5) * Math.PI / 3, nx = Math.cos(a), ny = Math.sin(a), tx = -ny, ty = nx, m = R * Math.cos(Math.PI / 6), h = R / 2;
+      ctx.beginPath();
+      ctx.moveTo(x + nx * m + tx * h, y + ny * m + ty * h); ctx.lineTo(x + nx * m - tx * h, y + ny * m - ty * h);
+      ctx.lineTo(x + nx * (m + R * 0.45) - tx * h, y + ny * (m + R * 0.45) - ty * h); ctx.lineTo(x + nx * (m + R * 0.45) + tx * h, y + ny * (m + R * 0.45) + ty * h);
+      ctx.closePath(); ctx.fill();
+    }
+  }
+  if (["vor", "vordme", "vortac", "dme", "ndb", "ndbdme", "obst", "mast"].includes(sym)) {   // the centre dot
+    ctx.beginPath(); ctx.arc(x, sym === "obst" ? y + R * 0.7 : sym === "mast" ? y - R * 0.6 : y, 1.6, 0, 2 * Math.PI); ctx.fill();
+  }
+  ctx.restore();
 }
 // a point drawn as a symbol on the canvas (one canvas for thousands of points); made when first needed, since
 // Leaflet is loaded after this file
@@ -112,6 +178,7 @@ const vmSymMarker = (ll, opt) => new (VmSymCls = VmSymCls || L.CircleMarker.exte
     if (sym === "circle" || !rd._ctx) { L.CircleMarker.prototype._updatePath.call(this); return; }
     if (!rd._drawing || this._empty()) return;
     const ctx = rd._ctx, { x, y } = this._point, r = Math.max(this._radius, 1);
+    if (VM_AERO_DRAW[sym]) { vmAeroDraw(ctx, sym, x, y, r, this.options.fillColor, this.options.fillOpacity); return; }
     ctx.beginPath();
     if (sym === "square") ctx.rect(x - r, y - r, 2 * r, 2 * r);
     else if (sym === "diamond") { ctx.moveTo(x, y - r * 1.3); ctx.lineTo(x + r * 1.3, y); ctx.lineTo(x, y + r * 1.3); ctx.lineTo(x - r * 1.3, y); ctx.closePath(); }
@@ -132,7 +199,7 @@ function vmListGet(force) {
   if (vmList) return Promise.resolve(vmList);
   return (vmListP = vmListP || mapLayApi("/api/vectormaps").then((j) => {
     const v = j.view || {};
-    vmView = { cats: v.cats || {}, lbl: v.lbl || {}, maxFL: +v.maxFL || 0, maps: v.maps || {}, hidden: v.hidden || [], style: v.style || {} };
+    vmView = { cats: v.cats || {}, lbl: v.lbl || {}, maxFL: +v.maxFL || 0, maps: v.maps || {}, hidden: v.hidden || [], style: v.style || {}, srcs: v.srcs || {} };
     if (!v.stored && (j.maps || []).length && VM_VIEW_KEYS.some((k) => { const x = b[k]; return Array.isArray(x) ? x.length : x && typeof x === "object" ? Object.keys(x).length : x; })) {
       vmView = Object.fromEntries(VM_VIEW_KEYS.map((k) => [k, b[k]]));   // once: what this browser had before goes to the server
       vmViewSave();
@@ -312,7 +379,7 @@ function vmInit(map) {
       const q = map.latLngToContainerPoint(ob.ll || ob.c), txt = String(ob.p.ident && ob.p.kind !== "airspace" && ob.p.kind !== "tx" ? ob.p.ident : vmName(ob.p));
       if (!txt) continue;   // nothing to write
       const w = Math.max(20, txt.length * 6), hh = ob.p.kind === "airspace" || ob.p.kind === "navaid" ? 24 : 12;
-      const r = [q.x - w / 2, pt ? q.y + 6 : q.y - hh / 2, q.x + w / 2, (pt ? q.y + 6 : q.y - hh / 2) + hh];
+      const r = [q.x - w / 2, pt ? q.y + 10 : q.y - hh / 2, q.x + w / 2, (pt ? q.y + 10 : q.y - hh / 2) + hh];
       if (placed.some((o) => r[0] < o[2] && r[2] > o[0] && r[1] < o[3] && r[3] > o[1])) continue;
       placed.push(r);
       L.marker(ob.ll || ob.c, { pane: "vmlabels", interactive: false, keyboard: false,

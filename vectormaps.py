@@ -332,7 +332,8 @@ def get_view(maps=None):
 
 
 STYLE_KEYS = {"c": "color", "fc": "color", "lc": "color", "d": ("solid", "dash", "long", "dot", "dashdot"),
-              "sym": ("circle", "square", "diamond", "triangle", "cross"), "w": (0.5, 10), "o": (0, 1), "fo": (0, 1),
+              "sym": ("circle", "square", "diamond", "triangle", "cross", "ad", "ad_civil", "ad_mil", "heli", "glider", "ul", "closed",
+                      "vor", "vordme", "vortac", "tacan", "dme", "ndb", "ndbdme", "rp", "rp_opt", "obst", "wind", "mast"), "w": (0.5, 10), "o": (0, 1), "fo": (0, 1),
               "r": (1, 20), "ls": (6, 24), "lz": (1, 18)}
 
 
