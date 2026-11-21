@@ -580,7 +580,6 @@ function vmStyEditor(kind, cat) {
     `<tr><th></th><td colspan="4"><div class="vm-sty-act"><button type="button" class="vm-btn" data-vmstydef="${key}"${own ? "" : " disabled"}>Default</button>` +
     `<button type="button" class="vm-btn" data-vmstycopy="${key}" title="Remember this style to paste it to other parts">Copy</button>` +
     `<button type="button" class="vm-btn" data-vmstypaste="${key}"${clip ? "" : " disabled"} title="${clip ? `The style copied from ${escHtml(clip.name)}` : "Copy a style first"}">Paste</button>` +
-    `<button type="button" class="vm-btn" data-vmstypaste="${key}" data-all="1"${clip ? "" : " disabled"} title="The copied style to every part of ${escHtml(vmKindName(kind))}">Paste to all ${escHtml(vmKindName(kind))}</button>` +
     `</div></td></tr></table></div>`;
 }
 function vmCatOpen() {   // the parts open in the tree (this browser)
@@ -765,17 +764,13 @@ function vmOnClick(e, panel) {
     vmRefill(panel);
     return true;
   }
-  if (spa) {   // Paste: to this part, or to every part of its kind in the tree; only the keys the part has (an area takes no symbol)
+  if (spa) {   // Paste: to this part; only the keys the part has (an area takes no symbol)
     const clip = vmStyClip();
     if (!clip) return true;
-    const [kind] = spa.dataset.vmstypaste.split(".");
-    const keys = spa.dataset.all ? [...panel.querySelectorAll(`details[data-vmcatd^="${kind}."]`)].map((d) => d.dataset.vmcatd) : [spa.dataset.vmstypaste];
+    const key = spa.dataset.vmstypaste, [kind, cat] = key.split("."), def = vmStyDef(kind, cat), cur = {};
+    for (const [k, v] of Object.entries(clip.st)) if (k in def && v !== def[k]) cur[k] = v;
     const style = { ...(vmOpt().style || {}) };
-    for (const key of keys) {
-      const [, cat] = key.split("."), def = vmStyDef(kind, cat), cur = {};
-      for (const [k, v] of Object.entries(clip.st)) if (k in def && v !== def[k]) cur[k] = v;
-      if (Object.keys(cur).length) style[key] = cur; else delete style[key];
-    }
+    if (Object.keys(cur).length) style[key] = cur; else delete style[key];
     vmSet({ style });
     vmRefill(panel);
     return true;

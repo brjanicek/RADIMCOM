@@ -122,8 +122,8 @@ at once in all open tabs and windows of the same address.
   on-request reporting point, obstacle, wind turbine, transmitter mast; these are the defaults of the matching parts;
   size, opacity, **Shown** at every zoom or from a zoom on) of a point, and its name (colour, size, from which zoom; **This zoom** takes the zoom the map
   has now); ✕ closes the style, **Default** returns to the built-in look. **Copy** remembers the whole look of the part
-  (in this browser), **Paste** puts it on the part open, **Paste to all …** on every part of that kind (a point takes no
-  line or fill, an area no symbol). What is shown, hidden and styled is stored in the map files on the server, the
+  (in this browser), **Paste** puts it on the part open (a point takes no line or fill,
+  an area no symbol). What is shown, hidden and styled is stored in the map files on the server, the
   same in every browser and computer, and kept by Update. openAIP data: CC BY-NC. (The former own layers of the base map
   are gone: add such files on **Own files** of Map sources.)
 - **Precipitation:** the RainViewer radar (no position sent, only the map tiles) on / off; **only the latest frame**
