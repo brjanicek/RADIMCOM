@@ -376,7 +376,7 @@ async function vmApply(map) {
   st.zsig = vmZoomSig(map.getZoom());
   if (changed) { st.pts = []; st.polys = []; for (const x of st.layers.values()) for (const ob of x.objs) (ob.ring ? st.polys : st.pts).push(ob); st.polys.sort((a, b) => a.area - b.area); }
   st.labels();
-  const attr = [...new Set(list.filter((m) => st.layers.has(m.id)).map((m) => m.attribution).filter(Boolean))].join(" | ");
+  const attr = [...new Set(list.filter((m) => st.layers.has(m.id)).flatMap((m) => String(m.attribution || "").split(" · ")).filter(Boolean))].join(" | ");   // each source once
   if (map.attributionControl && attr !== st.attr) {
     if (st.attr) map.attributionControl.removeAttribution(st.attr);
     if (attr) map.attributionControl.addAttribution(attr);
@@ -388,6 +388,15 @@ function vmInit(map) {
   if (!map.getPane("vmaps")) map.createPane("vmaps").style.zIndex = 380;   // over the tiles and clouds, under the tracks
   if (!map.getPane("vmlabels")) { const lp = map.createPane("vmlabels"); lp.style.zIndex = 385; lp.style.pointerEvents = "none"; }
   map.getContainer()._vmMap = map;   // for "This zoom" of the settings window inside it
+  // the sources line of the map folded into a small © (a click opens / closes it): the long list covered the map
+  if (map.attributionControl && map.attributionControl.getPosition() !== "topright") map.attributionControl.setPosition("topright");   // up under the map buttons: the bars of the COMPOSITE map cover the bottom (a new container)
+  const ac = map.attributionControl && map.attributionControl.getContainer();
+  if (ac && !ac.classList.contains("vm-attr")) {
+    ac.classList.add("vm-attr");
+    ac.title = "Map sources";
+    L.DomEvent.disableClickPropagation(ac);
+    ac.addEventListener("click", (e) => { if (!e.target.closest("a")) ac.classList.toggle("open"); });
+  }
   const st = { layers: new Map(), renderer: L.canvas({ pane: "vmaps", padding: 0.3 }), attr: "", pts: [], polys: [] };
   const lblLayer = L.layerGroup().addTo(map);
   const tip = L.tooltip({ className: "ais-label vm-tip", direction: "top", offset: [0, -6], opacity: 1 });

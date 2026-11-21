@@ -56,7 +56,7 @@ area under the mouse on and off; **Map edit** (OFF at first, per browser) switch
 (own name, note, Hide this object) on and off; the right click on a track keeps its Track menu either way. **Save actual** opens a small window: the memory and its name (MapMemo 1 … at first);
 **OK** stores what the maps show now into an empty memory at once and asks before overwriting a used one. **Export**
 saves the memories ticked in its window (all at first) into a `.json` file; **Import** reads such a file and lists its
-memories, each with a checkbox and the memory it goes into (its own number at first), and asks before overwriting used ones. The memories
+memories, each with a checkbox and the memory it goes into (its own number at first), and asks before overwriting used ones. The sources of the map (©, top right under the map buttons) open and close with a click. The memories
 are kept in the browser (all its tabs and windows); the vector maps part of a recall goes to the server like any change
 of the vector maps.
 

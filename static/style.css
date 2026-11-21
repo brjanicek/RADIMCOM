@@ -4586,3 +4586,7 @@ details[data-sec=vmaps] > .map-opts-body:empty { display: none; }
 .vm-sty-h td { padding: 0 3px; color: #8fa3bd; font-size: 10px; }
 .vm-sty-cp { display: flex; flex-direction: column; gap: 2px; width: 58px; }
 .vm-sty-cp input[type=color] { width: 100%; }
+.leaflet-container .leaflet-control-attribution.vm-attr { cursor: pointer; }   /* the map sources folded into a ©, a click opens them (vectormaps.js) */
+.leaflet-container .leaflet-control-attribution.vm-attr:not(.open) { font-size: 0; padding: 0 6px; background: rgba(10, 13, 18, .7); border-radius: 4px; }
+.leaflet-container .leaflet-control-attribution.vm-attr:not(.open)::before { content: "©"; font-size: 12px; line-height: 18px; color: #9fb3c8; }
+.leaflet-container .leaflet-control-attribution.vm-attr.open { max-width: min(640px, 90%); }
