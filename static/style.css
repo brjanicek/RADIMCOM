@@ -4474,7 +4474,7 @@ body.map-only #comStatus, #comPane:fullscreen #comStatus { display: flex; }
 .com-find label button { width: auto; display: inline-block; padding: 1px 10px; border: 1px solid #3a4a60; border-radius: 4px; background: #18202b; }
 .com-find-err { padding: 2px 10px 4px; color: #ff6b5e; }
 /* vector maps (vectormaps.js): the section of the map settings and the tooltips */
-.vm-countries { width: 140px; font: inherit; color: #dfe4ea; background: #141b26; border: 1px solid #3a4a60; border-radius: 3px; padding: 1px 4px; }
+.vm-find { width: 140px; height: 20px; box-sizing: border-box; font: inherit; color: #dfe4ea; background: #141b26; border: 1px solid #3a4a60; border-radius: 3px; padding: 1px 4px; }
 .vm-btn { font: 11px/1 system-ui, sans-serif; color: #dfe4ea; background: #1c2533; border: 1px solid #3a4a60; border-radius: 3px; padding: 3px 8px; cursor: pointer; }
 .vm-btn:disabled { opacity: .5; cursor: default; }
 .vm-maps td.vm-stale { color: #ffb020; font-size: 11px; }
@@ -4485,9 +4485,10 @@ body.map-only #comStatus, #comPane:fullscreen #comStatus { display: flex; }
 .vm-cat > summary { cursor: pointer; display: flex; align-items: center; gap: 6px; margin: 1px 0; }
 .vm-cat > summary input { margin: 0; }
 .vm-objs { max-height: 180px; overflow-y: auto; padding-left: 22px; margin-bottom: 3px; }
+.vm-objs, .vm-ctry { scrollbar-width: thin; scrollbar-color: #3a4a60 transparent; }
+.vm-objs::-webkit-scrollbar, .vm-ctry::-webkit-scrollbar { width: 5px; }
+.vm-objs::-webkit-scrollbar-thumb, .vm-ctry::-webkit-scrollbar-thumb { background: #3a4a60; border-radius: 3px; }
 .vm-objs label { margin: 0; overflow: hidden; text-overflow: ellipsis; }
-.vm-objs::-webkit-scrollbar { width: 5px; }
-.vm-objs::-webkit-scrollbar-thumb { background: #3a4a60; border-radius: 3px; }
 .vm-cats label { margin: 1px 0; }
 .vm-kind > label { padding-left: 18px; }
 .vm-sw { display: inline-block; width: 14px; height: 9px; border: 2px solid var(--c); background: color-mix(in srgb, var(--c) 25%, transparent); border-radius: 2px; flex: none; }
@@ -4518,3 +4519,14 @@ body.map-only #comStatus, #comPane:fullscreen #comStatus { display: flex; }
 .vm-kind[open] > summary::before, .vm-cat[open] > summary::before { transform: rotate(90deg); }
 .vm-kind > summary:hover::before, .vm-cat > summary:hover::before { color: #fff; }
 details[data-sec=vmaps] > .map-opts-body:empty { display: none; }
+.vm-ctry { max-height: 260px; overflow-y: auto; margin: 2px 0 4px; border: 1px solid #2a3546; border-radius: 3px; }
+.vm-ctry .vm-maps { width: 100%; }
+.vm-ctry tr th { font-weight: 400; color: #8fa3bd; }
+.vm-ctry tr.vm-have { background: rgba(108, 184, 255, .14); }
+.vm-ctry tr.vm-have th { color: #fff; font-weight: 600; box-shadow: inset 3px 0 #6cb8ff; }
+.vm-ctry .vm-cn { padding-left: 22px; }
+.vm-ctry td:last-child { text-align: right; white-space: nowrap; }
+.vm-get { padding: 0 5px; border: 1px solid transparent; border-radius: 3px; background: none; color: #6cb8ff; cursor: pointer; font-size: 12px; }
+.vm-get:hover { border-color: #3a4a60; color: #fff; }
+.vm-get:disabled { opacity: .4; cursor: default; }
+.vm-ctry th, .vm-ctry td { padding: 1px 4px; }

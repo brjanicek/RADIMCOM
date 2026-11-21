@@ -31,7 +31,6 @@ function vmOptsNorm(v) {
   const bool = (x) => (x && typeof x === "object" ? Object.fromEntries(Object.entries(x).filter(([k, b]) => /^[\w.-]{1,80}$/.test(k) && typeof b === "boolean")) : {});
   return {
     on: o.on != null ? !!o.on : true,
-    countries: typeof o.countries === "string" ? o.countries.toUpperCase().replace(/[^A-Z ,]/g, "").slice(0, 120) : "SK CZ AT HU PL UA",
     maps: bool(o.maps), cats: bool(o.cats),
     maxFL: VM_MAX_FL.includes(+o.maxFL) ? +o.maxFL : 0,
     lbl: bool(o.lbl),   // names on the map per kind (missing: VM_LBL_DEF)
@@ -42,7 +41,7 @@ function vmOptsNorm(v) {
   };
 }
 // What is shown (cats, lbl, maxFL, maps, hidden) is stored on the server in the map files (the same in every browser
-// and computer); the browser keeps only on, countries and the revisions. vmOpt() gives both together.
+// and computer); the browser keeps only on and the revisions. vmOpt() gives both together.
 const VM_VIEW_KEYS = ["cats", "lbl", "maxFL", "maps", "hidden", "style"];
 let vmView = null;   // from the server (GET /api/vectormaps → view)
 const vmOpt = () => { const b = mapOpts.vm || vmOptsNorm(null); return vmView ? { ...b, ...vmView } : b; };
@@ -308,6 +307,23 @@ function vmInit(map) {
 /** The Vector maps section of the map settings window. */
 // the sources of the vector maps, one tab each (openAIP now; more sources come as more tabs)
 const VM_SOURCES = [["openaip", "openAIP"]];
+// the countries openAIP can be downloaded for (ISO 3166 and Kosovo); their names come from the browser
+const VM_COUNTRIES = ("AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT BV BW BY BZ CA CC CD CF " +
+  "CG CH CI CK CL CM CN CO CR CU CV CW CX CY CZ DE DJ DK DM DO DZ EC EE EG EH ER ES ET FI FJ FK FM FO FR GA GB GD GE GF GG GH GI GL GM GN GP " +
+  "GQ GR GS GT GU GW GY HK HM HN HR HT HU ID IE IL IM IN IO IQ IR IS IT JE JM JO JP KE KG KH KI KM KN KP KR KW KY KZ LA LB LC LI LK LR LS LT " +
+  "LU LV LY MA MC MD ME MF MG MH MK ML MM MN MO MP MQ MR MS MT MU MV MW MX MY MZ NA NC NE NF NG NI NL NO NP NR NU NZ OM PA PE PF PG PH PK PL " +
+  "PM PN PR PS PT PW PY QA RE RO RS RU RW SA SB SC SD SE SG SH SI SJ SK SL SM SN SO SR SS ST SV SX SY SZ TC TD TF TG TH TJ TK TL TM TN TO TR " +
+  "TT TV TW TZ UA UG UM US UY UZ VA VC VE VG VI VN VU WF WS XK YE YT ZA ZM ZW").split(" ");
+let vmCtryNames = null;
+function vmCountryName(c) {
+  if (!vmCtryNames) { try { const d = new Intl.DisplayNames(["en"], { type: "region" }); vmCtryNames = (x) => d.of(x); } catch { vmCtryNames = (x) => x; } }
+  try { return c === "XK" ? "Kosovo" : vmCtryNames(c) || c; } catch { return c; }
+}
+let vmFind = "", vmBusy = false;   // the filter of the country list (this page)
+function vmFindApply(box) {   // the rows of the country list that match the filter
+  const q = vmFind.trim().toLowerCase();
+  box.querySelectorAll("tr[data-vmfind]").forEach((tr) => { tr.hidden = !!q && !tr.dataset.vmfind.includes(q); });
+}
 function vmSrcTab() { try { const v = localStorage.getItem("vmSrcTab"); return VM_SOURCES.some(([k]) => k === v) ? v : VM_SOURCES[0][0]; } catch { return VM_SOURCES[0][0]; } }
 /** The Map sources section: a tab per source with its key, what to download and the downloaded maps. */
 function vmSourcesHtml() {
@@ -317,21 +333,31 @@ function vmSourcesHtml() {
   const list = (vmList || []).filter((m) => (m.source || "openaip") === tab);
   if (!vmList) vmListGet().then(() => vmRefillAll());
   let h = `<div class="vm-tabs">${VM_SOURCES.map(([k, name]) => `<button type="button" class="vm-tab${k === tab ? " on" : ""}" data-vmtab="${k}">${name}</button>`).join("")}</div>`;
-  if (tab === "openaip") h += `<p class="map-opts-note">Airspaces, airports, navaids, reporting points, obstacles (CC BY-NC).</p>` +
-    `<label>API key <input type="text" class="map-opts-url" data-key="openaip" value="${escHtml((mapKeys && mapKeys.openaip) || "")}" placeholder="from openaip.net (free account)" spellcheck="false"></label>` +
-    `<label>Countries <input type="text" class="vm-countries" data-vm="countries" value="${escHtml(o.countries)}" placeholder="SK CZ AT" spellcheck="false">` +
-    `<button type="button" class="vm-btn" data-vmupd>Update</button></label><p class="map-opts-note vm-msg"></p>`;
-  h += list.length ? `<table class="map-opts-t vm-maps">` + list.map((m) => `<tr><th><label title="${n(m.n)} objects, ${Math.max(1, Math.round(m.size / 1024))} kB">` +
-    `${chk(`data-vmmap="${escHtml(m.id)}"`, vmMapOn(m.id))} ${escHtml(m.name)}</label></th>` +
-    `<td class="${m.stale ? "vm-stale" : "muted"}" title="${m.stale ? "Older than an AIRAC cycle (28 days): Update" : "Downloaded"}">${day(m.fetched)}${m.stale ? " ⚠" : ""}</td>` +
-    `<td><button type="button" class="map-opts-del" data-vmdel="${escHtml(m.id)}" title="Delete the downloaded data">✕</button></td></tr>`).join("") + `</table>`
-    : `<p class="map-opts-note">${vmList ? "Nothing downloaded yet: enter the API key and the countries, then Update." : "Loading…"}</p>`;
+  if (tab === "openaip") {
+    const have = new Map(list.map((m) => [m.country, m]));
+    h += `<p class="map-opts-note">Airspaces, airports, navaids, reporting points, obstacles per country (CC BY-NC).</p>` +
+      `<label>API key <input type="text" class="map-opts-url" data-key="openaip" value="${escHtml((mapKeys && mapKeys.openaip) || "")}" placeholder="from openaip.net (free account)" spellcheck="false"></label>` +
+      `<label>Find <input type="search" class="vm-find" data-vmfind value="${escHtml(vmFind)}" placeholder="country or code" spellcheck="false">` +
+      `<button type="button" class="vm-btn" data-vmupd${list.length ? "" : " disabled"} title="Download all the downloaded countries again">Update all</button></label>` +
+      `<p class="map-opts-note">${vmList ? `${list.length} of ${VM_COUNTRIES.length} downloaded (highlighted): ⬇ downloads a country, ↻ updates it, ✕ deletes it.` : "Loading…"}</p>` +
+      `<p class="map-opts-note vm-msg"></p><div class="vm-ctry"><table class="map-opts-t vm-maps">` +
+      [...new Set([...VM_COUNTRIES, ...have.keys()])].map((c) => [c, vmCountryName(c)]).sort((a, b) => a[1].localeCompare(b[1])).map(([c, name]) => {
+        const m = have.get(c), q = escHtml(`${name} ${c}`.toLowerCase());
+        if (!m) return `<tr data-vmfind="${q}"><th><span class="vm-cn">${escHtml(name)} <small class="muted">${c}</small></span></th><td></td>` +
+          `<td><button type="button" class="vm-get" data-vmget="${c}" title="Download ${escHtml(name)}">⬇</button></td></tr>`;
+        return `<tr class="vm-have" data-vmfind="${q}"><th><label title="${n(m.n)} objects, ${Math.max(1, Math.round(m.size / 1024))} kB · shown on the map">` +
+          `${chk(`data-vmmap="${escHtml(m.id)}"`, vmMapOn(m.id))} ${escHtml(name)} <small class="muted">${c}</small></label></th>` +
+          `<td class="${m.stale ? "vm-stale" : "muted"}" title="${m.stale ? "Older than an AIRAC cycle (28 days): update it" : "Downloaded"}">${day(m.fetched)}${m.stale ? " ⚠" : ""}</td>` +
+          `<td><button type="button" class="vm-get" data-vmget="${c}" title="Update ${escHtml(name)}">↻</button>` +
+          `<button type="button" class="map-opts-del" data-vmdel="${escHtml(m.id)}" title="Delete the downloaded data">✕</button></td></tr>`;
+      }).join("") + `</table></div>`;
+  }
   return h;
 }
 function vmRefillAll() {   // both sections in every open settings window of this page
   document.querySelectorAll(".map-opts-panel").forEach((p) => {
     const b = p.querySelector("details[data-sec=vsrc] > .map-opts-body"), v = p.querySelector("details[data-sec=vlist] > .map-opts-body");
-    if (b && !b.contains(document.activeElement)) b.innerHTML = vmSourcesHtml();
+    if (b && !b.contains(document.activeElement)) { b.innerHTML = vmSourcesHtml(); const box = b.querySelector(".vm-ctry"); if (box) vmFindApply(box); }
     if (v && !v.contains(document.activeElement)) v.innerHTML = vmSettingsHtml();
   });
 }
@@ -419,10 +445,10 @@ function vmOnInput(e, panel) {
   const t = e.target;
   if (!t.closest || !t.closest("details[data-sec=vmaps], details[data-sec=vsrc]")) return false;
   if (t.dataset.key) return false;   // the API key: the settings window stores it
+  if (t.matches("[data-vmfind]")) { vmFind = t.value; const box = t.closest(".map-opts-body").querySelector(".vm-ctry"); if (box) vmFindApply(box); return true; }
   if (e.type !== "change") return true;
   const o = vmOpt();
   if (t.dataset.vm === "on") vmSet({ on: t.checked });
-  else if (t.dataset.vm === "countries") vmSet({ countries: t.value.toUpperCase().replace(/[^A-Z ,]/g, "") });
   else if (t.dataset.vm === "maxFL") vmSet({ maxFL: +t.value });
   else if (t.dataset.vmmap) vmSet({ maps: { ...o.maps, [t.dataset.vmmap]: t.checked } });
   else if (t.dataset.vmcat) vmSet({ cats: { ...o.cats, [t.dataset.vmcat]: t.checked } });
@@ -449,16 +475,18 @@ function vmOnInput(e, panel) {
 function vmRefill(panel) {
   const b = panel.querySelector("details[data-sec=vlist] > .map-opts-body"), c = panel.querySelector("details[data-sec=vsrc] > .map-opts-body");
   if (b) b.innerHTML = vmSettingsHtml();
-  if (c) c.innerHTML = vmSourcesHtml();
+  if (c) { c.innerHTML = vmSourcesHtml(); const box = c.querySelector(".vm-ctry"); if (box) vmFindApply(box); }
 }
 
 /** Clicks of the Vector maps section: Update, delete, the tree opened / closed (true = handled). */
 function vmOnClick(e, panel) {
-  const upd = e.target.closest("button[data-vmupd]"), del = e.target.closest("button[data-vmdel]");
+  const upd = e.target.closest("button[data-vmupd], button[data-vmget]"), del = e.target.closest("button[data-vmdel]");
   const msg = () => panel.querySelector(".vm-msg");
-  if (upd) {
-    const cs = [...new Set(vmOpt().countries.split(/[\s,]+/).filter((c) => /^[A-Z]{2}$/.test(c)))];
-    if (!cs.length) { msg().textContent = "Enter the countries (two letters each, e.g. SK CZ AT)."; return true; }
+  if (upd) {   // ⬇ / ↻ one country, or Update all the downloaded ones
+    const cs = upd.dataset.vmget ? [upd.dataset.vmget] : (vmList || []).filter((m) => (m.source || "openaip") === "openaip" && m.country).map((m) => m.country);
+    if (!cs.length) return true;
+    if (vmBusy) { msg().textContent = "Wait, a download is running."; return true; }
+    vmBusy = true;
     upd.disabled = true;
     (async () => {
       const bad = [];
@@ -468,6 +496,7 @@ function vmOnClick(e, panel) {
           await mapLayApi("/api/vectormaps/openaip", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ country: c }) });
         } catch (err) { bad.push(`${c}: ${err.message}`); }
       }
+      vmBusy = false;
       vmSet({ rev: Date.now() });
       await vmListGet(true);
       vmRefill(panel);
