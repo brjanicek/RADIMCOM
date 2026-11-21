@@ -171,3 +171,16 @@ def test_osm_transmitters():
     except ValueError:
         pass
     assert '"ISO3166-1"="SK"' in q[0]
+
+
+def test_memories_channels():
+    items = [{"id": "a1", "name": "OK1 rpt", "groups": ["Repeatery 2 m", "x"], "freq_hz": 145600000, "mode": "FM", "lat": 48.1, "lon": 17.1, "note": "n"},
+             {"id": "a2", "name": "no loc", "groups": [], "freq_hz": 1, "lat": None, "lon": None},
+             {"id": "a3", "name": "Kamzík", "group": "", "freq_hz": 99000000, "mode": "WFM", "lat": 48.18, "lon": 17.1}]
+    c = vm.memories_collection(items)
+    assert [f["properties"]["srcId"] for f in c["features"]] == ["a1", "a3"]
+    p = c["features"][0]["properties"]
+    assert p["kind"] == "chan" and p["freq"] == [{"f": 145.6, "type": "FM"}] and p["groups"] == ["Repeatery 2 m", "x"]
+    names = c["radimcom"]["catNames"]
+    assert names[p["cat"]] == "Repeatery 2 m" and names["nogroup"] == "(no group)"
+    assert vm.re.fullmatch(r"[\w-]{1,30}", p["cat"])

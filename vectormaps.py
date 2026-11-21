@@ -3,7 +3,8 @@
 The data is downloaded once per country (button Update in the map settings) and stored in data/vectormaps/, one file
 per source and country, as GeoJSON with properties of the same names for every source:
 
-    kind    airspace | airport | navaid | point | obstacle | tx (transmitter sites)    (the group of the map settings tree)
+    kind    airspace | airport | navaid | point | obstacle | tx (transmitter sites) | chan (MEMORIES channels)
+            (the group of the map settings tree)
     cat     the part of the group: CTR, TMA, R, D, ... / intl, civil, ul, ... / VOR-DME, NDB, ... (the tree's leaves)
     name, ident, cls (ICAO class A-G or SUA), elev (m MSL), height (m above ground, obstacles)
     freq    [{"f": MHz, "name": str, "type": str}]
@@ -22,7 +23,10 @@ filter, so it is asked per country. OurAirports (https://ourairports.com, public
 frequencies and runways, and navaids, from its CSV files of the whole world (kept a day in data/vectormaps/_ourairports
 so more countries need one download), cut per country. OpenStreetMap (ODbL) through the Overpass API: transmitter
 sites (masts, towers and antennas for broadcasting, mobile phones, radar, amateur radio and other radio), per country.
+MEMORIES: the channels with a location (lat / lon) as the map "memories", one part per group, made again whenever
+memories.json changes.
 """
+import hashlib
 import csv
 import io
 import json
@@ -391,7 +395,7 @@ def list_maps():
                         "country": meta.get("country") or "", "fetched": fetched,
                         "stale": time.time() - fetched > STALE_S, "license": meta.get("license") or "",
                         "attribution": meta.get("attribution") or "", "n": len(coll.get("features") or []),
-                        "size": os.path.getsize(path), "cats": summary(coll)})
+                        "size": os.path.getsize(path), "cats": summary(coll), "catNames": meta.get("catNames") or {}})
         except (OSError, ValueError, AttributeError, TypeError):
             continue
     return out
@@ -639,10 +643,71 @@ def osm_update(country, get=_overpass):
     return _store(f"osm_{country}", coll)
 
 
+# ---------- MEMORIES: the channels with a location ----------
+MEMORIES_ID = "memories"
+
+
+def _group_cat(name):
+    """A part id for a group name (any characters): short and safe for the settings keys."""
+    return "g" + hashlib.md5(name.encode("utf-8")).hexdigest()[:8] if name else "nogroup"
+
+
+def memories_collection(items, fetched=None):
+    """The map of the MEMORIES channels that have a location, one part per (first) group."""
+    feats, names = [], {}
+    for m in items or []:
+        if not isinstance(m, dict):
+            continue
+        geom = _oa_point(m.get("lat"), m.get("lon"))
+        if not geom:
+            continue
+        groups = m.get("groups") or ([m["group"]] if m.get("group") else [])
+        g = str(groups[0]) if groups else ""
+        cat = _group_cat(g)
+        names[cat] = g or "(no group)"
+        f_hz = _num(m.get("freq_hz"))
+        p = {"kind": "chan", "cat": cat, "name": str(m.get("name") or "").strip(), "src": "memories", "srcId": str(m.get("id") or "")}
+        if f_hz:
+            p["freq"] = [{"f": round(f_hz / 1e6, 6), "type": str(m.get("mode") or "")}]
+        if m.get("note"):
+            p["remarks"] = str(m["note"])[:200]
+        if len(groups) > 1:
+            p["groups"] = [str(x) for x in groups]
+        feats.append({"type": "Feature", "geometry": geom, "properties": p})
+    return {"type": "FeatureCollection", "radimcom": {
+        "version": VERSION, "name": "MEMORIES channels", "source": "memories", "country": "",
+        "fetched": round(fetched or time.time()), "license": "", "attribution": "", "catNames": names}, "features": feats}
+
+
+def _memories_path():
+    import memories   # the frequency memories of RADIMCOM
+    return memories.PATH, memories.load
+
+
+def memories_update():
+    """Makes the map of the MEMORIES channels again (shown / hidden objects kept)."""
+    path, load = _memories_path()
+    return _store(MEMORIES_ID, memories_collection(load(), os.path.getmtime(path) if os.path.exists(path) else None))
+
+
+def memories_sync():
+    """Makes the MEMORIES map again when memories.json changed since (only when that map was made)."""
+    mp = _path(MEMORIES_ID)
+    if not os.path.exists(mp):
+        return
+    try:
+        path, _ = _memories_path()
+        if os.path.exists(path) and os.path.getmtime(path) > os.path.getmtime(mp):
+            memories_update()
+    except (OSError, ValueError, ImportError):
+        pass
+
+
 # ---------- HTTP API ----------
 @bp.route("/api/vectormaps", methods=["GET"])
 def api_vectormaps():
     """The stored maps [{id, name, source, country, fetched, stale, n, size, cats: {kind: {cat: n}}}]."""
+    memories_sync()
     return jsonify(maps=list_maps(), view=get_view(), staleDays=STALE_S // 86400)
 
 
@@ -709,3 +774,12 @@ def api_vectormaps_osm():
         return jsonify(error=f"Overpass answered HTTP {e.code}" + (" (busy, try again later)" if e.code in (429, 504) else "")), 502
     except (urllib.error.URLError, OSError, TimeoutError) as e:
         return jsonify(error=f"Overpass not reachable: {getattr(e, 'reason', e)}"), 502
+
+
+@bp.route("/api/vectormaps/memories", methods=["POST"])
+def api_vectormaps_memories():
+    """POST: makes the map of the MEMORIES channels with a location (then kept up to date with memories.json)."""
+    try:
+        return jsonify(map=memories_update())
+    except (OSError, ValueError) as e:
+        return jsonify(error=f"MEMORIES not read: {e}"), 500

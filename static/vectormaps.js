@@ -13,7 +13,13 @@ const VM_KINDS = [
   ["point", "Reporting points", ["RP", "RP_OPT"]],
   ["obstacle", "Obstacles", ["tower", "chimney", "wind", "building", "obstacle"]],
   ["tx", "Transmitters", ["bcast", "radar", "ham", "comm", "mobile"]],
+  ["chan", "MEMORIES channels", ["nogroup"]],   // one part per group (names from the map file)
 ];
+function vmCatName(c) {   // the name of a part; the groups of the MEMORIES channels come with their map
+  if (VM_CAT_NAME[c]) return VM_CAT_NAME[c];
+  for (const m of vmList || []) if (m.catNames && m.catNames[c]) return m.catNames[c];
+  return c;
+}
 const VM_CAT_NAME = {
   R: "R (restricted)", D: "D (danger)", P: "P (prohibited)", GLIDING: "Gliding sectors", SPORT: "Para / sport", FIS: "FIS sectors",
   OTHER: "Other", AWY: "Airways", LOWFLY: "Low flying", ALERT: "Alert areas", WARNING: "Warning areas", PROTECTED: "Protected areas",
@@ -52,11 +58,11 @@ const vmCatOn = (kind, cat) => {
   return k && (cat == null || (c[`${kind}.${cat}`] != null ? c[`${kind}.${cat}`] : !VM_OFF.has(`${kind}.${cat}`)));
 };
 const vmMapOn = (id) => vmOpt().maps[id] !== false;
-const VM_LBL_DEF = { airspace: true, airport: true, navaid: true, point: false, obstacle: false, tx: true };
+const VM_LBL_DEF = { airspace: true, airport: true, navaid: true, point: false, obstacle: false, tx: true, chan: true };
 const vmLblOn = (kind) => { const l = vmOpt().lbl; return l[kind] != null ? l[kind] : !!VM_LBL_DEF[kind]; };
 const vmKey = (p) => `${p.src || "x"}:${p.srcId || p.name}`;   // an object, for hiding it
 // names on the map from this zoom on (per kind; big airports earlier); at most VM_LBL_MAX in the view
-const VM_LBL_ZOOM = { airspace: 8, airport: 9, navaid: 7, point: 9, obstacle: 11, tx: 10 };
+const VM_LBL_ZOOM = { airspace: 8, airport: 9, navaid: 7, point: 9, obstacle: 11, tx: 10, chan: 9 };
 const VM_LBL_MAX = 300;
 
 // default look per kind / part (stage 2 makes these settable)
@@ -69,7 +75,7 @@ const VM_AS_STYLE = {
 };
 const VM_AS_DEF = ["#9fb3c8", 1, "4 4", 0.03];
 const VM_PT_STYLE = {   // colour, radius
-  airport: ["#4fd2ff", 5], navaid: ["#7cff9a", 4], point: ["#ffd84a", 3], obstacle: ["#ff6cd2", 3], tx: ["#ff9f40", 4],
+  airport: ["#4fd2ff", 5], navaid: ["#7cff9a", 4], point: ["#ffd84a", 3], obstacle: ["#ff6cd2", 3], tx: ["#ff9f40", 4], chan: ["#ffe14a", 4],
 };
 // the style of a part (kind.cat): line c / w / d (type) / o, fill fc / fo, point r / sym, name lc / ls / lz (from zoom);
 // the defaults above, what the person changed in view.style (stored on the server with the maps)
@@ -84,7 +90,7 @@ function vmStyDef(kind, cat) {
   const [c, r] = VM_PT_STYLE[kind] || ["#ffffff", 3];
   const major = kind === "airport" && ["intl", "ifr", "large", "medium"].includes(cat);
   const big = major || (kind === "airport" && cat === "military");
-  return { fc: c, r: big ? r + 2 : r, sym: kind === "navaid" ? "diamond" : kind === "point" || kind === "tx" ? "triangle" : "circle", fo: cat === "closed" ? 0.3 : 0.95,
+  return { fc: c, r: big ? r + 2 : r, sym: kind === "navaid" ? "diamond" : kind === "point" || kind === "tx" ? "triangle" : kind === "chan" ? "square" : "circle", fo: cat === "closed" ? 0.3 : 0.95,
     lc: c, ls: 10, lz: (VM_LBL_ZOOM[kind] || 9) - (major ? 2 : 0) };
 }
 const vmSty = (kind, cat) => ({ ...vmStyDef(kind, cat), ...(((vmOpt().style || {})[`${kind}.${cat}`]) || {}) });
@@ -153,7 +159,7 @@ const vmLim = (l) => (!l ? "" : l.u === "FL" ? `FL${l.v}` : l.v === 0 && l.ref =
 const vmFreq = (f) => `${f.type ? `${escHtml(f.type)} ` : ""}${f.f < 1 ? `${Math.round(f.f * 1e6) / 1000} kHz` : `${f.f.toFixed(3)}`}${f.name ? ` <span class="muted">${escHtml(f.name)}</span>` : ""}`;
 function vmTip(p) {
   const head = `<b>${escHtml(p.name || p.ident || "")}</b>${p.ident && p.name ? ` ${escHtml(p.ident)}` : ""}`;
-  const cat = VM_CAT_NAME[p.cat] || p.cat;
+  const cat = vmCatName(p.cat);
   const rows = [];
   if (p.kind === "airspace") rows.push(`${escHtml(cat)}${p.cls && p.cls !== "SUA" ? ` · class ${escHtml(p.cls)}` : ""}`, `${vmLim(p.lower) || "?"} – ${vmLim(p.upper) || "?"}`);
   else rows.push(escHtml(cat) + (p.elev != null ? ` · ${p.elev} m` : "") + (p.height != null ? ` · ${p.height} m AGL` : "") + (p.channel ? ` · ch ${escHtml(p.channel)}` : ""));
@@ -310,7 +316,7 @@ function vmInit(map) {
 
 /** The Vector maps section of the map settings window. */
 // the sources of the vector maps, one tab each (openAIP now; more sources come as more tabs)
-const VM_SOURCES = [["openaip", "openAIP"], ["ourairports", "OurAirports"], ["osm", "OpenStreetMap"]];
+const VM_SOURCES = [["openaip", "openAIP"], ["ourairports", "OurAirports"], ["osm", "OpenStreetMap"], ["memories", "MEMORIES"]];
 const VM_SRC_NOTE = {
   openaip: "Airspaces, airports, navaids, reporting points, obstacles per country (CC BY-NC).",
   ourairports: "Airports with frequencies and runways, navaids, per country (public domain, no key; the whole world is downloaded once a day, about 20 MB).",
@@ -344,7 +350,15 @@ function vmSourcesHtml() {
   const list = (vmList || []).filter((m) => (m.source || "openaip") === tab);
   if (!vmList) vmListGet().then(() => vmRefillAll());
   let h = `<div class="vm-tabs">${VM_SOURCES.map(([k, name]) => `<button type="button" class="vm-tab${k === tab ? " on" : ""}" data-vmtab="${k}">${name}</button>`).join("")}</div>`;
-  {
+  if (tab === "memories") {   // no countries: one map, made again whenever MEMORIES change
+    const m = list[0];
+    h += `<p class="map-opts-note">The MEMORIES channels that have a location (LAT / LON), one part per group; kept up to date when the channels change.</p>` +
+      `<p class="map-opts-note vm-msg"></p>` + (m ? `<div class="vm-ctry"><table class="map-opts-t vm-maps"><tr class="vm-have"><th><label title="${n(m.n)} channels">` +
+        `${chk(`data-vmmap="${escHtml(m.id)}"`, vmMapOn(m.id))} MEMORIES channels <small class="muted">${n(m.n)}</small></label></th><td class="muted">${day(m.fetched)}</td>` +
+        `<td><button type="button" class="vm-get" data-vmmem title="Make it again">↻</button>` +
+        `<button type="button" class="map-opts-del" data-vmdel="${escHtml(m.id)}" title="Remove the map (the channels stay)">✕</button></td></tr></table></div>`
+        : `<button type="button" class="vm-btn" data-vmmem>Show the channels on the map</button>`);
+  } else {
     const have = new Map(list.map((m) => [m.country, m]));
     h += `<p class="map-opts-note">${VM_SRC_NOTE[tab] || ""}</p>` + (tab !== "openaip" ? "" :
       `<label>API key <input type="text" class="map-opts-url" data-key="openaip" value="${escHtml((mapKeys && mapKeys.openaip) || "")}" placeholder="from openaip.net (free account)" spellcheck="false"></label>`) +
@@ -392,7 +406,7 @@ function vmSettingsHtml() {
     h += `<details class="vm-kind" data-vmkind="${k}"${vmKindOpen().includes(k) ? " open" : ""}><summary>${chk(`data-vmcat="${k}"`, vmCatOn(k))} ${name} <small class="muted">${n(tot)}</small></summary>` +
       `<div class="vm-cats">${cats.map((c) => { const id = escHtml(`${k}.${c}`);   // a part: its objects one by one when opened
         return `<details class="vm-cat" data-vmcatd="${id}"${vmCatOpen().includes(`${k}.${c}`) ? " open" : ""}><summary>${chk(`data-vmcat="${id}"`, vmCatOn(k, c))}${sw(c)} ` +
-          `${escHtml(VM_CAT_NAME[c] || c)} <small class="muted">${cs[c]}</small></summary><div class="vm-objs" data-vmobjs="${id}"><p class="map-opts-note">Loading…</p></div></details>` +
+          `${escHtml(vmCatName(c))} <small class="muted">${cs[c]}</small></summary><div class="vm-objs" data-vmobjs="${id}"><p class="map-opts-note">Loading…</p></div></details>` +
           (vmStyOpen === `${k}.${c}` ? vmStyEditor(k, c) : ""); }).join("")}</div>` +
       `<label>${chk(`data-vmlbl="${k}"`, vmLblOn(k))} Names on the map <small class="muted">from zoom ${VM_LBL_ZOOM[k]}</small></label>` +
       (k === "airspace" ? `<label>Only starting below <select data-vm="maxFL">${VM_MAX_FL.map((v) => `<option value="${v}"${v === o.maxFL ? " selected" : ""}>${v ? `FL${v}` : "any altitude"}</option>`).join("")}</select></label>` : "") +
@@ -493,6 +507,14 @@ function vmRefill(panel) {
 function vmOnClick(e, panel) {
   const upd = e.target.closest("button[data-vmupd], button[data-vmget]"), del = e.target.closest("button[data-vmdel]");
   const msg = () => panel.querySelector(".vm-msg");
+  const mem = e.target.closest("button[data-vmmem]");
+  if (mem) {   // the map of the MEMORIES channels made (again)
+    mem.disabled = true;
+    mapLayApi("/api/vectormaps/memories", { method: "POST" })
+      .then((j) => { vmSet({ rev: Date.now() }); return vmListGet(true).then(() => { vmRefill(panel); if (msg()) msg().textContent = `${(j.map && j.map.n) || 0} channels with a location.`; }); })
+      .catch((err) => { mem.disabled = false; if (msg()) msg().textContent = `Not made: ${err.message}`; });
+    return true;
+  }
   if (upd) {   // ⬇ / ↻ one country, or Update all the downloaded ones
     const src = vmSrcTab();
     const cs = upd.dataset.vmget ? [upd.dataset.vmget] : (vmList || []).filter((m) => (m.source || "openaip") === src && m.country).map((m) => m.country);

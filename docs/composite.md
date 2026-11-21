@@ -103,7 +103,9 @@ at once in all open tabs and windows of the same address.
   `data\vectormaps\_ourairports` and cut per country. The **OpenStreetMap** tab downloads the transmitter sites of a country
   (masts, towers and antennas: broadcasting, radar, amateur radio, other radio and mobile phone, the last off at first)
   through the Overpass API (ODbL, no key; a big country takes a minute or two); they show as **Transmitters** in the
-  tree, with the operator and the height. The tree in **Maps** (▸ opens a kind or a part) switches the
+  tree, with the operator and the height. The **MEMORIES** tab shows the MEMORIES channels that have a location (LAT / LON) as
+  **MEMORIES channels**, one part per group, with the frequency and mode; the map is made again whenever the channels
+  change. The tree in **Maps** (▸ opens a kind or a part) switches the
   kinds (**Airspaces**, **Airports**, **Navaids**, **Reporting points**, **Obstacles**: off at first) and their parts
   (CTR, TMA, R, D, … / international, civil, ultralight, … / VOR-DME, NDB, …) on and off; each part opens to its objects
   one by one with a checkbox. **Names on the map** per kind (from a zoom on, names that would overlap are left out);
