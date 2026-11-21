@@ -12,6 +12,7 @@ const VM_KINDS = [
   ["airport", "Airports", ["intl", "large", "medium", "ifr", "airport", "small", "civil", "military", "glider", "ul", "heli", "heli_mil", "water", "strip", "agri", "altiport", "balloon", "closed"]],
   ["navaid", "Navaids", ["VOR", "VOR-DME", "DVOR", "DVOR-DME", "VORTAC", "DVORTAC", "TACAN", "DME", "NDB", "NDB-DME"]],
   ["point", "Reporting points", ["RP", "RP_OPT"]],
+  ["wpt", "IFR waypoints", ["enroute", "terminal"]],
   ["obstacle", "Obstacles", ["tower", "chimney", "wind", "building", "obstacle"]],
   ["tx", "Transmitters", ["bcast", "radar", "ham", "comm", "mobile"]],
   ["chan", "MEMORIES channels", ["nogroup"]],   // one part per group (names from the map file)
@@ -29,7 +30,7 @@ const VM_CAT_NAME = {
   OTHER: "Other", AWY: "Airways", LOWFLY: "Low flying", ALERT: "Alert areas", WARNING: "Warning areas", PROTECTED: "Protected areas",
   intl: "International", ifr: "IFR", airport: "Airports", civil: "Civil airfields", military: "Military", glider: "Glider sites",
   ul: "Ultralight", heli: "Heliports", heli_mil: "Military heliports", water: "Water", strip: "Landing strips", agri: "Agricultural",
-  altiport: "Altiports", closed: "Closed", large: "Large airports", medium: "Medium airports", small: "Small airfields", balloon: "Balloon ports", RP: "Compulsory", RP_OPT: "On request", tower: "Towers / masts", chimney: "Chimneys",
+  altiport: "Altiports", closed: "Closed", large: "Large airports", medium: "Medium airports", small: "Small airfields", balloon: "Balloon ports", RP: "Compulsory", RP_OPT: "On request", enroute: "En-route", terminal: "Terminal (RNAV)", tower: "Towers / masts", chimney: "Chimneys",
   wind: "Wind turbines", building: "Buildings", obstacle: "Other",
   area: "Areas", line: "Lines", point: "Points", aerodrome: "Aerodrome boundary", runway: "Runways", apron: "Aprons",
   taxiway: "Taxiways", helipad: "Helipads", active: "Active now", planned: "Planned (later today)", bcast: "Broadcasting (radio, TV)", radar: "Radar", ham: "Amateur radio", comm: "Other radio", mobile: "Mobile phone",
@@ -65,11 +66,11 @@ const vmCatOn = (kind, cat) => {
 const vmMapOn = (id) => vmOpt().maps[id] !== false;
 const vmSrcOn = (src) => (vmOpt().srcs || {})[src || "openaip"] !== false;
 const vmShown = (m) => vmSrcOn(m.source) && vmMapOn(m.id);   // drawn: its source used and the map on
-const VM_LBL_DEF = { fua: true, airspace: true, airport: true, navaid: true, point: false, obstacle: false, tx: true, chan: true, own: true, aero: true };
+const VM_LBL_DEF = { fua: true, airspace: true, airport: true, navaid: true, point: false, wpt: true, obstacle: false, tx: true, chan: true, own: true, aero: true };
 const vmLblOn = (kind) => { const l = vmOpt().lbl; return l[kind] != null ? l[kind] : !!VM_LBL_DEF[kind]; };
 const vmKey = (p) => `${p.src || "x"}:${p.srcId || p.name}`;   // an object, for hiding it
 // names on the map from this zoom on (per kind; big airports earlier); at most VM_LBL_MAX in the view
-const VM_LBL_ZOOM = { fua: 7, airspace: 8, airport: 9, navaid: 7, point: 9, obstacle: 11, tx: 10, chan: 9, own: 9, aero: 13 };
+const VM_LBL_ZOOM = { fua: 7, airspace: 8, airport: 9, navaid: 7, point: 9, wpt: 9, obstacle: 11, tx: 10, chan: 9, own: 9, aero: 13 };
 const VM_LBL_MAX = 300;
 
 // default look per kind / part (stage 2 makes these settable)
@@ -87,7 +88,7 @@ const VM_AERO_STYLE = {   // the layout of aerodromes: colour, width, dash, fill
   taxiway: ["#e0c050", 1.5, "", 0], helipad: ["#e6e6e6", 1, "", 0.5],
 };
 const VM_PT_STYLE = {   // colour, radius
-  airport: ["#4fd2ff", 5], navaid: ["#7cff9a", 4], point: ["#ffd84a", 3], obstacle: ["#ff6cd2", 3], tx: ["#ff9f40", 4], chan: ["#ffe14a", 4], own: ["#c8a0ff", 4],
+  airport: ["#4fd2ff", 5], navaid: ["#7cff9a", 4], point: ["#ffd84a", 3], wpt: ["#8fc8ff", 4], obstacle: ["#ff6cd2", 3], tx: ["#ff9f40", 4], chan: ["#ffe14a", 4], own: ["#c8a0ff", 4],
 };
 // the style of a part (kind.cat): line c / w / d (type) / o, fill fc / fo, point r / sym, name lc / ls / lz (from zoom);
 // the defaults above, what the person changed in view.style (stored on the server with the maps)
@@ -107,6 +108,7 @@ const VM_AERO_SYM = {
   navaid: { VOR: "vor", DVOR: "vor", "VOR-DME": "vordme", "DVOR-DME": "vordme", VORTAC: "vortac", DVORTAC: "vortac", TACAN: "tacan",
     DME: "dme", NDB: "ndb", "NDB-DME": "ndbdme" },
   point: { RP: "rp", RP_OPT: "rp_opt" },
+  wpt: { enroute: "triangle", terminal: "triangle" },
   obstacle: { wind: "wind", tower: "obst", chimney: "obst", building: "obst", obstacle: "obst" },
   tx: { bcast: "mast", radar: "mast", ham: "mast", comm: "mast", mobile: "mast" },
 };
@@ -120,8 +122,9 @@ function vmStyDef(kind, cat) {
   const major = kind === "airport" && ["intl", "ifr", "large", "medium"].includes(cat);
   const big = major || (kind === "airport" && cat === "military");
   const aero = (VM_AERO_SYM[kind] || {})[cat] || (kind === "navaid" ? "vor" : kind === "obstacle" ? "obst" : kind === "airport" ? "ad_civil" : "");
-  return { fc: c, r: big ? r + 2 : r, sym: aero || (kind === "chan" ? "square" : "circle"), fo: cat === "closed" ? 0.6 : 0.95,
-    lc: c, ls: 10, lz: (VM_LBL_ZOOM[kind] || 9) - (major ? 2 : 0), lx: 18, sz: 1, sx: 18 };   // sz-sx: the symbol from / to these zooms
+  const term = kind === "wpt" && cat === "terminal";   // the terminal fixes (many near the aerodromes): later and smaller
+  return { fc: c, r: big ? r + 2 : term ? r - 1 : r, sym: aero || (kind === "chan" ? "square" : "circle"), fo: cat === "closed" ? 0.6 : 0.95,
+    lc: c, ls: 10, lz: (VM_LBL_ZOOM[kind] || 9) - (major ? 2 : 0) + (term ? 2 : 0), lx: 18, sz: term ? 8 : 1, sx: 18 };   // sz-sx: the symbol from / to these zooms
 }
 const vmSty = (kind, cat) => ({ ...vmStyDef(kind, cat), ...(((vmOpt().style || {})[`${kind}.${cat}`]) || {}) });
 /** The Leaflet style of an object; z: the zoom of the map (the line and the fill of an area each from their own zoom on). */
@@ -280,6 +283,7 @@ function vmTip(p, src) {
   if (p.kind === "airspace") rows.push(`${escHtml(cat)}${p.cls && p.cls !== "SUA" ? ` · class ${escHtml(p.cls)}` : ""}`, `${vmLim(p.lower) || "?"} – ${vmLim(p.upper) || "?"}`);
   else if (p.kind === "fua") rows.push(`<b class="vm-fua-${p.cat === "active" ? "on" : "plan"}">${escHtml(cat)}</b>${[p.type, p.activity, p.mil, p.origin].filter(Boolean).map((x) => ` · ${escHtml(x)}`).join("")}`,
     `${vmLim(p.lower) || "?"} – ${vmLim(p.upper) || "?"}`, vmFuaTime(p), ...(p.place ? [escHtml(p.place)] : []));
+  else if (p.kind === "wpt") rows.push(`IFR waypoint · ${escHtml(cat)}${p.fra ? " · FRA" : ""}${p.fir ? " · FIR boundary" : ""}`, ...(p.valid ? [`<span class="muted">Valid from ${escHtml(p.valid)}</span>`] : []));
   else rows.push(escHtml(cat) + (p.elev != null ? ` · ${p.elev} m` : "") + (p.height != null ? ` · ${p.height} m AGL` : "") + (p.channel ? ` · ch ${escHtml(p.channel)}` : ""));
   if (p.operator) rows.push(escHtml(String(p.operator).slice(0, 80)));
   if (p.rwy && p.rwy.length) rows.push(`RWY ${p.rwy.map(escHtml).join(" ")}`);
@@ -459,7 +463,7 @@ function vmInit(map) {
     const ok = (p) => vmLblOn(p.kind) && z >= vmSty(p.kind, p.cat).lz && z <= (vmSty(p.kind, p.cat).lx || 18);
     for (const ob of st.pts) if (ok(ob.p) && b.contains(ob.ll)) out.push(ob);
     for (const ob of st.polys) if (ok(ob.p) && b.contains(ob.c) && ob.area > 0) out.push(ob);
-    const rank = { chan: 0, navaid: 1, airport: 2, tx: 3, aero: 4, fua: 5, airspace: 5, own: 6, point: 7, obstacle: 8 };
+    const rank = { chan: 0, navaid: 1, airport: 2, tx: 3, aero: 4, fua: 5, airspace: 5, own: 6, point: 7, wpt: 7, obstacle: 8 };
     out.sort((a, c) => (rank[a.p.kind] ?? 8) - (rank[c.p.kind] ?? 8));
     const placed = [];   // boxes of the names already placed: a name that would overlap one is left out
     for (const ob of out) {
@@ -487,11 +491,12 @@ function vmInit(map) {
 
 /** The Vector maps section of the map settings window. */
 // the sources of the vector maps, one tab each (openAIP now; more sources come as more tabs)
-const VM_SOURCES = [["openaip", "openAIP"], ["ourairports", "OurAirports"], ["osm", "OpenStreetMap"], ["fua", "FUA"], ["memories", "MEMORIES"], ["file", "Own files"]];
+const VM_SOURCES = [["openaip", "openAIP"], ["ourairports", "OurAirports"], ["osm", "OpenStreetMap"], ["ifr", "IFR waypoints"], ["fua", "FUA"], ["memories", "MEMORIES"], ["file", "Own files"]];
 const VM_SRC_NOTE = {
   openaip: "Airspaces, airports, navaids, reporting points, obstacles per country (CC BY-NC).",
   ourairports: "Airports with frequencies and runways (drawn where both ends are known), navaids, per country (public domain, no key; the whole world is downloaded once a day, about 20 MB).",
   fua: "The airspaces activated today in Slovakia (TRA, TSA, R, D, … from the AUP / UUP of AMC Zvolen and the national areas), from the map of LPS SR (gis.lps.sk/vfrm). Kept up to date every 2 minutes while shown; Active now and Planned (later today) are drawn differently. Information only: check the airspace with the ATS unit before flying.",
+  ifr: "IFR waypoints (en-route ICAO five-letter points and terminal RNAV fixes) from the free services of the national air navigation providers (INSPIRE): Slovakia (LPS SR), Germany (DFS, CC BY 4.0), Austria (Austro Control), Finland (Traficom, CC BY 4.0); no key. Other countries (Czechia, Poland, Hungary, …) publish them only in their AIP. Information only.",
   osm: "Transmitter sites (broadcasting, mobile phone, radar, amateur and other radio) and the layout of aerodromes (boundary, runways, taxiways, aprons, helipads) per country (ODbL, no key; a big country takes a minute or two).",
 };
 // the countries openAIP can be downloaded for (ISO 3166 and Kosovo); their names come from the browser
@@ -501,6 +506,7 @@ const VM_COUNTRIES = ("AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD 
   "LU LV LY MA MC MD ME MF MG MH MK ML MM MN MO MP MQ MR MS MT MU MV MW MX MY MZ NA NC NE NF NG NI NL NO NP NR NU NZ OM PA PE PF PG PH PK PL " +
   "PM PN PR PS PT PW PY QA RE RO RS RU RW SA SB SC SD SE SG SH SI SJ SK SL SM SN SO SR SS ST SV SX SY SZ TC TD TF TG TH TJ TK TL TM TN TO TR " +
   "TT TV TW TZ UA UG UM US UY UZ VA VC VE VG VI VN VU WF WS XK YE YT ZA ZM ZW").split(" ");
+const VM_SRC_COUNTRIES = { ifr: ["SK", "DE", "AT", "FI"] };   // a source for a few countries only
 let vmCtryNames = null;
 function vmCountryName(c) {
   if (!vmCtryNames) { try { const d = new Intl.DisplayNames(["en"], { type: "region" }); vmCtryNames = (x) => d.of(x); } catch { vmCtryNames = (x) => x; } }
@@ -554,9 +560,9 @@ function vmSourcesHtml() {
       `<label>API key <input type="text" class="map-opts-url" data-key="openaip" value="${escHtml((mapKeys && mapKeys.openaip) || "")}" placeholder="from openaip.net (free account)" spellcheck="false"></label>`) +
       `<label>Find <input type="search" class="vm-find" data-vmfind value="${escHtml(vmFind)}" placeholder="country or code" spellcheck="false">` +
       `<button type="button" class="vm-btn" data-vmupd${list.length ? "" : " disabled"} title="Download all the downloaded countries again">Update all</button></label>` +
-      `<p class="map-opts-note">${vmList ? `${list.length} of ${VM_COUNTRIES.length} downloaded (on top, highlighted): the download button downloads a country, ↻ updates it, ✕ deletes it.` : "Loading…"}</p>` +
+      `<p class="map-opts-note">${vmList ? `${list.length} of ${(VM_SRC_COUNTRIES[tab] || VM_COUNTRIES).length} downloaded (on top, highlighted): the download button downloads a country, ↻ updates it, ✕ deletes it.` : "Loading…"}</p>` +
       `<p class="map-opts-note vm-msg"></p><div class="vm-ctry"><table class="map-opts-t vm-maps">` +
-      [...new Set([...VM_COUNTRIES, ...have.keys()])].map((c) => [c, vmCountryName(c)]).sort((a, b) => (have.has(b[0]) - have.has(a[0])) || a[1].localeCompare(b[1])).map(([c, name]) => {
+      [...new Set([...(VM_SRC_COUNTRIES[tab] || VM_COUNTRIES), ...have.keys()])].map((c) => [c, vmCountryName(c)]).sort((a, b) => (have.has(b[0]) - have.has(a[0])) || a[1].localeCompare(b[1])).map(([c, name]) => {
         const m = have.get(c), q = escHtml(`${name} ${c}`.toLowerCase());
         if (!m) return `<tr data-vmfind="${q}"><th><span class="vm-cn">${escHtml(name)} <small class="muted">${c}</small></span></th><td></td>` +
           `<td><button type="button" class="vm-get vm-dl" data-vmget="${c}" title="Download ${escHtml(name)}">${VM_DL_ICON}</button></td></tr>`;

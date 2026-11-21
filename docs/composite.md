@@ -116,7 +116,12 @@ at once in all open tabs and windows of the same address.
   (masts, towers and antennas: broadcasting, radar, amateur radio, other radio and mobile phone, the last off at first)
   through the Overpass API (ODbL, no key; a big country takes a minute or two); they show as **Transmitters** in the
   tree, with the operator and the height. The same download brings the aerodrome layout mapped in OpenStreetMap
-  (aerodrome boundaries, runways, taxiways, aprons and helipads) as **Aerodrome layout**, with the runway numbers and surface. The **FUA** tab downloads the airspaces activated today in Slovakia (TRA, TSA, R, D, … from the AUP / UUP of
+  (aerodrome boundaries, runways, taxiways, aprons and helipads) as **Aerodrome layout**, with the runway numbers and surface. The **IFR waypoints** tab
+  downloads the IFR waypoints of a country from the free INSPIRE service of its air navigation provider (no key): Slovakia
+  (LPS SR: the en-route points of AIP ENR 4.4 with their FRA / FIR boundary marks and the terminal RNAV fixes), Germany (DFS,
+  CC BY 4.0), Austria (Austro Control) and Finland (Traficom, CC BY 4.0); they show as **IFR waypoints** with the parts
+  **En-route** (ICAO five-letter points) and **Terminal (RNAV)** (smaller, from zoom 8). Other countries (Czechia, Poland,
+  Hungary, …) publish them only in their AIP. Information only. The **FUA** tab downloads the airspaces activated today in Slovakia (TRA, TSA, R, D, … from the AUP / UUP of
   AMC Zvolen and the national areas) from the public map of LPS SR (gis.lps.sk/vfrm, no key) as **FUA (activated
   airspaces)** with the parts **Active now** (red) and **Planned (later today)** (orange, dashed), with the vertical
   limits and the time window (UTC); while the map exists the server downloads it again every 2 minutes and the maps

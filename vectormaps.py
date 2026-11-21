@@ -930,9 +930,165 @@ def fua_sync():
     threading.Thread(target=run, daemon=True).start()
 
 
+# ---------- IFR waypoints (designated points) from the national INSPIRE / ANSP services ----------
+_LPS = "https://gis.lps.sk/server/rest/services/"
+_ARCGIS_Q = "/query?where=1%3D1&outFields=*&outSR=4326&f=geojson"
+# per country: the layers to read, each (type, url, layer / feature type, output format), the box (lat s, lat n, lon w, lon e)
+# to put lat / lon the right way round, the licence and the attribution
+IFR_SOURCES = {
+    "SK": {"layers": [("arcgis", _LPS + "VFRM/DPN/MapServer/0", "", ""),            # en-route (AIP ENR 4.4), FRA / FIR marks
+                      ("arcgis", _LPS + "inspire/inspire_view/MapServer/0", "DPN ", "")],   # INSPIRE nodes: + the terminal fixes
+           "box": (47.5, 49.8, 16.5, 22.8), "license": "© LPS SR, š. p. (information only)", "attribution": "IFR waypoints © LPS SR, š. p."},
+    "DE": {"layers": [("wfs", "https://haleconnect.com/ows/services/org.732.341f2791-919e-49de-8d86-3b18e040c430_wfs",
+                       "tn-a:DesignatedPoint", "application/geo+json")],
+           "box": (47.0, 55.5, 5.5, 15.5), "license": "CC BY 4.0", "attribution": "IFR waypoints: Quelle: DFS Deutsche Flugsicherung GmbH (CC BY 4.0)"},
+    "AT": {"layers": [("wfs", "https://sdigeo-free.austrocontrol.at/geoserver/tn-a/wfs", "tn-a:DesignatedPoint", "application/json")],
+           "box": (46.2, 49.2, 9.3, 17.4), "license": "no conditions (Austro Control INSPIRE)", "attribution": "IFR waypoints © Austro Control"},
+    "FI": {"layers": [("wfs", "https://julkinen.traficom.fi/inspirepalvelu/ilmaliikenne/wfs", "ilmaliikenne:TN_DESIGNATEDPOINT", "application/json")],
+           "box": (58.5, 70.5, 18.5, 32.5), "license": "CC BY 4.0, not for operational use", "attribution": "IFR waypoints © Traficom (CC BY 4.0)"},
+}
+IFR_PAGE = 1000
+IFR_TIMEOUT = 90
+
+
+def _ifr_get(url):
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (RADIMCOM)", "Accept": "application/geo+json, application/json"})
+    with urllib.request.urlopen(req, timeout=IFR_TIMEOUT) as r:
+        return json.loads(r.read().decode("utf-8"))
+
+
+def ifr_download(country, get=_ifr_get):
+    """The raw GeoJSON features of all the layers of a country: [(layer, [feature, ...]), ...] (WFS pages followed)."""
+    out = []
+    for lay in IFR_SOURCES[country]["layers"]:
+        typ, url, name, fmt = lay
+        if typ == "arcgis":
+            out.append((lay, (get(url + _ARCGIS_Q) or {}).get("features") or []))
+            continue
+        feats, start = [], 0
+        while start < 50 * IFR_PAGE:
+            q = urllib.parse.urlencode({"SERVICE": "WFS", "VERSION": "2.0.0", "REQUEST": "GetFeature", "TYPENAMES": name,
+                                        "OUTPUTFORMAT": fmt, "SRSNAME": "EPSG:4326", "COUNT": IFR_PAGE, "STARTINDEX": start})
+            page = (get(f"{url}?{q}") or {}).get("features") or []
+            feats += page
+            if len(page) < IFR_PAGE:
+                break
+            start += IFR_PAGE
+        out.append((lay, feats))
+    return out
+
+
+def _pget(p, *names):
+    """The first non-empty property of these names (any case)."""
+    low = {str(k).lower(): v for k, v in p.items()}
+    for n in names:
+        v = low.get(n.lower())
+        if v not in (None, "", " "):
+            return v
+    return None
+
+
+def _ifr_point(g):
+    """[lon, lat] of a Point / MultiPoint geometry (None for others)."""
+    if not isinstance(g, dict):
+        return None
+    c = g.get("coordinates")
+    if g.get("type") == "MultiPoint" and c:
+        c = c[0]
+    if g.get("type") not in ("Point", "MultiPoint") or not isinstance(c, (list, tuple)) or len(c) < 2:
+        return None
+    try:
+        return [float(c[0]), float(c[1])]
+    except (TypeError, ValueError):
+        return None
+
+
+def _ifr_date(v):
+    if isinstance(v, (int, float)) and v > 1e11:   # ArcGIS: ms since 1970
+        return time.strftime("%Y-%m-%d", time.gmtime(v / 1000))
+    return str(v)[:10] if v else ""
+
+
+def ifr_cat(ident):
+    """en-route (five letters, ICAO 5LNC) / terminal (letters and digits, e.g. IB511, KZ5xx); others (VFR, short) None."""
+    if re.fullmatch(r"[A-Z]{5}", ident):
+        return "enroute"
+    if re.fullmatch(r"[A-Z0-9]{3,6}", ident) and re.search(r"\d", ident) and re.search(r"[A-Z]", ident):
+        return "terminal"
+    return None
+
+
+def ifr_collection(country, layers, fetched=None):
+    """The map file of a country: kind "wpt", parts enroute / terminal; the same point from two layers kept once."""
+    src = IFR_SOURCES[country]
+    s, n, w, e = src["box"]
+    seen, feats = {}, []
+    for (typ, _url, prefix, _fmt), raw in layers:   # prefix: ArcGIS name prefix / WFS feature type
+        pts = []
+        for f in raw:
+            p = f.get("properties") or {}
+            ll = _ifr_point(f.get("geometry"))
+            if ll is None:
+                continue
+            ident = _pget(p, "designator", "ident_txt", "name_txt", "name") or ""
+            ident = str(ident).strip().upper()
+            if typ == "arcgis" and prefix:   # INSPIRE nodes of Slovakia: only the designated points ("DPN XXXXX"), not the navaids / aerodromes
+                nm = str(_pget(p, "name") or "").strip().upper()
+                if not nm.startswith(prefix.strip().upper() + " "):
+                    continue
+                ident = str(_pget(p, "designator") or nm[len(prefix):]).strip().upper()
+            pts.append((ident, ll, p))
+        # lat / lon the wrong way round (some WFS answer EPSG:4326 as lat, lon): turned when most points fit only so
+        inside = sum(1 for _, (x, y), _p in pts if s <= y <= n and w <= x <= e)
+        turned = sum(1 for _, (x, y), _p in pts if s <= x <= n and w <= y <= e)
+        swap = turned > inside
+        for ident, ll, p in pts:
+            if swap:
+                ll = [ll[1], ll[0]]
+            cat = ifr_cat(ident)
+            if not cat or not (-90 <= ll[1] <= 90 and -180 <= ll[0] <= 180):
+                continue
+            key = f"{ident}:{round(ll[0], 3)}:{round(ll[1], 3)}"
+            props = {"kind": "wpt", "cat": cat, "name": ident, "src": f"ifr_{country}", "srcId": ident}
+            if str(_pget(p, "localtype_txt") or "").upper() == "FRA":
+                props["fra"] = True
+            if str(_pget(p, "type_code_1") or "").upper() == "FIR":
+                props["fir"] = True
+            valid = _ifr_date(_pget(p, "validfrom_date", "validfrom", "beginlifespanversion"))
+            if valid:
+                props["valid"] = valid
+            if key in seen:   # the same point again (a second layer or a second version): its marks added
+                old = seen[key]["properties"]
+                for k in ("fra", "fir"):
+                    if props.get(k):
+                        old[k] = True
+                continue
+            twins = sum(1 for x in feats if x["properties"]["name"] == ident)
+            if twins:
+                props["srcId"] = f"{ident}-{twins + 1}"   # the same name at another place (a terminal fix of two aerodromes)
+            seen[key] = {"type": "Feature", "geometry": {"type": "Point", "coordinates": [round(ll[0], 6), round(ll[1], 6)]},
+                         "properties": props}
+            feats.append(seen[key])
+    return {"type": "FeatureCollection", "radimcom": {
+        "version": VERSION, "name": f"IFR waypoints {country}", "source": "ifr", "country": country,
+        "fetched": round(fetched or time.time()), "license": src["license"], "attribution": src["attribution"]},
+        "features": feats}
+
+
+def ifr_update(country, get=_ifr_get):
+    """Downloads the IFR waypoints of a country and stores them as ifr_<CC>. Answers the list entry."""
+    country = _country(country)
+    if country not in IFR_SOURCES:
+        raise ValueError(f"no free source of IFR waypoints for {country} (there are: {', '.join(IFR_SOURCES)})")
+    coll = ifr_collection(country, ifr_download(country, get))
+    if not coll["features"]:
+        raise ValueError(f"the source of {country} answered no waypoints")
+    return _store(f"ifr_{country}", coll)
+
+
 # ---------- own files ----------
 OWN_MAX = 30 * 1024 * 1024        # bytes of one imported file (as JSON)
-KINDS = ("airspace", "airport", "navaid", "point", "obstacle", "tx", "chan")
+KINDS = ("airspace", "airport", "navaid", "point", "wpt", "obstacle", "tx", "chan")
 
 
 def _geoms(g):
@@ -1107,6 +1263,20 @@ def api_vectormaps_ourairports():
         return jsonify(error=f"OurAirports answered HTTP {e.code}"), 502
     except (urllib.error.URLError, OSError, TimeoutError) as e:
         return jsonify(error=f"OurAirports not reachable: {getattr(e, 'reason', e)}"), 502
+
+
+@bp.route("/api/vectormaps/ifr", methods=["POST"])
+def api_vectormaps_ifr():
+    """POST {"country": "DE"}: downloads the IFR waypoints of that country (national INSPIRE / ANSP service, no key)."""
+    d = request.get_json(silent=True) or {}
+    try:
+        return jsonify(map=ifr_update(d.get("country")))
+    except ValueError as e:
+        return jsonify(error=str(e)), 400
+    except urllib.error.HTTPError as e:
+        return jsonify(error=f"the waypoint service answered HTTP {e.code}"), 502
+    except (urllib.error.URLError, OSError, TimeoutError) as e:
+        return jsonify(error=f"the waypoint service is not reachable: {getattr(e, 'reason', e)}"), 502
 
 
 @bp.route("/api/vectormaps/osm", methods=["POST"])

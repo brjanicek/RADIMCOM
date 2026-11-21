@@ -273,3 +273,47 @@ def test_fua_limit_from_text():
 
 def test_fua_ground():
     assert vm._fua_limit(None, "GND", "") == {"v": 0, "u": "ft", "ref": "GND"}
+
+
+def _pt(lon, lat, **p):
+    return {"type": "Feature", "geometry": {"type": "Point", "coordinates": [lon, lat]}, "properties": p}
+
+
+def test_ifr_slovakia_two_layers_merged():
+    dpn = [_pt(21.815, 48.894, IDENT_TXT="ROBTU", LOCALTYPE_TXT="FRA", ValidFrom_Date=1793750400000),
+           _pt(18.1657, 49.246, IDENT_TXT="MAKAL", TYPE_CODE_1="FIR")]
+    node = [_pt(21.815, 48.894, name="DPN ROBTU", designator="ROBTU"), _pt(20.2402, 48.9902, name="DPN TT684", designator="TT684"),
+            _pt(17.2, 48.17, name="DME BTS", designator="BTS"), {"type": "Feature", "geometry": None, "properties": {"name": "DPN XXXXX"}}]
+    calls = []
+
+    def get(url):
+        calls.append(url)
+        return {"features": dpn if "DPN/MapServer" in url else node}
+    c = vm.ifr_collection("SK", vm.ifr_download("SK", get))
+    by = {f["properties"]["name"]: f["properties"] for f in c["features"]}
+    assert sorted(by) == ["MAKAL", "ROBTU", "TT684"] and len(calls) == 2
+    assert by["ROBTU"]["cat"] == "enroute" and by["ROBTU"]["fra"] and by["ROBTU"]["valid"] == "2026-11-04"
+    assert by["MAKAL"]["fir"] and by["TT684"]["cat"] == "terminal" and by["TT684"]["kind"] == "wpt"
+    assert c["radimcom"]["source"] == "ifr" and "LPS" in c["radimcom"]["attribution"]
+
+
+def test_ifr_wfs_pages_and_turned_axes(monkeypatch):
+    monkeypatch.setattr(vm, "IFR_PAGE", 2)
+    pages = [[_pt(49.45454, 9.37852, designator="OSBAN"), _pt(48.62, 12.61, designator="ECHO")],
+             [_pt(50.36, 6.41, designator="AZ250")]]   # lat, lon: turned by the server
+    got = []
+
+    def get(url):
+        got.append(url)
+        return {"features": pages[len(got) - 1]}
+    c = vm.ifr_collection("DE", vm.ifr_download("DE", get))
+    assert len(got) == 2 and "STARTINDEX=2" in got[1]
+    by = {f["properties"]["name"]: f for f in c["features"]}
+    assert sorted(by) == ["AZ250", "OSBAN"]   # ECHO (VFR) left out
+    assert by["OSBAN"]["geometry"]["coordinates"] == [9.37852, 49.45454] and by["AZ250"]["properties"]["cat"] == "terminal"
+
+
+def test_ifr_unknown_country():
+    import pytest
+    with pytest.raises(ValueError):
+        vm.ifr_update("CZ", get=lambda u: {})
