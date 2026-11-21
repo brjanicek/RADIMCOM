@@ -4,7 +4,7 @@ The data is downloaded once per country (button Update in the map settings) and 
 per source and country, as GeoJSON with properties of the same names for every source:
 
     kind    airspace | airport | navaid | point | obstacle | tx (transmitter sites) | chan (MEMORIES channels)
-            (the group of the map settings tree)
+            | own (own files)    (the group of the map settings tree)
     cat     the part of the group: CTR, TMA, R, D, ... / intl, civil, ul, ... / VOR-DME, NDB, ... (the tree's leaves)
     name, ident, cls (ICAO class A-G or SUA), elev (m MSL), height (m above ground, obstacles)
     freq    [{"f": MHz, "name": str, "type": str}]
@@ -24,7 +24,8 @@ frequencies and runways, and navaids, from its CSV files of the whole world (kep
 so more countries need one download), cut per country. OpenStreetMap (ODbL) through the Overpass API: transmitter
 sites (masts, towers and antennas for broadcasting, mobile phones, radar, amateur radio and other radio), per country.
 MEMORIES: the channels with a location (lat / lon) as the map "memories", one part per group, made again whenever
-memories.json changes.
+memories.json changes. Own files: GeoJSON (KML / GPX turned into GeoJSON in the browser) stored as file_<name>; objects
+that already carry a known kind keep it (files in this format), the others become kind "own" (area / line / point).
 """
 import hashlib
 import csv
@@ -703,6 +704,64 @@ def memories_sync():
         pass
 
 
+# ---------- own files ----------
+OWN_MAX = 30 * 1024 * 1024        # bytes of one imported file (as JSON)
+KINDS = ("airspace", "airport", "navaid", "point", "obstacle", "tx", "chan")
+
+
+def _geoms(g):
+    """A GeoJSON geometry split into the kinds drawn: Point, LineString, Polygon (Multi kept where drawn as one)."""
+    if not isinstance(g, dict):
+        return []
+    t = g.get("type")
+    if t in ("Point", "LineString", "MultiLineString", "Polygon", "MultiPolygon") and g.get("coordinates"):
+        return [{"type": t, "coordinates": g["coordinates"]}]
+    if t == "MultiPoint":
+        return [{"type": "Point", "coordinates": c} for c in g.get("coordinates") or [] if isinstance(c, list) and len(c) >= 2]
+    if t == "GeometryCollection":
+        return [x for sub in g.get("geometries") or [] for x in _geoms(sub)]
+    return []
+
+
+def own_collection(name, gj, fetched=None):
+    """The map file of an imported GeoJSON: objects in this format keep kind / cat, the others are own area / line / point."""
+    feats_in = gj.get("features") if gj.get("type") == "FeatureCollection" else [gj] if gj.get("type") == "Feature" else []
+    feats, n = [], 0
+    for f in feats_in or []:
+        if not isinstance(f, dict):
+            continue
+        props = f.get("properties") if isinstance(f.get("properties"), dict) else {}
+        for g in _geoms(f.get("geometry")):
+            n += 1
+            gt = g["type"]
+            if props.get("kind") in KINDS and props.get("cat"):
+                p = {k: v for k, v in props.items() if k != "hidden"}
+            else:
+                cat = "point" if gt == "Point" else "line" if "Line" in gt else "area"
+                nm = props.get("name") or props.get("Name") or props.get("title") or props.get("NAME") or props.get("desc") or ""
+                p = {"kind": "own", "cat": cat, "name": str(nm).strip()[:120]}
+                rem = props.get("description") or props.get("desc") or props.get("cmt")
+                if rem and str(rem) != p["name"]:
+                    p["remarks"] = re.sub(r"<[^>]+>", " ", str(rem))[:200].strip()
+            p["src"], p["srcId"] = "file", str(n)
+            feats.append({"type": "Feature", "geometry": g, "properties": p})
+    return {"type": "FeatureCollection", "radimcom": {
+        "version": VERSION, "name": name, "source": "file", "country": "", "fetched": round(fetched or time.time()),
+        "license": "", "attribution": ""}, "features": feats}
+
+
+def own_import(name, gj):
+    """Stores an imported GeoJSON as file_<name> (the same name again replaces it, keeping what was hidden)."""
+    name = str(name or "").strip()[:80]
+    if not name or not isinstance(gj, dict) or gj.get("type") not in ("FeatureCollection", "Feature"):
+        raise ValueError("a name and GeoJSON (FeatureCollection) are needed")
+    coll = own_collection(name, gj)
+    if not coll["features"]:
+        raise ValueError("the file has no points, lines or areas")
+    mid = "file_" + (re.sub(r"[^A-Za-z0-9_-]+", "_", name).strip("_")[:50] or "map")
+    return _store(mid, coll)
+
+
 # ---------- HTTP API ----------
 @bp.route("/api/vectormaps", methods=["GET"])
 def api_vectormaps():
@@ -783,3 +842,15 @@ def api_vectormaps_memories():
         return jsonify(map=memories_update())
     except (OSError, ValueError) as e:
         return jsonify(error=f"MEMORIES not read: {e}"), 500
+
+
+@bp.route("/api/vectormaps/file", methods=["POST"])
+def api_vectormaps_file():
+    """POST {"name", "geojson"}: stores an own file as a vector map (KML / GPX are turned into GeoJSON in the browser)."""
+    if (request.content_length or 0) > OWN_MAX:
+        return jsonify(error=f"the file is too big (over {OWN_MAX // 1048576} MB)"), 413
+    d = request.get_json(silent=True) or {}
+    try:
+        return jsonify(map=own_import(d.get("name"), d.get("geojson")))
+    except ValueError as e:
+        return jsonify(error=str(e)), 400

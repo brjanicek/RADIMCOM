@@ -184,3 +184,17 @@ def test_memories_channels():
     names = c["radimcom"]["catNames"]
     assert names[p["cat"]] == "Repeatery 2 m" and names["nogroup"] == "(no group)"
     assert vm.re.fullmatch(r"[\w-]{1,30}", p["cat"])
+
+
+def test_own_file():
+    gj = {"type": "FeatureCollection", "features": [
+        {"type": "Feature", "properties": {"name": "Zone"}, "geometry": SQ},
+        {"type": "Feature", "properties": {"Name": "Track", "description": "<b>x</b>"}, "geometry": {"type": "LineString", "coordinates": [[17, 48], [18, 49]]}},
+        {"type": "Feature", "properties": {}, "geometry": {"type": "MultiPoint", "coordinates": [[17, 48], [18, 49]]}},
+        {"type": "Feature", "properties": {"kind": "airspace", "cat": "CTR", "name": "MY CTR", "hidden": True}, "geometry": SQ},
+        {"type": "Feature", "properties": {}, "geometry": None}]}
+    c = vm.own_collection("My", gj)
+    ps = [f["properties"] for f in c["features"]]
+    assert [(p["kind"], p["cat"]) for p in ps] == [("own", "area"), ("own", "line"), ("own", "point"), ("own", "point"), ("airspace", "CTR")]
+    assert ps[1]["name"] == "Track" and ps[1]["remarks"] == "x" and "hidden" not in ps[4]
+    assert len({p["srcId"] for p in ps}) == 5 and c["radimcom"]["source"] == "file"

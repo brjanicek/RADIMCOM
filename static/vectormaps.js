@@ -14,7 +14,9 @@ const VM_KINDS = [
   ["obstacle", "Obstacles", ["tower", "chimney", "wind", "building", "obstacle"]],
   ["tx", "Transmitters", ["bcast", "radar", "ham", "comm", "mobile"]],
   ["chan", "MEMORIES channels", ["nogroup"]],   // one part per group (names from the map file)
+  ["own", "Own files", ["area", "line", "point"]],
 ];
+const vmIsArea = (kind, cat) => kind === "airspace" || (kind === "own" && cat !== "point");   // drawn with line and fill
 function vmCatName(c) {   // the name of a part; the groups of the MEMORIES channels come with their map
   if (VM_CAT_NAME[c]) return VM_CAT_NAME[c];
   for (const m of vmList || []) if (m.catNames && m.catNames[c]) return m.catNames[c];
@@ -27,7 +29,7 @@ const VM_CAT_NAME = {
   ul: "Ultralight", heli: "Heliports", heli_mil: "Military heliports", water: "Water", strip: "Landing strips", agri: "Agricultural",
   altiport: "Altiports", closed: "Closed", large: "Large airports", medium: "Medium airports", small: "Small airfields", balloon: "Balloon ports", RP: "Compulsory", RP_OPT: "On request", tower: "Towers / masts", chimney: "Chimneys",
   wind: "Wind turbines", building: "Buildings", obstacle: "Other",
-  bcast: "Broadcasting (radio, TV)", radar: "Radar", ham: "Amateur radio", comm: "Other radio", mobile: "Mobile phone",
+  area: "Areas", line: "Lines", point: "Points", bcast: "Broadcasting (radio, TV)", radar: "Radar", ham: "Amateur radio", comm: "Other radio", mobile: "Mobile phone",
 };
 // shown at first (later: as the person set it)
 const VM_OFF = new Set(["airspace.FIR", "airspace.UIR", "airspace.ACC", "airspace.FIS", "airspace.OTHER", "airport.closed", "obstacle", "tx.mobile"]);
@@ -58,11 +60,11 @@ const vmCatOn = (kind, cat) => {
   return k && (cat == null || (c[`${kind}.${cat}`] != null ? c[`${kind}.${cat}`] : !VM_OFF.has(`${kind}.${cat}`)));
 };
 const vmMapOn = (id) => vmOpt().maps[id] !== false;
-const VM_LBL_DEF = { airspace: true, airport: true, navaid: true, point: false, obstacle: false, tx: true, chan: true };
+const VM_LBL_DEF = { airspace: true, airport: true, navaid: true, point: false, obstacle: false, tx: true, chan: true, own: true };
 const vmLblOn = (kind) => { const l = vmOpt().lbl; return l[kind] != null ? l[kind] : !!VM_LBL_DEF[kind]; };
 const vmKey = (p) => `${p.src || "x"}:${p.srcId || p.name}`;   // an object, for hiding it
 // names on the map from this zoom on (per kind; big airports earlier); at most VM_LBL_MAX in the view
-const VM_LBL_ZOOM = { airspace: 8, airport: 9, navaid: 7, point: 9, obstacle: 11, tx: 10, chan: 9 };
+const VM_LBL_ZOOM = { airspace: 8, airport: 9, navaid: 7, point: 9, obstacle: 11, tx: 10, chan: 9, own: 9 };
 const VM_LBL_MAX = 300;
 
 // default look per kind / part (stage 2 makes these settable)
@@ -75,7 +77,7 @@ const VM_AS_STYLE = {
 };
 const VM_AS_DEF = ["#9fb3c8", 1, "4 4", 0.03];
 const VM_PT_STYLE = {   // colour, radius
-  airport: ["#4fd2ff", 5], navaid: ["#7cff9a", 4], point: ["#ffd84a", 3], obstacle: ["#ff6cd2", 3], tx: ["#ff9f40", 4], chan: ["#ffe14a", 4],
+  airport: ["#4fd2ff", 5], navaid: ["#7cff9a", 4], point: ["#ffd84a", 3], obstacle: ["#ff6cd2", 3], tx: ["#ff9f40", 4], chan: ["#ffe14a", 4], own: ["#c8a0ff", 4],
 };
 // the style of a part (kind.cat): line c / w / d (type) / o, fill fc / fo, point r / sym, name lc / ls / lz (from zoom);
 // the defaults above, what the person changed in view.style (stored on the server with the maps)
@@ -83,9 +85,9 @@ const VM_DASH = { solid: null, dash: "8 5", long: "14 6", dot: "2 4", dashdot: "
 const VM_DASH_OF = { "6 4": "dash", "8 4": "dash", "4 4": "dash", "2 4": "dot", "10 6": "long" };
 const VM_SYMS = [["circle", "Circle"], ["square", "Square"], ["diamond", "Diamond"], ["triangle", "Triangle"], ["cross", "Cross"]];
 function vmStyDef(kind, cat) {
-  if (kind === "airspace") {
-    const [c, w, dash, fo] = VM_AS_STYLE[cat] || VM_AS_DEF;
-    return { c, w, d: VM_DASH_OF[dash] || "solid", o: 0.9, fc: c, fo, lc: c, ls: 10, lz: VM_LBL_ZOOM.airspace };
+  if (vmIsArea(kind, cat)) {
+    const [c, w, dash, fo] = kind === "own" ? ["#c8a0ff", 2, "", cat === "line" ? 0 : 0.06] : VM_AS_STYLE[cat] || VM_AS_DEF;
+    return { c, w, d: VM_DASH_OF[dash] || "solid", o: 0.9, fc: c, fo, lc: c, ls: 10, lz: VM_LBL_ZOOM[kind] };
   }
   const [c, r] = VM_PT_STYLE[kind] || ["#ffffff", 3];
   const major = kind === "airport" && ["intl", "ifr", "large", "medium"].includes(cat);
@@ -96,7 +98,7 @@ function vmStyDef(kind, cat) {
 const vmSty = (kind, cat) => ({ ...vmStyDef(kind, cat), ...(((vmOpt().style || {})[`${kind}.${cat}`]) || {}) });
 function vmStyle(p) {
   const y = vmSty(p.kind, p.cat);
-  if (p.kind === "airspace") return { color: y.c, weight: y.w, dashArray: VM_DASH[y.d] || null, opacity: y.o, fillColor: y.fc, fillOpacity: y.fo };
+  if (vmIsArea(p.kind, p.cat)) return { color: y.c, weight: y.w, dashArray: VM_DASH[y.d] || null, opacity: y.o, fillColor: y.fc, fillOpacity: y.fo };
   return { color: "#000", weight: 1, opacity: 0.8, fillColor: y.fc, fillOpacity: y.fo, radius: y.r, sym: y.sym };
 }
 // a point drawn as a symbol on the canvas (one canvas for thousands of points); made when first needed, since
@@ -217,7 +219,8 @@ async function vmApply(map) {
       const ring = g.type === "Polygon" ? g.coordinates[0] : g.type === "MultiPolygon" ? g.coordinates[0][0] : null;
       return ring ? { p, ring, ...vmRingInfo(ring) } : null;
     }).filter(Boolean);
-    feats.sort((a, b) => { const r = (f) => (f.geometry.type === "Point" ? 0 : vmRingInfo(f.geometry.coordinates[0]).area); return r(b) - r(a); });
+    const area = (f) => { const g = f.geometry; return g.type === "Polygon" ? vmRingInfo(g.coordinates[0]).area : g.type === "MultiPolygon" ? vmRingInfo(g.coordinates[0][0]).area : 0; };
+    feats.sort((a, b) => area(b) - area(a));
     const layer = L.geoJSON({ type: "FeatureCollection", features: feats }, {
       pane: "vmaps", interactive: false,
       style: (f) => ({ ...vmStyle(f.properties || {}), renderer: st.renderer, interactive: false }),
@@ -295,8 +298,8 @@ function vmInit(map) {
     const ok = (p) => vmLblOn(p.kind) && z >= vmSty(p.kind, p.cat).lz;
     for (const ob of st.pts) if (ok(ob.p) && b.contains(ob.ll)) out.push(ob);
     for (const ob of st.polys) if (ok(ob.p) && b.contains(ob.c) && ob.area > 0) out.push(ob);
-    const rank = { navaid: 0, airport: 1, airspace: 2, point: 3, obstacle: 4 };
-    out.sort((a, c) => rank[a.p.kind] - rank[c.p.kind]);
+    const rank = { chan: 0, navaid: 1, airport: 2, tx: 3, airspace: 4, own: 5, point: 6, obstacle: 7 };
+    out.sort((a, c) => (rank[a.p.kind] ?? 8) - (rank[c.p.kind] ?? 8));
     const placed = [];   // boxes of the names already placed: a name that would overlap one is left out
     for (const ob of out) {
       if (placed.length >= VM_LBL_MAX) break;
@@ -316,7 +319,7 @@ function vmInit(map) {
 
 /** The Vector maps section of the map settings window. */
 // the sources of the vector maps, one tab each (openAIP now; more sources come as more tabs)
-const VM_SOURCES = [["openaip", "openAIP"], ["ourairports", "OurAirports"], ["osm", "OpenStreetMap"], ["memories", "MEMORIES"]];
+const VM_SOURCES = [["openaip", "openAIP"], ["ourairports", "OurAirports"], ["osm", "OpenStreetMap"], ["memories", "MEMORIES"], ["file", "Own files"]];
 const VM_SRC_NOTE = {
   openaip: "Airspaces, airports, navaids, reporting points, obstacles per country (CC BY-NC).",
   ourairports: "Airports with frequencies and runways, navaids, per country (public domain, no key; the whole world is downloaded once a day, about 20 MB).",
@@ -350,7 +353,14 @@ function vmSourcesHtml() {
   const list = (vmList || []).filter((m) => (m.source || "openaip") === tab);
   if (!vmList) vmListGet().then(() => vmRefillAll());
   let h = `<div class="vm-tabs">${VM_SOURCES.map(([k, name]) => `<button type="button" class="vm-tab${k === tab ? " on" : ""}" data-vmtab="${k}">${name}</button>`).join("")}</div>`;
-  if (tab === "memories") {   // no countries: one map, made again whenever MEMORIES change
+  if (tab === "file") {   // own files: GeoJSON, KML, GPX
+    h += `<p class="map-opts-note">Own GeoJSON, KML or GPX files as vector maps: areas, lines and points under Own files in the tree (a file in this format keeps its airspaces, airports, …). The same name again replaces it.</p>` +
+      `<label class="map-opts-up">Add <input type="file" data-vmfile accept=".geojson,.json,.kml,.gpx"></label><p class="map-opts-note vm-msg"></p>` +
+      (list.length ? `<div class="vm-ctry"><table class="map-opts-t vm-maps">` + list.map((m) => `<tr class="vm-have"><th><label title="${n(m.n)} objects, ${Math.max(1, Math.round(m.size / 1024))} kB">` +
+        `${chk(`data-vmmap="${escHtml(m.id)}"`, vmMapOn(m.id))} ${escHtml(m.name)} <small class="muted">${n(m.n)}</small></label></th><td class="muted">${day(m.fetched)}</td>` +
+        `<td><button type="button" class="map-opts-del" data-vmdel="${escHtml(m.id)}" title="Remove the file">✕</button></td></tr>`).join("") + `</table></div>`
+        : `<p class="map-opts-note">${vmList ? "No own file yet." : "Loading…"}</p>`);
+  } else if (tab === "memories") {   // no countries: one map, made again whenever MEMORIES change
     const m = list[0];
     h += `<p class="map-opts-note">The MEMORIES channels that have a location (LAT / LON), one part per group; kept up to date when the channels change.</p>` +
       `<p class="map-opts-note vm-msg"></p>` + (m ? `<div class="vm-ctry"><table class="map-opts-t vm-maps"><tr class="vm-have"><th><label title="${n(m.n)} channels">` +
@@ -402,7 +412,7 @@ function vmSettingsHtml() {
     if (!cs) continue;
     const cats = [...order.filter((c) => cs[c]), ...Object.keys(cs).filter((c) => !order.includes(c))];
     const tot = Object.values(cs).reduce((a, b) => a + b, 0);
-    const sw = (c) => { const y = vmSty(k, c); return `<i class="vm-sw${k === "airspace" ? "" : " pt"}" data-vmswatch="${escHtml(`${k}.${c}`)}" title="Style (click)" style="--c:${k === "airspace" ? y.c : y.fc}"></i>`; };
+    const sw = (c) => { const y = vmSty(k, c); return `<i class="vm-sw${vmIsArea(k, c) ? "" : " pt"}" data-vmswatch="${escHtml(`${k}.${c}`)}" title="Style (click)" style="--c:${vmIsArea(k, c) ? y.c : y.fc}"></i>`; };
     h += `<details class="vm-kind" data-vmkind="${k}"${vmKindOpen().includes(k) ? " open" : ""}><summary>${chk(`data-vmcat="${k}"`, vmCatOn(k))} ${name} <small class="muted">${n(tot)}</small></summary>` +
       `<div class="vm-cats">${cats.map((c) => { const id = escHtml(`${k}.${c}`);   // a part: its objects one by one when opened
         return `<details class="vm-cat" data-vmcatd="${id}"${vmCatOpen().includes(`${k}.${c}`) ? " open" : ""}><summary>${chk(`data-vmcat="${id}"`, vmCatOn(k, c))}${sw(c)} ` +
@@ -423,7 +433,7 @@ function vmStyEditor(kind, cat) {
   const sel = (k, list, name) => `<select data-vmsty="${key}" data-k="${k}">${list.map((v) => `<option value="${v}"${String(v) === String(y[k]) ? " selected" : ""}>${name ? name(v) : v}</option>`).join("")}</select>`;
   const col = (k) => `<input type="color" class="map-opts-cp" data-vmsty="${key}" data-k="${k}" value="${y[k]}">`;
   const own = !!((vmOpt().style || {})[`${kind}.${cat}`]);
-  const rows = kind === "airspace" ? [
+  const rows = vmIsArea(kind, cat) ? [
     ["Line", col("c") + sel("w", [0.5, 1, 1.5, 2, 3, 4, 5], (v) => `${v} px`) + sel("d", Object.keys(VM_DASH)) + sel("o", [0.2, 0.4, 0.6, 0.8, 0.9, 1], pc)],
     ["Fill", col("fc") + sel("fo", [0, 0.03, 0.05, 0.08, 0.1, 0.15, 0.2, 0.3, 0.5], pc)],
   ] : [
@@ -470,6 +480,27 @@ function vmOnInput(e, panel) {
   const t = e.target;
   if (!t.closest || !t.closest("details[data-sec=vmaps], details[data-sec=vsrc]")) return false;
   if (t.dataset.key) return false;   // the API key: the settings window stores it
+  if (t.matches("input[data-vmfile]")) {   // an own file: turned into GeoJSON here, stored on the server
+    if (e.type !== "change" || !t.files || !t.files[0]) return true;
+    const file = t.files[0], msg = t.closest(".map-opts-body").querySelector(".vm-msg");
+    if (msg) msg.textContent = `Reading ${file.name}…`;
+    (async () => {
+      const ext = (file.name.split(".").pop() || "").toLowerCase(), text = await file.text();
+      let gj;
+      if (ext === "kml" || ext === "gpx") gj = mapToGeoJson(text, ext);
+      else if (ext === "geojson" || ext === "json") {
+        try { gj = JSON.parse(text); } catch { throw new Error("the file is not valid JSON"); }
+        if (gj && /^(Point|MultiPoint|LineString|MultiLineString|Polygon|MultiPolygon|GeometryCollection)$/.test(gj.type)) gj = { type: "Feature", properties: {}, geometry: gj };
+      } else throw new Error("only GeoJSON, KML and GPX files (KMZ: unpack the KML from it)");
+      const j = await mapLayApi("/api/vectormaps/file", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: file.name.replace(/\.[^.]+$/, ""), geojson: gj }) });
+      vmSet({ rev: Date.now() });
+      await vmListGet(true);
+      vmRefill(panel);
+      const m2 = panel.querySelector(".vm-msg");
+      if (m2) m2.textContent = `${file.name}: ${(j.map && j.map.n) || 0} objects.`;
+    })().catch((err) => { const m2 = panel.querySelector(".vm-msg"); if (m2) m2.textContent = `Not added: ${err.message}`; });
+    return true;
+  }
   if (t.matches("[data-vmfind]")) { vmFind = t.value; const box = t.closest(".map-opts-body").querySelector(".vm-ctry"); if (box) vmFindApply(box); return true; }
   if (e.type !== "change") return true;
   const o = vmOpt();

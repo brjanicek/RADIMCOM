@@ -105,7 +105,8 @@ at once in all open tabs and windows of the same address.
   through the Overpass API (ODbL, no key; a big country takes a minute or two); they show as **Transmitters** in the
   tree, with the operator and the height. The **MEMORIES** tab shows the MEMORIES channels that have a location (LAT / LON) as
   **MEMORIES channels**, one part per group, with the frequency and mode; the map is made again whenever the channels
-  change. The tree in **Maps** (▸ opens a kind or a part) switches the
+  change. On **Own files** **Add** stores a GeoJSON, KML or GPX file as a vector map: its areas, lines and points
+  show under **Own files** in the tree (a file in this format keeps its kinds), the same name again replaces it. The tree in **Maps** (▸ opens a kind or a part) switches the
   kinds (**Airspaces**, **Airports**, **Navaids**, **Reporting points**, **Obstacles**: off at first) and their parts
   (CTR, TMA, R, D, … / international, civil, ultralight, … / VOR-DME, NDB, …) on and off; each part opens to its objects
   one by one with a checkbox. **Names on the map** per kind (from a zoom on, names that would overlap are left out);
