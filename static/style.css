@@ -4555,6 +4555,8 @@ details[data-sec=vmaps] > .map-opts-body:empty { display: none; }
 .vm-sty-t th { width: 46px; padding: 3px 4px 3px 0; color: #8fa3bd; font-size: 11px; font-weight: 400; text-align: left; vertical-align: top; padding-top: 6px; }
 .vm-sty-t td { padding: 2px 3px; vertical-align: top; }
 .vm-sty-t select { width: auto; max-width: 110px; }
+.vm-sty-act { display: flex; flex-wrap: wrap; gap: 4px; }
+.vm-sty-wd { display: flex; flex-direction: column; gap: 2px; }
 .vm-sty-t td { white-space: nowrap; }
 .vm-sty-h td { padding: 0 3px; color: #8fa3bd; font-size: 10px; }
 .vm-sty-cp { display: flex; flex-direction: column; gap: 2px; width: 58px; }
