@@ -93,7 +93,8 @@ at once in all open tabs and windows of the same address.
   stand out). **OpenSeaMap** adds the sea marks, buoys and waterways on top (useful with AIS on rivers).
 - **Vector maps:** airspaces, airports, navaids, reporting points and obstacles from openAIP, drawn on every decoder
   map under the tracks and kept on the server, so they work offline. They are downloaded in **Map sources** (inside **Vector
-  maps**), on the tab of the source: on the **openAIP** tab type the free **API key** of an openaip.net account (stored in `data\mapkeys.json`); the list
+  maps**), on the tab of the source; each tab has **Use in maps** (all the maps of that source on or off, its tab
+  struck through when off) and the number of points, lines and areas of its maps: on the **openAIP** tab type the free **API key** of an openaip.net account (stored in `data\mapkeys.json`); the list
   below has every country (**Find** filters it by name or code), the downloaded ones highlighted with the date of the
   download (⚠ when it is older than an AIRAC cycle, 28 days) and a checkbox that shows them on the map. ⬇ downloads a
   country into `data\vectormaps` (one file per country, a few seconds each), ↻ updates it, ✕ deletes it and

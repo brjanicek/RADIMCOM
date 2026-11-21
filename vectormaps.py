@@ -249,6 +249,19 @@ def save(mid, coll):
     _cache.pop(path, None)
 
 
+GEO_KIND = {"Point": "point", "LineString": "line", "MultiLineString": "line", "Polygon": "area", "MultiPolygon": "area"}
+
+
+def geo_counts(coll):
+    """How many points, lines and areas a map has: {"point", "line", "area"}."""
+    out = {"point": 0, "line": 0, "area": 0}
+    for f in coll.get("features") or []:
+        k = GEO_KIND.get((f.get("geometry") or {}).get("type"))
+        if k:
+            out[k] += 1
+    return out
+
+
 def summary(coll):
     """Counts per kind and part: {kind: {cat: n}}."""
     cats = {}
@@ -298,7 +311,7 @@ def keep_view(old, new):
 
 def get_view(maps=None):
     """What is shown, from all stored maps: {cats, lbl, maxFL, maps {id: bool}, hidden [keys], stored}."""
-    view = {"cats": {}, "lbl": {}, "maxFL": 0, "style": {}, "maps": {}, "hidden": [], "stored": False}
+    view = {"cats": {}, "lbl": {}, "maxFL": 0, "style": {}, "srcs": {}, "maps": {}, "hidden": [], "stored": False}
     if not os.path.isdir(VMAP_DIR):
         return view
     for fn in sorted(os.listdir(VMAP_DIR)):
@@ -312,7 +325,7 @@ def get_view(maps=None):
         if isinstance(v, dict):
             if not view["stored"]:
                 view.update(cats=v.get("cats") or {}, lbl=v.get("lbl") or {}, maxFL=v.get("maxFL") or 0,
-                            style=v.get("style") or {}, stored=True)
+                            style=v.get("style") or {}, srcs=v.get("srcs") or {}, stored=True)
             view["maps"][fn[:-5]] = v.get("on", True) is not False
         view["hidden"] += [_key(f.get("properties") or {}) for f in coll.get("features") or [] if (f.get("properties") or {}).get("hidden")]
     return view
@@ -347,7 +360,7 @@ def set_view(view):
     """Stores what is shown into every map file (the same cats / lbl / maxFL in all, on and hidden per map)."""
     def bools(x):
         return {str(k)[:80]: bool(b) for k, b in (x or {}).items()} if isinstance(x, dict) else {}
-    cats, lbl, maps = bools(view.get("cats")), bools(view.get("lbl")), bools(view.get("maps"))
+    cats, lbl, maps, srcs = bools(view.get("cats")), bools(view.get("lbl")), bools(view.get("maps")), bools(view.get("srcs"))
     try:
         max_fl = int(view.get("maxFL") or 0)
     except (TypeError, ValueError):
@@ -365,7 +378,7 @@ def set_view(view):
             except (OSError, ValueError):
                 continue
             meta = coll.setdefault("radimcom", {})
-            view = {"on": maps.get(fn[:-5], True), "cats": cats, "lbl": lbl, "maxFL": max_fl, "style": style}
+            view = {"on": maps.get(fn[:-5], True), "cats": cats, "lbl": lbl, "maxFL": max_fl, "style": style, "srcs": srcs}
             changed = meta.get("view") != view
             meta["view"] = view
             for f in coll.get("features") or []:
@@ -396,7 +409,8 @@ def list_maps():
                         "country": meta.get("country") or "", "fetched": fetched,
                         "stale": time.time() - fetched > STALE_S, "license": meta.get("license") or "",
                         "attribution": meta.get("attribution") or "", "n": len(coll.get("features") or []),
-                        "size": os.path.getsize(path), "cats": summary(coll), "catNames": meta.get("catNames") or {}})
+                        "size": os.path.getsize(path), "cats": summary(coll), "catNames": meta.get("catNames") or {},
+                        "geo": geo_counts(coll)})
         except (OSError, ValueError, AttributeError, TypeError):
             continue
     return out
@@ -428,7 +442,7 @@ def _store(mid, coll):
     if old is None:
         v = get_view()
         if v["stored"]:
-            coll["radimcom"]["view"] = {"on": True, "cats": v["cats"], "lbl": v["lbl"], "maxFL": v["maxFL"], "style": v["style"]}
+            coll["radimcom"]["view"] = {"on": True, "cats": v["cats"], "lbl": v["lbl"], "maxFL": v["maxFL"], "style": v["style"], "srcs": v["srcs"]}
     save(mid, keep_view(old, coll))
     return next((m for m in list_maps() if m["id"] == mid), {"id": mid})
 

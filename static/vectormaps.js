@@ -41,7 +41,7 @@ function vmOptsNorm(v) {
   const bool = (x) => (x && typeof x === "object" ? Object.fromEntries(Object.entries(x).filter(([k, b]) => /^[\w.-]{1,80}$/.test(k) && typeof b === "boolean")) : {});
   return {
     on: o.on != null ? !!o.on : true,
-    maps: bool(o.maps), cats: bool(o.cats),
+    maps: bool(o.maps), cats: bool(o.cats), srcs: bool(o.srcs),   // srcs: a source used in the maps or not
     maxFL: VM_MAX_FL.includes(+o.maxFL) ? +o.maxFL : 0,
     lbl: bool(o.lbl),   // names on the map per kind (missing: VM_LBL_DEF)
     style: o.style && typeof o.style === "object" ? o.style : {},
@@ -52,7 +52,7 @@ function vmOptsNorm(v) {
 }
 // What is shown (cats, lbl, maxFL, maps, hidden) is stored on the server in the map files (the same in every browser
 // and computer); the browser keeps only on and the revisions. vmOpt() gives both together.
-const VM_VIEW_KEYS = ["cats", "lbl", "maxFL", "maps", "hidden", "style"];
+const VM_VIEW_KEYS = ["cats", "lbl", "maxFL", "maps", "hidden", "style", "srcs"];
 let vmView = null;   // from the server (GET /api/vectormaps → view)
 const vmOpt = () => { const b = mapOpts.vm || vmOptsNorm(null); return vmView ? { ...b, ...vmView } : b; };
 const vmCatOn = (kind, cat) => {
@@ -60,6 +60,8 @@ const vmCatOn = (kind, cat) => {
   return k && (cat == null || (c[`${kind}.${cat}`] != null ? c[`${kind}.${cat}`] : !VM_OFF.has(`${kind}.${cat}`)));
 };
 const vmMapOn = (id) => vmOpt().maps[id] !== false;
+const vmSrcOn = (src) => (vmOpt().srcs || {})[src || "openaip"] !== false;
+const vmShown = (m) => vmSrcOn(m.source) && vmMapOn(m.id);   // drawn: its source used and the map on
 const VM_LBL_DEF = { airspace: true, airport: true, navaid: true, point: false, obstacle: false, tx: true, chan: true, own: true };
 const vmLblOn = (kind) => { const l = vmOpt().lbl; return l[kind] != null ? l[kind] : !!VM_LBL_DEF[kind]; };
 const vmKey = (p) => `${p.src || "x"}:${p.srcId || p.name}`;   // an object, for hiding it
@@ -202,7 +204,7 @@ function vmLabel(p) {
 async function vmApply(map) {
   const st = map._vm || (map._vm = vmInit(map));
   const o = vmOpt(), list = o.on ? await vmListGet() : [];
-  const want = new Set(list.filter((m) => vmMapOn(m.id)).map((m) => m.id));
+  const want = new Set(list.filter(vmShown).map((m) => m.id));
   const sig = JSON.stringify([o.cats, o.maxFL, o.rev, o.hidden, o.style]);
   let changed = false;
   for (const [id, x] of st.layers) if (!want.has(id) || x.sig !== sig) { map.removeLayer(x.layer); st.layers.delete(id); changed = true; }
@@ -210,7 +212,7 @@ async function vmApply(map) {
   for (const m of list) {
     if (!want.has(m.id) || st.layers.has(m.id)) continue;
     const gj = await vmGet(m.id);
-    if (!gj || !vmOpt().on || !vmMapOn(m.id) || st.layers.has(m.id)) continue;
+    if (!gj || !vmOpt().on || !vmShown(m) || st.layers.has(m.id)) continue;
     const feats = (gj.features || []).filter((f) => {
       const p = f.properties || {};
       if (!vmCatOn(p.kind, p.cat) || hidden.has(vmKey(p))) return false;
@@ -356,7 +358,11 @@ function vmSourcesHtml() {
   const chk = (attr, on) => `<input type="checkbox" ${attr}${on ? " checked" : ""}>`;
   const list = (vmList || []).filter((m) => (m.source || "openaip") === tab);
   if (!vmList) vmListGet().then(() => vmRefillAll());
-  let h = `<div class="vm-tabs">${VM_SOURCES.map(([k, name]) => `<button type="button" class="vm-tab${k === tab ? " on" : ""}" data-vmtab="${k}">${name}</button>`).join("")}</div>`;
+  let h = `<div class="vm-tabs">${VM_SOURCES.map(([k, name]) => `<button type="button" class="vm-tab${k === tab ? " on" : ""}${vmSrcOn(k) ? "" : " off"}" data-vmtab="${k}">${name}</button>`).join("")}</div>`;
+  const geo = { point: 0, line: 0, area: 0 };   // all the maps of this source together
+  for (const m of list) for (const k of Object.keys(geo)) geo[k] += (m.geo && m.geo[k]) || 0;
+  h += `<div class="vm-srcbar"><label>${chk(`data-vmsrc="${tab}"`, vmSrcOn(tab))} Use in maps</label>` +
+    `<small class="muted">${list.length ? [["point", "point"], ["line", "line"], ["area", "area"]].map(([k, w]) => `${n(geo[k])} ${w}${geo[k] === 1 ? "" : "s"}`).join(" · ") : "nothing yet"}</small></div>`;
   if (tab === "file") {   // own files: GeoJSON, KML, GPX
     h += `<p class="map-opts-note">Own GeoJSON, KML or GPX files as vector maps: areas, lines and points under Own files in the tree (a file in this format keeps its airspaces, airports, …). The same name again replaces it.</p>` +
       `<label class="map-opts-up">Add <input type="file" data-vmfile accept=".geojson,.json,.kml,.gpx"></label><p class="map-opts-note vm-msg"></p>` +
@@ -410,7 +416,7 @@ function vmSettingsHtml() {
     (vmList && !list.length ? `<p class="map-opts-note">No map downloaded yet: see Map sources above.</p>` : "");
   // the tree: kind › part, the counts of all shown maps together
   const cnt = {};
-  for (const m of list) if (vmMapOn(m.id)) for (const [k, cs] of Object.entries(m.cats || {})) for (const [c, x] of Object.entries(cs)) { cnt[k] = cnt[k] || {}; cnt[k][c] = (cnt[k][c] || 0) + x; }
+  for (const m of list) if (vmShown(m)) for (const [k, cs] of Object.entries(m.cats || {})) for (const [c, x] of Object.entries(cs)) { cnt[k] = cnt[k] || {}; cnt[k][c] = (cnt[k][c] || 0) + x; }
   for (const [k, name, order] of VM_KINDS) {
     const cs = cnt[k];
     if (!cs) continue;
@@ -455,7 +461,7 @@ function vmCatOpen() {   // the parts open in the tree (this browser)
 /** The objects of one part (kind.cat) in all shown maps, by name, as checkboxes (checked = shown). */
 async function vmFillObjs(box) {
   const [kind, cat] = box.dataset.vmobjs.split(".");
-  const list = (await vmListGet()).filter((m) => vmMapOn(m.id));
+  const list = (await vmListGet()).filter(vmShown);
   const gjs = await Promise.all(list.map((m) => vmGet(m.id)));
   const rows = [];
   gjs.forEach((gj, i) => { for (const f of (gj && gj.features) || []) { const p = f.properties || {}; if (p.kind === kind && p.cat === cat) rows.push({ p, cc: list[i].country }); } });
@@ -509,6 +515,7 @@ function vmOnInput(e, panel) {
   if (e.type !== "change") return true;
   const o = vmOpt();
   if (t.dataset.vm === "on") vmSet({ on: t.checked });
+  else if (t.dataset.vmsrc) { vmSet({ srcs: { ...(o.srcs || {}), [t.dataset.vmsrc]: t.checked } }); vmRefill(panel); }
   else if (t.dataset.vm === "maxFL") vmSet({ maxFL: +t.value });
   else if (t.dataset.vmmap) vmSet({ maps: { ...o.maps, [t.dataset.vmmap]: t.checked } });
   else if (t.dataset.vmcat) vmSet({ cats: { ...o.cats, [t.dataset.vmcat]: t.checked } });

@@ -319,7 +319,7 @@ Airspaces, airports, navaids, reporting points and obstacles drawn on the decode
 
 | Method | Path | Meaning |
 |---|---|---|
-| GET | `/api/vectormaps` | `{"maps": [{"id", "name", "source", "country", "fetched", "stale"` (older than 28 days), `"license", "attribution", "n", "size", "cats": {kind: {cat: count}}}], "view": {"cats", "lbl", "maxFL", "maps": {id: on}, "hidden": [keys], "stored"}, "staleDays"}` |
+| GET | `/api/vectormaps` | `{"maps": [{"id", "name", "source", "country", "fetched", "stale"` (older than 28 days), `"license", "attribution", "n", "size", "cats": {kind: {cat: count}}, "geo": {"point", "line", "area"}}], "view": {"cats", "lbl", "maxFL", "srcs": {source: on}, "maps": {id: on}, "hidden": [keys], "stored"}, "staleDays"}` |
 | GET | `/api/vectormaps/<id>` | the GeoJSON of a map |
 | DELETE | `/api/vectormaps/<id>` | removes a downloaded map |
 | POST | `/api/vectormaps/openaip` | `{"country": "SK"}` downloads that country from openAIP (key from `data\mapkeys.json`) and answers `{"map": {...}}` as in the list; what was shown and hidden is kept. 400 without a key or with a wrong country, 502 when openAIP fails |
@@ -327,7 +327,7 @@ Airspaces, airports, navaids, reporting points and obstacles drawn on the decode
 | POST | `/api/vectormaps/osm` | `{"country": "SK"}` downloads the transmitter sites of that country from OpenStreetMap (Overpass API) as kind `tx` (parts `bcast`, `radar`, `ham`, `comm`, `mobile`; `operator`, `height`) and answers `{"map": {...}}`; 400 when there are none, 502 when Overpass fails or is busy |
 | POST | `/api/vectormaps/memories` | makes the map `memories` of the MEMORIES channels with a location (kind `chan`, one part per first group, the group names in `radimcom.catNames` and in the list as `catNames`); GET `/api/vectormaps` makes it again when `memories.json` changed |
 | POST | `/api/vectormaps/file` | `{"name", "geojson"}` stores an own file as the map `file_<name>` (the same name replaces it); objects with a known `kind` and `cat` keep them, the others become kind `own` with the parts `area` / `line` / `point`; answers `{"map": {...}}`, 400 without objects, 413 over 30 MB |
-| POST | `/api/vectormaps/view` | `{"cats": {"kind" or "kind.cat": bool}, "lbl": {kind: bool}, "maxFL", "style", "maps": {id: bool}, "hidden": ["<src>:<srcId>", ...]}` stores what is shown into every map file (only the files that change are rewritten); answers `{"view"}` |
+| POST | `/api/vectormaps/view` | `{"cats": {"kind" or "kind.cat": bool}, "lbl": {kind: bool}, "maxFL", "style", "srcs": {source: bool}, "maps": {id: bool}, "hidden": ["<src>:<srcId>", ...]}` stores what is shown into every map file (only the files that change are rewritten); answers `{"view"}` |
 
 ## Examples
 

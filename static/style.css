@@ -4534,3 +4534,9 @@ details[data-sec=vmaps] > .map-opts-body:empty { display: none; }
 .vm-get.vm-dl:hover { background: #2f6fb0; border-color: #6cb8ff; }
 .vm-ctry tr.vm-have + tr:not(.vm-have) th, .vm-ctry tr.vm-have + tr:not(.vm-have) td { border-top: 1px solid #3a4a60; }
 .vm-ctry td { white-space: nowrap; }
+.vm-srcbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 2px 0 4px; }
+.vm-srcbar label { margin: 0; }
+.vm-tab.off { opacity: .55; text-decoration: line-through; }
+.vm-tabs { flex-wrap: wrap; }
+.vm-tab { white-space: nowrap; padding: 3px 7px; }
+.vm-srcbar { flex-wrap: wrap; justify-content: flex-start; }
