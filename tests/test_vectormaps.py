@@ -317,3 +317,9 @@ def test_ifr_unknown_country():
     import pytest
     with pytest.raises(ValueError):
         vm.ifr_update("CZ", get=lambda u: {})
+
+
+def test_ifr_nil_valid_left_out():
+    c = vm.ifr_collection("AT", [(vm.IFR_SOURCES["AT"]["layers"][0], [_pt(16.62, 48.78, designator="MIKOV", validFrom={"@nilReason": "unknown"},
+                                                                          beginLifespanVersion="2025-05-16T00:00:00Z")])])
+    assert c["features"][0]["properties"]["valid"] == "2025-05-16"

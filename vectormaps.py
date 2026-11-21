@@ -983,7 +983,7 @@ def _pget(p, *names):
     low = {str(k).lower(): v for k, v in p.items()}
     for n in names:
         v = low.get(n.lower())
-        if v not in (None, "", " "):
+        if v not in (None, "", " ") and not isinstance(v, (dict, list)):   # a GML nil comes as a dict: none
             return v
     return None
 
@@ -1006,7 +1006,8 @@ def _ifr_point(g):
 def _ifr_date(v):
     if isinstance(v, (int, float)) and v > 1e11:   # ArcGIS: ms since 1970
         return time.strftime("%Y-%m-%d", time.gmtime(v / 1000))
-    return str(v)[:10] if v else ""
+    m = re.match(r"\d{4}-\d{2}-\d{2}", str(v or ""))
+    return m.group(0) if m else ""
 
 
 def ifr_cat(ident):
