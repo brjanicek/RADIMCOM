@@ -4462,7 +4462,7 @@ body.map-only #comStatus, #comPane:fullscreen #comStatus { display: flex; }
 .com-bar .com-bar-fold { color: #6cb8ff; background: none; border-color: transparent; padding: 2px 4px; min-width: 6.5em; text-align: left; }
 /* Map memory (mapmemo.js): the keys of the Maps bar, the Save actual window (Track menu look) */
 .com-bar.open[data-bar="maps"] { flex-wrap: wrap; }
-.com-bars { bottom: 20px; }   /* the bars over the attribution line at the bottom (it grows with the sources of the maps) */
+.leaflet-container:has(> .com-bars) .leaflet-bottom.leaflet-right { z-index: 850; }   /* the attribution line under the bars (they are 900; the settings window stays over them) */
 .com-bar button[data-tb="mm"]:disabled { color: #5d6b7c; background: #11161d; border-color: #263140; cursor: default; }
 .com-bar button.mm-save { margin-left: 6px; color: #6cb8ff; }
 .mm-dlg { position: absolute; left: 6px; z-index: 950; min-width: 220px; padding: 4px 0 8px; background: rgba(10, 13, 18, .92); backdrop-filter: blur(4px); border: 1px solid #3a4a60; border-radius: 6px; box-shadow: 0 4px 14px rgba(0, 0, 0, .5); font: 12px/1.5 system-ui, sans-serif; color: #dfe4ea; }
