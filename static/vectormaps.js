@@ -400,19 +400,22 @@ function vmInit(map) {
     });
   });
   map.on("mouseout", () => { if (shown) { map.closeTooltip(tip); shown = null; } });
-  map.on("click", (e) => {   // a click on an object: its card, its own name and note editable at once, and "Hide this object"
+  /** A right click on an object: its card with its own name and note to fill in and "Hide this object"
+   *  (the right click on a track stays its Track menu: the tracks stop it before the map; a left click selects as before). */
+  const card = (e, edit = true) => {
     const ob = vmOpt().on ? hit(e.containerPoint) : null;
     if (!ob) return;
     const box = document.createElement("div");
     box.className = "vm-card";
     // the own name and note: kept on the server apart from the map, so an update keeps them
     const nt = vmNote(ob.p);
-    box.innerHTML = `${vmTip(ob.p, ob.m)}<div class="vm-note-f"><label>Name <input type="text" data-f="name" maxlength="120" value="${escHtml(nt.name || "")}" placeholder="${escHtml(ob.p.name || ob.p.ident || "")}" title="Empty: the name of the map"></label>` +
+    box.innerHTML = !edit ? `${vmTip(ob.p, ob.m)}<div class="vm-card-act"><button type="button" class="vm-btn" data-a="hide">Hide this object</button></div>` :
+      `${vmTip(ob.p, ob.m)}<div class="vm-note-f"><label>Name <input type="text" data-f="name" maxlength="120" value="${escHtml(nt.name || "")}" placeholder="${escHtml(ob.p.name || ob.p.ident || "")}" title="Empty: the name of the map"></label>` +
       `<label>Note <textarea data-f="note" rows="2" maxlength="2000">${escHtml(nt.note || "")}</textarea></label>` +
       `<div class="vm-card-act"><button type="button" class="vm-btn" data-a="save">Save</button><button type="button" class="vm-btn" data-a="hide">Hide this object</button></div>` +
       `<p class="map-opts-note vm-note-msg"></p></div>`;
     L.DomEvent.disableClickPropagation(box);
-    box.querySelector('[data-f="name"]').addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); box.querySelector('button[data-a="save"]').click(); } });
+    if (edit) box.querySelector('[data-f="name"]').addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); box.querySelector('button[data-a="save"]').click(); } });
     box.addEventListener("click", (ev) => {
       ev.stopPropagation();   // the button is replaced below: Leaflet would no longer see it inside the card and take the click for the map
       const a = ev.target.closest("button[data-a]");
@@ -432,7 +435,9 @@ function vmInit(map) {
       }
     });
     L.popup({ className: "vm-pop", maxWidth: 320 }).setLatLng(ob.ll || e.latlng).setContent(box).openOn(map);
-  });
+    if (edit) box.querySelector('[data-f="name"]').focus();
+  };
+  map.on("contextmenu", (e) => card(e));
   /** The names of the objects in the view (from a zoom on per kind, at most VM_LBL_MAX). */
   st.labels = () => {
     lblLayer.clearLayers();
