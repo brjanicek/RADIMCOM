@@ -147,3 +147,27 @@ def test_ourairports_rejects_non_csv(tmp_path, monkeypatch):
         assert False
     except ValueError:
         pass
+
+
+def test_osm_transmitters():
+    els = [{"type": "node", "id": 1, "lat": 48.1, "lon": 17.1, "tags": {"man_made": "tower", "tower:type": "communication",
+            "communication:television": "yes", "communication:radio": "yes", "name": "Kamzik", "height": "196 m", "operator": "Towercom"}},
+           {"type": "way", "id": 2, "center": {"lat": 48.2, "lon": 17.2}, "tags": {"man_made": "mast", "communication:mobile_phone": "yes"}},
+           {"type": "node", "id": 3, "lat": 48.3, "lon": 17.3, "tags": {"man_made": "tower", "tower:type": "radar"}},
+           {"type": "node", "id": 4, "lat": 48.4, "lon": 17.4, "tags": {"man_made": "antenna", "communication:amateur_radio": "yes"}},
+           {"type": "node", "id": 5, "lat": 48.5, "lon": 17.5, "tags": {"man_made": "antenna"}},
+           {"type": "node", "id": 1, "lat": 48.1, "lon": 17.1, "tags": {}}]
+    c = vm.osm_tx_collection("SK", els)
+    by = {f["properties"]["srcId"]: f["properties"] for f in c["features"]}
+    assert len(c["features"]) == 5 and c["radimcom"]["source"] == "osm"
+    k = by["n1"]
+    assert (k["kind"], k["cat"], k["name"], k["height"], k["operator"]) == ("tx", "bcast", "Kamzik", 196, "Towercom")
+    assert "television" in k["remarks"]
+    assert [by[x]["cat"] for x in ("w2", "n3", "n4", "n5")] == ["mobile", "radar", "ham", "comm"]
+    assert c["features"][1]["geometry"]["coordinates"] == [17.2, 48.2]
+    q = []
+    try:
+        vm.osm_update("sk", get=lambda x: q.append(x) or {"elements": []})
+    except ValueError:
+        pass
+    assert '"ISO3166-1"="SK"' in q[0]

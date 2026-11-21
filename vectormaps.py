@@ -3,7 +3,7 @@
 The data is downloaded once per country (button Update in the map settings) and stored in data/vectormaps/, one file
 per source and country, as GeoJSON with properties of the same names for every source:
 
-    kind    airspace | airport | navaid | point | obstacle    (the group of the map settings tree)
+    kind    airspace | airport | navaid | point | obstacle | tx (transmitter sites)    (the group of the map settings tree)
     cat     the part of the group: CTR, TMA, R, D, ... / intl, civil, ul, ... / VOR-DME, NDB, ... (the tree's leaves)
     name, ident, cls (ICAO class A-G or SUA), elev (m MSL), height (m above ground, obstacles)
     freq    [{"f": MHz, "name": str, "type": str}]
@@ -20,7 +20,8 @@ the same files.
 Sources: openAIP (https://www.openaip.net, CC BY-NC 4.0, free API key in data/mapkeys.json). The API has no area
 filter, so it is asked per country. OurAirports (https://ourairports.com, public domain): airports with their
 frequencies and runways, and navaids, from its CSV files of the whole world (kept a day in data/vectormaps/_ourairports
-so more countries need one download), cut per country.
+so more countries need one download), cut per country. OpenStreetMap (ODbL) through the Overpass API: transmitter
+sites (masts, towers and antennas for broadcasting, mobile phones, radar, amateur radio and other radio), per country.
 """
 import csv
 import io
@@ -547,6 +548,97 @@ def ourairports_update(country, fetch=_oa_fetch):
     return _store(f"ourairports_{country}", coll)
 
 
+# ---------- OpenStreetMap (Overpass): transmitter sites ----------
+OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+OSM_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors (ODbL)'
+OSM_TX_QUERY = """[out:json][timeout:300];
+area["ISO3166-1"="{cc}"][admin_level=2]->.a;
+(
+  nwr["man_made"~"^(mast|tower|antenna|communications_tower)$"]["tower:type"~"communication|broadcast|radar|radio|television"](area.a);
+  nwr["man_made"~"^(mast|tower|antenna|communications_tower)$"]["communication:radio"](area.a);
+  nwr["man_made"~"^(mast|tower|antenna|communications_tower)$"]["communication:television"](area.a);
+  nwr["man_made"~"^(mast|tower|antenna|communications_tower)$"]["communication:mobile_phone"](area.a);
+  nwr["man_made"~"^(mast|tower|antenna|communications_tower)$"]["communication:amateur_radio"](area.a);
+  nwr["man_made"="communications_tower"](area.a);
+  nwr["man_made"="antenna"](area.a);
+);
+out center tags;"""
+
+
+def _yes(v):
+    return str(v or "").strip().lower() not in ("", "no", "0", "false")
+
+
+def osm_tx_cat(tags):
+    """The part of the tree of a transmitter site: bcast, mobile, radar, ham or comm (any other radio)."""
+    tt = str(tags.get("tower:type") or "").lower()
+    if _yes(tags.get("communication:television")) or _yes(tags.get("communication:radio")) or "broadcast" in tt or "television" in tt:
+        return "bcast"
+    if "radar" in tt or tags.get("man_made") == "radar":
+        return "radar"
+    if _yes(tags.get("communication:amateur_radio")):
+        return "ham"
+    if _yes(tags.get("communication:mobile_phone")):
+        return "mobile"
+    return "comm"
+
+
+def _height(v):
+    m = re.match(r"\s*([\d.]+)", str(v or ""))
+    return round(float(m.group(1))) if m else None
+
+
+def osm_tx_feature(el):
+    tags = el.get("tags") or {}
+    if "lat" in el and "lon" in el:
+        la, lo = el["lat"], el["lon"]
+    else:
+        c = el.get("center") or {}
+        la, lo = c.get("lat"), c.get("lon")
+    geom = _oa_point(la, lo)
+    if not geom:
+        return None
+    cat = osm_tx_cat(tags)
+    name = tags.get("name") or tags.get("description") or ""
+    what = [k.split(":", 1)[1].replace("_", " ") for k in ("communication:television", "communication:radio", "communication:mobile_phone",
+                                                           "communication:amateur_radio", "communication:microwave") if _yes(tags.get(k))]
+    p = {"kind": "tx", "cat": cat, "name": str(name).strip(), "src": "osm", "srcId": f"{str(el.get('type') or 'n')[:1]}{el.get('id')}"}
+    for k, v in (("ident", tags.get("ref")), ("height", _height(tags.get("height"))), ("elev", _height(tags.get("ele"))),
+                 ("operator", tags.get("operator")), ("remarks", ", ".join(what) or tags.get("tower:type"))):
+        if v not in (None, ""):
+            p[k] = v
+    return {"type": "Feature", "geometry": geom, "properties": p}
+
+
+def osm_tx_collection(country, elements, fetched=None):
+    feats, seen = [], set()
+    for el in elements or []:
+        if isinstance(el, dict):
+            f = osm_tx_feature(el)
+            if f and f["properties"]["srcId"] not in seen:
+                seen.add(f["properties"]["srcId"])
+                feats.append(f)
+    return {"type": "FeatureCollection", "radimcom": {
+        "version": VERSION, "name": f"OSM transmitters {country}", "source": "osm", "country": country,
+        "fetched": round(fetched or time.time()), "license": "ODbL", "attribution": OSM_ATTR}, "features": feats}
+
+
+def _overpass(query):
+    req = urllib.request.Request(OVERPASS_URL, data=urllib.parse.urlencode({"data": query}).encode(),
+                                 headers={"User-Agent": "RADIMCOM", "Accept": "application/json"})
+    with urllib.request.urlopen(req, timeout=330) as r:
+        return json.loads(r.read().decode("utf-8"))
+
+
+def osm_update(country, get=_overpass):
+    """Downloads the transmitter sites of a country from OpenStreetMap and stores them as osm_<CC>."""
+    country = _country(country)
+    coll = osm_tx_collection(country, (get(OSM_TX_QUERY.replace("{cc}", country)) or {}).get("elements"))
+    if not coll["features"]:
+        raise ValueError(f"OpenStreetMap has no transmitter sites for {country}")
+    return _store(f"osm_{country}", coll)
+
+
 # ---------- HTTP API ----------
 @bp.route("/api/vectormaps", methods=["GET"])
 def api_vectormaps():
@@ -603,3 +695,17 @@ def api_vectormaps_ourairports():
         return jsonify(error=f"OurAirports answered HTTP {e.code}"), 502
     except (urllib.error.URLError, OSError, TimeoutError) as e:
         return jsonify(error=f"OurAirports not reachable: {getattr(e, 'reason', e)}"), 502
+
+
+@bp.route("/api/vectormaps/osm", methods=["POST"])
+def api_vectormaps_osm():
+    """POST {"country": "SK"}: downloads the transmitter sites of that country from OpenStreetMap (Overpass API)."""
+    d = request.get_json(silent=True) or {}
+    try:
+        return jsonify(map=osm_update(d.get("country")))
+    except ValueError as e:
+        return jsonify(error=str(e)), 400
+    except urllib.error.HTTPError as e:
+        return jsonify(error=f"Overpass answered HTTP {e.code}" + (" (busy, try again later)" if e.code in (429, 504) else "")), 502
+    except (urllib.error.URLError, OSError, TimeoutError) as e:
+        return jsonify(error=f"Overpass not reachable: {getattr(e, 'reason', e)}"), 502

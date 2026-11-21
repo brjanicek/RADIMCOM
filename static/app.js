@@ -18905,8 +18905,8 @@ function comMapSettings(map, kind, rerender, noTrails) {
         `<td><input type="color" class="map-opts-cp" data-o="fRng${i}" value="${o["fRng" + i]}"></td>` +
         `<td><select data-o="pRng${i}" title="Opacity of the fill">${MAP_LBL_BG.map((v) => `<option value="${v}"${v === o["pRng" + i] ? " selected" : ""}>${v ? pc(v) : "none"}</option>`).join("")}</select></td></tr>`).join("") +
       `</table>`;
-    const mapSec = part("vmaps", "Vector maps", "airspaces, airports, navaids", "",
-      part("vsrc", "Map sources", "openAIP, OurAirports", vmSourcesHtml()) + part("vlist", "Maps", "what is shown", vmSettingsHtml())) +
+    const mapSec = part("vmaps", "Vector maps", "airspaces, airports, navaids, transmitters", "",
+      part("vsrc", "Map sources", "openAIP, OurAirports, OSM", vmSourcesHtml()) + part("vlist", "Maps", "what is shown", vmSettingsHtml())) +
       part("mbase", "Base map", "tiles, own layers" + (kind === "com" ? ", station" : ""), baseSec) +
       part("mad", "A/D map", "azimuth / distance rings", adSec) + part("mrng", "ADS-B range", "farthest positions per altitude", rngSec);
     const weatherSec =

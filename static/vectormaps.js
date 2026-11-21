@@ -12,6 +12,7 @@ const VM_KINDS = [
   ["navaid", "Navaids", ["VOR", "VOR-DME", "DVOR", "DVOR-DME", "VORTAC", "DVORTAC", "TACAN", "DME", "NDB", "NDB-DME"]],
   ["point", "Reporting points", ["RP", "RP_OPT"]],
   ["obstacle", "Obstacles", ["tower", "chimney", "wind", "building", "obstacle"]],
+  ["tx", "Transmitters", ["bcast", "radar", "ham", "comm", "mobile"]],
 ];
 const VM_CAT_NAME = {
   R: "R (restricted)", D: "D (danger)", P: "P (prohibited)", GLIDING: "Gliding sectors", SPORT: "Para / sport", FIS: "FIS sectors",
@@ -20,9 +21,10 @@ const VM_CAT_NAME = {
   ul: "Ultralight", heli: "Heliports", heli_mil: "Military heliports", water: "Water", strip: "Landing strips", agri: "Agricultural",
   altiport: "Altiports", closed: "Closed", large: "Large airports", medium: "Medium airports", small: "Small airfields", balloon: "Balloon ports", RP: "Compulsory", RP_OPT: "On request", tower: "Towers / masts", chimney: "Chimneys",
   wind: "Wind turbines", building: "Buildings", obstacle: "Other",
+  bcast: "Broadcasting (radio, TV)", radar: "Radar", ham: "Amateur radio", comm: "Other radio", mobile: "Mobile phone",
 };
 // shown at first (later: as the person set it)
-const VM_OFF = new Set(["airspace.FIR", "airspace.UIR", "airspace.ACC", "airspace.FIS", "airspace.OTHER", "airport.closed", "obstacle"]);
+const VM_OFF = new Set(["airspace.FIR", "airspace.UIR", "airspace.ACC", "airspace.FIS", "airspace.OTHER", "airport.closed", "obstacle", "tx.mobile"]);
 const VM_MAX_FL = [0, 50, 65, 95, 100, 125, 145, 195, 245, 660];   // airspaces starting below this FL (0 = all)
 
 /** The vector map part of the map settings, checked. */
@@ -50,11 +52,11 @@ const vmCatOn = (kind, cat) => {
   return k && (cat == null || (c[`${kind}.${cat}`] != null ? c[`${kind}.${cat}`] : !VM_OFF.has(`${kind}.${cat}`)));
 };
 const vmMapOn = (id) => vmOpt().maps[id] !== false;
-const VM_LBL_DEF = { airspace: true, airport: true, navaid: true, point: false, obstacle: false };
+const VM_LBL_DEF = { airspace: true, airport: true, navaid: true, point: false, obstacle: false, tx: true };
 const vmLblOn = (kind) => { const l = vmOpt().lbl; return l[kind] != null ? l[kind] : !!VM_LBL_DEF[kind]; };
 const vmKey = (p) => `${p.src || "x"}:${p.srcId || p.name}`;   // an object, for hiding it
 // names on the map from this zoom on (per kind; big airports earlier); at most VM_LBL_MAX in the view
-const VM_LBL_ZOOM = { airspace: 8, airport: 9, navaid: 7, point: 9, obstacle: 11 };
+const VM_LBL_ZOOM = { airspace: 8, airport: 9, navaid: 7, point: 9, obstacle: 11, tx: 10 };
 const VM_LBL_MAX = 300;
 
 // default look per kind / part (stage 2 makes these settable)
@@ -67,7 +69,7 @@ const VM_AS_STYLE = {
 };
 const VM_AS_DEF = ["#9fb3c8", 1, "4 4", 0.03];
 const VM_PT_STYLE = {   // colour, radius
-  airport: ["#4fd2ff", 5], navaid: ["#7cff9a", 4], point: ["#ffd84a", 3], obstacle: ["#ff6cd2", 3],
+  airport: ["#4fd2ff", 5], navaid: ["#7cff9a", 4], point: ["#ffd84a", 3], obstacle: ["#ff6cd2", 3], tx: ["#ff9f40", 4],
 };
 // the style of a part (kind.cat): line c / w / d (type) / o, fill fc / fo, point r / sym, name lc / ls / lz (from zoom);
 // the defaults above, what the person changed in view.style (stored on the server with the maps)
@@ -82,7 +84,7 @@ function vmStyDef(kind, cat) {
   const [c, r] = VM_PT_STYLE[kind] || ["#ffffff", 3];
   const major = kind === "airport" && ["intl", "ifr", "large", "medium"].includes(cat);
   const big = major || (kind === "airport" && cat === "military");
-  return { fc: c, r: big ? r + 2 : r, sym: kind === "navaid" ? "diamond" : kind === "point" ? "triangle" : "circle", fo: cat === "closed" ? 0.3 : 0.95,
+  return { fc: c, r: big ? r + 2 : r, sym: kind === "navaid" ? "diamond" : kind === "point" || kind === "tx" ? "triangle" : "circle", fo: cat === "closed" ? 0.3 : 0.95,
     lc: c, ls: 10, lz: (VM_LBL_ZOOM[kind] || 9) - (major ? 2 : 0) };
 }
 const vmSty = (kind, cat) => ({ ...vmStyDef(kind, cat), ...(((vmOpt().style || {})[`${kind}.${cat}`]) || {}) });
@@ -155,6 +157,7 @@ function vmTip(p) {
   const rows = [];
   if (p.kind === "airspace") rows.push(`${escHtml(cat)}${p.cls && p.cls !== "SUA" ? ` · class ${escHtml(p.cls)}` : ""}`, `${vmLim(p.lower) || "?"} – ${vmLim(p.upper) || "?"}`);
   else rows.push(escHtml(cat) + (p.elev != null ? ` · ${p.elev} m` : "") + (p.height != null ? ` · ${p.height} m AGL` : "") + (p.channel ? ` · ch ${escHtml(p.channel)}` : ""));
+  if (p.operator) rows.push(escHtml(String(p.operator).slice(0, 80)));
   if (p.rwy && p.rwy.length) rows.push(`RWY ${p.rwy.map(escHtml).join(" ")}`);
   for (const f of (p.freq || []).slice(0, 6)) rows.push(vmFreq(f));
   if (p.remarks) rows.push(`<span class="muted">${escHtml(String(p.remarks).slice(0, 120))}</span>`);
@@ -307,10 +310,11 @@ function vmInit(map) {
 
 /** The Vector maps section of the map settings window. */
 // the sources of the vector maps, one tab each (openAIP now; more sources come as more tabs)
-const VM_SOURCES = [["openaip", "openAIP"], ["ourairports", "OurAirports"]];
+const VM_SOURCES = [["openaip", "openAIP"], ["ourairports", "OurAirports"], ["osm", "OpenStreetMap"]];
 const VM_SRC_NOTE = {
   openaip: "Airspaces, airports, navaids, reporting points, obstacles per country (CC BY-NC).",
   ourairports: "Airports with frequencies and runways, navaids, per country (public domain, no key; the whole world is downloaded once a day, about 20 MB).",
+  osm: "Transmitter sites (broadcasting, mobile phone, radar, amateur and other radio) per country (ODbL, no key; a big country takes a minute or two).",
 };
 // the countries openAIP can be downloaded for (ISO 3166 and Kosovo); their names come from the browser
 const VM_COUNTRIES = ("AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT BV BW BY BZ CA CC CD CF " +

@@ -100,7 +100,10 @@ at once in all open tabs and windows of the same address.
   **Update all** downloads all the downloaded ones again; the downloaded countries are at the top. The **OurAirports** tab works the same
   without a key: airports (large, medium, small, heliports, …) with their frequencies and runways, and navaids, from
   ourairports.com (public domain); the world files (about 20 MB) are downloaded at most once a day into
-  `data\vectormaps\_ourairports` and cut per country. The tree in **Maps** (▸ opens a kind or a part) switches the
+  `data\vectormaps\_ourairports` and cut per country. The **OpenStreetMap** tab downloads the transmitter sites of a country
+  (masts, towers and antennas: broadcasting, radar, amateur radio, other radio and mobile phone, the last off at first)
+  through the Overpass API (ODbL, no key; a big country takes a minute or two); they show as **Transmitters** in the
+  tree, with the operator and the height. The tree in **Maps** (▸ opens a kind or a part) switches the
   kinds (**Airspaces**, **Airports**, **Navaids**, **Reporting points**, **Obstacles**: off at first) and their parts
   (CTR, TMA, R, D, … / international, civil, ultralight, … / VOR-DME, NDB, …) on and off; each part opens to its objects
   one by one with a checkbox. **Names on the map** per kind (from a zoom on, names that would overlap are left out);
