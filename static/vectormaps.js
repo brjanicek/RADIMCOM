@@ -400,32 +400,24 @@ function vmInit(map) {
     });
   });
   map.on("mouseout", () => { if (shown) { map.closeTooltip(tip); shown = null; } });
-  map.on("click", (e) => {   // a click on an object: its card with "Name / note" and "Hide this object"
+  map.on("click", (e) => {   // a click on an object: its card, its own name and note editable at once, and "Hide this object"
     const ob = vmOpt().on ? hit(e.containerPoint) : null;
     if (!ob) return;
     const box = document.createElement("div");
     box.className = "vm-card";
-    const card = () => {
-      box.innerHTML = `${vmTip(ob.p, ob.m)}<div class="vm-card-act"><button type="button" class="vm-btn" data-a="edit">Name / note</button>` +
-        `<button type="button" class="vm-btn" data-a="hide">Hide this object</button></div>`;
-    };
-    const form = () => {   // the own name and note: kept on the server apart from the map, so an update keeps them
-      const nt = vmNote(ob.p);
-      box.innerHTML = `<div class="vm-note-f"><label>Name <input type="text" data-f="name" maxlength="120" value="${escHtml(nt.name || "")}" placeholder="${escHtml(ob.p.name || ob.p.ident || "")}"></label>` +
-        `<label>Note <textarea data-f="note" rows="3" maxlength="2000">${escHtml(nt.note || "")}</textarea></label>` +
-        `<div class="vm-card-act"><button type="button" class="vm-btn" data-a="save">Save</button><button type="button" class="vm-btn" data-a="back">Cancel</button></div>` +
-        `<p class="map-opts-note vm-note-msg">Empty name: the name of the map.</p></div>`;
-      box.querySelector("input").focus();
-    };
-    card();
+    // the own name and note: kept on the server apart from the map, so an update keeps them
+    const nt = vmNote(ob.p);
+    box.innerHTML = `${vmTip(ob.p, ob.m)}<div class="vm-note-f"><label>Name <input type="text" data-f="name" maxlength="120" value="${escHtml(nt.name || "")}" placeholder="${escHtml(ob.p.name || ob.p.ident || "")}" title="Empty: the name of the map"></label>` +
+      `<label>Note <textarea data-f="note" rows="2" maxlength="2000">${escHtml(nt.note || "")}</textarea></label>` +
+      `<div class="vm-card-act"><button type="button" class="vm-btn" data-a="save">Save</button><button type="button" class="vm-btn" data-a="hide">Hide this object</button></div>` +
+      `<p class="map-opts-note vm-note-msg"></p></div>`;
     L.DomEvent.disableClickPropagation(box);
+    box.querySelector('[data-f="name"]').addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); box.querySelector('button[data-a="save"]').click(); } });
     box.addEventListener("click", (ev) => {
       ev.stopPropagation();   // the button is replaced below: Leaflet would no longer see it inside the card and take the click for the map
       const a = ev.target.closest("button[data-a]");
       if (!a) return;
       if (a.dataset.a === "hide") { vmSet({ hidden: [...new Set([...vmOpt().hidden, vmKey(ob.p)])] }); map.closePopup(); }
-      else if (a.dataset.a === "edit") form();
-      else if (a.dataset.a === "back") card();
       else if (a.dataset.a === "save") {
         a.disabled = true;
         mapLayApi("/api/vectormaps/note", { method: "POST", headers: { "Content-Type": "application/json" },
@@ -434,7 +426,7 @@ function vmInit(map) {
             vmNotes = j.notes || {};
             vmViewRev = Date.now();
             mapOptsSet({ vm: { ...(mapOpts.vm || vmOptsNorm(null)), viewRev: vmViewRev } });
-            card();
+            map.closePopup();
           })
           .catch((err) => { a.disabled = false; box.querySelector(".vm-note-msg").textContent = `Not saved: ${err.message}`; });
       }
