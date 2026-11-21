@@ -438,7 +438,7 @@ body {
 .ad-err[hidden], .ad-rot[hidden], .ad-dab[hidden], .rds[hidden] { display: none !important; }
 .ad-err { display: flex; align-items: center; gap: 8px; height: 100%; padding: 0 4px 0 8px; }
 .ad-err-text { flex: 1; min-width: 0; color: #ff5a4f; font: 600 12px/1.25 system-ui, sans-serif; text-shadow: 0 0 6px rgba(255, 70, 60, .45);
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }   /* 4 lines fit the AD box; the whole text also in the tooltip */
 .ad-err-more { color: #ff8a80; font: 700 10px system-ui, sans-serif; }
 .ad-ok { flex: 0 0 auto; padding: 1px 6px; cursor: pointer; border-radius: 3px; background: transparent;
   border: 1px solid #ff5a4f; color: #ff5a4f; font: 700 10px/1.3 system-ui, sans-serif; letter-spacing: .04em; }
@@ -2843,7 +2843,7 @@ html.compact .r-keys .keys button { --led-at: left 3px top 2px / 6px 3px no-repe
     linear-gradient(180deg, #3a3f47, #2a2e34); }
 
 /* function keys: every group a module of two rows under its legend, the keys of one size */
-.r-keys { justify-content: space-between; align-items: flex-end; gap: 6px 6px; padding: 8px 0 10px; }
+.r-keys { justify-content: space-between; align-items: flex-start; gap: 6px 6px; padding: 8px 0 10px; }
 .r-keys .kgroup { align-items: center; gap: 4px; }
 .r-keys .keys { display: grid; grid-template-columns: repeat(var(--cols, 1), 1fr); grid-template-rows: repeat(2, 28px); gap: 3px; padding: 4px; }
 .r-keys .keys:has(> :nth-child(3)) { --cols: 2; }
@@ -2853,8 +2853,8 @@ html.compact .r-keys .keys button { --led-at: left 3px top 2px / 6px 3px no-repe
 .r-keys .keys:has(> :nth-child(11)) { --cols: 6; }
 .r-keys .keys:has(> :nth-child(13)) { --cols: 7; }
 .r-keys .keys:has(> :nth-child(15)) { --cols: 8; }
-/* NB: in the upper row right of NTH, so DNR stays under NTH; HUM (last) fills the place under NB */
-.r-keys #nbKey { grid-column: 8; grid-row: 1; }
+/* AUDIO: three rows of six keys – S/M NF SP HPF LPF ALC / NTH AFI ASQ TSQ-C TSQ-D RECS / NB DNR HUM TNF APF BIN */
+.r-keys .kgroup[data-g="AUDIO"] .keys { --cols: 6; grid-template-rows: repeat(3, 28px); }
 /* SAM and its sideband: the 5th column of MODE, SAM beside AM: FM WFM LSB AM SAM / DAB DSD USB CW DSB */
 .r-keys #samKey { grid-column: 5; grid-row: 1; }
 .r-keys #samSbKey { grid-column: 5; grid-row: 2; }
@@ -2900,7 +2900,7 @@ html[data-skin="alu-light"] .r-bands, html[data-ink="dark"] .r-bands { border-to
 .r-master .vol { align-self: stretch; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 6px 16px; }
 .vol > .r-gh:first-child { grid-column: 1 / -1; margin-bottom: 0; }
 /* faders, dB scale and meter as tall as the speaker + RECORD keys at the right (the rows come from the keys) */
-.vol > .vol-sliders { grid-column: 1; grid-row: 2 / span 5; align-self: stretch; }
+.vol > .vol-sliders { grid-column: 1; grid-row: 2 / span 6; align-self: stretch; }
 .r-master .vol-ch, .r-master .vol-scale, .r-master .vu { align-self: stretch; }
 .r-master .vol input[type=range], .r-master .vol-scale > div, .r-master .vu-cols { flex: 1 1 0; height: 0; min-height: 60px; }
 .r-master .vol-scale i { bottom: calc(6px + var(--f) * (100% - 12px)); }
@@ -2909,6 +2909,7 @@ html[data-skin="alu-light"] .r-bands, html[data-ink="dark"] .r-bands { border-to
 .vol > #recBtn { grid-column: 2; grid-row: 4; }
 .vol > #recSqBtn { grid-column: 2; grid-row: 5; }
 .vol > #recIqBtn { grid-column: 2; grid-row: 6; }
+.vol > #retroBtn { grid-column: 2; grid-row: 7; }
 .spk, .rec { height: 26px; }
 
 /* the lower part is a display sunk deeper into the panel: a stepped milled edge (dark wall, bright lower lip)
@@ -3351,7 +3352,7 @@ body.map-only .pkt-map.map-only-box { flex-direction: column; gap: 4px; }
 .rcx-wrap .note { margin: 0; max-width: 1100px; }
 .rcx { display: grid; grid-template-columns: minmax(200px, 300px) 64px minmax(220px, 320px); grid-auto-rows: minmax(0, 1fr);
   row-gap: 8px; align-items: stretch; max-width: 720px; }
-.rcx .sdg-b.k-rsat { --bc: #6cc6ff; } .rcx .sdg-b.k-rmem { --bc: #ffd84a; } .rcx .sdg-b.k-rmap { --bc: #7fd88a; } .rcx .sdg-b.k-rsonde { --bc: #ff8c1a; }
+.rcx .sdg-b.k-rsat { --bc: #6cc6ff; } .rcx .sdg-b.k-rmem { --bc: #ffd84a; } .rcx .sdg-b.k-rmap { --bc: #7fd88a; } .rcx .sdg-b.k-rsonde { --bc: #ff8c1a; } .rcx .sdg-b.k-rmeteor { --bc: #c79bff; }
 .rcx-src { grid-column: 1; cursor: pointer; user-select: none; }
 .rcx-src:hover { border-color: color-mix(in srgb, var(--bc) 80%, transparent); }
 .rcx-src:focus-visible { outline: 2px solid var(--bc); outline-offset: 1px; }
@@ -3366,17 +3367,17 @@ body.map-only .pkt-map.map-only-box { flex-direction: column; gap: 4px; }
 .rcx-w { grid-column: 2; position: relative; }
 .rcx-w::before { content: ""; position: absolute; left: 0; right: 12px; top: 50%; border-top: 2px dashed var(--line); }   /* ends on the bus */
 .rcx-w.on::before { border-top: 2px solid var(--bc); }
-.rcx-w.k-rsat { --bc: #6cc6ff; } .rcx-w.k-rmem { --bc: #ffd84a; } .rcx-w.k-rmap { --bc: #7fd88a; } .rcx-w.k-rsonde { --bc: #ff8c1a; }
+.rcx-w.k-rsat { --bc: #6cc6ff; } .rcx-w.k-rmem { --bc: #ffd84a; } .rcx-w.k-rmap { --bc: #7fd88a; } .rcx-w.k-rsonde { --bc: #ff8c1a; } .rcx-w.k-rmeteor { --bc: #c79bff; }
 /* the bus at the right end of the lines, into the rotor with an arrow */
-.rcx-bus { grid-column: 2; grid-row: 1 / 5; position: relative; pointer-events: none; }
-.rcx-bus::before { content: ""; position: absolute; right: 12px; top: calc(100% / 8); bottom: calc(100% / 8); border-left: 2px solid var(--line); }
+.rcx-bus { grid-column: 2; grid-row: 1 / 6; position: relative; pointer-events: none; }
+.rcx-bus::before { content: ""; position: absolute; right: 12px; top: calc(100% / 10); bottom: calc(100% / 10); border-left: 2px solid var(--line); }
 .rcx-bus::after { content: ""; position: absolute; right: 0; top: calc(50% - 6px); border: 6px solid transparent; border-left: 10px solid var(--line); border-right: 0;
   margin-right: -2px; }
 .rcx-bus.on::before { border-left-color: var(--green); }
 .rcx-bus.on::after { border-left-color: var(--green); }
 .rcx-bus > em { position: absolute; right: 2px; top: 50%; width: 12px; border-top: 2px solid var(--line); }
 .rcx-bus.on > em { border-top-color: var(--green); }
-.rcx-rot { grid-column: 3; grid-row: 1 / 5; align-self: center; }
+.rcx-rot { grid-column: 3; grid-row: 1 / 6; align-self: center; }
 .rcx-rot .rcx-pos { display: flex; gap: 14px; align-items: baseline; }
 .rcx-rot .rcx-pos span { font: 700 18px ui-monospace, Consolas, monospace; color: var(--text); font-variant-numeric: tabular-nums; }
 .rcx-rot .rcx-pos small { margin-right: 3px; }
@@ -4524,3 +4525,190 @@ body.map-only #comStatus, #comPane:fullscreen #comStatus { display: flex; }
   border-radius: 6px; background: color-mix(in srgb, var(--red) 10%, transparent); }
 .bk-confirm p { margin: 0 0 6px; }
 .bk-confirm input { width: 90px; font-family: ui-monospace, Consolas, monospace; }
+
+/* DX CLUSTER tab (DX key, group PROP): the spots as a list in the look of the FT8 stations (.ft8-map-bar, .ft8-ml) */
+.dx-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.dx-bar > b { font: 700 11px system-ui, sans-serif; letter-spacing: .08em; color: var(--muted); }
+.dx-bar .bands button { min-width: 0; padding: 3px 10px; font-size: 11px; }
+.dx-bar .dx-n { margin-left: 3px; color: var(--muted); font-weight: 400; }
+.dx-bar .on .dx-n { color: inherit; }
+.dx-filter { width: 240px; padding: 3px 8px; border: 1px solid var(--line2); border-radius: 4px; background: #05070a; color: var(--text); font-size: 12px; }
+.dx-opt { display: flex; align-items: center; gap: 5px; color: var(--muted); font: 600 11px system-ui, sans-serif; letter-spacing: .04em; cursor: pointer; }
+#dxInfo { flex: 1 1 auto; font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; }
+#dxInfo.dx-err { color: var(--amber); }
+.dx-list { flex: 1 1 0; min-height: 0; overflow: auto; border: 1px solid var(--line); border-radius: 6px; background: #000; }
+/* columns side by side at fixed widths (the comment at most 360 px), the spare width stays empty on the right */
+.dx-row { display: grid; grid-template-columns: 40px 92px 88px 150px 34px minmax(0, 360px) 96px 44px; justify-content: start; gap: 10px;
+  align-items: center; padding: 2px 8px; cursor: pointer; font: 12px ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dx-row > * { overflow: hidden; text-overflow: ellipsis; }
+.dx-row:hover { background: rgba(255, 255, 255, .06); }
+.dx-row.sel { background: rgba(255, 75, 60, .22); }   /* the spot the VFO is tuned to (within 1 kHz) */
+.dx-row.dx-head { position: sticky; top: 0; z-index: 1; cursor: default; background: #0b0e12; color: var(--muted);
+  font: 600 10px system-ui, sans-serif; letter-spacing: .06em; }
+.dx-row .fq, .dx-row .age { text-align: right; }
+.dx-row .utc, .dx-row .age { color: var(--muted); }
+.dx-row .fq { color: #ffb547; }
+.dx-row b { color: #ff7ad9; }                       /* the colour of the DX marks in the spectrum */
+.dx-row .cty { color: #d6dde5; }
+.dx-row .cty i, .dx-row .sp i { color: var(--muted); font-style: normal; }
+.dx-row .md { color: var(--green); }
+.dx-row .cm { color: #9fb0c0; }
+.dx-row .sp { color: #5fd7ff; }
+.dx-empty { padding: 12px; }
+.dx-pane .note { margin: 0; font-size: 11px; color: var(--dim); }
+
+/* SATELLITES › TRACK: the Moon (EME) */
+.satt-eme { border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
+.satt-eme-row { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-bottom: 6px; }
+.satt-eme-row input { width: 110px; }
+
+/* RETRO (retro.py): the player bar of a replay from the RAM buffer */
+.retro-bar { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 900; display: flex; align-items: center;
+  gap: 10px; padding: 6px 10px; background: #0b1430; border: 1px solid var(--rec-iq, #2a5bff); border-radius: 8px;
+  color: #b0c4ff; font-variant-numeric: tabular-nums; box-shadow: 0 4px 18px rgba(0, 0, 0, .5); max-width: calc(100vw - 32px); }
+.retro-bar[hidden] { display: none; }
+.retro-bar .rb-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--rec-iq, #2a5bff); box-shadow: 0 0 7px var(--rec-iq, #2a5bff); }
+.retro-bar .rb-prog { width: 120px; height: 5px; background: rgba(255, 255, 255, .1); border-radius: 3px; overflow: hidden; }
+.retro-bar .rb-prog i { display: block; height: 100%; width: 0; background: var(--rec-iq, #2a5bff); }
+.msk-tbl td.num i { font-style: normal; margin-left: 2px; }
+
+/* SATELLITES › SUN NOISE (sunnoise.py): blocks in the look of the STATION scheme */
+.amsat-body .sunnoise { margin: 0; }
+.sunnoise .sdg { gap: 10px; }
+.sunnoise .sn-blocks { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+.sunnoise .sn-blocks.sn-wide { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+.sunnoise .sn-blocks .sdg-b { max-width: none; flex-direction: column; align-items: stretch; }
+.sunnoise .sdg-b .sdg-ico { top: 5px; transform: none; }
+.sunnoise .sdg-b > small { color: var(--dim); font-size: 10.5px; white-space: normal; }
+.sunnoise .sdg-b.lit { border-color: color-mix(in srgb, var(--bc) 70%, transparent); background: color-mix(in srgb, var(--bc) 7%, transparent); }
+.sunnoise .sdg-b.lit > b { color: var(--bc); }
+.sunnoise .sdg-b.k-moon { --bc: #c9d4e6; } .sunnoise .sdg-b.k-tune { --bc: #5ee0d0; } .sunnoise .sdg-b.k-run { --bc: #7fd88a; }
+.sunnoise .sdg-b.k-res { --bc: #ffc14d; } .sunnoise .sdg-b.k-log { --bc: var(--line2); }
+.sunnoise .sdg-b .chips { align-items: center; margin: 2px 0; }
+.sunnoise .sdg-b .chips .key.small { height: 20px; padding: 0 6px; font-size: 10px; }
+.sunnoise .sn-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 6px 10px; margin-top: 2px; }
+.sunnoise .sn-fields input, .sunnoise .sn-fields select { width: 100%; }
+.sunnoise .sn-keys { display: flex; gap: 6px; margin: 2px 0 4px; }
+.sunnoise .sn-big { display: flex; flex-wrap: wrap; gap: 4px 22px; font: 700 13px system-ui, sans-serif; color: var(--muted); }
+.sunnoise .sn-big b { font-size: 20px; color: var(--bc); }
+.sunnoise .sn-big i { font-style: normal; font-weight: 400; color: var(--dim); }
+.sunnoise .sn-tbl { width: auto; border-collapse: collapse; margin-top: 6px; }
+.amsat-body .sunnoise .sn-tbl th { position: static; background: none; color: var(--dim); font: 700 9.5px system-ui, sans-serif; letter-spacing: .08em; }
+.amsat-body .sunnoise .sn-tbl th, .amsat-body .sunnoise .sn-tbl td { padding: 2px 10px; border: 0; border-bottom: 1px solid var(--line); text-align: left; }
+.amsat-body .sunnoise .sn-tbl tbody tr:nth-child(even) { background: none; }
+.amsat-body .sunnoise .sn-tbl .num { text-align: right; font-variant-numeric: tabular-nums; }
+/* SETTINGS and RUN: blocks of the NOW row, the fields small */
+.sunnoise .sdg-b.k-tune .sn-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 3px 8px; }
+.sunnoise .sdg-b.k-tune .set-field { gap: 1px; }
+.sunnoise .sdg-b.k-tune .set-field > span { font-size: 10px; color: var(--dim); }
+.sunnoise .sdg-b.k-tune .sn-fields input { width: 100%; height: 22px; padding: 0 4px; }
+.sunnoise .sn-keys { flex-wrap: wrap; }
+.sunnoise #snRunB small { display: block; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.sunnoise .sdg-b.k-cmt { --bc: #9fd8ff; }
+.sunnoise .sn-cmt { font-size: 12px; color: var(--text); white-space: normal; }
+.sunnoise .sn-cmt ul { margin: 2px 0 0; padding-left: 16px; }
+.sunnoise .sn-cmt li { margin: 3px 0; }
+.sunnoise .sn-cmt li.warn { color: var(--amber); }
+.sunnoise .sn-log { max-height: 150px; overflow: auto; font: 11px/1.45 ui-monospace, Consolas, monospace; color: var(--text); white-space: normal; }
+
+/* SETTINGS › VFO › AUDIO: a block whose key is off is greyed (it can still be set) */
+.set-audio .setting.set-off { opacity: .45; transition: opacity .2s; }
+.set-audio .setting.set-off:hover, .set-audio .setting.set-off:focus-within { opacity: .85; }
+
+/* RETRO (beside the REC keys): while it keeps the IQ only its LED is lit (dark blue, steady); the key stays raised,
+   without the coloured edge of a running recording */
+.rec.retro.armed { color: #eef1f5; transform: none; border-color: #0b0c0e; border-top-color: #4d535c; box-shadow: var(--key-raised);
+  animation: none; --led: var(--rec-iq);
+  background: linear-gradient(var(--led), var(--led)) var(--led-at),
+    radial-gradient(closest-side, color-mix(in srgb, var(--led) 70%, transparent), transparent) var(--led-glow),
+    linear-gradient(180deg, #4a5059 0%, #30343b 50%, #24272c 100%); }
+/* RETRO on the waterfall: the rows still held in RAM (a bar at the left edge, a dashed line where the buffer ends) */
+.retro-mark { position: absolute; pointer-events: none; border-left: 3px solid rgba(42, 91, 255, .85);
+  border-bottom: 1px dashed rgba(120, 155, 255, .9); box-sizing: border-box; z-index: 2; }
+.retro-mark.full { border-bottom-color: transparent; }
+.retro-mark[hidden] { display: none; }
+.retro-mark b { position: absolute; left: 4px; bottom: 1px; font: 700 9px system-ui, sans-serif; letter-spacing: .06em;
+  color: #b0c4ff; background: rgba(11, 20, 48, .75); padding: 0 4px; border-radius: 2px; }
+.retro-mark.full b { bottom: auto; top: 2px; }
+.sunnoise .sn-headrow { display: flex; align-items: center; gap: 8px; }
+.sunnoise .sn-headrow #snHead { margin-left: auto; }
+.sunnoise .sn-headrow .set-i { position: static; }
+.sunnoise .sn-info { padding: 8px 12px; border: 1.5px solid color-mix(in srgb, #ffc14d 45%, transparent); border-radius: 6px;
+  background: color-mix(in srgb, #ffc14d 5%, transparent); font-size: 12px; color: var(--text); max-width: 1000px; }
+.sunnoise .sn-info[hidden] { display: none; }
+.sunnoise .sn-info > b { font: 700 10.5px system-ui, sans-serif; letter-spacing: .08em; text-transform: uppercase; color: #ffc14d; }
+.sunnoise .sn-info ol { margin: 6px 0; padding-left: 20px; }
+.sunnoise .sn-info li { margin: 2px 0; }
+.sunnoise .sn-info p { margin: 4px 0 0; color: var(--muted); }
+/* SUN NOISE: the blocks of the upper row only as big as their content */
+.sunnoise .sn-blocks:not(.sn-wide) { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; }
+.sunnoise .sn-blocks:not(.sn-wide) > .sdg-b { flex: 0 0 auto; min-width: 150px; max-width: 300px; padding: 5px 30px 6px 8px; }
+.sunnoise .sdg-b.k-tune .sn-fields { display: flex; flex-wrap: wrap; gap: 3px 8px; }
+.sunnoise .sdg-b.k-tune .sn-fields input { width: 58px; }
+.sunnoise .sdg-b.k-tune { max-width: 420px !important; }
+.sunnoise #snRunB { min-width: 220px; }
+.sunnoise .sn-chk { display: inline-flex; align-items: center; gap: 3px; font-size: 10.5px; color: var(--muted); }
+/* SUN SCAN: chart and result */
+.sunnoise .sdg-b.k-scan { --bc: #ff9a3d; }
+.sunnoise .sdg-b[hidden] { display: none; }
+.sunnoise .sn-scan-ax { display: flex; flex-direction: column; gap: 2px; margin-bottom: 6px; }
+.sunnoise .sn-scan-ax > b { font: 700 9.5px system-ui, sans-serif; letter-spacing: .08em; color: var(--dim); }
+.sunnoise .sn-scan-ax .v i { font-style: normal; font-weight: 400; color: var(--dim); }
+.sunnoise .sn-scan-ax small, .sunnoise #snScanR > small { color: var(--dim); font-size: 10.5px; white-space: normal; }
+.sunnoise .warn { color: var(--amber); }
+.sunnoise .sn-chart { width: 100%; max-width: 360px; height: auto; background: rgba(0, 0, 0, .3); border-radius: 4px; }
+.sunnoise .sn-chart text { fill: var(--dim); font: 8px system-ui, sans-serif; }
+.sunnoise .sn-chart .sn-grid { stroke: rgba(255, 255, 255, .08); }
+.sunnoise .sn-chart circle { fill: #ffc14d; }
+.sunnoise .sn-chart .sn-fitc { fill: none; stroke: #ff9a3d; stroke-width: 1.5; }
+.sunnoise .sn-chart .sn-peak { stroke: #ff5d5d; stroke-dasharray: 3 2; }
+.sunnoise .sn-apply { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
+.sunnoise .sn-apply .key { align-self: flex-start; }
+
+/* ---------- DECODERS › METEORS (meteor.py): blocks in the look of STATION, only as big as their content ---------- */
+.meteor .mt-panel { display: flex; flex-direction: column; gap: 8px; }
+.meteor .ft8-head .mt-ibtn { position: static; margin-left: auto; }
+.meteor .mt-info { padding: 6px 12px; border: 1.5px solid color-mix(in srgb, #c79bff 45%, transparent); border-radius: 6px;
+  background: color-mix(in srgb, #c79bff 5%, transparent); font-size: 12px; color: var(--text); max-width: 1000px; }
+.meteor .mt-info[hidden] { display: none; }
+.meteor .mt-info > b { font: 700 10.5px system-ui, sans-serif; letter-spacing: .08em; text-transform: uppercase; color: #c79bff; }
+.meteor .mt-info ul { margin: 4px 0 0; padding-left: 18px; }
+.meteor .mt-info li { margin: 2px 0; }
+.meteor .mt-blocks { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; }
+.meteor .mt-blocks > .sdg-b { flex: 0 0 auto; min-width: 150px; max-width: 340px; padding: 5px 30px 6px 8px; }
+.meteor .sdg-b .sdg-ico { top: 5px; transform: none; }
+.meteor .sdg-b > small { color: var(--dim); font-size: 10.5px; white-space: normal; }
+.meteor .sdg-b.lit { border-color: color-mix(in srgb, var(--bc) 70%, transparent); background: color-mix(in srgb, var(--bc) 7%, transparent); }
+.meteor .sdg-b.lit > b { color: var(--bc); }
+.meteor .sdg-b.k-tune { --bc: #5ee0d0; } .meteor .sdg-b.k-res { --bc: #c79bff; } .meteor .sdg-b.k-cmt { --bc: #9fd8ff; }
+.meteor .sdg-b.k-log { --bc: var(--line2); }
+.meteor .sdg-b .chips { align-items: center; margin: 2px 0; }
+.meteor .sdg-b .chips .key.small { height: 20px; padding: 0 6px; font-size: 10px; }
+.meteor .mt-thr { display: inline-flex; align-items: center; gap: 3px; font-size: 10.5px; color: var(--muted); }
+.meteor .mt-thr input { width: 48px; height: 20px; padding: 0 4px; }
+.meteor .mt-stats { display: flex; gap: 12px; }
+.meteor .mt-stat { display: flex; flex-direction: column; }
+.meteor .mt-stat span { font: 700 9px system-ui, sans-serif; color: var(--dim); letter-spacing: .06em; }
+.meteor .mt-stat b { font: 700 18px ui-monospace, Consolas, monospace; color: var(--text); font-variant-numeric: tabular-nums; }
+.meteor #mtCntB.lit .mt-stat b { color: var(--bc); }
+.meteor .mt-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.meteor .mt-layout > .sdg-b { padding: 5px 8px 6px; }
+.meteor .mt-layout > .mt-wide { grid-column: 1 / -1; }
+.meteor .mt-chart { display: block; width: 100%; height: 120px; background: rgba(0, 0, 0, .3); border-radius: 4px; }
+.meteor #mtScope { height: 100px; }
+.meteor .mt-chart text { fill: var(--dim); font: 9px system-ui, sans-serif; }
+.meteor .mt-chart .mt-gl { stroke: rgba(255, 255, 255, .08); }
+.meteor .mt-chart .mt-line { fill: none; stroke: var(--green); stroke-width: 1.2; }
+.meteor .mt-chart .mt-thrl { stroke: var(--red); stroke-dasharray: 4 3; }
+.meteor .mt-chart .mt-under, .meteor .mt-kind.mt-under { fill: var(--green); color: var(--green); }
+.meteor .mt-chart .mt-over, .meteor .mt-kind.mt-over { fill: var(--amber); color: var(--amber); }
+.meteor .mt-chart .mt-plane, .meteor .mt-kind.mt-plane { fill: var(--blue); color: var(--muted); }
+.meteor .mt-chart .mt-cover { fill: var(--muted); }
+.meteor .mt-chart .mt-day { fill: var(--green); }
+.meteor .mt-chart .mt-shower { stroke: var(--orange); stroke-dasharray: 2 2; }
+.meteor .mt-chart .mt-shn { fill: var(--orange); font-weight: 600; }
+.meteor .mt-kind { font: 600 10px system-ui, sans-serif; letter-spacing: .04em; }
+.meteor .mt-tablebox { max-height: 260px; overflow: auto; }
+.meteor .mt-tbl { width: auto; min-width: 560px; }
+.meteor .mt-tbl tr.mt-dim td { color: var(--dim); }

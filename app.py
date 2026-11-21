@@ -38,6 +38,8 @@ if __name__ == "__main__" and "--vfo" not in sys.argv:
     launcher.main()
     sys.exit(0)
 
+import audiofx
+import nrx
 import location
 import antennas
 import memories
@@ -53,6 +55,8 @@ except ImportError:
     sattrack = None
 from ft8 import FT8_FREQS, Ft8Decoder
 from wspr import WSPR_FREQS, WsprDecoder
+from msk144 import MSK144_FREQS, Msk144Decoder
+import meteor
 from cw import CwDecoder
 from rtty import RttyDecoder, station_list as rtty_station_list
 from packet import PacketDecoder
@@ -62,6 +66,7 @@ from daylog import LOG_DIR, DayLog, TextLog
 import recorder as recorder_mod
 from recorder import Recorder
 from iqrec import IqRecorder
+from retro import RetroBuffer
 import rotor as rotor_module
 from wefax import WefaxDecoder
 from sstv import SstvDecoder
@@ -236,11 +241,13 @@ def save_config_later():
 
 # ---------- daily decoder logs (turned on with LOG in the decoder card) ----------
 
-LOG_KEYS = ("ft8", "wefax", "cw", "rtty", "sstv", "acars", "dsd", "ism", "packet", "pocsag", "hfdl", "ais", "adsb", "wspr")
+LOG_KEYS = ("ft8", "wefax", "cw", "rtty", "sstv", "acars", "dsd", "ism", "packet", "pocsag", "hfdl", "ais", "adsb", "wspr", "msk144", "meteor")
 _tag = cfg.get("vfo") or ""
 logs = {"ft8": DayLog("ft8", _tag), "wefax": DayLog("wefax", _tag), "sstv": DayLog("sstv", _tag), "dsd": DayLog("dsd", _tag), "ism": DayLog("ism", _tag), "packet": DayLog("packet", _tag), "pocsag": DayLog("pocsag", _tag), "hfdl": DayLog("hfdl", _tag), "ais": DayLog("ais", _tag), "adsb": DayLog("adsb", _tag),
         "cw": TextLog("cw", _tag), "rtty": TextLog("rtty", _tag)}
 logs["wspr"] = DayLog("wspr", _tag)
+logs["msk144"] = DayLog("msk144", _tag)
+logs["meteor"] = DayLog("meteor", _tag)
 _saved_logged = {"wefax": None, "sstv": None}
 
 
@@ -291,6 +298,10 @@ def decoder_event(kind, data):
                               f"{data['df']} Hz | {data['msg']}")
         elif kind == "wspr" and log_on("wspr"):
             logs["wspr"].write(f"{_mhz(data['freq_hz'])} {data['snr']:+d} dB DT {data['dt']:+.1f} drift {data['drift']:+d} | {data['msg']}")
+        elif kind == "msk144" and log_on("msk144"):
+            logs["msk144"].write(f"{_mhz(data['freq_hz'])} {data['snr']:+d} dB DF {data['df']} Hz frames {data['nav']} | {data['msg']}")
+        elif kind == "meteor" and log_on("meteor"):
+            logs["meteor"].write(f"{_mhz(data['freq_hz'])} {data['doppler']:+d} Hz {data['snr']:.1f} dB {data['dur']:.2f} s {data['kind']}")
         elif kind == "dsdcall" and log_on("dsd"):
             slot = f" slot {data['slot']}" if data["slot"] else ""
             alias = f" | {data['alias']}" if data["alias"] else ""
@@ -346,6 +357,8 @@ def decoder_event(kind, data):
 ft8 = Ft8Decoder(on_decode=lambda d: decoder_event("ft8", d),
                  on_cycle=lambda t: hub.event("ft8cycle", {"time": t}))
 wspr_dec = WsprDecoder(on_decode=lambda d: decoder_event("wspr", d), on_cycle=lambda i: hub.event("wsprcycle", i))
+msk_dec = Msk144Decoder(on_decode=lambda d: decoder_event("msk144", d))
+meteors = meteor.MeteorCounter(_tag, on_echo=lambda e: decoder_event("meteor", e))
 
 
 def wefax_retune(old_hz, new_hz):
@@ -449,9 +462,9 @@ def audio_muted():
 
 def state():
     capable = tx_capable()
-    return dict(receiver.state(), ft8=ft8.enabled, ft8_error=ft8.error, wspr=wspr_dec.enabled, wspr_error=wspr_dec.error, wspr_info=wspr_dec.info, wspr_prog=wspr_dec.progress(), wefax=wefax.enabled, cw=cw.enabled, rtty=rtty.enabled, packet=packet.enabled, pocsag=pocsag.enabled, sonde=sonde.enabled, sonde_multi=sonde.multi,
+    return dict(receiver.state(), ft8=ft8.enabled, ft8_error=ft8.error, wspr=wspr_dec.enabled, wspr_error=wspr_dec.error, wspr_info=wspr_dec.info, wspr_prog=wspr_dec.progress(), msk144=msk_dec.enabled, msk144_error=msk_dec.error, msk144_info=msk_dec.info, meteor=meteors.enabled, meteor_error=meteors.error, meteor_info=meteors.info, wefax=wefax.enabled, cw=cw.enabled, rtty=rtty.enabled, packet=packet.enabled, pocsag=pocsag.enabled, sonde=sonde.enabled, sonde_multi=sonde.multi,
                 sstv=sstv.enabled, acars=acars.enabled, vdl2=vdl2.enabled, vdl2_error=vdl2.error, vdl2_region=vdl2.region, cpdlc=acars.cpdlc_on,
-                dsd=dsd.info(), dab=dab.enabled, dab_error=dab.error, dab_channel=dab.channel, dab_sids=cfg.get("dab_sids") or {}, ism=ism.enabled, ism_error=ism.error, ism_raw=ism.raw, hfdl=hfdl.enabled, hfdl_error=hfdl.error, ais=ais.enabled, ais_error=ais.error, adsb=adsb.enabled, adsb_error=adsb.error, ism_hz=cfg.get("ism_hz", ISM_DEFAULT), audio_muted=audio_muted(), recording=recorder.state(), iq_rec=iq_recorder.state(), logs={k: log_on(k) for k in LOG_KEYS},
+                dsd=dsd.info(), dab=dab.enabled, dab_error=dab.error, dab_channel=dab.channel, dab_sids=cfg.get("dab_sids") or {}, ism=ism.enabled, ism_error=ism.error, ism_raw=ism.raw, hfdl=hfdl.enabled, hfdl_error=hfdl.error, ais=ais.enabled, ais_error=ais.error, adsb=adsb.enabled, adsb_error=adsb.error, ism_hz=cfg.get("ism_hz", ISM_DEFAULT), audio_muted=audio_muted(), recording=recorder.state(), iq_rec=iq_recorder.state(), retro=retro.state(), logs={k: log_on(k) for k in LOG_KEYS},
                 **doppler_trsp(), antenna=cfg.get("antenna", ""),
                 tx_capable=capable, tx_enabled=bool(cfg.get("tx_enabled", False)),
                 can_tx=capable and bool(cfg.get("tx_enabled", False)) and hasattr(receiver.sdr, "tx_start"))
@@ -480,6 +493,8 @@ def on_baseband(base, fs, dial_hz):
         return                           # SCAN: the decoders of this VFO are paused (they would get every channel)
     ft8.feed(base, fs, dial_hz)
     wspr_dec.feed(base, fs, dial_hz)
+    msk_dec.feed(base, fs, dial_hz)
+    meteors.feed(base, fs, dial_hz)
     wefax.feed(base, fs, dial_hz)
     if cw.enabled:
         cw.feed(base, fs, dial_hz, cw_band())
@@ -502,6 +517,9 @@ def on_baseband(base, fs, dial_hz):
 recorder = Recorder()
 # REC IQ: the raw samples of the dongle to WAV (SDR# style) in the subfolder iq of the recordings folder (iqrec.py)
 iq_recorder = IqRecorder(lambda: os.path.join(recorder_mod.day_folder(recorder.folder), "iq"), (VFO or {}).get("name", ""))
+# RETRO: the last minute of raw IQ in RAM, replayed by Alt+click on the waterfall (retro.py)
+retro = RetroBuffer((VFO or {}).get("name", ""))
+retro.set(on=bool(cfg.get("retro", False)), seconds=cfg.get("retro_s", 60))
 
 
 def _dab_recording():
@@ -567,6 +585,8 @@ for _k in _iq_on[1:]:
     cfg[_k] = False
 ft8.set_enabled(cfg.get("ft8", False))
 wspr_dec.set_enabled(cfg.get("wspr", False))
+msk_dec.set_enabled(cfg.get("msk144", False))
+meteors.set_enabled(cfg.get("meteor", False))
 wefax.slant_ppm = float(cfg.get("wefax_slant_ppm", 0.0))
 wefax.afc_vfo = bool(cfg.get("wefax_afc_vfo", True))
 wefax.set_enabled(cfg.get("wefax", False))
@@ -590,6 +610,7 @@ acars.set_enabled(cfg.get("acars", False) and not cfg.get("vdl2", False))
 
 def on_raw(raw, fs, center_hz):
     iq_recorder.feed(raw, fs, center_hz)
+    retro.feed(raw, fs, center_hz)
     vdl2.feed_raw(raw, fs, center_hz)
     dab.feed_raw(raw, fs, center_hz, receiver.lo)
     ism.feed_raw(raw, fs, center_hz)
@@ -686,7 +707,7 @@ def api_whatsnew():
 
 @app.route("/api/state")
 def api_state():
-    return jsonify(dict(state(), sample_rates=SAMPLE_RATES, modes=MODES, ft8_freqs=FT8_FREQS, wspr_freqs=WSPR_FREQS, acars_freqs=ACARS_FREQS,
+    return jsonify(dict(state(), sample_rates=SAMPLE_RATES, modes=MODES, ft8_freqs=FT8_FREQS, wspr_freqs=WSPR_FREQS, msk144_freqs=MSK144_FREQS, acars_freqs=ACARS_FREQS,
                         vdl2_freqs=region_freqs(vdl2.region), vdl2_region_freqs={r: region_freqs(r) for r in VDL2_REGIONS}, vdl2_center=VDL2_CENTER, vdl2_rate=VDL2_RATE, tx_bands=TX_BANDS,
                         dab_channels=DAB_CHANNELS, ism_freqs=ISM_FREQS, hfdl_bands=hfdl_mod.BANDS,
                         hfdl_stations=hfdl_mod.STATIONS, ais_center=ais_mod.CENTER_HZ, ais_channels=sorted(ais_mod.CHANNELS), adsb_freq=adsb_mod.FREQ_HZ))
@@ -841,6 +862,41 @@ def api_ft8_stations():
 @app.route("/api/wspr")
 def api_wspr():
     return jsonify(list(wspr_dec.decodes))
+
+
+@app.route("/api/retro/clip", methods=["POST"])
+def api_retro_clip():
+    """RETRO: {"t": unix time, "hz": frequency} -> WAV of up to 20 s demodulated from the IQ kept in RAM, with the mode,
+    filter and all the AUDIO keys of this VFO (no squelch); X-Retro-Start / X-Retro-Seconds say what it is."""
+    body = request.get_json(force=True) or {}
+    try:
+        t, hz = float(body["t"]), float(body["hz"])
+    except (KeyError, TypeError, ValueError):
+        return jsonify({"error": "t and hz must be numbers"}), 400
+    wav, info = retro.clip_wav(t, hz, dict(cfg))       # the whole AUDIO chain of this VFO as it is set now
+    if wav is None:
+        return jsonify({"error": info}), 404
+    return Response(wav, mimetype="audio/wav", headers={"X-Retro-Start": f"{info['start']:.2f}",
+                                                         "X-Retro-Seconds": str(info["seconds"]), "Cache-Control": "no-store"})
+
+
+@app.route("/api/retro/save", methods=["POST"])
+def api_retro_save():
+    """RETRO SAVE: the whole buffer as an IQ WAV into the iq folder of today's recordings."""
+    try:
+        path = retro.save_iq(os.path.join(recorder_mod.day_folder(recorder.folder), "iq"))
+    except (OSError, ValueError) as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify(ok=True, file=os.path.basename(path), mb=round(os.path.getsize(path) / 1e6))
+
+
+@app.route("/api/msk144", methods=["GET", "DELETE"])
+def api_msk144():
+    """MSK144 decodes (msk144.py); DELETE clears them."""
+    if request.method == "DELETE":
+        msk_dec.clear()
+        return jsonify(ok=True)
+    return jsonify(list(msk_dec.decodes))
 
 
 @app.route("/api/wspr/stations", methods=["GET", "DELETE"])
@@ -1032,6 +1088,13 @@ def api_spacewx():
     import spacewx
     q = location.load()
     return jsonify(spacewx.summary(q.get("lat"), q.get("lon")))
+
+
+import dxcluster  # noqa: E402
+dxcluster.register(app)     # /api/dxcluster for a receiver without the launcher (the launcher has its own)
+import sunnoise  # noqa: E402
+sunnoise.register(app)      # /api/sunnoise: SATELLITES › SUN NOISE (Sun / Moon position, flux, G/T)
+meteor.register(app, meteors, own_station)    # /api/meteors: DECODERS › METEORS (GRAVES echoes, hourly / daily counts)
 
 
 @app.route("/api/sonde", methods=["GET"])
@@ -1536,6 +1599,7 @@ def _com_loop():
 _com_load()
 threading.Thread(target=_com_loop, name="composite-history", daemon=True).start()
 atexit.register(_com_save)   # a normal stop also keeps the last minutes
+atexit.register(meteors.save)   # and the meteor counts of the current minute
 
 
 @app.route("/api/positions", methods=["GET"])
@@ -2851,7 +2915,7 @@ def forward_to_owner(changes):
 
 
 # the decoders of the DECODERS tab: at most one runs on a VFO (switching one on switches the others off)
-ONE_DECODER = ("cw", "ft8", "packet", "pocsag", "rtty", "sstv", "wefax", "wspr", "acars", "adsb", "hfdl", "vdl2", "ais",
+ONE_DECODER = ("cw", "ft8", "packet", "pocsag", "rtty", "sstv", "wefax", "wspr", "msk144", "meteor", "acars", "adsb", "hfdl", "vdl2", "ais",
                "sonde", "ism")
 
 
@@ -2917,9 +2981,22 @@ def api_set():
             changes["notch"] = bool(body["notch"])
         if "audio_agc" in body:
             changes["audio_agc"] = bool(body["audio_agc"])
-        for k in ("dyn", "dyn_lim", "dyn_exp", "dyn_exp_auto", "dyn_exp_fast", "alc_fast", "agc_smooth", "dnr", "nb", "sam", "hum"):
+        for k in ("dyn", "dyn_lim", "dyn_exp", "dyn_exp_auto", "dyn_exp_fast", "alc_fast", "agc_smooth", "dnr", "nb", "sam", "hum",
+                  "tnf", "tnf_clear", "apf", "bin"):
             if k in body:
                 changes[k] = bool(body[k])
+        if "dnr_algo" in body:
+            if body["dnr_algo"] not in nrx.ALGOS:
+                return jsonify({"error": "dnr_algo must be " + ", ".join(nrx.ALGOS)}), 400
+            changes["dnr_algo"] = body["dnr_algo"]
+        if "tnf_click" in body:                    # TNF: Shift+click in the spectrum (Hz)
+            changes["tnf_click"] = float(body["tnf_click"])
+        if "tnf_width" in body:
+            changes["tnf_width"] = min(max(float(body["tnf_width"]), audiofx.TNF_WIDTH_MIN_HZ), audiofx.TNF_WIDTH_MAX_HZ)
+        if "apf_width" in body:
+            if int(body["apf_width"]) not in audiofx.APF_WIDTHS:
+                return jsonify({"error": "apf_width must be " + ", ".join(map(str, audiofx.APF_WIDTHS))}), 400
+            changes["apf_width"] = int(body["apf_width"])
         if "hum_base" in body:
             if body["hum_base"] not in HUM_BASES:
                 return jsonify({"error": "hum_base must be 50 or 60"}), 400
@@ -3067,6 +3144,16 @@ def api_set():
     if "wspr" in body:
         wspr_dec.set_enabled(bool(body["wspr"]))
         cfg["wspr"] = wspr_dec.enabled
+        save_config_later()
+        hub.event("status", state())
+    if "msk144" in body:
+        msk_dec.set_enabled(bool(body["msk144"]))
+        cfg["msk144"] = msk_dec.enabled
+        save_config_later()
+        hub.event("status", state())
+    if "meteor" in body:
+        meteors.set_enabled(bool(body["meteor"]))
+        cfg["meteor"] = meteors.enabled
         save_config_later()
         hub.event("status", state())
     if "wefax" in body:
@@ -3261,6 +3348,12 @@ def api_set():
         return jsonify({"error": str(e)}), 400
     if "rec_iq" in body:
         iq_recorder.set(bool(body["rec_iq"]))
+    if "retro" in body or "retro_s" in body:
+        retro.set(on=bool(body["retro"]) if "retro" in body else None,
+                  seconds=body.get("retro_s"))
+        cfg["retro"], cfg["retro_s"] = retro.on, retro.seconds
+        save_config_later()
+        hub.event("status", state())
     if "rec" in body or "rec_sq" in body or "rec_iq" in body:
         hub.event("status", state())
     if "tune_hz" in changes and changes["tune_hz"] != cfg.get("tune_hz"):

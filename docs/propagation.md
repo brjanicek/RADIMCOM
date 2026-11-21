@@ -58,3 +58,22 @@ Downloaded by the running program only, refreshed when older than their interval
 | IRF Kiruna (<https://www2.irf.se/maggraphs/>) | 1-minute magnetometer X, Y, Z; the last 24 hours are kept in `data\spacewx\kir.json` | 5 min |
 
 The page asks the launcher (`GET /api/spacewx`), once for the whole station.
+
+## DX cluster
+
+The **DX** key beside PROP (group PROP) shows the **DX CLUSTER** tab: the spots of the DX cluster of the last 30 minutes.
+
+- **Source:** the public DX cluster feed of [HamQTH](https://www.hamqth.com) (no login, no callsign, nothing about the
+  station is sent). The launcher (`dxcluster.py`, `/api/dxcluster`) reads it at most once a minute for the whole station and
+  keeps the spots in memory; a spot older than 30 minutes is dropped. The same DX on the same frequency (within 1 kHz) is one
+  row: the newest spot, with **+n** for more spotters.
+- **HF / VHF / UHF** (up to 30 MHz, 30–300 MHz, from 300 MHz) choose the list, each with its number of spots; the **filter**
+  field narrows it (DX call, spotter, country, band or comment). Columns: UTC, frequency, DX, country and continent, mode,
+  comment, spotter, age. A row lit red is the spot the VFO is tuned to.
+- **A click on a row tunes the active VFO** to the spot with its mode: from the comment (CW, FT8 / FT4 and other digital
+  modes → USB, SSB, FM, AM), else from the IARU Region 1 band plan (CW and digital segments, the FT8 / FT4 frequencies, FM on
+  2 m / 70 cm, phone LSB under 10 MHz and USB above; a beacon `/B` → CW). A frequency the VFO cannot receive is only reported.
+- **MARKS IN SPECTRUM** (on by default): while the DX key is on, the spots in the shown part of the spectrum are pink ▼ marks
+  at its bottom edge with the DX call (above the CW skimmer's rows while it runs; spots older than 15 minutes fainter). The
+  tooltip of a mark gives the country, mode, age, comment and spotters; a click tunes there.
+

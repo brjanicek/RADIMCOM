@@ -103,6 +103,61 @@ Release candidate (GitHub branch `1.1rc1`; continues the test betas `1.1beta1` a
   mark. SONDE: to the selected sonde (like FT8 and WSPR). PACKET, ACARS / VDL2, HFDL, AIS
   and ADS-B: to the mark whose bubble is open, with the distance and azimuth in the middle of the line; it follows a
   moving plane or ship.
+- **DX CLUSTER** (new **DX** key in the PROP group, its own tab): the DX cluster spots of the last 30 minutes from HamQTH
+  (no login, read once a minute for the whole station by `dxcluster.py`), in the look of the FT8 station list, split into
+  HF / VHF / UHF with a filter; the same DX on one frequency is one row with the number of spotters. A click on a spot tunes
+  the active VFO there with its mode (from the comment or the IARU Region 1 band plan). The spots are pink marks with the DX
+  call at the bottom of the spectrum (tooltip with the details, a click tunes there). See docs/propagation.md.
+- Spectrum: the label above the passband shows the current SNR of the channel under the frequency and the bandwidth.
+- **SATELLITES: the Moon (EME).** MOON (EME) is one more satellite (SETUP tab **Moon (EME)**), its position calculated by
+  the new `moon.py` (Meeus' lunar theory, about 0.01° and 50 km against JPL Horizons, `tests/test_moon.py`). Passes,
+  map and the rotor (TRACK) work as for a satellite. The pass detail shows the distance, the own echo's Doppler at
+  144 / 432 / 1296 MHz and the path loss; TRACK has keys for the EME frequencies (50.19 MHz to 5760.1 MHz) and a typed
+  frequency in place of the transmitter list, and shows the echo shift, path loss and echo delay live.
+  See docs/satellites.md.
+- **Audio: TNF, APF and BIN keys** (AUDIO group after HUM, `audiofx.py`). **TNF**: tracking notch filters, **Shift+click**
+  on the spectrum or waterfall sets a notch on a carrier there (a second click removes it, up to 16, width 10–500 Hz in the
+  TNF settings, CLEAR removes all); the notches sit on the RF frequency in the baseband, so they stay on the carrier when
+  the VFO is retuned, and are drawn as marks in the spectrum. **APF**: audio peak filter for CW, two band-pass sections at
+  the 700 Hz pitch, 50 / 100 / 200 Hz wide. **BIN**: binaural, the audio split by a Hilbert filter into a 90° phase
+  difference between the left and right ear, so a signal seems to come from a place in the head (CW, SSB, AM; headphones).
+- **DNR: three algorithms** (SETTINGS › AUDIO › DNR, `nrx.py`): **WIENER** (as before), **NR4** (spectral bleaching after
+  libspecbleach: noise estimated by speech presence probability, decision-directed SNR, smoothed gains; less music noise)
+  and **RNN** (the RNNoise neural network of Xiph, 48 kHz; `lib\rnnoise\rnnoise.dll`, downloaded by
+  `python installer\get_rnnoise.py`; without it RNN falls back to WIENER with a note).
+- **ATU: CW zero beat.** The ATU key tunes a CW signal near the dial onto the 700 Hz pitch (max-hold of 0.2 s frames,
+  ±400 Hz search, parabolic interpolation), as it does AM / SSB carriers.
+- **MSK144 decoder** (DECODERS › MSK144, `msk144.py`): meteor scatter as WSJT-X MSK144 on 6 m, 2 m, 1.25 m and 70 cm
+  (band keys 50.260 / 50.280 / 144.150 / 144.360 / 222.100 / 432.360 MHz, USB). Own decoder: each ping is found by the
+  squared spectrum and the power of its 72 ms parts, its frame located by the two sync words, frames of a long ping averaged,
+  both polarities tried, LDPC (128,90) by belief propagation and CRC-13 (the code tables in `msk144_ldpc.py` from WSJT-X,
+  GPL-3). No time slots and no PC clock needed; the same message within 10 s is one row (× count). Log, table, newest on
+  top. Simulated: a 0.3 s ping decodes at about 5 dB SNR in 2.5 kHz, a 1 s ping at about 3 dB; no false decodes on 60 s
+  of noise (`tests/test_msk144.py`). Short messages and free text are not decoded. Untested on the air.
+- **Meteor counter on GRAVES** (DECODERS › METEORS, `meteor.py`): echoes of the French space radar GRAVES (143.050 MHz)
+  reflected by meteor trails. Spectrum of the VFO baseband (~4–8 Hz bins, every ~30 ms) within ±500 Hz of the carrier,
+  each frame normalised by its median (gain steps and broadband noise change nothing), a slow floor per bin (a steady
+  carrier is learned and does not trigger), threshold 10 dB (THR) with hysteresis on the echo's own bins. Underdense
+  (< 1 s) and overdense echoes are counted; long or drifting echoes are aircraft and are not. Counts per UTC hour with
+  the time monitored in `data\meteors_<VFO>.json` (400 days). Page in the style of STATION: RECEIVER (TUNE 143.049 USB),
+  ROTOR (bearing and elevation to GRAVES from the QTH, POINT, the new rotor source **METEORS (GRAVES)** in RCTRL ›
+  SETTINGS), DETECTOR, COUNTS, the last 2 minutes, 48 hours, a yearly chart of echoes per hour of monitoring with the
+  meteor showers marked, the list of echoes, LOG.
+- **RETRO: tuning back in time** (RETRO key under REC IQ, `retro.py`): the raw IQ of the dongle of the last 10–300 s
+  (60 s default) kept in RAM; **Alt+click on the waterfall** plays that moment at that frequency, up to 20 s demodulated
+  with the mode, filter and all the AUDIO keys of the VFO as set now (NB, NF, DNR, HUM, TNF, APF, SAM, NTH, ALC, AFI,
+  LPF / HPF, BIN; no squelch; AM, FM, LSB, USB, CW) while the live audio is turned down. **SAVE IQ**
+  (SETTINGS › GENERAL › RECORDINGS) writes the whole buffer as an IQ WAV (`…_IQ_RETRO.wav`), so the last minute is
+  recorded after the fact. RTL at 2.4 MS/s needs 290 MB for 60 s, only while RETRO is on.
+- **SATELLITES › SUN NOISE** (`sunnoise.py`): G/T of the station by the Y factor on the Sun with the rotor:
+  the rotor goes to the Sun, the S-meter power of the active VFO is averaged, then on cold sky beside it, in 1–20 cycles;
+  Y in dB with its spread and G/T in dB/K (the Sun with its flux at the frequency estimated from today's F10.7 or typed
+  in). POINT turns the rotor to the Sun for peaking; the i in its head opens the instructions (432 MHz best).
+  **SCAN** steps the antenna across the Sun (±20° AZ, optionally EL), fits the beam and shows the pointing error with a
+  chart; **APPLY TO ROTOR CALIBRATION** shifts the AZ calibration by it after a confirmation. WHAT IT MEANS explains Y and G/T. Needs a fixed RF gain (AGC / AGC+ off).
+  See docs/satellites.md.
+- **SETTINGS › VFO › AUDIO:** a block whose key is off (NB, HUM, TNF, APF, BIN, DNR, ALC, NTH, HPF / LPF, AFI, ASQ,
+  TSQ) is greyed; it can still be set. TNF, APF and BIN have a block each.
 - WSPR map: the □ key opens it alone in a new browser tab, like the FT8 map; it keeps its view.
 - AGC+ card: a warning is one short line (the whole text in its tooltip); "more gain buys nothing" is grey information,
   only the warnings to act on are amber. The A/D value and clipping of the AGC+ card are those of the VFO window.

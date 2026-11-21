@@ -28,6 +28,8 @@ Decoders:
 | [DAB / DAB+](decoders/dab.md) | digital broadcast radio via welle-cli |
 | [DSD](decoders/dsd.md) | digital voice (DMR, P25, D-Star, YSF, NXDN, …) via DSD-FME |
 | [ISM](decoders/ism.md) | 433 / 868 MHz devices via rtl_433 |
+| [MSK144](decoders/msk144.md) | Meteor scatter (MSK144) on 6 m and 2 m, own decoder, no PC clock needed |
+| [METEORS](decoders/meteors.md) | Meteor counter on the GRAVES radar (143.050 MHz): echoes per hour, yearly chart with the showers, rotor POINT |
 | [WSPR](decoders/wspr.md) | WSPR beacons on HF and 6 m via wsprd (WSJT-X), map, PC clock sync |
 | FT8, WEFAX, CW, RTTY, SSTV, PACKET | described under [Function keys → DECODE](controls.md#function-keys) |
 

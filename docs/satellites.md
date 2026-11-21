@@ -15,6 +15,7 @@ and the rotor work on one VFO each and go on with the page closed.
 | **MAP** | World map (Natural Earth, works offline) with the satellites switched on by the keys above it (up to 20): each with its footprint (yellow while it is above our horizon), the night side and the station. A click on a key or a dot chooses the satellite whose ground track is drawn (half an orbit behind, one ahead); beside the map are its position, altitude, azimuth and elevation from here, distance, Doppler shift, the next pass and its transmitters, and **TRACK** opens it on the TRACK page. Moves every second. |
 | **TRACK** | Doppler correction and the rotor for one satellite of the timeline, below. |
 | **SETUP** | The station location (shown here; it is set in **SETTINGS › GENERAL › LOCATION**: locator or latitude and longitude, CHOOSE ON MAP, altitude; **LOCATION…** opens it), the lowest highest-elevation of a pass shown, and the satellites on the timeline, chosen in tabs by CelesTrak group: Amateur Radio, Weather, CubeSats, Space & Earth Science, Galileo, GLONASS operational, GPS operational, Iridium NEXT (and Chosen). **SELECT ACTIVE** ticks the satellites of the AMSAT lists LINEAR, FM, IMAGE and MISC (matched by name; it lists those not in the orbital elements), **CLEAR** unticks all. |
+| **SUN NOISE** | G/T of the station measured on the Sun with the rotor, see [Sun noise](#sun-noise-gt). |
 | **LINEAR**, **FM**, **IMAGE**, **MISC** | Lists of active satellites from [AMSAT](https://www.amsat.org/), kept for 12 hours in `data\satellites.json`. |
 
 ![PASSES page: timeline of the chosen satellites over 24 hours with bars shaded by the highest elevation (under 20°, 20–45°, over 45°)](images/sat_passes.png)
@@ -46,6 +47,70 @@ calculated every 0.25 s, half a second ahead; the VFO is retuned when it is off 
 at most once a second. The page shows the frequency the satellite sends, the one the VFO is tuned to and the exact one now. Tuning
 the VFO by hand moves the frequency within the transponder and the correction keeps it; tuning more than 50 kHz outside the
 transponder stops it. The name frame of the VFO shows the satellite and transponder in blue while the correction is on.
+
+## The Moon (EME)
+
+**MOON (EME)** is one more "satellite" in SETUP (its own tab **Moon (EME)**): choose it there like a satellite and it gets
+passes, a pass detail, the map and TRACK with the rotor. Its position is calculated, not read from orbital elements
+(`moon.py`: the lunar theory of J. Meeus, *Astronomical Algorithms*, chapter 47; about 0.01° and 50 km against JPL
+Horizons, see `tests/test_moon.py`), so it never gets old and needs no download.
+
+- **PASSES / TRACK detail:** a Moon pass lasts up to about 16 hours; instead of the satellite Doppler the detail shows the
+  distance, the shift of the **own echo** (there and back, twice the one-way shift) at 144, 432 and 1296 MHz and the
+  **path loss** (radar equation, lunar reflection coefficient 0.065: about 252 dB at 144 MHz, 262 dB at 432 MHz,
+  271 dB at 1296 MHz).
+- **TRACK, Doppler:** the Moon sends nothing, so in place of the transmitter list there are keys for the usual EME
+  frequencies (50.19, 144.12, 432.05, 1296.05, 2304.1, 3400.1, 5760.1 MHz) and a field for any frequency in MHz (**SET**,
+  **OFF**). The VFO then follows the Doppler shift of the way down from the Moon, as for a satellite; the mode stays. The
+  live box also shows the own echo's shift, the path loss and the distance with the echo delay (about 2.5 s).
+- **Rotor:** TRACK follows the Moon like a satellite (it moves about 0.25° a minute).
+
+## Sun noise (G/T)
+
+**SATELLITES › SUN NOISE** measures the figure of merit of the whole receiving station, **G/T** (antenna gain over the
+system noise temperature, dB/K), by the **Y factor**: the noise received from the Sun against cold sky
+beside it. It is the number that says how well EME, weak satellites or meteor scatter can be heard, and it shows at once
+when a preamp, a cable or a feed got worse. Needs the rotor (with elevation) and the station location. The Moon is not offered: with Yagis its Y is about
+0.005 dB, measurable only with an EME array.
+
+The page is laid out in blocks like SETTINGS › STATION: **NOW** (SUN, RECEIVER, RF GAIN, ROTOR), **MEASUREMENT**
+(SETTINGS, RUN) and **RESULT** (Y FACTOR · G/T, LOG). A block that is ready is lit, one that needs attention is amber.
+The **ROTOR** block shows its position and the path **SAT TRACKER → ROTOR** of RCTRL › SETTINGS: SUN NOISE moves the
+rotor through it, so it must be **LINKED** (green chip; red **OPEN** = POINT and START are refused); **RCTRL SETTINGS**
+opens that page. The **i** in the head of the page opens the instructions (band, frequency, gain, offset, elevation).
+
+- **Now:** azimuth and elevation of the Sun (refreshed every 15 s; amber under 15°), the frequency of the active VFO, today's
+  F10.7 (NOAA, as in PROPAGATION) and the estimated **solar flux at that frequency** in SFU.
+- **Settings** (kept in the browser): **Offset** (the azimuth step to cold sky,
+  default 40°, at least two beam widths: 40–50° for a 70 cm Yagi, 70–80° for a 2 m one), **Average** (seconds the S-meter is averaged at each point, default 10), **Cycles**
+  (1–20, default 3) and **Own flux SFU** (empty: the estimate from the SFI of PROPAGATION, shown greyed in the field; a measured value of Learmonth, San Vito or Penticton at a
+  nearby frequency is better and is then used as is).
+- **POINT** turns the rotor to the body now (to peak the antenna by ear). **START** measures: in each cycle the rotor goes
+  to the body, waits until it is within 2°, settles 2 s, averages the S-meter power (linear, of the filter of the active
+  VFO, so any mode; a wider filter reads steadier), then goes to cold sky (the same elevation, the azimuth + offset) and
+  averages again. ON − OFF in dB is the Y of the cycle. **STOP** ends it and stops the rotor.
+- **Result:** Y (mean of the cycles) ± its spread and G/T, with a table of the cycles; **Log** of the steps.
+- **SCAN** (SUN SCAN, in RUN; **EL** ticked also in elevation): the antenna steps across the Sun ±20° in azimuth, 2.5° a
+  step, averaging at least 5 s at each point; the offset of each point is where the rotor really stood against the Sun at
+  that moment. The beam is fitted as a Gaussian on a flat baseline (`sunnoise.fit_scan`): the **pointing error** (the
+  rotor reads this much too high or low on the Sun) ± its uncertainty, the beam width and the peak Y, with a chart of the
+  points and the fitted beam. An error larger than twice its uncertainty can be applied: **APPLY TO ROTOR CALIBRATION**
+  shifts both values of the AZ calibration of RCTRL › SETTINGS (true azimuth at K3NG 0 / 450) by it, after a
+  confirmation; the scale stays. Elevation is calibrated in the K3NG controller itself, so its error is only shown. A
+  scan whose peak is at its edge, wider than the scan or under 0.15 dB is refused (POINT, peak by ear and scan again).
+
+The RF gain must be fixed: START refuses with AGC or AGC+ on, and the measurement stops if one is switched on during it. The
+measurement also ends when the VFO or its frequency changes, the rotor is busy with satellite tracking, or the Sun is
+below the horizon. **Band:** 432 MHz is best (cold sky, a steady solar flux); on 144 MHz the galactic noise
+is high and changes with the direction, and the Sun often bursts on metre waves, so it is only a rough check.
+
+    Sun:  G/T = 8 π k (Y − 1) / (S λ²)          S = flux at the frequency (1 SFU = 10⁻²² W/m²/Hz)
+
+A beam much wider than the disc is assumed (Yagis; a big dish at 10 GHz sees less than the whole Sun and reads too
+low). The solar flux at other frequencies than 2800 MHz is an estimate (`sunnoise.py`): a quiet-Sun spectrum (8 SFU at
+144 MHz, 50 at 1415, 70 at 2800, 270 at 10368 MHz at F10.7 = 70) interpolated log-log and scaled by today's F10.7 / 70.
+For a check: a station of G/T −6 dB/K on 144 MHz reads about 8 dB on a Sun of 17 SFU; a 3 m dish on 23 cm (about
++10 dB/K) about 12 dB.
 
 ## Rotor
 
@@ -101,9 +166,9 @@ broadcast transmitter or a repeater, taken from the channels of **MEMORIES** tha
 - **Recalling a channel with a location** (a row of **MEMORIES › CHANNELS**, a memory tag in the spectrum, RECALL in the editor, the memory
   step) opens the **ROTOR CONTROL** tab by itself (the RCTRL key goes on), centres the map on the channel and turns the rotor to it
   – unless **MEMORY RECALL** is disconnected on the SETTINGS page.
-- **SETTINGS** (top; the CONNECTION page until 1.0beta2): a block scheme like SETTINGS › STATION of the four sources of the wanted AZ / EL – **SAT TRACKER** (SATELLITES › TRACK), **MEMORY RECALL**
+- **SETTINGS** (top; the CONNECTION page until 1.0beta2): a block scheme like SETTINGS › STATION of the five sources of the wanted AZ / EL – **SAT TRACKER** (SATELLITES › TRACK), **MEMORY RECALL**
   (a recalled channel with a location), **RCTRL MAP** (a click on the map, a point or the list) and **SONDE TRACKER**
-  (since 1.0beta2, **disconnected by default**: the rotor follows the sonde chosen in DECODERS › SONDE. Only its GPS position and altitude are used: the azimuth and elevation are calculated from the QTH and its altitude (SETTINGS › GENERAL › LOCATION) on the WGS84 ellipsoid, so the curvature of the Earth is included; the elevation is held at 0–90°. The rotor moves at most every 5 s and only for a change of 2° or more. It works while the RADIMCOM page shows the VFO with the SONDE decoder (the frames come to the page) and the rotor takes commands (not while the satellite tracking holds it).). Each goes through a switch to one bus
+  (since 1.0beta2, **disconnected by default**: the rotor follows the sonde chosen in DECODERS › SONDE. Only its GPS position and altitude are used: the azimuth and elevation are calculated from the QTH and its altitude (SETTINGS › GENERAL › LOCATION) on the WGS84 ellipsoid, so the curvature of the Earth is included; the elevation is held at 0–90°. The rotor moves at most every 5 s and only for a change of 2° or more. It works while the RADIMCOM page shows the VFO with the SONDE decoder (the frames come to the page) and the rotor takes commands (not while the satellite tracking holds it).) and **METEORS (GRAVES)** (since 1.1rc1: the POINT key of DECODERS › METEORS turns the antenna to GRAVES). Each goes through a switch to one bus
   and on to the **ROTOR** block (antenna, AZ / EL now, state). A click on a source or on its switch connects or disconnects it: connected =
   green, disconnected = grey with the switch open. The line into the rotor is **green** and the rotor block lit while at least one source is connected, **grey** when
   none is (no animation). A disconnected source does not move the rotor: the SAT TRACKER only calculates the pass (**CALC ONLY** on the TRACK page; the

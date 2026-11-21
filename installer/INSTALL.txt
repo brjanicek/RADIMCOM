@@ -119,6 +119,22 @@ Changes
   source shows the owner and country of the server. HFDL status under INFO. AGC+ warnings shorter (whole text in the
   tooltip). Decoder maps (SONDE, PACKET, ACARS / VDL2, HFDL, AIS, ADS-B): dark bubbles, a click on a mark or its label
   draws a red dotted line from the QTH with the distance and azimuth. WSPR map in a new tab (its key), like FT8.
+  Spectrum: current SNR in the label above the passband.
+- DX CLUSTER (DX key in the PROP group): the spots of the last 30 minutes (HamQTH) by HF / VHF / UHF; a click tunes the
+  VFO with the mode; the spots are marked in the spectrum.
+- SATELLITES: the Moon for EME (SETUP tab Moon (EME)): passes, map, rotor, Doppler on the EME bands, own echo shift and
+  path loss.
+- Audio: TNF (Shift+click on the spectrum sets a notch that stays on the carrier), APF (CW peak filter) and BIN
+  (binaural) keys; DNR algorithms WIENER, NR4 and RNN (RNNoise; run python installer\get_rnnoise.py to get it).
+- ATU also zero-beats CW signals onto the 700 Hz pitch.
+- MSK144 decoder (DECODERS > MSK144): meteor scatter on 6 m, 2 m, 1.25 m and 70 cm, own decoder, no PC clock needed.
+- METEORS (DECODERS > METEORS): meteor counter on the GRAVES radar (143.050 MHz): echoes per hour and day, yearly
+  chart with the meteor showers, aircraft echoes left out; TUNE key and POINT to GRAVES with the rotor
+  (path METEORS -> ROTOR in RCTRL > SETTINGS).
+- RETRO key: the last minute of IQ kept in RAM; Alt+click on the waterfall plays what was there, SAVE IQ records it.
+- SATELLITES > SUN NOISE: G/T of the station from the Sun noise measured with the rotor (Y factor);
+  SCAN finds the pointing error of the rotor on the Sun and corrects its AZ calibration on request.
+- SETTINGS > VFO > AUDIO: the blocks of keys that are off are greyed; TNF, APF and BIN have their own blocks.
 - Development: rules for working on the code together without git conflicts (CONTRIBUTING.md, CLAUDE.md).
 
 Ver. 1.1beta1
