@@ -4,7 +4,8 @@ The data is downloaded once per country (button Update in the map settings) and 
 per source and country, as GeoJSON with properties of the same names for every source:
 
     kind    airspace | airport | navaid | point | obstacle | tx (transmitter sites) | chan (MEMORIES channels)
-            | own (own files)    (the group of the map settings tree)
+            | own (own files) | aero (aerodrome layout: aerodrome, runway, apron, taxiway, helipad)
+            (the group of the map settings tree)
     cat     the part of the group: CTR, TMA, R, D, ... / intl, civil, ul, ... / VOR-DME, NDB, ... (the tree's leaves)
     name, ident, cls (ICAO class A-G or SUA), elev (m MSL), height (m above ground, obstacles)
     freq    [{"f": MHz, "name": str, "type": str}]
@@ -22,7 +23,9 @@ Sources: openAIP (https://www.openaip.net, CC BY-NC 4.0, free API key in data/ma
 filter, so it is asked per country. OurAirports (https://ourairports.com, public domain): airports with their
 frequencies and runways, and navaids, from its CSV files of the whole world (kept a day in data/vectormaps/_ourairports
 so more countries need one download), cut per country. OpenStreetMap (ODbL) through the Overpass API: transmitter
-sites (masts, towers and antennas for broadcasting, mobile phones, radar, amateur radio and other radio), per country.
+sites (masts, towers and antennas for broadcasting, mobile phones, radar, amateur radio and other radio) and the layout of
+the aerodromes (boundary, runways, taxiways, aprons, helipads), per country. OurAirports adds the runways that have the
+coordinates of both ends.
 MEMORIES: the channels with a location (lat / lon) as the map "memories", one part per group, made again whenever
 memories.json changes. Own files: GeoJSON (KML / GPX turned into GeoJSON in the browser) stored as file_<name>; objects
 that already carry a known kind keep it (files in this format), the others become kind "own" (area / line / point).
@@ -501,11 +504,19 @@ def ourairports_collection(country, tables, fetched=None):
             if r.get("type"):
                 fr["type"] = r["type"].strip().upper()
             freqs.setdefault(r["airport_ref"], []).append(fr)
+    strips = []
     for r in tables.get("runways.csv") or []:
         if r.get("airport_ref") in ids and r.get("closed") != "1":
             d = "/".join(x for x in (r.get("le_ident"), r.get("he_ident")) if x)
             if d:
                 rwys.setdefault(r["airport_ref"], []).append(d)
+            a, b = _oa_point(r.get("le_latitude_deg"), r.get("le_longitude_deg")), _oa_point(r.get("he_latitude_deg"), r.get("he_longitude_deg"))
+            w = _num(r.get("width_ft"))
+            geom = strip_poly([a["coordinates"], b["coordinates"]], w * 0.3048 if w and 10 <= w <= 500 else RUNWAY_WIDTH_M) if a and b else None
+            if geom:   # the runway on the ground when both its ends are known
+                strips.append({"type": "Feature", "geometry": geom, "properties": {
+                    "kind": "aero", "cat": "runway", "name": d, "src": "ourairports", "srcId": f"rwy{r.get('id')}",
+                    **({"remarks": r["surface"]} if r.get("surface") else {}), **({"ident": r["airport_ident"]} if r.get("airport_ident") else {})}})
     feats = []
     for r in airports:
         geom = _oa_point(r.get("latitude_deg"), r.get("longitude_deg"))
@@ -515,6 +526,7 @@ def ourairports_collection(country, tables, fetched=None):
         feats.append(_oa_feature("airport", OURAIRPORTS_CAT.get(r.get("type"), "small"), r, geom, {
             "ident": ident, "iata": r.get("iata_code"), "elev": _ft_m(r.get("elevation_ft")), "freq": freqs.get(r.get("id"), []),
             "rwy": rwys.get(r.get("id"), []), "remarks": r.get("municipality")}))
+    feats += strips
     for r in tables.get("navaids.csv") or []:
         if r.get("iso_country") != country:
             continue
@@ -582,7 +594,12 @@ area["ISO3166-1"="{cc}"][admin_level=2]->.a;
   nwr["man_made"="communications_tower"](area.a);
   nwr["man_made"="antenna"](area.a);
 );
-out center tags;"""
+out center tags;
+(
+  way["aeroway"~"^(aerodrome|runway|taxiway|apron|helipad)$"](area.a);
+  relation["aeroway"="aerodrome"](area.a);
+);
+out geom tags;"""
 
 
 def _yes(v):
@@ -630,16 +647,101 @@ def osm_tx_feature(el):
     return {"type": "Feature", "geometry": geom, "properties": p}
 
 
+# ---------- the layout of aerodromes (runways, taxiways, aprons): OpenStreetMap and OurAirports ----------
+RUNWAY_WIDTH_M = 45                # a runway without its width
+AERO_WIDTH_M = {"runway": 45, "taxiway": 0, "helipad": 20}
+
+
+def _width_m(v, default):
+    m = re.match(r"\s*([\d.]+)\s*(ft|')?", str(v or ""))
+    if not m:
+        return default
+    w = float(m.group(1)) * (0.3048 if m.group(2) else 1)
+    return w if 3 <= w <= 150 else default
+
+
+def strip_poly(coords, width_m):
+    """A line [[lon, lat], ...] widened to a strip width_m wide: one rectangle per segment (a runway as it is on the
+    ground). Answers a Polygon or a MultiPolygon."""
+    import math
+    quads = []
+    for (x1, y1), (x2, y2) in zip(coords, coords[1:]):
+        k = math.cos(math.radians((y1 + y2) / 2)) or 1e-9
+        dx, dy = (x2 - x1) * k * 111320, (y2 - y1) * 110540   # metres east / north
+        n = math.hypot(dx, dy)
+        if n < 1:
+            continue
+        ox, oy = -dy / n * width_m / 2, dx / n * width_m / 2   # half the width, across the segment
+        ex, ey = ox / (k * 111320), oy / 110540
+        ring = [[x1 + ex, y1 + ey], [x2 + ex, y2 + ey], [x2 - ex, y2 - ey], [x1 - ex, y1 - ey]]
+        ring = [[round(a, 7), round(b, 7)] for a, b in ring]
+        quads.append([ring + [ring[0]]])
+    if not quads:
+        return None
+    return {"type": "Polygon", "coordinates": quads[0]} if len(quads) == 1 else {"type": "MultiPolygon", "coordinates": quads}
+
+
+def _ring(geom):
+    pts = [[round(p["lon"], 7), round(p["lat"], 7)] for p in geom or [] if isinstance(p, dict) and "lat" in p and "lon" in p]
+    return pts if len(pts) >= 2 else None
+
+
+def osm_aero_features(el):
+    """The aerodrome layout from one OpenStreetMap way or relation (out geom): areas, runway strips, taxiway lines."""
+    tags = el.get("tags") or {}
+    cat = tags.get("aeroway")
+    rings = []
+    if el.get("type") == "way":
+        r = _ring(el.get("geometry"))
+        if r:
+            rings.append(r)
+    elif el.get("type") == "relation":   # an aerodrome made of more ways: its closed outer ways
+        for m in el.get("members") or []:
+            r = _ring(m.get("geometry")) if isinstance(m, dict) and m.get("role") in ("outer", "") else None
+            if r and r[0] == r[-1]:
+                rings.append(r)
+    out = []
+    for i, r in enumerate(rings):
+        closed = len(r) >= 4 and r[0] == r[-1]
+        if cat == "taxiway":
+            geom = {"type": "LineString", "coordinates": r}
+        elif cat in ("runway", "helipad") and not (closed and tags.get("area") == "yes") and not (cat == "helipad" and closed):
+            geom = strip_poly(r, _width_m(tags.get("width"), AERO_WIDTH_M.get(cat, 30)))
+        elif closed:
+            geom = {"type": "Polygon", "coordinates": [r]}
+        else:
+            geom = None
+        if not geom:
+            continue
+        p = {"kind": "aero", "cat": cat, "name": str(tags.get("ref") or tags.get("name") or "").strip(),
+             "src": "osm", "srcId": f"{str(el.get('type') or 'w')[:1]}{el.get('id')}" + (f"_{i}" if i else "")}
+        if cat == "aerodrome":
+            p["name"] = str(tags.get("name") or tags.get("icao") or "").strip()
+            if tags.get("icao"):
+                p["ident"] = tags["icao"]
+        for k, v in (("remarks", tags.get("surface")), ("width", _width_m(tags.get("width"), None))):
+            if v not in (None, ""):
+                p[k] = round(v) if isinstance(v, float) else v
+        out.append({"type": "Feature", "geometry": geom, "properties": p})
+    return out
+
+
 def osm_tx_collection(country, elements, fetched=None):
     feats, seen = [], set()
     for el in elements or []:
+        if isinstance(el, dict) and (el.get("tags") or {}).get("aeroway"):
+            for f in osm_aero_features(el):
+                if f["properties"]["srcId"] not in seen:
+                    seen.add(f["properties"]["srcId"])
+                    feats.append(f)
+            continue
         if isinstance(el, dict):
             f = osm_tx_feature(el)
             if f and f["properties"]["srcId"] not in seen:
                 seen.add(f["properties"]["srcId"])
                 feats.append(f)
     return {"type": "FeatureCollection", "radimcom": {
-        "version": VERSION, "name": f"OSM transmitters {country}", "source": "osm", "country": country,
+        "version": VERSION, "name": f"OpenStreetMap {country}", "source": "osm", "country": country,
         "fetched": round(fetched or time.time()), "license": "ODbL", "attribution": OSM_ATTR}, "features": feats}
 
 
@@ -655,7 +757,7 @@ def osm_update(country, get=_overpass):
     country = _country(country)
     coll = osm_tx_collection(country, (get(OSM_TX_QUERY.replace("{cc}", country)) or {}).get("elements"))
     if not coll["features"]:
-        raise ValueError(f"OpenStreetMap has no transmitter sites for {country}")
+        raise ValueError(f"OpenStreetMap has no transmitter sites or aerodromes for {country}")
     return _store(f"osm_{country}", coll)
 
 

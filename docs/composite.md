@@ -87,7 +87,7 @@ settings and the open sections are remembered in the browser (also from the map 
 at once in all open tabs and windows of the same address.
 
 - **Station** (Map): the icon of your location (circle, square, triangle, diamond, star, cross, house) and its colour.
-- **Base map:** OpenStreetMap (the default), Esri dark grey, OpenTopoMap, Esri satellite, **Own tile address**
+- **Base map:** (the map zooms in to zoom 18) OpenStreetMap (the default), Esri dark grey, OpenTopoMap, Esri satellite, **Own tile address**
   (an XYZ address `https://…/{z}/{x}/{y}.png`) or **Plain colour** (no tiles, a background of the colour chosen, black
   by default), with **darken** (on by default: the tiles turned dark so the marks
   stand out). **OpenSeaMap** adds the sea marks, buoys and waterways on top (useful with AIS on rivers).
@@ -100,11 +100,12 @@ at once in all open tabs and windows of the same address.
   country into `data\vectormaps` (one file per country, a few seconds each), ↻ updates it, ✕ deletes it and
   **Update all** downloads all the downloaded ones again; the downloaded countries are at the top. The **OurAirports** tab works the same
   without a key: airports (large, medium, small, heliports, …) with their frequencies and runways, and navaids, from
-  ourairports.com (public domain); the world files (about 20 MB) are downloaded at most once a day into
+  ourairports.com; a runway with both ends known is also drawn as a strip of its width under **Aerodrome layout** (public domain); the world files (about 20 MB) are downloaded at most once a day into
   `data\vectormaps\_ourairports` and cut per country. The **OpenStreetMap** tab downloads the transmitter sites of a country
   (masts, towers and antennas: broadcasting, radar, amateur radio, other radio and mobile phone, the last off at first)
   through the Overpass API (ODbL, no key; a big country takes a minute or two); they show as **Transmitters** in the
-  tree, with the operator and the height. The **MEMORIES** tab shows the MEMORIES channels that have a location (LAT / LON) as
+  tree, with the operator and the height. The same download brings the aerodrome layout mapped in OpenStreetMap
+  (aerodrome boundaries, runways, taxiways, aprons and helipads) as **Aerodrome layout**, with the runway numbers and surface. The **MEMORIES** tab shows the MEMORIES channels that have a location (LAT / LON) as
   **MEMORIES channels**, one part per group, with the frequency and mode; the map is made again whenever the channels
   change. On **Own files** **Add** stores a GeoJSON, KML or GPX file as a vector map: its areas, lines and points
   show under **Own files** in the tree (a file in this format keeps its kinds), the same name again replaces it. The tree in **Maps** (▸ opens a kind or a part) switches the

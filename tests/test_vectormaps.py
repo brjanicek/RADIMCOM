@@ -198,3 +198,33 @@ def test_own_file():
     assert [(p["kind"], p["cat"]) for p in ps] == [("own", "area"), ("own", "line"), ("own", "point"), ("own", "point"), ("airspace", "CTR")]
     assert ps[1]["name"] == "Track" and ps[1]["remarks"] == "x" and "hidden" not in ps[4]
     assert len({p["srcId"] for p in ps}) == 5 and c["radimcom"]["source"] == "file"
+
+
+def test_aerodrome_layout():
+    g = vm.strip_poly([[17.0, 48.0], [17.01, 48.0]], 40)
+    ring = g["coordinates"][0]
+    assert g["type"] == "Polygon" and len(ring) == 5 and ring[0] == ring[-1]
+    assert abs((ring[0][1] - ring[3][1]) * 110540 - 40) < 0.5   # 40 m across an east-west runway
+    els = [{"type": "way", "id": 1, "tags": {"aeroway": "runway", "ref": "04/22", "width": "45", "surface": "asphalt"},
+            "geometry": [{"lat": 48.1, "lon": 17.1}, {"lat": 48.12, "lon": 17.12}]},
+           {"type": "way", "id": 2, "tags": {"aeroway": "taxiway"}, "geometry": [{"lat": 48.1, "lon": 17.1}, {"lat": 48.11, "lon": 17.1}]},
+           {"type": "way", "id": 3, "tags": {"aeroway": "apron"},
+            "geometry": [{"lat": 48, "lon": 17}, {"lat": 48, "lon": 17.01}, {"lat": 48.01, "lon": 17.01}, {"lat": 48, "lon": 17}]},
+           {"type": "relation", "id": 4, "tags": {"aeroway": "aerodrome", "name": "Letisko", "icao": "LZIB"},
+            "members": [{"role": "outer", "geometry": [{"lat": 48, "lon": 17}, {"lat": 48, "lon": 17.1}, {"lat": 48.1, "lon": 17.1}, {"lat": 48, "lon": 17}]}]},
+           {"type": "node", "id": 5, "lat": 48.1, "lon": 17.1, "tags": {"man_made": "antenna"}}]
+    c = vm.osm_tx_collection("SK", els)
+    by = {f["properties"]["srcId"]: f for f in c["features"]}
+    assert by["w1"]["geometry"]["type"] == "Polygon" and by["w1"]["properties"]["name"] == "04/22" and by["w1"]["properties"]["remarks"] == "asphalt"
+    assert by["w2"]["geometry"]["type"] == "LineString" and by["w3"]["properties"]["cat"] == "apron"
+    assert by["r4"]["properties"]["cat"] == "aerodrome" and by["r4"]["properties"]["ident"] == "LZIB"
+    assert by["n5"]["properties"]["kind"] == "tx"
+
+
+def test_ourairports_runway_strip():
+    t = {"airports.csv": [{"id": "1", "iso_country": "SK", "type": "large_airport", "name": "A", "latitude_deg": "48", "longitude_deg": "17"}],
+         "runways.csv": [{"id": "9", "airport_ref": "1", "airport_ident": "LZIB", "closed": "0", "le_ident": "04", "he_ident": "22", "width_ft": "148",
+                          "le_latitude_deg": "48.1", "le_longitude_deg": "17.1", "he_latitude_deg": "48.12", "he_longitude_deg": "17.13", "surface": "ASP"}]}
+    c = vm.ourairports_collection("SK", t)
+    rw = [f for f in c["features"] if f["properties"]["kind"] == "aero"]
+    assert len(rw) == 1 and rw[0]["properties"]["name"] == "04/22" and rw[0]["geometry"]["type"] == "Polygon"

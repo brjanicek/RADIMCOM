@@ -17500,9 +17500,9 @@ async function comMapOpen() {
     return false;
   }
   if (comMap) return true;   // another poll made it meanwhile
-  comMap = L.map($("comMap"), { worldCopyJump: true, minZoom: 2 }).setView([48, 17], 5);
+  comMap = L.map($("comMap"), { worldCopyJump: true, minZoom: 2, maxZoom: 18 }).setView([48, 17], 5);
   L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 13, className: "hfdl-dark",
+    maxZoom: 18, className: "hfdl-dark",
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors',
   }).addTo(comMap);
   mapPopout(comMap, "com");   // remembers the view; the ↗ key opens the map alone in a new tab
