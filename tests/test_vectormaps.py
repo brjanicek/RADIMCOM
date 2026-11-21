@@ -108,3 +108,42 @@ def test_style_is_cleaned_and_stored(tmp_path, monkeypatch):
     vm.set_view({"style": {"airspace.CTR": {"c": "#112233", "w": 3, "d": "dot", "x": 1, "o": 7},
                            "airport.intl": {"sym": "square", "r": 6, "fc": "red"}, "bad key": {"c": "#000000"}}})
     assert vm.get_view()["style"] == {"airspace.CTR": {"c": "#112233", "w": 3, "d": "dot"}, "airport.intl": {"sym": "square", "r": 6}}
+
+
+OA = {
+    "airports.csv": b'"id","ident","type","name","latitude_deg","longitude_deg","elevation_ft","iso_country","municipality","gps_code","iata_code","icao_code"\n'
+                    b'1,"LZIB","large_airport","Bratislava Airport",48.17,17.21,436,"SK","Bratislava","LZIB","BTS","LZIB"\n'
+                    b'2,"LHBP","large_airport","Budapest",47.43,19.26,495,"HU","Budapest","LHBP","BUD","LHBP"\n'
+                    b'3,"SK-0001","closed","Old strip",48.5,18.0,,"SK","","","",""\n',
+    "airport-frequencies.csv": b'"id","airport_ref","airport_ident","type","description","frequency_mhz"\n'
+                               b'10,1,"LZIB","TWR","BRATISLAVA TOWER",118.3\n11,2,"LHBP","TWR","x",118.1\n',
+    "runways.csv": b'"id","airport_ref","airport_ident","closed","le_ident","he_ident"\n20,1,"LZIB",0,"04","22"\n21,1,"LZIB",1,"13","31"\n',
+    "navaids.csv": b'"id","filename","ident","name","type","frequency_khz","latitude_deg","longitude_deg","elevation_ft","iso_country","dme_channel"\n'
+                   b'30,"x","PWZ","PIESTANY","NDB",418,48.6,17.8,600,"SK",""\n31,"y","BKS","BRATISLAVA","VOR-DME",114200,48.1,17.1,,"SK","089X"\n',
+}
+
+
+def test_ourairports_tables_and_collection(tmp_path, monkeypatch):
+    monkeypatch.setattr(vm, "OURAIRPORTS_DIR", str(tmp_path))
+    calls = []
+    tables, _ = vm.ourairports_tables(lambda n: calls.append(n) or OA[n])
+    vm.ourairports_tables(lambda n: calls.append(n) or OA[n])   # kept a day: no second download
+    assert sorted(calls) == sorted(vm.OURAIRPORTS_FILES)
+    c = vm.ourairports_collection("SK", tables)
+    assert c["radimcom"]["source"] == "ourairports" and c["radimcom"]["country"] == "SK"
+    by = {f["properties"]["srcId"]: f["properties"] for f in c["features"]}
+    a = by["1"]
+    assert (a["kind"], a["cat"], a["ident"], a["iata"], a["elev"], a["rwy"]) == ("airport", "large", "LZIB", "BTS", 133, ["04/22"])
+    assert a["freq"] == [{"f": 118.3, "name": "BRATISLAVA TOWER", "type": "TWR"}]
+    assert by["3"]["cat"] == "closed" and "2" not in by
+    assert by["nav30"]["cat"] == "NDB" and by["nav30"]["freq"] == [{"f": 0.418}]
+    assert by["nav31"]["cat"] == "VOR-DME" and by["nav31"]["freq"] == [{"f": 114.2}] and by["nav31"]["channel"] == "089X"
+
+
+def test_ourairports_rejects_non_csv(tmp_path, monkeypatch):
+    monkeypatch.setattr(vm, "OURAIRPORTS_DIR", str(tmp_path))
+    try:
+        vm.ourairports_tables(lambda n: b"<html>blocked</html>")
+        assert False
+    except ValueError:
+        pass

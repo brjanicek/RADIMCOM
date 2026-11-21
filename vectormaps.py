@@ -18,8 +18,12 @@ object has "hidden": true in its properties. Update keeps both (objects matched 
 the same files.
 
 Sources: openAIP (https://www.openaip.net, CC BY-NC 4.0, free API key in data/mapkeys.json). The API has no area
-filter, so it is asked per country.
+filter, so it is asked per country. OurAirports (https://ourairports.com, public domain): airports with their
+frequencies and runways, and navaids, from its CSV files of the whole world (kept a day in data/vectormaps/_ourairports
+so more countries need one download), cut per country.
 """
+import csv
+import io
 import json
 import os
 import re
@@ -402,24 +406,145 @@ def _openaip_key():
 
 def openaip_update(country, key=None):
     """Downloads a country from openAIP and stores it as openaip_<CC>. Answers the list entry."""
-    country = str(country or "").strip().upper()
-    if not re.fullmatch(r"[A-Z]{2}", country):
-        raise ValueError("a country is two letters (ISO 3166, e.g. SK)")
+    country = _country(country)
     key = key or _openaip_key()
     if not key:
         raise ValueError("the openAIP API key is missing (free account at openaip.net)")
-    coll = openaip_collection(country, openaip_download(country, key))
-    mid = f"openaip_{country}"
+    return _store(f"openaip_{country}", openaip_collection(country, openaip_download(country, key)))
+
+
+def _store(mid, coll):
+    """Stores a downloaded map, keeping what was shown and hidden (a new map: shown as the other maps say)."""
     try:
         old = _load(_path(mid))
     except (OSError, ValueError):
         old = None
-    if old is None:   # a new country: shown as the other maps say
+    if old is None:
         v = get_view()
         if v["stored"]:
             coll["radimcom"]["view"] = {"on": True, "cats": v["cats"], "lbl": v["lbl"], "maxFL": v["maxFL"], "style": v["style"]}
     save(mid, keep_view(old, coll))
     return next((m for m in list_maps() if m["id"] == mid), {"id": mid})
+
+
+def _country(country):
+    country = str(country or "").strip().upper()
+    if not re.fullmatch(r"[A-Z]{2}", country):
+        raise ValueError("a country is two letters (ISO 3166, e.g. SK)")
+    return country
+
+
+# ---------- OurAirports ----------
+OURAIRPORTS_URL = "https://davidmegginson.github.io/ourairports-data/"
+OURAIRPORTS_FILES = ("airports.csv", "airport-frequencies.csv", "runways.csv", "navaids.csv")
+OURAIRPORTS_DIR = os.path.join(VMAP_DIR, "_ourairports")
+OURAIRPORTS_KEEP_S = 86400        # the world files are downloaded again after a day
+OURAIRPORTS_ATTR = '<a href="https://ourairports.com" target="_blank" rel="noopener noreferrer">OurAirports</a> (public domain)'
+OURAIRPORTS_CAT = {"large_airport": "large", "medium_airport": "medium", "small_airport": "small", "heliport": "heli",
+                   "seaplane_base": "water", "balloonport": "balloon", "closed": "closed"}
+OURAIRPORTS_NAV = {"VOR": "VOR", "VOR-DME": "VOR-DME", "VORTAC": "VORTAC", "DME": "DME", "NDB": "NDB", "NDB-DME": "NDB-DME",
+                   "TACAN": "TACAN"}
+_oa_lock = threading.Lock()
+
+
+def _ft_m(v):
+    f = _num(v)
+    return None if f is None else round(f * 0.3048)
+
+
+def _oa_point(lat, lon):
+    la, lo = _num(lat), _num(lon)
+    if la is None or lo is None or not (-90 <= la <= 90 and -180 <= lo <= 180):
+        return None
+    return {"type": "Point", "coordinates": [round(lo, 6), round(la, 6)]}
+
+
+def _oa_feature(kind, cat, row, geom, extra):
+    p = {"kind": kind, "cat": cat, "name": str(row.get("name") or "").strip(), "src": "ourairports", "srcId": str(row.get("id") or "")}
+    for k, v in extra.items():
+        if v not in (None, "", []):
+            p[k] = v
+    return {"type": "Feature", "geometry": geom, "properties": p}
+
+
+def ourairports_collection(country, tables, fetched=None):
+    """The map file of one country from the OurAirports tables {file name: [row dict, ...]}."""
+    airports = [r for r in tables.get("airports.csv") or [] if r.get("iso_country") == country]
+    ids = {r.get("id") for r in airports}
+    freqs, rwys = {}, {}
+    for r in tables.get("airport-frequencies.csv") or []:
+        if r.get("airport_ref") in ids and _num(r.get("frequency_mhz")) is not None:
+            fr = {"f": round(_num(r["frequency_mhz"]), 6)}
+            if r.get("description"):
+                fr["name"] = r["description"].strip()
+            if r.get("type"):
+                fr["type"] = r["type"].strip().upper()
+            freqs.setdefault(r["airport_ref"], []).append(fr)
+    for r in tables.get("runways.csv") or []:
+        if r.get("airport_ref") in ids and r.get("closed") != "1":
+            d = "/".join(x for x in (r.get("le_ident"), r.get("he_ident")) if x)
+            if d:
+                rwys.setdefault(r["airport_ref"], []).append(d)
+    feats = []
+    for r in airports:
+        geom = _oa_point(r.get("latitude_deg"), r.get("longitude_deg"))
+        if not geom:
+            continue
+        ident = r.get("icao_code") or r.get("gps_code") or r.get("ident")
+        feats.append(_oa_feature("airport", OURAIRPORTS_CAT.get(r.get("type"), "small"), r, geom, {
+            "ident": ident, "iata": r.get("iata_code"), "elev": _ft_m(r.get("elevation_ft")), "freq": freqs.get(r.get("id"), []),
+            "rwy": rwys.get(r.get("id"), []), "remarks": r.get("municipality")}))
+    for r in tables.get("navaids.csv") or []:
+        if r.get("iso_country") != country:
+            continue
+        geom = _oa_point(r.get("latitude_deg"), r.get("longitude_deg"))
+        khz = _num(r.get("frequency_khz"))
+        if not geom:
+            continue
+        feats.append(_oa_feature("navaid", OURAIRPORTS_NAV.get(r.get("type"), "VOR"), dict(r, id=f"nav{r.get('id') or ''}"), geom, {   # ids of their own
+            "ident": r.get("ident"), "freq": [{"f": round(khz / 1000, 6)}] if khz else [], "channel": r.get("dme_channel"),
+            "elev": _ft_m(r.get("elevation_ft"))}))
+    return {"type": "FeatureCollection", "radimcom": {
+        "version": VERSION, "name": f"OurAirports {country}", "source": "ourairports", "country": country,
+        "fetched": round(fetched or time.time()), "license": "Public domain", "attribution": OURAIRPORTS_ATTR},
+        "features": feats}
+
+
+def _oa_fetch(name):
+    req = urllib.request.Request(OURAIRPORTS_URL + name, headers={"User-Agent": "RADIMCOM"})
+    with urllib.request.urlopen(req, timeout=120) as r:
+        return r.read()
+
+
+def ourairports_tables(fetch=_oa_fetch, now=None):
+    """The OurAirports world tables, downloaded again when older than a day. Answers ({name: rows}, fetched)."""
+    now = now or time.time()
+    with _oa_lock:
+        os.makedirs(OURAIRPORTS_DIR, exist_ok=True)
+        tables, fetched = {}, now
+        for name in OURAIRPORTS_FILES:
+            path = os.path.join(OURAIRPORTS_DIR, name)
+            if not os.path.exists(path) or now - os.path.getmtime(path) > OURAIRPORTS_KEEP_S:
+                raw = fetch(name)
+                if not raw.lstrip().startswith(b'"id"') and not raw.lstrip().startswith(b"id,"):
+                    raise ValueError(f"OurAirports sent no CSV for {name}")
+                with open(path + ".tmp", "wb") as f:
+                    f.write(raw)
+                os.replace(path + ".tmp", path)
+            fetched = min(fetched, os.path.getmtime(path))
+            with open(path, encoding="utf-8-sig", newline="") as f:
+                tables[name] = list(csv.DictReader(io.StringIO(f.read())))
+        return tables, fetched
+
+
+def ourairports_update(country, fetch=_oa_fetch):
+    """Cuts a country out of OurAirports and stores it as ourairports_<CC>. Answers the list entry."""
+    country = _country(country)
+    tables, fetched = ourairports_tables(fetch)
+    coll = ourairports_collection(country, tables, fetched)
+    if not coll["features"]:
+        raise ValueError(f"OurAirports has nothing for {country}")
+    return _store(f"ourairports_{country}", coll)
 
 
 # ---------- HTTP API ----------
@@ -464,3 +589,17 @@ def api_vectormaps_openaip():
         return jsonify(error=f"openAIP answered HTTP {e.code}" + (" (wrong API key?)" if e.code in (401, 403) else "")), 502
     except (urllib.error.URLError, OSError, TimeoutError) as e:
         return jsonify(error=f"openAIP not reachable: {getattr(e, 'reason', e)}"), 502
+
+
+@bp.route("/api/vectormaps/ourairports", methods=["POST"])
+def api_vectormaps_ourairports():
+    """POST {"country": "SK"}: cuts that country out of OurAirports (the world files downloaded at most once a day)."""
+    d = request.get_json(silent=True) or {}
+    try:
+        return jsonify(map=ourairports_update(d.get("country")))
+    except ValueError as e:
+        return jsonify(error=str(e)), 400
+    except urllib.error.HTTPError as e:
+        return jsonify(error=f"OurAirports answered HTTP {e.code}"), 502
+    except (urllib.error.URLError, OSError, TimeoutError) as e:
+        return jsonify(error=f"OurAirports not reachable: {getattr(e, 'reason', e)}"), 502

@@ -8,8 +8,8 @@ const VM_KINDS = [
   ["airspace", "Airspaces", ["CTR", "TMA", "CTA", "ATZ", "MCTR", "R", "D", "P", "TRA", "TSA", "RMZ", "TMZ", "GLIDING", "SPORT", "MTA",
     "FIS", "FIR", "UIR", "ACC", "AWY", "ADIZ", "MATZ", "HTZ", "TIZ", "TIA", "LTA", "UTA", "LOWFLY", "VFR", "TRP", "MTR", "MRT", "TFR",
     "ALERT", "WARNING", "PROTECTED", "OTHER"]],
-  ["airport", "Airports", ["intl", "ifr", "airport", "civil", "military", "glider", "ul", "heli", "heli_mil", "water", "strip", "agri", "altiport", "closed"]],
-  ["navaid", "Navaids", ["VOR", "VOR-DME", "DVOR", "DVOR-DME", "VORTAC", "DVORTAC", "TACAN", "DME", "NDB"]],
+  ["airport", "Airports", ["intl", "large", "medium", "ifr", "airport", "small", "civil", "military", "glider", "ul", "heli", "heli_mil", "water", "strip", "agri", "altiport", "balloon", "closed"]],
+  ["navaid", "Navaids", ["VOR", "VOR-DME", "DVOR", "DVOR-DME", "VORTAC", "DVORTAC", "TACAN", "DME", "NDB", "NDB-DME"]],
   ["point", "Reporting points", ["RP", "RP_OPT"]],
   ["obstacle", "Obstacles", ["tower", "chimney", "wind", "building", "obstacle"]],
 ];
@@ -18,7 +18,7 @@ const VM_CAT_NAME = {
   OTHER: "Other", AWY: "Airways", LOWFLY: "Low flying", ALERT: "Alert areas", WARNING: "Warning areas", PROTECTED: "Protected areas",
   intl: "International", ifr: "IFR", airport: "Airports", civil: "Civil airfields", military: "Military", glider: "Glider sites",
   ul: "Ultralight", heli: "Heliports", heli_mil: "Military heliports", water: "Water", strip: "Landing strips", agri: "Agricultural",
-  altiport: "Altiports", closed: "Closed", RP: "Compulsory", RP_OPT: "On request", tower: "Towers / masts", chimney: "Chimneys",
+  altiport: "Altiports", closed: "Closed", large: "Large airports", medium: "Medium airports", small: "Small airfields", balloon: "Balloon ports", RP: "Compulsory", RP_OPT: "On request", tower: "Towers / masts", chimney: "Chimneys",
   wind: "Wind turbines", building: "Buildings", obstacle: "Other",
 };
 // shown at first (later: as the person set it)
@@ -80,9 +80,10 @@ function vmStyDef(kind, cat) {
     return { c, w, d: VM_DASH_OF[dash] || "solid", o: 0.9, fc: c, fo, lc: c, ls: 10, lz: VM_LBL_ZOOM.airspace };
   }
   const [c, r] = VM_PT_STYLE[kind] || ["#ffffff", 3];
-  const big = kind === "airport" && (cat === "intl" || cat === "ifr" || cat === "military");
+  const major = kind === "airport" && ["intl", "ifr", "large", "medium"].includes(cat);
+  const big = major || (kind === "airport" && cat === "military");
   return { fc: c, r: big ? r + 2 : r, sym: kind === "navaid" ? "diamond" : kind === "point" ? "triangle" : "circle", fo: cat === "closed" ? 0.3 : 0.95,
-    lc: c, ls: 10, lz: (VM_LBL_ZOOM[kind] || 9) - (kind === "airport" && (cat === "intl" || cat === "ifr") ? 2 : 0) };
+    lc: c, ls: 10, lz: (VM_LBL_ZOOM[kind] || 9) - (major ? 2 : 0) };
 }
 const vmSty = (kind, cat) => ({ ...vmStyDef(kind, cat), ...(((vmOpt().style || {})[`${kind}.${cat}`]) || {}) });
 function vmStyle(p) {
@@ -306,7 +307,11 @@ function vmInit(map) {
 
 /** The Vector maps section of the map settings window. */
 // the sources of the vector maps, one tab each (openAIP now; more sources come as more tabs)
-const VM_SOURCES = [["openaip", "openAIP"]];
+const VM_SOURCES = [["openaip", "openAIP"], ["ourairports", "OurAirports"]];
+const VM_SRC_NOTE = {
+  openaip: "Airspaces, airports, navaids, reporting points, obstacles per country (CC BY-NC).",
+  ourairports: "Airports with frequencies and runways, navaids, per country (public domain, no key; the whole world is downloaded once a day, about 20 MB).",
+};
 // the countries openAIP can be downloaded for (ISO 3166 and Kosovo); their names come from the browser
 const VM_COUNTRIES = ("AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT BV BW BY BZ CA CC CD CF " +
   "CG CH CI CK CL CM CN CO CR CU CV CW CX CY CZ DE DJ DK DM DO DZ EC EE EG EH ER ES ET FI FJ FK FM FO FR GA GB GD GE GF GG GH GI GL GM GN GP " +
@@ -335,10 +340,10 @@ function vmSourcesHtml() {
   const list = (vmList || []).filter((m) => (m.source || "openaip") === tab);
   if (!vmList) vmListGet().then(() => vmRefillAll());
   let h = `<div class="vm-tabs">${VM_SOURCES.map(([k, name]) => `<button type="button" class="vm-tab${k === tab ? " on" : ""}" data-vmtab="${k}">${name}</button>`).join("")}</div>`;
-  if (tab === "openaip") {
+  {
     const have = new Map(list.map((m) => [m.country, m]));
-    h += `<p class="map-opts-note">Airspaces, airports, navaids, reporting points, obstacles per country (CC BY-NC).</p>` +
-      `<label>API key <input type="text" class="map-opts-url" data-key="openaip" value="${escHtml((mapKeys && mapKeys.openaip) || "")}" placeholder="from openaip.net (free account)" spellcheck="false"></label>` +
+    h += `<p class="map-opts-note">${VM_SRC_NOTE[tab] || ""}</p>` + (tab !== "openaip" ? "" :
+      `<label>API key <input type="text" class="map-opts-url" data-key="openaip" value="${escHtml((mapKeys && mapKeys.openaip) || "")}" placeholder="from openaip.net (free account)" spellcheck="false"></label>`) +
       `<label>Find <input type="search" class="vm-find" data-vmfind value="${escHtml(vmFind)}" placeholder="country or code" spellcheck="false">` +
       `<button type="button" class="vm-btn" data-vmupd${list.length ? "" : " disabled"} title="Download all the downloaded countries again">Update all</button></label>` +
       `<p class="map-opts-note">${vmList ? `${list.length} of ${VM_COUNTRIES.length} downloaded (on top, highlighted): the download button downloads a country, ↻ updates it, ✕ deletes it.` : "Loading…"}</p>` +
@@ -485,7 +490,8 @@ function vmOnClick(e, panel) {
   const upd = e.target.closest("button[data-vmupd], button[data-vmget]"), del = e.target.closest("button[data-vmdel]");
   const msg = () => panel.querySelector(".vm-msg");
   if (upd) {   // ⬇ / ↻ one country, or Update all the downloaded ones
-    const cs = upd.dataset.vmget ? [upd.dataset.vmget] : (vmList || []).filter((m) => (m.source || "openaip") === "openaip" && m.country).map((m) => m.country);
+    const src = vmSrcTab();
+    const cs = upd.dataset.vmget ? [upd.dataset.vmget] : (vmList || []).filter((m) => (m.source || "openaip") === src && m.country).map((m) => m.country);
     if (!cs.length) return true;
     if (vmBusy) { msg().textContent = "Wait, a download is running."; return true; }
     vmBusy = true;
@@ -495,7 +501,7 @@ function vmOnClick(e, panel) {
       for (const [i, c] of cs.entries()) {
         if (msg()) msg().textContent = `Downloading ${c} (${i + 1} / ${cs.length})…`;
         try {
-          await mapLayApi("/api/vectormaps/openaip", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ country: c }) });
+          await mapLayApi(`/api/vectormaps/${src}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ country: c }) });
         } catch (err) { bad.push(`${c}: ${err.message}`); }
       }
       vmBusy = false;
