@@ -62,6 +62,17 @@ class SunNoise(unittest.TestCase):
             self.assertAlmostEqual(r["width"], w, delta=w * 0.25)
             self.assertAlmostEqual(r["peak_db"], y, delta=0.2)
 
+    def test_scan_fit_slope(self):
+        """Elevation: the beam on a sloping baseline (the ground); the flat fit is pulled off, the slope fit is not."""
+        x = np.arange(-20, 20.1, 1.0)
+        p = 1 + 0.3 * (1 - (x + 20) / 40) + 0.4 * np.exp(-4 * math.log(2) * (x - 3.0) ** 2 / 22.0 ** 2)
+        db = 10 * np.log10(p) + np.random.default_rng(4).normal(0, 0.01, len(x))
+        r = sunnoise.fit_scan(x, db, slope=True)
+        self.assertTrue(r["ok"], r)
+        self.assertAlmostEqual(r["x0"], 3.0, delta=1.0)
+        flat = sunnoise.fit_scan(x, db)
+        self.assertTrue(not flat["ok"] or abs(flat["x0"] - 3.0) > abs(r["x0"] - 3.0))
+
     def test_scan_fit_refuses(self):
         x = np.arange(-20, 20.1, 2.5)
         flat = -60 + np.random.default_rng(1).normal(0, 0.03, len(x))

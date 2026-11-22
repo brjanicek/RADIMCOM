@@ -98,9 +98,10 @@ def expected_y_sun(gt_db, sfu, f_hz):
     return 10 * math.log10(1 + y1)
 
 
-def fit_scan(x, db):
+def fit_scan(x, db, slope=False):
     """SUN SCAN: noise (dB, any reference) at pointing offsets x (degrees, reported rotor position minus the Sun)
     -> the beam fitted as a Gaussian on a flat baseline, in linear power: P = B + A exp(-4 ln2 (x - x0)^2 / w^2).
+    slope: the baseline B + C x (the elevation: the lower the antenna, the more of the warm ground the beam sees).
     {ok, x0 (the pointing error: the rotor reads this much too high), sigma (1-sigma of x0), width (-3 dB), peak_db
     (Y at the top), why (when not ok)}."""
     x = np.asarray(x, float)
@@ -117,15 +118,30 @@ def fit_scan(x, db):
     ones = np.ones_like(x)
     for j, w in enumerate(ws):
         g = np.exp(-4 * math.log(2) * (x[None, :] - x0s[:, None]) ** 2 / (w * w))     # (x0, points)
-        # least squares of p = B + A g for every x0 at once
-        sg, sgg, sp, sgp, n = g.sum(1), (g * g).sum(1), p.sum(), (g * p).sum(1), len(x)
-        det = n * sgg - sg * sg
-        with np.errstate(divide="ignore", invalid="ignore"):
-            a = (n * sgp - sg * sp) / det
-            b = (sp - a * sg) / n
-        r = p[None, :] - b[:, None] * ones[None, :] - a[:, None] * g
+        if slope:
+            # least squares of p = B + C x + A g for every x0 at once (3 × 3 normal equations each)
+            xs = (x - x.mean()) / max(span, 1e-9)
+            cols = np.stack((np.broadcast_to(ones, g.shape), np.broadcast_to(xs, g.shape), g), axis=2)   # (x0, points, 3)
+            m = np.einsum("kpi,kpj->kij", cols, cols)
+            v = np.einsum("kpi,p->ki", cols, p)
+            try:
+                sol = np.linalg.solve(m, v[:, :, None])[:, :, 0]
+            except np.linalg.LinAlgError:
+                continue
+            bline = sol[:, 0:1] + sol[:, 1:2] * xs[None, :]
+            a = sol[:, 2]
+            r = p[None, :] - bline - a[:, None] * g
+            b = sol[:, 0] + sol[:, 1] * (x0s - x.mean()) / max(span, 1e-9)      # the baseline under the peak
+        else:
+            # least squares of p = B + A g for every x0 at once
+            sg, sgg, sp, sgp, n = g.sum(1), (g * g).sum(1), p.sum(), (g * p).sum(1), len(x)
+            det = n * sgg - sg * sg
+            with np.errstate(divide="ignore", invalid="ignore"):
+                a = (n * sgp - sg * sp) / det
+                b = (sp - a * sg) / n
+            r = p[None, :] - b[:, None] * ones[None, :] - a[:, None] * g
         sse = (r * r).sum(1)
-        sse = np.where((a > 0) & np.isfinite(sse), sse, np.inf)
+        sse = np.where((a > 0) & (b > 0) & np.isfinite(sse), sse, np.inf)
         prof = np.minimum(prof, sse)
         k = int(np.argmin(sse))
         if sse[k] < best[0]:
@@ -133,7 +149,7 @@ def fit_scan(x, db):
     if best[1] is None:
         return {"ok": False, "why": "no peak found"}
     sse_min, (x0, w, a, b) = best
-    dof = max(1, len(x) - 4)
+    dof = max(1, len(x) - (5 if slope else 4))
     within = x0s[prof <= sse_min * (1 + 1.0 / dof)]
     sigma = max(0.05, (float(within.max()) - float(within.min())) / 2) if len(within) else span
     peak_db = 10 * math.log10((a + b) / b) if b > 0 else 0.0
@@ -188,14 +204,15 @@ def register(app):
 
     @app.route("/api/sunnoise/fit", methods=["POST"])
     def api_sunnoise_fit():
-        """SUN SCAN: {"x": [offsets °], "db": [noise dB]} -> the fitted beam: pointing error, its sigma, width, peak."""
+        """SUN SCAN: {"x": [offsets °], "db": [noise dB], "slope": baseline with a slope (elevation)} -> the fitted
+        beam: pointing error, its sigma, width, peak."""
         body = request.get_json(force=True) or {}
         try:
             x = [float(v) for v in body["x"]]
             db = [float(v) for v in body["db"]]
         except (KeyError, TypeError, ValueError):
             return jsonify({"error": "x and db must be lists of numbers"}), 400
-        return jsonify(fit_scan(x, db))
+        return jsonify(fit_scan(x, db, bool(body.get("slope"))))
 
     @app.route("/api/sunnoise")
     def api_sunnoise():

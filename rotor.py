@@ -117,6 +117,7 @@ class Rotor:
         self._stall_ref = None     # (az, el, time) of the last progress
         self._last_reply = 0.0
         self.az_cal = (0.0, K3NG_SPAN)   # true azimuth at K3NG 0 and at K3NG 450
+        self.el_off = 0.0          # true elevation = K3NG elevation + el_off (SUN SCAN of SUN NOISE measures it)
         self.raw = None            # K3NG azimuth 0-450, followed from the readings (K3NG itself reports it modulo 360)
         self.raw_hint = None       # last known raw azimuth, saved: decides 0-90 against 360-450 at the first reading
         self.raw_guess = False     # the first reading was ambiguous and nothing decided it
@@ -132,6 +133,20 @@ class Rotor:
             self._plan = None
             if self.raw is not None:
                 self.az = self.to_true(self.raw) % 360.0
+
+    def set_el_off(self, off):
+        with self.lock:
+            off, old = float(off), self.el_off
+            if off != old:
+                self.el_off = off
+                self._plan = None
+                self._clear_readings()      # the readings in the filter are of the old offset
+                if self.el is not None:
+                    self.el += off - old
+
+    def el_command(self, true_el):
+        """True elevation wanted -> the K3NG elevation to send (0-180)."""
+        return round(min(max(true_el - self.el_off, 0.0), MAX_EL_DEG))
 
     def to_true(self, raw):
         az0, az450 = self.az_cal
@@ -213,7 +228,7 @@ class Rotor:
     def info(self):
         with self.lock:
             return {"on": self.running, "connected": self.port is not None, "device": self.device, "usb_serial": self.usb_serial,
-                    "az": self.az, "el": self.el, "k3ng_az": self.raw, "k3ng_guess": self.raw_guess, "az_cal": list(self.az_cal), "target": list(self.target) if self.target else None, "target_raw": self.target_raw, "tracker": self.tracker,
+                    "az": self.az, "el": self.el, "k3ng_az": self.raw, "k3ng_guess": self.raw_guess, "az_cal": list(self.az_cal), "el_off": self.el_off, "target": list(self.target) if self.target else None, "target_raw": self.target_raw, "tracker": self.tracker,
                     "source": self.target_source, "control": self.control, "fault": self.fault, "error": self.error}
 
     # ---------- inside (lock held) ----------
@@ -259,7 +274,7 @@ class Rotor:
         if az is not None:
             self._filter_az.append(az % 360.0)
         if el is not None:
-            self._filter_el.append(el)
+            self._filter_el.append(el + self.el_off)
         if not self._filter_az:
             return
         self._follow_raw(median_angle(self._filter_az))
@@ -321,7 +336,7 @@ class Rotor:
             best = (0.0, int(k) - 360 if k > 360 else int(k), self.to_true(k) % 360.0)
         if self.az_cal == (0.0, K3NG_SPAN):
             best = (0.0, round(target[0]), best[2])      # no calibration: the azimuth as before (360 stays 360)
-        return (best[1], round(target[1])), best[2]
+        return (best[1], self.el_command(target[1])), best[2]
 
     @staticmethod
     def raw_command(raw_target, raw_now):
@@ -339,7 +354,7 @@ class Rotor:
         only a little off (K3NG chooses the side itself), then that point counts as reached."""
         if self.target_raw is not None:       # the tracker gives the K3NG azimuth: planned again each time (waypoint)
             command, _ = self.raw_command(self.target_raw, self.raw)
-            self._plan = (target, (command, round(target[1])), self.to_true(self.target_raw) % 360.0)
+            self._plan = (target, (command, self.el_command(target[1])), self.to_true(self.target_raw) % 360.0)
             scale = abs(self.az_cal[1] - self.az_cal[0]) / K3NG_SPAN
             return max(abs(self.raw - self.target_raw) * scale, abs(target[1] - self.el) if self.el is not None else 0)
         if self._plan is None or self._plan[0] != target:
@@ -432,7 +447,7 @@ class RotorLink:
 
 # ---------- rotor settings: one rotor for the whole station (data\rotor.json), not tied to a VFO ----------
 # Versions up to 0.114beta1 kept them in the config of one VFO (config_X.json, key "rotor"); migrate() moves them.
-SETTINGS_KEYS = ("enabled", "port", "usb_serial", "az_cal", "k3ng_az", "links")
+SETTINGS_KEYS = ("enabled", "port", "usb_serial", "az_cal", "el_off", "k3ng_az", "links")
 # Sources of the wanted AZ / EL that can be disconnected from the rotor (RCTRL › CONNECTION): the satellite tracker,
 # the recall of a memory with a location, the map of RCTRL, the sonde follow, POINT of DECODERS › METEORS (GRAVES).
 # Connected unless switched off (the sonde: off until switched on).

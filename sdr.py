@@ -28,6 +28,8 @@ LIB_DIR = os.path.join(BASE, "lib")
 
 DECIM = 64            # input rate / DECIM = channel and audio rate
 READ_SAMPLES = 131072  # samples per read (~85 ms at 1.536 MS/s)
+WIDE_EDGE = 0.1        # wide noise: this part of the band at each edge is left out (the roll-off of the SDR's filter)
+WIDE_DC = 0.005        # ... and this part around the centre (what is left of the DC spike)
 WF_BINS = 1024        # points in the waterfall line sent to the browser
 WF_FFT = 32768        # fine FFT (47 Hz/point at 1.536 MS/s); the zoom takes a section of it
 WF_SEGMENTS = READ_SAMPLES // WF_FFT
@@ -1708,6 +1710,16 @@ def channel_setup(chan, c, mode, bw, dsd=False):
     chan.smooth_on = bool(c.get("agc_smooth", True))
 
 
+def wide_noise_db(power):
+    """The noise floor of the whole band (dB, relative): the median of the FFT points without the edges and the centre.
+    Carriers and narrow signals are in a few points only, so the median ignores them; a wide noise such as the Sun
+    lifts all points. Thousands of points: far smoother than the power in a narrow filter."""
+    n = len(power)
+    e, d = int(n * WIDE_EDGE), max(1, int(n * WIDE_DC))
+    p = np.concatenate((power[e:n // 2 - d], power[n // 2 + d:n - e]))
+    return float(10 * np.log10(np.median(p) + 1e-20))
+
+
 class Receiver:
     """Thread that reads from the dongle and produces waterfall lines and audio."""
 
@@ -1734,6 +1746,7 @@ class Receiver:
         self.spur_version = 0     # changes with the learned lines: the filters are rebuilt
         self.on_status = on_status
         self.on_meter = on_meter   # S-meter level of every block; the status goes out only every 0.2 s
+        self.on_wide = None        # wide noise of every block (wide_noise_db), set by app.py: SUN NOISE › Meter WIDE
         self.lock = threading.Lock()
         self.pending = {}
         self.status = "stopped"
@@ -2268,6 +2281,8 @@ class Receiver:
             mid = WF_FFT // 2
             power[mid] = (power[mid - 1] + power[mid + 1]) / 2  # what is left of the DC spike after _loop removed the mean
         self.wf_power = power                       # for the auto squelch (before the spur mask)
+        if self.on_wide:
+            self.on_wide(wide_noise_db(power))
 
         c = self.cfg
         zoom = int(c.get("zoom", 1))
