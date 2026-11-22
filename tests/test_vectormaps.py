@@ -381,3 +381,14 @@ def test_fra_points_and_merge(tmp_path, monkeypatch):
     m = vm.ifr_update("CZ", fra_get=fra_get)   # no INSPIRE: the FRA points only
     p = vm._load(vm._path("ifr_CZ"))["features"][0]["properties"]
     assert m["n"] == 1 and p["name"] == "ADLET" and p["fraRole"] == "XI" and p["fraAD"] == "AD" and p["fl"] == "FL095 / FL660 · FL195 / FL660"
+
+
+def test_view_file_survives_a_map_written_again(tmp_path, monkeypatch):
+    monkeypatch.setattr(vm, "VMAP_DIR", str(tmp_path))
+    vm.save("fua_SK", vm.fua_collection({"features": []}, 1795300000))
+    old = vm._load(vm._path("fua_SK"))   # read before the change (another process updating the FUA)
+    vm.set_view({"style": {"airport.intl": {"sx": 14}}, "maps": {"fua_SK": True}})
+    vm.save("fua_SK", vm.keep_view(old, vm.fua_collection({"features": []}, 1795300100)))   # written after it with the older view
+    v = vm.get_view()
+    assert v["stored"] and v["style"] == {"airport.intl": {"sx": 14}} and v["maps"] == {"fua_SK": True}
+    assert not any(m["id"] == "_view" for m in vm.list_maps())

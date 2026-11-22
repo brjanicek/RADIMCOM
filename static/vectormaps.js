@@ -254,6 +254,7 @@ function vmListGet(force) {
   return (vmListP = vmListP || mapLayApi("/api/vectormaps").then((j) => {
     const v = j.view || {};
     vmNotes = j.notes || {};
+    if (vmViewBusy) return (vmList = j.maps || []);   // a change of this page not yet stored: it stays (the server would bring back the older view)
     vmView = { cats: v.cats || {}, lbl: v.lbl || {}, maxFL: +v.maxFL || 0, maps: v.maps || {}, hidden: v.hidden || [], style: v.style || {}, srcs: v.srcs || {} };
     if (!v.stored && (j.maps || []).length && VM_VIEW_KEYS.some((k) => { const x = b[k]; return Array.isArray(x) ? x.length : x && typeof x === "object" ? Object.keys(x).length : x; })) {
       vmView = Object.fromEntries(VM_VIEW_KEYS.map((k) => [k, b[k]]));   // once: what this browser had before goes to the server
@@ -262,13 +263,16 @@ function vmListGet(force) {
     return (vmList = j.maps || []);
   }).catch(() => (vmList = [])));
 }
-let vmViewT = null;
+let vmViewT = null, vmViewBusy = 0;   // busy: changes of this page on their way to the server
 function vmViewSave() {   // to the server (a moment later: several clicks one write), then the other windows ask again
   clearTimeout(vmViewT);
+  if (!vmViewT) vmViewBusy++;
   vmViewT = setTimeout(() => {
+    vmViewT = null;
     mapLayApi("/api/vectormaps/view", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(vmView) })
       .then(() => { vmViewRev = Date.now(); mapOptsSet({ vm: { ...(mapOpts.vm || vmOptsNorm(null)), viewRev: vmViewRev } }); })
-      .catch((err) => { const m = document.querySelector(".vm-msg"); if (m) m.textContent = `Not stored on the server: ${err.message}`; });
+      .catch((err) => { const m = document.querySelector(".vm-msg"); if (m) m.textContent = `Not stored on the server: ${err.message}`; })
+      .finally(() => { vmViewBusy = Math.max(0, vmViewBusy - 1); });
   }, 400);
 }
 function vmGet(id) {

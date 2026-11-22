@@ -315,11 +315,30 @@ def keep_view(old, new):
     return new
 
 
+def _view_path():
+    # one file for what is shown (all the processes of RADIMCOM write it whole, atomically): a map written again by an
+    # update (FUA every 2 minutes, MEMORIES after a change) can no longer bring back an older view stored in it
+    return os.path.join(VMAP_DIR, "_view.cfg")
+
+
 def get_view(maps=None):
-    """What is shown, from all stored maps: {cats, lbl, maxFL, maps {id: bool}, hidden [keys], stored}."""
+    """What is shown: {cats, lbl, maxFL, style, srcs, maps {id: bool}, hidden [keys], stored}."""
     view = {"cats": {}, "lbl": {}, "maxFL": 0, "style": {}, "srcs": {}, "maps": {}, "hidden": [], "stored": False}
     if not os.path.isdir(VMAP_DIR):
         return view
+    try:
+        with open(_view_path(), encoding="utf-8") as f:
+            v = json.load(f)
+    except (OSError, ValueError):
+        v = None
+    if isinstance(v, dict):
+        ids = [fn[:-5] for fn in sorted(os.listdir(VMAP_DIR)) if fn.endswith(".json")]
+        on = v.get("maps") if isinstance(v.get("maps"), dict) else {}
+        view.update(cats=v.get("cats") or {}, lbl=v.get("lbl") or {}, maxFL=v.get("maxFL") or 0, style=v.get("style") or {},
+                    srcs=v.get("srcs") or {}, maps={i: on.get(i, True) is not False for i in ids},
+                    hidden=[h for h in v.get("hidden") or [] if isinstance(h, str)], stored=True)
+        return view
+    # before the view file: what the map files carry (the first one with a view)
     for fn in sorted(os.listdir(VMAP_DIR)):
         if not fn.endswith(".json"):
             continue
@@ -377,6 +396,18 @@ def set_view(view):
     if not os.path.isdir(VMAP_DIR):
         return
     with _lock:
+        vp = _view_path()
+        with open(vp + ".tmp", "w", encoding="utf-8") as f:
+            json.dump({"cats": cats, "lbl": lbl, "maxFL": max_fl, "style": style, "srcs": srcs, "maps": maps,
+                       "hidden": sorted(hidden)[:5000]}, f, ensure_ascii=False)
+        for i in range(30):   # Windows: another process may be reading it for a moment
+            try:
+                os.replace(vp + ".tmp", vp)
+                break
+            except PermissionError:
+                if i == 29:
+                    raise
+                time.sleep(0.1)
         for fn in sorted(os.listdir(VMAP_DIR)):
             if not fn.endswith(".json") or not _path(fn[:-5]):
                 continue
