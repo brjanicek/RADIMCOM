@@ -4,6 +4,19 @@
 
 Second release candidate (GitHub branch `1.1rc2`; continues `1.1rc1`, whose changes are below).
 
+- **Vector maps on the COMPOSITE map** *(by Brano, [brjanicek](https://github.com/brjanicek), PR #24)* (and the other
+  decoder maps), offline:
+  - Sources: openAIP airspaces, airports, navaids, reporting points and obstacles; OurAirports airports, runways and
+    frequencies; OpenStreetMap transmitter sites; FUA activated areas of Slovakia; IFR waypoints (EUROCONTROL FRA points
+    for Europe plus the INSPIRE points of SK / DE / AT / FI); MEMORIES channels with a location; own GeoJSON / KML / GPX
+    files.
+  - Each country is downloaded with Update and kept in `data\vectormaps`.
+  - In the map settings: a tree to show parts and objects, zoom bars per layer (symbol and name, dragged with the mouse),
+    a style editor with ICAO chart symbols, an FL filter, and own names and notes per object.
+  - The Maps bar has Map memory (10 setups, export / import), Map info and Map edit.
+  - What is shown is stored on the server for all browsers.
+  - It replaces the raster OpenAIP layer.
+  - New default COMPOSITE map settings.
 - **BPSK decoder for satellites** (DECODERS › BPSK, `bpsk.py`, `funcube.py`): telemetry of BPSK satellites at
   **1200, 2400, 4800 or 9600 Bd** from the baseband of the VFO, in any mode. It finds the carrier by itself within
   **SEARCH** ±3 / ±6 / ±12 kHz of the tuned frequency (the line of the squared signal) and follows its Doppler, so it

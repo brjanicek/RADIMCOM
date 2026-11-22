@@ -82,6 +82,11 @@ Change log
 
 Ver. 1.1rc2
 (second release candidate, GitHub branch 1.1rc2; continues 1.1rc1, whose changes are below)
+- Vector maps on the COMPOSITE map (by Brano, brjanicek, PR #24), offline: openAIP airspaces, airports, navaids and
+  obstacles, OurAirports, OSM transmitter sites, FUA of Slovakia, IFR waypoints, MEMORIES with a location, own GeoJSON /
+  KML / GPX. Downloaded per country with Update into data\vectormaps; layer tree, zoom bars, style editor with ICAO
+  symbols, FL filter, own names and notes; Maps bar with Map memory, Map info and Map edit. Replaces the raster OpenAIP
+  layer; new default COMPOSITE settings.
 - BPSK decoder for satellites (DECODERS > BPSK): 1200 / 2400 / 4800 / 9600 Bd, finds the carrier within SEARCH +-3 / 6 /
   12 kHz and follows its Doppler; AO-40 FEC of the FUNcube family (FUNcube-1 AO-73, Nayif-1 EO-88, JY1Sat JO-97) with
   the FUNcube-1 telemetry, and AX.25 (plain or G3RUH). Satellite keys, bytes of each frame, daily log.
