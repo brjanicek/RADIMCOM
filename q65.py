@@ -46,7 +46,7 @@ Q65_FREQS = (
        {"f": 432065000, "mode": "Q65", "period": 60, "sub": "B"},
        {"f": 1296065000, "mode": "Q65", "period": 60, "sub": "C"}])
 
-# "1230 -24  0.1  800 :  CQ OM2AMR JN88      q0" (Q65), "0001 -20  0.0  600 #  K1ABC W9XYZ EN37" (JT65);
+# "1230 -24  0.1  800 :  CQ K1ABC FN42       q0" (Q65), "0001 -20  0.0  600 #  K1ABC W9XYZ EN37" (JT65);
 # UTC hhmm or hhmmss, SNR dB (2.5 kHz), DT s, audio Hz, sync mark, message, flags (q<AP type><periods averaged>, a, d, f)
 _LINE = re.compile(r"^(\d{4}|\d{6}|\*+)\s+(-?\d+)\s+(-?\d+\.\d)\s+(-?\d+)\s+(:|#\*?|##)\s+(.+?)\s*$")
 _FLAGS = re.compile(r"^(q\d{1,2}|a\d{1,2}|d[\d*][\d*]?|f\d?)$")
