@@ -108,7 +108,7 @@ class Retro(unittest.TestCase):
         self.fill(buf, 2, 1000.0, time.time() - 2)
         with tempfile.TemporaryDirectory() as d:
             p = buf.save_iq(d)
-            self.assertIn("_14100000Hz_IQ_RETRO.wav", p)
+            self.assertIn("_14100000Hz_IQ_PREREC.wav", p)
             with wave.open(p) as w:
                 self.assertEqual((w.getnchannels(), w.getsampwidth(), w.getframerate()), (2, 1, int(FS)))
                 self.assertEqual(w.getnframes(), buf.samples)

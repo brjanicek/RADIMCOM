@@ -1,10 +1,10 @@
-"""RETRO: tuning back in time. The raw IQ of the dongle of the last RETRO_S seconds (10-300, default 60) is kept in RAM
+"""PRE-REC (formerly RETRO): tuning back in time. The raw IQ of the dongle of the last RETRO_S seconds (10-300, default 60) is kept in RAM
 (RTL: its 8-bit bytes as they come, others: 16 bit), so a signal that was on the waterfall a while ago can still be
 heard: Alt+click on the waterfall at its row and frequency demodulates CLIP_S seconds from that moment with the mode
 and filter of the VFO (sdr.Decimator + sdr.Channel, as live) and plays them in the browser. SAVE writes the whole buffer
 as an IQ WAV (as REC IQ, SDR# style), so the last minute can still be recorded after the fact.
 
-RAM: RTL 2.4 MS/s = 4.8 MB/s (60 s: 288 MB); LimeSDR / Airspy (16 bit) twice that. Only while RETRO is on.
+RAM: RTL 2.4 MS/s = 4.8 MB/s (60 s: 288 MB); LimeSDR / Airspy (16 bit) twice that. Only while PRE-REC is on.
 """
 import collections
 import datetime
@@ -121,16 +121,16 @@ class RetroBuffer:
         import sdr                                      # here: sdr imports nothing of this module
         seg = self.segment(t_from, seconds)
         if seg is None:
-            return None, "nothing kept at that time (RETRO holds the last %d s)" % self.seconds
+            return None, "nothing kept at that time (PRE-REC holds the last %d s)" % self.seconds
         x, fs, center, start = seg
         if abs(tune_hz - center) > fs / 2 * 0.95:
             return None, "that frequency was outside the band of the dongle then"
         mode = cfg.get("mode", "USB")
         if mode not in ("AM", "FM", "LSB", "USB", "CW"):
-            return None, f"RETRO plays AM, FM, LSB, USB and CW, not {mode}"
+            return None, f"PRE-REC plays AM, FM, LSB, USB and CW, not {mode}"
         bw = float(cfg.get("bandwidth", {}).get(mode, 3000))
         if mode == "FM":
-            bw = min(bw, sdr.FM_NARROW_MAX)              # wide FM goes another way live; RETRO plays it narrow
+            bw = min(bw, sdr.FM_NARROW_MAX)              # wide FM goes another way live; PRE-REC plays it narrow
         c = dict(cfg, tune_hz=tune_hz)                  # the TNF notches stay on their RF frequencies
         x = x - np.mean(x)                              # the DC spike of the dongle, as live (_remove_dc)
         n = np.arange(len(x))
@@ -183,14 +183,14 @@ class RetroBuffer:
         with self.lock:
             blocks = list(self.blocks)
         if not blocks:
-            raise ValueError("the RETRO buffer is empty")
+            raise ValueError("the PRE-REC buffer is empty")
         last = blocks[-1]
         blocks = [b for b in blocks if b[2] == last[2] and b[3] == last[3] and b[4] == last[4]]
         fs, center, kind = last[2], last[3], last[4]
         t0 = blocks[0][0] - len(blocks[0][1]) / 2 / fs
         os.makedirs(folder, exist_ok=True)
         stamp = datetime.datetime.fromtimestamp(t0, datetime.timezone.utc).strftime("%Y%m%d_%H%M%S")
-        name = f"RADIMCOM_{self.vfo or 'VFO'}_{stamp}Z_{int(round(center))}Hz_IQ_RETRO.wav"
+        name = f"RADIMCOM_{self.vfo or 'VFO'}_{stamp}Z_{int(round(center))}Hz_IQ_PREREC.wav"
         path = os.path.join(folder, name)
         with wave.open(path, "wb") as w:
             w.setnchannels(2)
