@@ -4590,3 +4590,12 @@ details[data-sec=vmaps] > .map-opts-body:empty { display: none; }
 .leaflet-container .leaflet-control-attribution.vm-attr:not(.open) { font-size: 0; padding: 0 6px; background: rgba(10, 13, 18, .7); border-radius: 4px; }
 .leaflet-container .leaflet-control-attribution.vm-attr:not(.open)::before { content: "©"; font-size: 12px; line-height: 18px; color: #9fb3c8; }
 .leaflet-container .leaflet-control-attribution.vm-attr.open { max-width: min(640px, 90%); }
+\n/* Zoom levels: a bargraph of the zooms 1-18 per layer (segments like the meters of the display), ends dragged */
+.vm-zoom td { vertical-align: middle; }
+.vm-zoom th { white-space: nowrap; }
+.vm-zbw { display: flex; align-items: center; gap: 6px; }
+.vm-zb { --c: #6cb8ff; display: flex; align-items: flex-end; gap: 2px; height: 15px; padding: 0 1px; cursor: ew-resize; touch-action: none; user-select: none; }
+.vm-zb i { display: block; width: 5px; height: 9px; border-radius: 1px; background: #2a3442; }
+.vm-zb i.on { background: var(--c); box-shadow: 0 0 3px color-mix(in srgb, var(--c) 60%, transparent); }
+.vm-zb i.cur { height: 15px; outline: 1px solid #f2fff4; outline-offset: -1px; }
+.vm-zv { min-width: 34px; font: 700 .85em ui-monospace, Consolas, monospace; color: #8b95a1; }

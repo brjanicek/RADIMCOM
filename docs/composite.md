@@ -131,8 +131,10 @@ at once in all open tabs and windows of the same address.
   shown follow. Information only: check the airspace with the ATS unit before flying. The **MEMORIES** tab shows the MEMORIES channels that have a location (LAT / LON) as
   **MEMORIES channels**, one part per group, with the frequency and mode; the map is made again whenever the channels
   change. On **Own files** **Add** stores a GeoJSON, KML or GPX file as a vector map: its areas, lines and points
-  show under **Own files** in the tree (a file in this format keeps its kinds), the same name again replaces it. **Zoom levels** at the top of **Maps** sets per kind (IFR waypoints per part) from which to which zoom the symbol (or
-  the outline of an area) and the name are drawn, for all its parts: at first the airport symbol up to zoom 11 and the
+  show under **Own files** in the tree (a file in this format keeps its kinds), the same name again replaces it. **Zoom levels** at the top of **Maps** shows per kind (IFR waypoints per part) two bargraphs of the zooms 1–18, like
+  the meters of the display: from which to which zoom the symbol (or the outline of an area) and the name are drawn, lit
+  in the colour of the layer, the rest grey, the zoom of the map now as a taller mark; dragging an end of a bar with the
+  mouse sets it for all the parts: at first the airport symbol up to zoom 11 and the
   aerodrome layout (runways, aprons, …) from 12, navaids always with names from 9, en-route waypoints from 7 (names from 9),
   terminal ones and reporting points from 9 (names from 11), obstacles from 11, transmitters from 9 (* = some parts have
   their own zooms; a change sets them all; ↺ returns a row to the default zooms, **All default** every row, the

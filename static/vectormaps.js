@@ -398,6 +398,10 @@ function vmInit(map) {
   if (!map.getPane("vmaps")) map.createPane("vmaps").style.zIndex = 380;   // over the tiles and clouds, under the tracks
   if (!map.getPane("vmlabels")) { const lp = map.createPane("vmlabels"); lp.style.zIndex = 385; lp.style.pointerEvents = "none"; }
   map.getContainer()._vmMap = map;   // for "This zoom" of the settings window inside it
+  map.on("zoomend", () => {   // the taller mark of the zoom bars in its settings window
+    const z = Math.round(map.getZoom());
+    map.getContainer().querySelectorAll(".vm-zb").forEach((b) => b.querySelectorAll("i").forEach((x, n) => x.classList.toggle("cur", n + 1 === z)));
+  });
   // the sources line of the map folded into a small © (a click opens / closes it): the long list covered the map
   if (map.attributionControl && map.attributionControl.getPosition() !== "topright") map.attributionControl.setPosition("topright");   // up under the map buttons: the bars of the COMPOSITE map cover the bottom (a new container)
   const ac = map.attributionControl && map.attributionControl.getContainer();
@@ -644,20 +648,32 @@ function vmSettingsHtml() {
   return h;
 }
 // Zoom levels: one row per kind (IFR waypoints per part), from–to zoom of the symbol / outline and of the name, for all its parts
-const VM_ZOOM_ROWS = [["airport", "", "Airports"], ["aero", "", "Aerodrome layout (runways, …)"], ["navaid", "", "Navaids"],
-  ["wpt", "enroute", "IFR waypoints en-route"], ["wpt", "terminal", "IFR waypoints terminal"], ["point", "", "Reporting points"],
-  ["airspace", "", "Airspaces"], ["fua", "", "FUA"], ["obstacle", "", "Obstacles"], ["tx", "", "Transmitters"], ["chan", "", "MEMORIES channels"], ["own", "", "Own files"]];
+const VM_ZOOM_ROWS = [["airport", "", "Airports"], ["aero", "", "Aerodrome layout"], ["navaid", "", "Navaids"],
+  ["wpt", "enroute", "IFR en-route"], ["wpt", "terminal", "IFR terminal"], ["point", "", "Reporting points"],
+  ["airspace", "", "Airspaces"], ["fua", "", "FUA"], ["obstacle", "", "Obstacles"], ["tx", "", "Transmitters"], ["chan", "", "MEMORIES"], ["own", "", "Own files"]];
 function vmZoomCats(kind, cat, cnt) {   // the parts a row sets
   if (cat) return [cat];
   const order = (VM_KINDS.find(([k]) => k === kind) || [])[2] || [];
   return [...new Set([...order, ...Object.keys((cnt && cnt[kind]) || {})])];
 }
+/** The zoom of the map whose settings window is open (the COMPOSITE map when none). */
+function vmPanelZoom() {
+  const pn = document.querySelector(".map-opts-panel"), c = pn && pn.closest(".leaflet-container");
+  const m = (c && c._vmMap) || (typeof comMap !== "undefined" && comMap) || null;
+  return m && m.getZoom ? Math.round(m.getZoom()) : 0;
+}
+/** A bargraph of the zooms 1-18 like the meters of the display: from-to lit in the colour of the layer, the rest grey,
+ *  the zoom the map has now taller; its ends are dragged with the mouse (data: row, which part s / l, from, to). */
+function vmZoomBar(i, w, from, to, col, cur) {
+  return `<div class="vm-zb" data-vmzb="${i}" data-w="${w}" data-from="${from}" data-to="${to}" style="--c:${col}" title="Drag an end: from ${from} to ${to}">` +
+    Array.from({ length: 18 }, (_, n) => `<i class="${n + 1 >= from && n + 1 <= to ? "on" : ""}${n + 1 === cur ? " cur" : ""}"></i>`).join("") + `</div>`;
+}
+const vmZoomTxt = (a, b) => (a <= 1 && b >= 18 ? "all" : `${a}–${b}`);
 function vmZoomHtml(cnt) {
   const rows = VM_ZOOM_ROWS.filter(([k, c]) => cnt[k] && (!c || cnt[k][c]));
   if (!rows.length) return "";
-  const zs = (i, w, v) => `<select data-vmz="${i}" data-w="${w}">${Array.from({ length: 18 }, (_, n) => n + 1).map((z) =>
-    `<option value="${z}"${z === v ? " selected" : ""}>${(w === "s0" || w === "l0") && z === 1 ? "all" : (w === "s1" || w === "l1") && z === 18 ? "all" : z}</option>`).join("")}</select>`;
-  return `<div class="map-opts-sub2">Zoom levels <small>from – to which zoom the symbol (or outline) and the name are drawn</small></div>` +
+  const cur = vmPanelZoom();
+  return `<div class="map-opts-sub2">Zoom levels <small>drag the ends of a bar; the taller mark: the zoom of the map now${cur ? ` (${cur})` : ""}</small></div>` +
     `<table class="map-opts-t vm-zoom"><tr class="vm-sty-h"><th></th><td>Symbol / outline</td><td>Name</td><td></td></tr>` +
     rows.map(([k, c, name]) => {
       const i = VM_ZOOM_ROWS.findIndex((r) => r[0] === k && r[1] === c), cats = vmZoomCats(k, c, cnt).filter((x) => !cnt[k] || cnt[k][x]);
@@ -665,11 +681,43 @@ function vmZoomHtml(cnt) {
       const own = cats.some((x) => ["sz", "sx", "cz", "cx", "fz", "fx", "lz", "lx"].some((q) => q in (((vmOpt().style || {})[`${k}.${x}`]) || {})));
       const mixed = own && (cats.some((x) => { const z = vmSty(k, x); return area ? z.cz !== y.cz || z.cx !== y.cx : z.sz !== y.sz || z.sx !== y.sx; }) ||
         cats.some((x) => { const z = vmSty(k, x); return z.lz !== y.lz || z.lx !== y.lx; }));
+      const s0 = area ? y.cz : y.sz, s1 = area ? y.cx : y.sx;
       return `<tr><th title="${mixed ? "Some parts have their own zooms: a change here sets all of them" : ""}">${escHtml(name)}${mixed ? " *" : ""}</th>` +
-        `<td>${zs(i, "s0", area ? y.cz : y.sz)} – ${zs(i, "s1", area ? y.cx : y.sx)}</td><td>${zs(i, "l0", y.lz)} – ${zs(i, "l1", y.lx)}</td>` +
+        `<td><div class="vm-zbw">${vmZoomBar(i, "s", s0, s1, area ? y.c : y.fc, cur)}<span class="vm-zv">${vmZoomTxt(s0, s1)}</span></div></td>` +
+        `<td><div class="vm-zbw">${vmZoomBar(i, "l", y.lz, y.lx, y.lc, cur)}<span class="vm-zv">${vmZoomTxt(y.lz, y.lx)}</span></div></td>` +
         `<td><button type="button" class="vm-get" data-vmzdef="${i}"${own ? "" : " disabled"} title="The default zooms of ${escHtml(name)}">↺</button></td></tr>`;
     }).join("") + `</table><button type="button" class="vm-btn" data-vmzdef="*" title="The default zooms of all kinds (colours and shapes stay)">All default</button>`;
 }
+// dragging an end of a zoom bar: the nearer end follows the mouse, stored on release
+document.addEventListener("pointerdown", (e) => {
+  const bar = e.target.closest && e.target.closest(".vm-zb");
+  if (!bar || e.button !== 0) return;
+  e.preventDefault();
+  const at = (ev) => { const r = bar.getBoundingClientRect(); return Math.min(18, Math.max(1, Math.floor(((ev.clientX - r.left) / r.width) * 18) + 1)); };
+  let from = +bar.dataset.from, to = +bar.dataset.to;
+  const z0 = at(e), end = z0 < from ? "from" : z0 > to ? "to" : z0 - from <= to - z0 ? "from" : "to";
+  const show = (z) => {
+    if (end === "from") from = Math.min(z, to); else to = Math.max(z, from);
+    bar.querySelectorAll("i").forEach((x, n) => x.classList.toggle("on", n + 1 >= from && n + 1 <= to));
+    const v = bar.parentElement.querySelector(".vm-zv");
+    if (v) v.textContent = vmZoomTxt(from, to);
+  };
+  show(z0);
+  try { bar.setPointerCapture(e.pointerId); } catch { /* old browser */ }
+  const move = (ev) => show(at(ev));
+  const up = () => {
+    bar.removeEventListener("pointermove", move);
+    bar.removeEventListener("pointerup", up);
+    bar.removeEventListener("pointercancel", up);
+    const w = bar.dataset.w, i = +bar.dataset.vmzb;
+    if (from !== +bar.dataset.from) vmZoomSet(i, `${w}0`, from);
+    if (to !== +bar.dataset.to) vmZoomSet(i, `${w}1`, to);
+    vmRefillAll();
+  };
+  bar.addEventListener("pointermove", move);
+  bar.addEventListener("pointerup", up);
+  bar.addEventListener("pointercancel", up);
+});
 /** ↺ of a row (or All default): the own zooms of its parts removed (the colours and shapes stay). */
 function vmZoomDefault(i) {
   const zk = ["sz", "sx", "cz", "cx", "fz", "fx", "lz", "lx"], style = { ...(vmOpt().style || {}) };
