@@ -39,7 +39,7 @@ local SONDE decoder does not hear** (on by default) and **only sondes in flight*
 server asks SondeHub at most every 15 s and makes the trails (the last 6 h) from the records asked; a sonde falling
 after the burst gets the parachute icon. New `GET /api/share/sondehub?dist=&last=`.
 
-## Tracks and Tracker bars
+## Tracks, Tracker and Maps bars
 
 Two bars over the bottom of the map: **Tracks** with **Show all labels** and **Hide all labels** (of the tracks on the
 map now; new tracks follow the map settings), and under it **Tracker** with **Center** (the station in the middle of the
@@ -48,6 +48,17 @@ map, the zoom stays), **Show / Hide clouds**, **Show / Hide precipitations** (as
 serial of the tracks, whole first, then a part; the track found is selected, its label shown and the map moved to it,
 else an error shows in the window) and **Unlock** while the map follows a track. Each folds to the left into its name (◀ / ▶) and opens
 over the whole width of the map (remembered).
+
+Under them the **Maps** bar (Map memory): ten keys **MapMemo 1** … **MapMemo 10**, each recalling a stored setup of
+the maps (the vector maps with what is shown and their styles, the base map, the A/D map, the ADS-B range and the
+station); an empty memory is grey. **Map info** (OFF at first, per browser) switches the info of a vector maps point or
+area under the mouse on and off; **Map edit** (OFF at first, per browser) switches the right click card of a point or area
+(own name, note, Hide this object) on and off; the right click on a track keeps its Track menu either way. **Save actual** opens a small window: the memory and its name (MapMemo 1 … at first);
+**OK** stores what the maps show now into an empty memory at once and asks before overwriting a used one. **Export**
+saves the memories ticked in its window (all at first) into a `.json` file; **Import** reads such a file and lists its
+memories, each with a checkbox and the memory it goes into (its own number at first), and asks before overwriting used ones. The sources of the map (©, top right under the map buttons) open and close with a click. The memories
+are kept in the browser (all its tabs and windows); the vector maps part of a recall goes to the server like any change
+of the vector maps.
 
 ## Status row
 
@@ -78,25 +89,74 @@ windows. The same defaults are used the first time the page opens in a browser; 
 The keys in the top right corner of the map (settings ⚙, full screen, new tab) are one bar. **⚙** opens its settings (**Settings** shows beside it while open) in
 sections that open and close with a click (which are open is remembered): **Sources** (**Aircrafts**, **Radiosondes** and **Ships**,
 each a part that opens with a click, one at a time: the local decoders, one switch per VFO and decoder with the number of
-objects, and **Sharing** from other stations), **Map** (base map, OpenSeaMap, OpenAIP, own layers, A/D map, ADS-B range),
+objects, and **Sharing** from other stations), **Maps** (with the parts **Vector maps** with **Map sources** and **Maps** (one of the two open at a time), **Base map** with OpenSeaMap,
+**A/D map**, **ADS-B range** and, at the bottom, **Station**, each opening with a click),
 **Weather** (precipitation, clouds), **Aircrafts**, **Radiosondes** and **Ships** (each with the parts **Symbol**, **Label**
 and **List**, one open at a time). All sections are closed the first time. In the small map of the tab the window takes
 the right edge of the map (never taller than the map) and the full screen / new tab keys hide while it is open. The
 settings and the open sections are remembered in the browser (also from the map opened alone in a new tab) and applied
 at once in all open tabs and windows of the same address.
 
-- **Station** (Map): the icon of your location (circle, square, triangle, diamond, star, cross, house) and its colour.
-- **Base map:** OpenStreetMap (the default), Esri dark grey, OpenTopoMap, Esri satellite, **Own tile address**
+- **Station** (Maps, at the bottom): the icon of your location (circle, square, triangle, diamond, star, cross, house) and its colour.
+- **Base map:** (the map zooms in to zoom 18) OpenStreetMap (the default), Esri dark grey, OpenTopoMap, Esri satellite, **Own tile address**
   (an XYZ address `https://…/{z}/{x}/{y}.png`) or **Plain colour** (no tiles, a background of the colour chosen, black
   by default), with **darken** (on by default: the tiles turned dark so the marks
   stand out). **OpenSeaMap** adds the sea marks, buoys and waterways on top (useful with AIS on rivers).
-  **OpenAIP** adds airspaces, airports and navaids on top (opacity 10–100 %); it needs the free API key of an
-  openaip.net account, typed into the **API key** field under the switch and stored on the server
-  (`data\mapkeys.json`) for every window and computer. OpenAIP data: CC BY-NC.
-- **Own layers:** **Add** a GeoJSON, KML or GPX file (KMZ: unpack the KML from it first; KML / GPX are turned into
-  GeoJSON in the browser): points, lines and areas, with the name and description as a tooltip. The layers are stored
-  on the server in `data\maplayers` (one folder for all VFOs, up to 20 MB each), so every window and computer has
-  them; on / off, **colour** and **opacity** of each are per browser; ✕ deletes a layer for everyone.
+- **Vector maps:** airspaces, airports, navaids, reporting points and obstacles from openAIP, drawn on every decoder
+  map under the tracks and kept on the server, so they work offline. They are downloaded in **Map sources** (inside **Vector
+  maps**), on the tab of the source; each tab has **Use in maps** (all the maps of that source on or off, its tab
+  struck through when off) and the number of points, lines and areas of its maps: on the **openAIP** tab type the free **API key** of an openaip.net account (stored in `data\mapkeys.json`); the list
+  below has every country (**Find** filters it by name or code), the downloaded ones highlighted with the date of the
+  download (⚠ when it is older than an AIRAC cycle, 28 days) and a checkbox that shows them on the map. ⬇ downloads a
+  country into `data\vectormaps` (one file per country, a few seconds each), ↻ updates it, ✕ deletes it and
+  **Update all** downloads all the downloaded ones again; the downloaded countries are at the top. The **OurAirports** tab works the same
+  without a key: airports (large, medium, small, heliports, …) with their frequencies and runways, and navaids, from
+  ourairports.com; a runway with both ends known is also drawn as a strip of its width under **Aerodrome layout** (public domain); the world files (about 20 MB) are downloaded at most once a day into
+  `data\vectormaps\_ourairports` and cut per country. The **OpenStreetMap** tab downloads the transmitter sites of a country
+  (masts, towers and antennas: broadcasting, radar, amateur radio, other radio and mobile phone, the last off at first)
+  through the Overpass API (ODbL, no key; a big country takes a minute or two); they show as **Transmitters** in the
+  tree, with the operator and the height. The same download brings the aerodrome layout mapped in OpenStreetMap
+  (aerodrome boundaries, runways, taxiways, aprons and helipads) as **Aerodrome layout**, with the runway numbers and surface. The **IFR waypoints** tab
+  downloads the IFR waypoints of a country (no key) from two sources together: the free route airspace (FRA) points of
+  the EUROCONTROL FRA points list (all of Europe, the xlsx of the AIRAC cycle in force, about 1.6 MB, downloaded at most
+  once a day into `data\vectormaps\_eurocontrol` and cut by the FIRs of the country; each point with its FRA role entry /
+  exit / intermediate / arrival / departure, the aerodromes, the levels and the FRA area) and, where there is one, the
+  INSPIRE service of the air navigation provider with the terminal RNAV fixes too: Slovakia (LPS SR, with the FRA / FIR
+  boundary marks of AIP ENR 4.4), Germany (DFS, CC BY 4.0), Austria (Austro Control) and Finland (Traficom, CC BY 4.0).
+  The same point from both is kept once. They show as **IFR waypoints** with the parts **En-route** (ICAO five-letter
+  points) and **Terminal (RNAV)** (smaller, from zoom 8). Not for operational use. The **FUA** tab downloads the airspaces activated today in Slovakia (TRA, TSA, R, D, … from the AUP / UUP of
+  AMC Zvolen and the national areas) from the public map of LPS SR (gis.lps.sk/vfrm, no key) as **FUA (activated
+  airspaces)** with the parts **Active now** (red) and **Planned (later today)** (orange, dashed), with the vertical
+  limits and the time window (UTC); while the map exists the server downloads it again every 2 minutes and the maps
+  shown follow. Information only: check the airspace with the ATS unit before flying. The **MEMORIES** tab shows the MEMORIES channels that have a location (LAT / LON) as
+  **MEMORIES channels**, one part per group, with the frequency and mode; the map is made again whenever the channels
+  change. On **Own files** **Add** stores a GeoJSON, KML or GPX file as a vector map: its areas, lines and points
+  show under **Own files** in the tree (a file in this format keeps its kinds), the same name again replaces it. In the tree of **Maps** each kind has two bargraphs of the zooms 1–18 beside its name, like the meters of the display:
+  from which to which zoom the symbol (or the line of an area) and, under it, the name are drawn, lit in the colour of
+  the layer, the rest grey, the zoom of the map now as a taller mark; dragging an end of a bar with the mouse sets it for
+  all the parts of the kind. What is shown at first (the parts on or off, the names, the colours and the zooms) is
+  `VM_VIEW_DEF` in `static/vectormaps.js` (as set up on the author's station: e.g. the airport symbol up to zoom 8 and the
+  aerodrome layout from 9, airspace outlines with names from 13, en-route waypoints on, terminal ones off) over the
+  built-in looks; it is used until something is changed and stored. ↺ beside the bars returns a kind to
+  the default zooms, **All default zooms** under the tree every kind (the colours and shapes stay). The tree in **Maps** (▸ opens a kind or a part) switches the
+  kinds (**Airspaces**, **Airports**, **Navaids**, **Reporting points**, **Obstacles**: off at first) and their parts
+  (CTR, TMA, R, D, … / international, civil, ultralight, … / VOR-DME, NDB, …) on and off; each part opens to its objects
+  in groups by country (by map for MEMORIES and own files), each group with a checkbox for all its objects, and in them
+  the objects one by one with a checkbox (the mouse over a kind, part or object shows the maps it comes from). **Names on the map** per kind (from a zoom on, names that would overlap are left out);
+  **Only starting below** FL… shows only the airspaces whose lower limit is below that level. The mouse over an object
+  shows its name, class, vertical limits, frequencies, own note and the map it comes from; a right click opens it with
+  **Hide this object** and **Name** and **Note** to fill in (**Save** or Enter; an own name shown instead of the map's one, empty = the map's name, and a note; kept on the server in
+  `data\vectormaps_notes.json`, apart from the maps, so an update or a new download keeps them; the right click on a track stays its Track menu) (**Show all** in
+  the settings brings the hidden ones back). A click on the colour mark of a part opens its **style**: line (colour,
+  width, solid / dash / long / dot / dash-dot, opacity) and fill (colour, opacity) of an area, symbol (colour,
+  circle / square / diamond / triangle / cross or a symbol of the aeronautical charts: aerodrome paved / grass /
+  military / closed, heliport, glider and ultralight site, VOR, VOR-DME, VORTAC, TACAN, DME, NDB, NDB-DME, compulsory and
+  on-request reporting point, obstacle, wind turbine, transmitter mast; these are the defaults of the matching parts;
+  size, opacity) of a point, and its name (colour, size); ✕ closes the style, **Default** returns to the built-in look. **Copy** remembers the whole look of the part
+  (in this browser), **Paste** puts it on the part open (a point takes no line or fill,
+  an area no symbol). What is shown, hidden and styled is stored in the map files on the server, the
+  same in every browser and computer, and kept by Update. openAIP data: CC BY-NC. (The former own layers of the base map
+  are gone: add such files on **Own files** of Map sources.)
 - **Precipitation:** the RainViewer radar (no position sent, only the map tiles) on / off; **only the latest frame**
   or a **loop of the last 20 / 30 / 60 / 90 / 120 min** (frames every 10 minutes, the newest held a moment; 30 min by
   default); opacity 10–100 % (60 % by default). The time of the frame shown is in the status row under the map. A new frame
