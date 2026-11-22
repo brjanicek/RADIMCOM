@@ -4,6 +4,43 @@
 
 Second release candidate (GitHub branch `1.1rc2`; continues `1.1rc1`, whose changes are below).
 
+- **BPSK decoder for satellites** (DECODERS › BPSK, `bpsk.py`, `funcube.py`): telemetry of BPSK satellites at
+  **1200, 2400, 4800 or 9600 Bd** from the baseband of the VFO, in any mode. It finds the carrier by itself within
+  **SEARCH** ±3 / ±6 / ±12 kHz of the tuned frequency (the line of the squared signal) and follows its Doppler, so it
+  works with or without the Doppler correction of the satellite tracking. Differential detection decodes DBPSK and NRZI
+  alike, and every framing is tried on the same signal:
+  - **AO-40 FEC** of the FUNcube family (FUNcube-1 AO-73, Nayif-1 EO-88, JY1Sat JO-97): 5200-symbol frames with
+    convolutional code, interleaver, scrambling and two Reed-Solomon codewords, all decoded by RADIMCOM's own code. The
+    realtime telemetry of FUNcube-1 is shown above the table: battery voltage and temperature, currents, solar panels,
+    RF and PA, reboots, eclipse / safe mode; fitter messages as text.
+  - **AX.25** (HDLC with NRZI), plain or with the G3RUH scrambler, as used by BPSK CubeSats.
+  Satellite keys tune 1.5 kHz below the downlink in USB. A row of the table opens the bytes of the frame. Daily log with
+  **LOG**. Checked on a recording of FUNcube-1 (every frame decoded, about 5 bit errors per frame corrected); AX.25 only
+  on generated signals so far. 9600 Bd needs a sample rate of the SDR of about 2 MS/s.
+- **Q65 / JT65 decoder** (DECODERS › Q65/JT65, `q65.py`): the slow weak-signal modes of HF, 6 m scatter and EME, decoded
+  by jt9 of WSJT-X 2.7.0 (`lib\jt9`, built by `installer/build_jt9.sh`, its licences in `installer/JT9.txt`). The USB
+  passband is recorded for the whole T/R period from its UTC start (Q65 15–300 s with submodes A–E, JT65 60 s A–C) and
+  decoded at its end. Band keys with the usual dial frequencies and modes, a progress bar of the period, PC clock check
+  with SYNC, table and daily log.
+- **Spots to the networks** (SETTINGS › GENERAL › SPOTS, `spotting.py`): FT8 decodes to PSK Reporter, WSPR decodes to
+  WSPRnet. Off until a callsign is entered and a network switched on; nothing is sent while the station location is
+  still 0 / 0. Spots that could not be sent go to the daily log `logs\spots`.
+- **SUN NOISE:**
+  - It measures the **noise floor of the whole band** the SDR receives (the median of the spectrum without the edges and
+    the centre, about 12 a second), not the S-meter: carriers are left out and it is much smoother.
+  - **SUN SCAN** sweeps across the Sun without stopping, there and back (**Scan ±°**, **Sweeps ×**), in about a minute.
+    The beam is fitted for each direction, so a lag of the readings cancels and is shown in seconds. In elevation it sets
+    the new **EL offset** of RCTRL › SETTINGS (true elevation = K3NG elevation + offset, used by the readings, targets
+    and satellite tracking); the elevation is scanned only with the Sun high enough.
+- **Rotor dial** (`static/rotdial.js`): one block with the polar plot and the elevation column for RCTRL › SETTINGS,
+  SUN NOISE and METEORS; a click in a plot turns the rotor.
+- **METEORS:** the chart and a small waterfall of the watched band for 30 s … 1 h, the detail of an echo, and the head
+  echo spectrum before an echo (a fast, straight Doppler streak).
+- **RETRO renamed PRE-REC:** the key under REC IQ, its tooltips, the waterfall mark (*PRE-REC 60 s*), the replay bar and
+  the docs now say PRE-REC (it records what came before you pressed anything). The key shows only PRE-REC; the seconds
+  held are in its tooltip and on the waterfall mark. SAVE IQ now names the file `…_IQ_PREREC.wav`. Settings and the API
+  are unchanged.
+
 ## Ver. 1.1rc1
 
 Release candidate (GitHub branch `1.1rc1`; continues the test betas `1.1beta1` and `1.1beta2`).

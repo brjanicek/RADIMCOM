@@ -82,6 +82,17 @@ Change log
 
 Ver. 1.1rc2
 (second release candidate, GitHub branch 1.1rc2; continues 1.1rc1, whose changes are below)
+- BPSK decoder for satellites (DECODERS > BPSK): 1200 / 2400 / 4800 / 9600 Bd, finds the carrier within SEARCH +-3 / 6 /
+  12 kHz and follows its Doppler; AO-40 FEC of the FUNcube family (FUNcube-1 AO-73, Nayif-1 EO-88, JY1Sat JO-97) with
+  the FUNcube-1 telemetry, and AX.25 (plain or G3RUH). Satellite keys, bytes of each frame, daily log.
+- Q65 / JT65 decoder (DECODERS > Q65/JT65, jt9 of WSJT-X 2.7.0 in lib\jt9): whole T/R periods from their UTC start,
+  band keys, progress bar, table and log.
+- SPOTS (SETTINGS > GENERAL): FT8 decodes to PSK Reporter, WSPR decodes to WSPRnet (callsign and location needed).
+- SUN NOISE measures the noise floor of the whole band; SUN SCAN sweeps across the Sun there and back, cancels the lag
+  and sets the new EL offset of the rotor in elevation.
+- One rotor dial for RCTRL > SETTINGS, SUN NOISE and METEORS.
+- METEORS: chart and small waterfall for 30 s ... 1 h, detail of an echo, head echo spectrum.
+- RETRO key renamed PRE-REC (the IQ of the last minute kept in RAM; SAVE IQ writes ..._IQ_PREREC.wav).
 
 Ver. 1.1rc1
 (release candidate, GitHub branch 1.1rc1; continues the test betas 1.1beta1 and 1.1beta2)

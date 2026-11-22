@@ -437,8 +437,8 @@ body {
 /* AD (additional display): one of error / rotor monitor / DAB now on air / RDS, by priority (app.js renderAd) */
 .ad-err[hidden], .ad-rot[hidden], .ad-dab[hidden], .rds[hidden] { display: none !important; }
 .ad-err { display: flex; align-items: center; gap: 8px; height: 100%; padding: 0 4px 0 8px; }
-.ad-err-text { flex: 1; min-width: 0; color: #ff5a4f; font: 600 12px/1.25 system-ui, sans-serif; text-shadow: 0 0 6px rgba(255, 70, 60, .45);
-  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }   /* 4 lines fit the AD box; the whole text also in the tooltip */
+.ad-err-text { flex: 1; min-width: 0; color: #ff5a4f; font: 600 10.5px/1.2 system-ui, sans-serif; text-shadow: 0 0 6px rgba(255, 70, 60, .45);
+  display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; }   /* 5 lines fit the AD box; the whole text also in the tooltip */
 .ad-err-more { color: #ff8a80; font: 700 10px system-ui, sans-serif; }
 .ad-ok { flex: 0 0 auto; padding: 1px 6px; cursor: pointer; border-radius: 3px; background: transparent;
   border: 1px solid #ff5a4f; color: #ff5a4f; font: 700 10px/1.3 system-ui, sans-serif; letter-spacing: .04em; }
@@ -4189,11 +4189,16 @@ label.map-opts-sub2 { display: flex; align-items: center; gap: 6px; cursor: poin
 .pb-ft8.es { font-weight: 700; }
 .sdg-c.watch { border-color: #6cc6ff; background: rgba(108, 198, 255, .14); color: #9fd8ff; }
 .prop-panel .sdg { gap: 10px; }
-.prop-blocks, .prop-iono { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
+/* the top three blocks stand over the three charts, in the same columns */
+.prop-blocks { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; align-items: stretch; }
+.prop-iono { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); min-height: 62px; }
+@media (max-width: 1000px) { .prop-blocks { grid-template-columns: minmax(0, 1fr); } }
 .prop-blocks .sdg-b { flex-direction: column; align-items: stretch; }
 .prop-blocks .sdg-b > span, .prop-iono .sdg-b > span { white-space: normal; overflow-wrap: anywhere; }
 .prop-blocks .sdg-b .sdg-ico { top: 5px; transform: none; }
-.prop-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 10px; align-items: stretch; }
+.prop-charts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; align-items: stretch; }
+@media (max-width: 1000px) { .prop-charts { grid-template-columns: minmax(0, 1fr); } }
+.prop-charts .prop-sub { font-size: 10.5px; color: var(--dim); white-space: normal; }
 .prop-charts > div { display: flex; flex-direction: column; min-width: 0; }
 .prop-charts .sdg-b { flex: 1 1 auto; flex-direction: column; align-items: stretch; }
 .prop-charts .sdg-b .sdg-ico { top: 5px; transform: none; }
@@ -4213,12 +4218,21 @@ label.map-opts-sub2 { display: flex; align-items: center; gap: 6px; cursor: poin
 .prop-svg rect.kp { opacity: .85; } .prop-svg rect.kp.pred { opacity: .35; }
 .prop-svg .xband { fill: transparent; } .prop-svg .xband.M { fill: rgba(255, 181, 71, .07); } .prop-svg .xband.X { fill: rgba(255, 75, 62, .1); }
 .prop-svg .xline { fill: none; stroke: #ff7f6a; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
-/* the band grid takes about a third of the tab, the FT8 block and the FT8 test sit to its right */
-.prop-hf { display: grid; grid-template-columns: minmax(460px, 34%) 250px 210px; justify-content: start; gap: 10px; align-items: stretch; }
-@media (max-width: 1100px) { .prop-hf { grid-template-columns: 1fr; } }
+/* the band table at the left over two rows; beside it HF AT THE STATION · SPORADIC E over FT8 · FT8 TEST, all stretched
+   to the same heights, the whole width used */
+.prop-hf { display: grid; gap: 10px; align-items: stretch;
+  grid-template-columns: minmax(460px, 1.6fr) minmax(220px, 1fr) minmax(220px, 1fr);
+  grid-template-areas: "bands muf es" "bands ft8 test"; }
+.prop-hf > .prop-bands { grid-area: bands; } .prop-hf > .prop-ft8 { grid-area: ft8; } .prop-hf > .prop-test { grid-area: test; }
+.prop-hf > #propHfNow { display: contents; }
+#propHfNow > .sdg-b:nth-child(1) { grid-area: muf; } #propHfNow > .sdg-b:nth-child(2) { grid-area: es; }
+#propHfNow > .sdg-b { flex-direction: column; align-items: stretch; }
+#propHfNow > .sdg-b > span { white-space: normal; overflow-wrap: anywhere; }
+@media (max-width: 1100px) {
+  .prop-hf { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "bands bands" "muf es" "ft8 test"; }
+}
 .prop-hf > div { display: flex; flex-direction: column; min-width: 0; }
 .prop-hf > div > .sdg-b { flex: 1 1 auto; flex-direction: column; align-items: stretch; }
-.prop-hf > .prop-test { align-self: start; }
 .prop-hf .sdg-b .sdg-ico { top: 5px; transform: none; }
 .pb-grid { display: flex; flex-direction: column; gap: 2px; overflow-x: auto; margin-top: 3px; }
 .pb-row { display: grid; grid-template-columns: 68px 40px repeat(24, minmax(8px, 1fr)); gap: 1px; align-items: center; min-width: 420px;
@@ -4261,7 +4275,7 @@ label.map-opts-sub2 { display: flex; align-items: center; gap: 6px; cursor: poin
 .pb-now.good { color: var(--green); border-color: color-mix(in srgb, var(--green) 60%, transparent); background: color-mix(in srgb, var(--green) 14%, transparent); }
 .pb-now.fair { color: var(--amber); border-color: var(--amber); background: color-mix(in srgb, var(--amber) 12%, transparent); }
 .pb-now.poor { color: var(--dim); }
-.prop-alerts { display: flex; flex-direction: column; gap: 3px; }
+.prop-alerts { display: flex; flex-direction: column; gap: 3px; max-height: 280px; overflow: auto; }
 .prop-al summary { display: flex; gap: 8px; align-items: baseline; cursor: pointer; font-size: 12px; color: var(--text); list-style: none; }
 .prop-al summary::-webkit-details-marker { display: none; }
 .prop-al summary .t { font: 11px ui-monospace, Consolas, monospace; color: var(--muted); flex: 0 0 auto; }
@@ -4396,8 +4410,8 @@ body.map-only #comStatus, #comPane:fullscreen #comStatus { display: flex; }
 .srcs-tag.rtl, .srcs-tag.rtltcp { color: var(--green); }
 .srcs-tag.lime, .srcs-tag.spyserver { color: #6fb7ff; }
 .srcs-tag.airspy { color: var(--amber); }
-.srcs-slots { display: grid; grid-template-columns: repeat(4, minmax(200px, 250px)); gap: 10px; }
-@media (max-width: 1100px) { .srcs-slots { grid-template-columns: repeat(2, minmax(200px, 250px)); } }
+.srcs-slots { display: grid; grid-template-columns: repeat(4, minmax(200px, 1fr)); gap: 10px; }   /* the whole width, like the pool above */
+@media (max-width: 1100px) { .srcs-slots { grid-template-columns: repeat(2, minmax(200px, 1fr)); } }
 .srcs-slot { gap: 6px; }
 .srcs-slot > b { display: flex; align-items: center; gap: 6px; font-size: 11px; }
 .srcs-slot.off { opacity: .7; }
@@ -4583,7 +4597,7 @@ body.map-only #comStatus, #comPane:fullscreen #comStatus { display: flex; }
 .satt-eme-row { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-bottom: 6px; }
 .satt-eme-row input { width: 110px; }
 
-/* RETRO (retro.py): the player bar of a replay from the RAM buffer */
+/* PRE-REC (retro.py): the player bar of a replay from the RAM buffer */
 .retro-bar { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 900; display: flex; align-items: center;
   gap: 10px; padding: 6px 10px; background: #0b1430; border: 1px solid var(--rec-iq, #2a5bff); border-radius: 8px;
   color: #b0c4ff; font-variant-numeric: tabular-nums; box-shadow: 0 4px 18px rgba(0, 0, 0, .5); max-width: calc(100vw - 32px); }
@@ -4636,14 +4650,14 @@ body.map-only #comStatus, #comPane:fullscreen #comStatus { display: flex; }
 .set-audio .setting.set-off { opacity: .45; transition: opacity .2s; }
 .set-audio .setting.set-off:hover, .set-audio .setting.set-off:focus-within { opacity: .85; }
 
-/* RETRO (beside the REC keys): while it keeps the IQ only its LED is lit (dark blue, steady); the key stays raised,
+/* PRE-REC (beside the REC keys): while it keeps the IQ only its LED is lit (dark blue, steady); the key stays raised,
    without the coloured edge of a running recording */
 .rec.retro.armed { color: #eef1f5; transform: none; border-color: #0b0c0e; border-top-color: #4d535c; box-shadow: var(--key-raised);
   animation: none; --led: var(--rec-iq);
   background: linear-gradient(var(--led), var(--led)) var(--led-at),
     radial-gradient(closest-side, color-mix(in srgb, var(--led) 70%, transparent), transparent) var(--led-glow),
     linear-gradient(180deg, #4a5059 0%, #30343b 50%, #24272c 100%); }
-/* RETRO on the waterfall: the rows still held in RAM (a bar at the left edge, a dashed line where the buffer ends) */
+/* PRE-REC on the waterfall: the rows still held in RAM (a bar at the left edge, a dashed line where the buffer ends) */
 .retro-mark { position: absolute; pointer-events: none; border-left: 3px solid rgba(42, 91, 255, .85);
   border-bottom: 1px dashed rgba(120, 155, 255, .9); box-sizing: border-box; z-index: 2; }
 .retro-mark.full { border-bottom-color: transparent; }
@@ -4677,17 +4691,99 @@ body.map-only #comStatus, #comPane:fullscreen #comStatus { display: flex; }
 .sunnoise .sn-scan-ax .v i { font-style: normal; font-weight: 400; color: var(--dim); }
 .sunnoise .sn-scan-ax small, .sunnoise #snScanR > small { color: var(--dim); font-size: 10.5px; white-space: normal; }
 .sunnoise .warn { color: var(--amber); }
-.sunnoise .sn-chart { width: 100%; max-width: 360px; height: auto; background: rgba(0, 0, 0, .3); border-radius: 4px; }
-.sunnoise .sn-chart text { fill: var(--dim); font: 8px system-ui, sans-serif; }
+.sunnoise .sn-chart { display: block; max-width: 100%; height: auto; background: rgba(0, 0, 0, .3); border-radius: 4px; }   /* drawn at the size of the block (snRenderScan) */
+.sunnoise .sn-chart text { fill: var(--dim); font: 10px system-ui, sans-serif; }
 .sunnoise .sn-chart .sn-grid { stroke: rgba(255, 255, 255, .08); }
 .sunnoise .sn-chart circle { fill: #ffc14d; }
+.sunnoise .sn-chart circle.sn-back { fill: #6cc6ff; }   /* the way back */
 .sunnoise .sn-chart .sn-fitc { fill: none; stroke: #ff9a3d; stroke-width: 1.5; }
 .sunnoise .sn-chart .sn-peak { stroke: #ff5d5d; stroke-dasharray: 3 2; }
 .sunnoise .sn-apply { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
 .sunnoise .sn-apply .key { align-self: flex-start; }
+/* SUN NOISE › ROTOR CONTROL: the plots of RCTRL › SETTINGS with the Sun */
+/* The whole tab is one grid, the columns line up from NOW to RESULT:
+     ROTOR        | RECEIVER  RF GAIN  | SUN SCAN·POINTING   (a tall column at the right, as high as the rotor; the
+     ROTOR        | SETTINGS (both)    | SUN SCAN·POINTING    charts scroll inside it)
+     ROTOR        | RUN       SUN SCAN | SUN SCAN·POINTING
+     Y FACTOR·G/T | WHAT IT MEANS      | LOG
+   (the grid areas keep their first names: "log" = the tall column, "scanr" = the last result block)
+   The result blocks are always there with a minimum height, so nothing jumps when data arrives. */
+.sunnoise .sn-grid { display: grid; gap: 8px;
+  grid-template-columns: max-content minmax(190px, 1fr) minmax(190px, 1fr) minmax(300px, 1.25fr);
+  grid-template-areas: "snow snow snow snow" "rot rx gain log" "rot set set log" "rot run scan log" "rsec rsec rsec rsec" "res cmt cmt scanr"; }
+.sunnoise .sn-grid > .sdg-sec { margin: 4px 0 -2px; }
+.sunnoise .sn-sec-now { grid-area: snow; } .sunnoise .sn-sec-res { grid-area: rsec; }
+.sunnoise #snRotB { grid-area: rot; } .sunnoise #snFreqB { grid-area: rx; } .sunnoise #snGainB { grid-area: gain; }
+.sunnoise .sdg-b.k-tune { grid-area: set; } .sunnoise #snRunB { grid-area: run; } .sunnoise #snScanRunB { grid-area: scan; }
+/* the tall right column ("log") holds SUN SCAN · POINTING, the LOG is the last block of the RESULT row ("scanr") */
+.sunnoise #snScanB { grid-area: log; } .sunnoise #snResB { grid-area: res; } .sunnoise #snCmtB { grid-area: cmt; } .sunnoise #snLogB { grid-area: scanr; }
+.sunnoise .sn-grid > .sdg-b { min-width: 0; max-width: none !important; flex-direction: column; align-items: stretch; padding: 5px 30px 6px 8px; }
+.sunnoise .sn-grid > .sdg-b > small { min-height: 2.5em; }        /* RF GAIN, RUN, SUN SCAN: room for two lines of text */
+.sunnoise #snFreqB > small { min-height: 0; }
+.sunnoise #snLogB .sn-log { flex: 1 1 auto; height: 0; min-height: 60px; max-height: none; }
+.sunnoise #snLogB .sn-log { margin-right: -26px; padding-right: 8px; }   /* the scrollbar at the right edge of the block, not 30 px in (the room of the icon above) */
+.sunnoise #snScanB #snScanR { flex: 1 1 auto; height: 0; min-height: 120px; overflow: auto; }   /* as high as the rotor rows; the charts scroll inside */
+.sunnoise #snResB, .sunnoise #snCmtB, .sunnoise #snLogB { min-height: 210px; }
+.sunnoise #snResult > small, .sunnoise #snScanR > small { display: block; margin-top: 3px; }
+.sunnoise .sn-tblbox { max-height: 120px; overflow: auto; }
+.sunnoise .sdg-b.k-tune .sn-fields { flex-wrap: wrap; }       /* 7 fields: a second row rather than an overflow */
+@media (max-width: 1500px) {
+  .sunnoise .sn-grid { grid-template-columns: max-content minmax(170px, 1fr) minmax(170px, 1fr);
+    grid-template-areas: "snow snow snow" "rot rx gain" "rot set set" "rot run scan" "log log log" "rsec rsec rsec" "res cmt cmt" "scanr scanr scanr"; }
+  .sunnoise #snScanB { min-height: 140px; }
+  .sunnoise #snScanB #snScanR { height: auto; }
+  .sunnoise .sdg-b.k-tune .sn-fields { flex-wrap: wrap; }
+}
+@media (max-width: 1000px) {
+  .sunnoise .sn-grid { grid-template-columns: 1fr; grid-template-areas: "snow" "rot" "rx" "gain" "set" "run" "scan" "log" "rsec" "res" "cmt" "scanr"; }
+}
+.sunnoise .sdg-b.sn-rotb { flex: 0 0 auto; padding: 5px 30px 6px 8px; }
+.sunnoise .sdg-b.bad { --bc: var(--red); }
+.sunnoise .sdg-b.bad > b, .sunnoise .sdg-b.bad .v, .sunnoise .sdg-b.bad > small { color: var(--red); }
+/* ROTOR DIAL (rotdial.js): the polar plot, the elevation column, ACTUAL / REQUESTED / the body, STOP RESET MONITOR;
+   one block for RCTRL › SETTINGS, SUN NOISE and METEORS */
+.rd { display: flex; flex-wrap: nowrap; gap: 10px; align-items: flex-start; padding: 2px 0 0; }
+.rd .rot-polar { width: 190px; height: 190px; }
+.rd .rot-elcol { width: 52px; height: 190px; }
+.rd .rot-side { flex: 0 0 auto; width: max-content; gap: 5px; }
+.rd .rot-pos b { font-size: 17px; min-width: 2.8em; margin-right: 4px; }
+.rd .rot-keys, .rd .chips { flex-wrap: nowrap; }
+.rd .rot-keys .key { padding: 0 8px; }
+.rd .rot-side > small { max-width: 240px; color: var(--dim); font-size: 10.5px; white-space: normal; }
+.rd .rot-side > small.warn { color: var(--amber); }
+.rd .rot-side > small.error { color: var(--red, #ff5d5d); }
+.rd .rot-side > small[hidden] { display: none; }
+.rd .chips { display: flex; gap: 4px; align-items: center; }
+.rd .chips .key.small { height: 20px; padding: 0 6px; font-size: 10px; }
+.rd-mk { --mk: #ffd84d; }
+.rd-mk.radar { --mk: #c79bff; }
+.rd-mk circle, .rd-mk path:first-of-type { fill: var(--mk); stroke: #000; stroke-width: 1; }
+.rd-mk.sun path { fill: none; stroke: var(--mk); stroke-width: 1.6; stroke-linecap: round; }
+.rd-mk.radar path + path { fill: none; stroke: var(--mk); stroke-width: 1.6; }
+.rot-pos b.mk, .rot-cap.mk { color: #ffd84d; }
+.rot-pos b.mk.radar, .rot-cap.mk.radar { color: #c79bff; }
+/* RCTRL › SETTINGS: the dial and the azimuth calibration as blocks of the same height */
+.rc-set .rot-on.rd-blocks { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; }
+.rc-set .rot-on.rd-blocks[hidden] { display: none; }
+.rd-blocks > .rd-b { flex: 0 0 auto; }
+.rd-blocks > .rd-cal { flex: 1 1 310px; max-width: 400px; }   /* 3 fields + SAVE: 3×64 + 44 + gaps + padding ≈ 300 */
+.rd-blocks > .sdg-b { flex-direction: column; align-items: stretch; padding: 5px 30px 6px 8px; min-width: 0; }
+.rd-blocks .sdg-b .sdg-ico { top: 5px; transform: none; }
+.rd-blocks .sdg-b > small { color: var(--dim); font-size: 10.5px; white-space: normal; }
+.rd-blocks .sdg-b.k-tune { --bc: #5ee0d0; }
+.rd-calrow { display: flex; gap: 8px; align-items: flex-end; flex-wrap: nowrap; margin: 2px 0 4px; }
+.rd-calrow label { display: flex; flex-direction: column; gap: 1px; font-size: 10px; color: var(--dim); }
+.rd-calrow input { width: 64px; height: 22px; padding: 0 4px; }
+/* RUN (POINT START STOP) and SUN SCAN (SCAN STOP EL): the keys in one line */
+.sunnoise #snRunB, .sunnoise #snScanRunB { max-width: none; }
+.sunnoise #snRunB .sn-keys, .sunnoise #snScanRunB .sn-keys { flex-wrap: nowrap; align-items: center; }
+.sunnoise #snScanRunB small { display: block; white-space: normal; overflow-wrap: anywhere; }
+.sunnoise #snFreqB small { display: block; }
 
 /* ---------- DECODERS › METEORS (meteor.py): blocks in the look of STATION, only as big as their content ---------- */
 .meteor .mt-panel { display: flex; flex-direction: column; gap: 8px; }
+/* METEORS is a page of blocks, not one scrolling table: the card is as tall as its blocks and the DECODERS pane scrolls */
+.dec-pane .card.meteor { flex: 0 0 auto; }
 .meteor .ft8-head .mt-ibtn { position: static; margin-left: auto; }
 .meteor .mt-info { padding: 6px 12px; border: 1.5px solid color-mix(in srgb, #c79bff 45%, transparent); border-radius: 6px;
   background: color-mix(in srgb, #c79bff 5%, transparent); font-size: 12px; color: var(--text); max-width: 1000px; }
@@ -4695,8 +4791,28 @@ body.map-only #comStatus, #comPane:fullscreen #comStatus { display: flex; }
 .meteor .mt-info > b { font: 700 10.5px system-ui, sans-serif; letter-spacing: .08em; text-transform: uppercase; color: #c79bff; }
 .meteor .mt-info ul { margin: 4px 0 0; padding-left: 18px; }
 .meteor .mt-info li { margin: 2px 0; }
-.meteor .mt-blocks { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; }
-.meteor .mt-blocks > .sdg-b { flex: 0 0 auto; min-width: 150px; max-width: 340px; padding: 5px 30px 6px 8px; }
+/* one grid: ROTOR | RECEIVER DETECTOR / COUNTS, the charts under it, ECHOES a tall column at the right */
+.meteor .mt-grid { display: grid; gap: 8px;
+  grid-template-columns: max-content minmax(200px, 1fr) minmax(200px, 1fr) minmax(470px, 1.1fr);
+  grid-template-areas: "rot rx det echo" "rot cnt cnt echo" "scope scope scope echo" "h48 days days echo"; }
+.meteor #mtRotB { grid-area: rot; } .meteor #mtRxB { grid-area: rx; } .meteor #mtDetB { grid-area: det; }
+.meteor #mtCntB { grid-area: cnt; } .meteor #mtScopeB { grid-area: scope; } .meteor #mtHoursB { grid-area: h48; }
+.meteor #mtDaysB { grid-area: days; } .meteor #mtEchoB { grid-area: echo; }
+.meteor .mt-grid > .sdg-b { min-width: 0; flex-direction: column; align-items: stretch; padding: 5px 30px 6px 8px; }
+.meteor .mt-grid > .sdg-b > small { min-height: 2.5em; }
+.meteor .mt-grid .chips { flex-wrap: nowrap; }
+.meteor .mt-rotx { display: flex; flex-direction: column; gap: 3px; }
+.meteor .mt-rotx > small { max-width: 240px; color: var(--dim); font-size: 10.5px; white-space: normal; }
+.meteor #mtEchoB .mt-tablebox { flex: 1 1 auto; height: 0; min-height: 160px; max-height: none; }
+.meteor .mt-stats { justify-content: space-between; }
+@media (max-width: 1600px) {
+  .meteor .mt-grid { grid-template-columns: max-content minmax(180px, 1fr) minmax(180px, 1fr);
+    grid-template-areas: "rot rx det" "rot cnt cnt" "scope scope scope" "h48 days days" "echo echo echo"; }
+  .meteor #mtEchoB .mt-tablebox { height: auto; max-height: 300px; }
+}
+@media (max-width: 1000px) {
+  .meteor .mt-grid { grid-template-columns: 1fr; grid-template-areas: "rot" "rx" "det" "cnt" "scope" "h48" "days" "echo"; }
+}
 .meteor .sdg-b .sdg-ico { top: 5px; transform: none; }
 .meteor .sdg-b > small { color: var(--dim); font-size: 10.5px; white-space: normal; }
 .meteor .sdg-b.lit { border-color: color-mix(in srgb, var(--bc) 70%, transparent); background: color-mix(in srgb, var(--bc) 7%, transparent); }
@@ -4712,11 +4828,16 @@ body.map-only #comStatus, #comPane:fullscreen #comStatus { display: flex; }
 .meteor .mt-stat span { font: 700 9px system-ui, sans-serif; color: var(--dim); letter-spacing: .06em; }
 .meteor .mt-stat b { font: 700 18px ui-monospace, Consolas, monospace; color: var(--text); font-variant-numeric: tabular-nums; }
 .meteor #mtCntB.lit .mt-stat b { color: var(--bc); }
-.meteor .mt-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.meteor .mt-layout > .sdg-b { padding: 5px 8px 6px; }
-.meteor .mt-layout > .mt-wide { grid-column: 1 / -1; }
 .meteor .mt-chart { display: block; width: 100%; height: 120px; background: rgba(0, 0, 0, .3); border-radius: 4px; }
 .meteor #mtScope { height: 100px; }
+.meteor .mt-wfbox { position: relative; margin-bottom: 4px; }
+.meteor .mt-scopehead { display: flex; align-items: center; gap: 10px; }
+.meteor .mt-scopehead > b { flex: 1 1 auto; min-width: 0; }
+.meteor .mt-spans { display: flex; gap: 3px; flex: none; }
+.meteor .mt-spans .key.small { height: 20px; padding: 0 6px; font-size: 10px; }
+.meteor .mt-wf { display: block; width: 100%; height: 96px; border-radius: 4px; background: #000; }
+.meteor .mt-wfl { position: absolute; left: 4px; font: 9px system-ui, sans-serif; color: rgba(255, 255, 255, .55); pointer-events: none; }
+.meteor .mt-wfl.t { top: 1px; } .meteor .mt-wfl.m { top: calc(50% - 6px); } .meteor .mt-wfl.b { bottom: 1px; }
 .meteor .mt-chart text { fill: var(--dim); font: 9px system-ui, sans-serif; }
 .meteor .mt-chart .mt-gl { stroke: rgba(255, 255, 255, .08); }
 .meteor .mt-chart .mt-line { fill: none; stroke: var(--green); stroke-width: 1.2; }
@@ -4729,9 +4850,56 @@ body.map-only #comStatus, #comPane:fullscreen #comStatus { display: flex; }
 .meteor .mt-chart .mt-shower { stroke: var(--orange); stroke-dasharray: 2 2; }
 .meteor .mt-chart .mt-shn { fill: var(--orange); font-weight: 600; }
 .meteor .mt-kind { font: 600 10px system-ui, sans-serif; letter-spacing: .04em; }
-.meteor .mt-tablebox { max-height: 260px; overflow: auto; }
-.meteor .mt-tbl { width: auto; min-width: 560px; }
+.meteor .mt-tablebox { overflow: auto; }
+.meteor .mt-tbl { width: 100%; min-width: 0; table-layout: auto; }   /* not the fixed equal columns of the FT8 tables: each column as wide as its content */
+.meteor .mt-tbl th, .meteor .mt-tbl td { padding-left: 6px; padding-right: 6px; white-space: nowrap; overflow: visible; text-overflow: clip; }   /* all six columns fit the ECHOES block */
 .meteor .mt-tbl tr.mt-dim td { color: var(--dim); }
+/* ECHOES: the HEAD ECHO switch, the detail of one echo (click on a row) */
+.meteor .mt-echohead { display: flex; align-items: center; gap: 8px; }
+.meteor .mt-echohead > b { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.meteor .mt-echohead .key.small { flex: none; height: 20px; padding: 0 6px; font-size: 10px; }
+.meteor .mt-det { display: flex; flex-direction: column; gap: 4px; margin: 4px 0; }
+.meteor .mt-det[hidden], .meteor .mt-detbox[hidden] { display: none; }
+.meteor .mt-dethead { display: flex; align-items: center; gap: 8px; font-size: 11px; }
+.meteor .mt-dethead > span { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.meteor .mt-dethead .key.small { flex: none; height: 20px; padding: 0 6px; font-size: 11px; }
+.meteor .mt-detcv { display: block; width: 100%; height: 130px; border-radius: 4px; background: #000; }
+.meteor .mt-det > small { color: var(--dim); font-size: 10.5px; min-height: 1.3em; }
+.meteor .mt-tbl tbody tr { cursor: pointer; }
+.meteor .mt-tbl tr.sel td { background: rgba(159, 216, 255, .16); }
+.meteor .mt-hd { margin-left: 4px; font: 700 10px system-ui, sans-serif; color: #ff9bd0; }
+
+/* DECODERS › Q65 / JT65 (q65.py, static/q65.js) */
+.q65-tbl col.c-mode { width: 104px; }
+.q65-tbl td.q65-mode { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.q65-tbl .q65-ap { font-style: normal; font-size: 10px; color: var(--amber); margin-left: 4px; }
+.q65-tbl tr.q65-sep td { border-top: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); }
+#q65Bands .q65-bm { font-style: normal; font-size: 9px; color: var(--dim); margin-left: 4px; }
+.q65 .ft8-head select:disabled { opacity: .5; }
+
+/* ===== spots to PSK Reporter / WSPRnet (spotting.py): switch and counter in the FT8 and WSPR heads ===== */
+.spot-opt { cursor: pointer; user-select: none; }
+.spot-opt input { margin: 0; accent-color: var(--accent); }
+.spot-cnt { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.spot-cnt:empty { display: none; }
+.spot-cnt .spot-bad { color: var(--red, #e05050); }
+
+/* DECODERS › BPSK (bpsk.py, static/bpsk.js) */
+.bpsk-tbl col.c-bd { width: 56px; }
+.bpsk-tbl col.c-fr { width: 104px; }
+.bpsk-tbl col.c-sat { width: 150px; }
+.bpsk-tbl td.bpsk-fr, .bpsk-tbl td.bpsk-sat { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bpsk-tbl td.msg { overflow-wrap: anywhere; }
+.bpsk-tbl tbody tr:not(.bpsk-hex) { cursor: pointer; }
+.bpsk-tbl tr.bpsk-hex pre { margin: 0; padding: 6px 8px; font-size: 11px; color: var(--muted); white-space: pre; overflow-x: auto; }
+#bpskInfo.bpsk-lock { color: var(--accent); }
+.bpsk-tlm { margin: 6px 0 8px; padding: 6px 8px; border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); border-radius: 6px; }
+.bpsk-tlm .bt-head { font-size: 12px; color: var(--muted); margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bpsk-tlm .bt-head b { color: var(--text); }
+.bpsk-tlm .bt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 4px 10px; }
+.bpsk-tlm .bt-c { min-width: 0; }
+.bpsk-tlm .bt-c span { display: block; font-size: 10px; color: var(--dim); letter-spacing: .04em; }
+.bpsk-tlm .bt-c b { display: block; font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* vector maps (vectormaps.js): the section of the map settings and the tooltips */
 .vm-find { width: 140px; height: 20px; box-sizing: border-box; font: inherit; color: #dfe4ea; background: #141b26; border: 1px solid #3a4a60; border-radius: 3px; padding: 1px 4px; }
 .vm-btn { font: 11px/1 system-ui, sans-serif; color: #dfe4ea; background: #1c2533; border: 1px solid #3a4a60; border-radius: 3px; padding: 3px 8px; cursor: pointer; }

@@ -57,7 +57,10 @@ except ImportError:
 from ft8 import FT8_FREQS, Ft8Decoder
 from wspr import WSPR_FREQS, WsprDecoder
 from msk144 import MSK144_FREQS, Msk144Decoder
+import q65 as q65_mod
+import bpsk as bpsk_mod
 import meteor
+import spotting
 from cw import CwDecoder
 from rtty import RttyDecoder, station_list as rtty_station_list
 from packet import PacketDecoder
@@ -242,12 +245,14 @@ def save_config_later():
 
 # ---------- daily decoder logs (turned on with LOG in the decoder card) ----------
 
-LOG_KEYS = ("ft8", "wefax", "cw", "rtty", "sstv", "acars", "dsd", "ism", "packet", "pocsag", "hfdl", "ais", "adsb", "wspr", "msk144", "meteor")
+LOG_KEYS = ("ft8", "wefax", "cw", "rtty", "sstv", "acars", "dsd", "ism", "packet", "pocsag", "hfdl", "ais", "adsb", "wspr", "msk144", "meteor", "q65", "bpsk")
 _tag = cfg.get("vfo") or ""
 logs = {"ft8": DayLog("ft8", _tag), "wefax": DayLog("wefax", _tag), "sstv": DayLog("sstv", _tag), "dsd": DayLog("dsd", _tag), "ism": DayLog("ism", _tag), "packet": DayLog("packet", _tag), "pocsag": DayLog("pocsag", _tag), "hfdl": DayLog("hfdl", _tag), "ais": DayLog("ais", _tag), "adsb": DayLog("adsb", _tag),
         "cw": TextLog("cw", _tag), "rtty": TextLog("rtty", _tag)}
 logs["wspr"] = DayLog("wspr", _tag)
 logs["msk144"] = DayLog("msk144", _tag)
+logs["q65"] = DayLog("q65", _tag)
+logs["bpsk"] = DayLog("bpsk", _tag)
 logs["meteor"] = DayLog("meteor", _tag)
 _saved_logged = {"wefax": None, "sstv": None}
 
@@ -293,12 +298,22 @@ def decoder_event(kind, data):
     if kind == "adsb":
         _adsb_log(data.pop("log", []))
     hub.event(kind, data)
+    if kind in ("ft8", "wspr"):
+        try:
+            spotting.decode(kind, data)     # PSK Reporter / WSPRnet, if set in SETTINGS › GENERAL › SPOTS
+        except Exception:
+            pass
     try:
         if kind == "ft8" and log_on("ft8"):
             logs["ft8"].write(f"{_mhz(data['freq_hz'])} {data['snr']:+d} dB DT {data['dt']:+.1f} "
                               f"{data['df']} Hz | {data['msg']}")
         elif kind == "wspr" and log_on("wspr"):
             logs["wspr"].write(f"{_mhz(data['freq_hz'])} {data['snr']:+d} dB DT {data['dt']:+.1f} drift {data['drift']:+d} | {data['msg']}")
+        elif kind == "q65" and log_on("q65"):
+            logs["q65"].write(f"{_mhz(data['freq_hz'])} {data['mode']} {data['snr']:+d} dB DT {data['dt']:+.1f} {data['df']} Hz | {data['msg']}")
+        elif kind == "bpsk" and log_on("bpsk"):
+            logs["bpsk"].write(f"{_mhz(data['freq_hz'])} {data['baud']} Bd {data['framing']} {data['snr']:.1f} dB | "
+                               f"{data['sat'] + ' ' if data['sat'] else ''}{data['text']} | {data['hex']}")
         elif kind == "msk144" and log_on("msk144"):
             logs["msk144"].write(f"{_mhz(data['freq_hz'])} {data['snr']:+d} dB DF {data['df']} Hz frames {data['nav']} | {data['msg']}")
         elif kind == "meteor" and log_on("meteor"):
@@ -359,6 +374,8 @@ ft8 = Ft8Decoder(on_decode=lambda d: decoder_event("ft8", d),
                  on_cycle=lambda t: hub.event("ft8cycle", {"time": t}))
 wspr_dec = WsprDecoder(on_decode=lambda d: decoder_event("wspr", d), on_cycle=lambda i: hub.event("wsprcycle", i))
 msk_dec = Msk144Decoder(on_decode=lambda d: decoder_event("msk144", d))
+q65_dec = q65_mod.Q65Decoder(on_decode=lambda d: decoder_event("q65", d), on_cycle=lambda i: hub.event("q65cycle", i))
+bpsk_dec = bpsk_mod.BpskDecoder(on_decode=lambda d: decoder_event("bpsk", d), on_stat=lambda d: hub.event("bpskstat", d))
 meteors = meteor.MeteorCounter(_tag, on_echo=lambda e: decoder_event("meteor", e))
 
 
@@ -465,7 +482,7 @@ def state():
     capable = tx_capable()
     return dict(receiver.state(), ft8=ft8.enabled, ft8_error=ft8.error, wspr=wspr_dec.enabled, wspr_error=wspr_dec.error, wspr_info=wspr_dec.info, wspr_prog=wspr_dec.progress(), msk144=msk_dec.enabled, msk144_error=msk_dec.error, msk144_info=msk_dec.info, meteor=meteors.enabled, meteor_error=meteors.error, meteor_info=meteors.info, wefax=wefax.enabled, cw=cw.enabled, rtty=rtty.enabled, packet=packet.enabled, pocsag=pocsag.enabled, sonde=sonde.enabled, sonde_multi=sonde.multi,
                 sstv=sstv.enabled, acars=acars.enabled, vdl2=vdl2.enabled, vdl2_error=vdl2.error, vdl2_region=vdl2.region, cpdlc=acars.cpdlc_on,
-                dsd=dsd.info(), dab=dab.enabled, dab_error=dab.error, dab_channel=dab.channel, dab_sids=cfg.get("dab_sids") or {}, ism=ism.enabled, ism_error=ism.error, ism_raw=ism.raw, hfdl=hfdl.enabled, hfdl_error=hfdl.error, ais=ais.enabled, ais_error=ais.error, adsb=adsb.enabled, adsb_error=adsb.error, ism_hz=cfg.get("ism_hz", ISM_DEFAULT), audio_muted=audio_muted(), recording=recorder.state(), iq_rec=iq_recorder.state(), retro=retro.state(), logs={k: log_on(k) for k in LOG_KEYS},
+                dsd=dsd.info(), dab=dab.enabled, dab_error=dab.error, dab_channel=dab.channel, dab_sids=cfg.get("dab_sids") or {}, ism=ism.enabled, ism_error=ism.error, ism_raw=ism.raw, hfdl=hfdl.enabled, hfdl_error=hfdl.error, ais=ais.enabled, ais_error=ais.error, adsb=adsb.enabled, adsb_error=adsb.error, ism_hz=cfg.get("ism_hz", ISM_DEFAULT), audio_muted=audio_muted(), recording=recorder.state(), iq_rec=iq_recorder.state(), retro=retro.state(), **q65_dec.status(), **bpsk_dec.status(),logs={k: log_on(k) for k in LOG_KEYS},
                 **doppler_trsp(), antenna=cfg.get("antenna", ""),
                 tx_capable=capable, tx_enabled=bool(cfg.get("tx_enabled", False)),
                 can_tx=capable and bool(cfg.get("tx_enabled", False)) and hasattr(receiver.sdr, "tx_start"))
@@ -495,6 +512,8 @@ def on_baseband(base, fs, dial_hz):
     ft8.feed(base, fs, dial_hz)
     wspr_dec.feed(base, fs, dial_hz)
     msk_dec.feed(base, fs, dial_hz)
+    q65_dec.feed(base, fs, dial_hz)
+    bpsk_dec.feed(base, fs, dial_hz)
     meteors.feed(base, fs, dial_hz)
     wefax.feed(base, fs, dial_hz)
     if cw.enabled:
@@ -518,7 +537,7 @@ def on_baseband(base, fs, dial_hz):
 recorder = Recorder()
 # REC IQ: the raw samples of the dongle to WAV (SDR# style) in the subfolder iq of the recordings folder (iqrec.py)
 iq_recorder = IqRecorder(lambda: os.path.join(recorder_mod.day_folder(recorder.folder), "iq"), (VFO or {}).get("name", ""))
-# RETRO: the last minute of raw IQ in RAM, replayed by Alt+click on the waterfall (retro.py)
+# PRE-REC (retro.py): the last minute of raw IQ in RAM, replayed by Alt+click on the waterfall (retro.py)
 retro = RetroBuffer((VFO or {}).get("name", ""))
 retro.set(on=bool(cfg.get("retro", False)), seconds=cfg.get("retro_s", 60))
 
@@ -577,6 +596,7 @@ receiver = Receiver(
     on_meter=lambda db: hub.event("meter", {"db": round(db, 1)}),
     on_dsd=dsd.process,
 )
+receiver.on_wide = lambda db: hub.event("wide", {"db": round(db, 2)})   # SUN NOISE › Meter WIDE: the noise of the whole band
 receiver.want_rows = lambda: hub.wants("wf")   # no spectrum / waterfall rows built while no browser takes them
 dsd.set_enabled(cfg["mode"] == DSD_MODE)
 # one decoder on the IQ (IQ_ONE): a config from an older version may have several on (e.g. DAB with SONDE); the first of
@@ -587,6 +607,8 @@ for _k in _iq_on[1:]:
 ft8.set_enabled(cfg.get("ft8", False))
 wspr_dec.set_enabled(cfg.get("wspr", False))
 msk_dec.set_enabled(cfg.get("msk144", False))
+q65_dec.configure(cfg)
+bpsk_dec.configure(cfg)
 meteors.set_enabled(cfg.get("meteor", False))
 wefax.slant_ppm = float(cfg.get("wefax_slant_ppm", 0.0))
 wefax.afc_vfo = bool(cfg.get("wefax_afc_vfo", True))
@@ -868,7 +890,7 @@ def api_wspr():
 
 @app.route("/api/retro/clip", methods=["POST"])
 def api_retro_clip():
-    """RETRO: {"t": unix time, "hz": frequency} -> WAV of up to 20 s demodulated from the IQ kept in RAM, with the mode,
+    """PRE-REC: {"t": unix time, "hz": frequency} -> WAV of up to 20 s demodulated from the IQ kept in RAM, with the mode,
     filter and all the AUDIO keys of this VFO (no squelch); X-Retro-Start / X-Retro-Seconds say what it is."""
     body = request.get_json(force=True) or {}
     try:
@@ -884,7 +906,7 @@ def api_retro_clip():
 
 @app.route("/api/retro/save", methods=["POST"])
 def api_retro_save():
-    """RETRO SAVE: the whole buffer as an IQ WAV into the iq folder of today's recordings."""
+    """PRE-REC SAVE: the whole buffer as an IQ WAV into the iq folder of today's recordings."""
     try:
         path = retro.save_iq(os.path.join(recorder_mod.day_folder(recorder.folder), "iq"))
     except (OSError, ValueError) as e:
@@ -1097,6 +1119,9 @@ dxcluster.register(app)     # /api/dxcluster for a receiver without the launcher
 import sunnoise  # noqa: E402
 sunnoise.register(app)      # /api/sunnoise: SATELLITES › SUN NOISE (Sun / Moon position, flux, G/T)
 meteor.register(app, meteors, own_station)    # /api/meteors: DECODERS › METEORS (GRAVES echoes, hourly / daily counts)
+q65_mod.register(app, q65_dec)      # /api/q65: DECODERS › Q65 / JT65 (jt9 of WSJT-X)
+bpsk_mod.register(app, bpsk_dec)    # /api/bpsk: DECODERS › BPSK (satellite telemetry: FUNcube AO-40 FEC, AX.25)
+spotting.register(app, same_host, _tag)   # /api/spotting: SETTINGS › GENERAL › SPOTS (PSK Reporter from FT8, WSPRnet from WSPR)
 
 
 @app.route("/api/sonde", methods=["GET"])
@@ -2917,7 +2942,7 @@ def forward_to_owner(changes):
 
 
 # the decoders of the DECODERS tab: at most one runs on a VFO (switching one on switches the others off)
-ONE_DECODER = ("cw", "ft8", "packet", "pocsag", "rtty", "sstv", "wefax", "wspr", "msk144", "meteor", "acars", "adsb", "hfdl", "vdl2", "ais",
+ONE_DECODER = ("cw", "ft8", "packet", "pocsag", "rtty", "sstv", "wefax", "wspr", "msk144", "meteor", "q65", "bpsk", "acars", "adsb", "hfdl", "vdl2", "ais",
                "sonde", "ism")
 
 
@@ -3146,6 +3171,12 @@ def api_set():
     if "wspr" in body:
         wspr_dec.set_enabled(bool(body["wspr"]))
         cfg["wspr"] = wspr_dec.enabled
+        save_config_later()
+        hub.event("status", state())
+    if q65_dec.apply(body, cfg):
+        save_config_later()
+        hub.event("status", state())
+    if bpsk_dec.apply(body, cfg):
         save_config_later()
         hub.event("status", state())
     if "msk144" in body:
@@ -3452,6 +3483,7 @@ def start_rotor():
     r = rotor_cfg
     cal = r.get("az_cal") or [0.0, rotor_module.K3NG_SPAN]
     rotor_link.rotor.set_cal(*cal)
+    rotor_link.rotor.set_el_off(r.get("el_off") or 0.0)
     if rotor_link.rotor.raw is None and r.get("k3ng_az") is not None:
         rotor_link.rotor.raw_hint = float(r["k3ng_az"])
     return rotor_link.start(r.get("port", ""), r.get("usb_serial", ""))
@@ -3511,6 +3543,16 @@ def api_rotor_cmd():
         rotor_cfg["az_cal"] = [az0, az450]
         save_rotor_later()
         rotor.set_cal(az0, az450)
+    if "el_off" in body:
+        try:
+            el_off = float(body["el_off"])
+        except (TypeError, ValueError):
+            return jsonify({"error": "elevation offset: a number of degrees"}), 400
+        if not -30 <= el_off <= 30:
+            return jsonify({"error": "elevation offset: from -30 to 30 degrees"}), 400
+        rotor_cfg["el_off"] = el_off
+        save_rotor_later()
+        rotor.set_el_off(el_off)
     if body.get("start") and not rotor.running:
         body["enabled"] = True     # rotor control also turns the link on, with the port saved in SET
     if "enabled" in body:

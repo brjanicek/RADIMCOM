@@ -82,22 +82,32 @@ opens that page. The **i** in the head of the page opens the instructions (band,
 - **Now:** azimuth and elevation of the Sun (refreshed every 15 s; amber under 15°), the frequency of the active VFO, today's
   F10.7 (NOAA, as in PROPAGATION) and the estimated **solar flux at that frequency** in SFU.
 - **Settings** (kept in the browser): **Offset** (the azimuth step to cold sky,
-  default 40°, at least two beam widths: 40–50° for a 70 cm Yagi, 70–80° for a 2 m one), **Average** (seconds the S-meter is averaged at each point, default 10), **Cycles**
-  (1–20, default 3) and **Own flux SFU** (empty: the estimate from the SFI of PROPAGATION, shown greyed in the field; a measured value of Learmonth, San Vito or Penticton at a
-  nearby frequency is better and is then used as is).
+  default 40°, at least two beam widths: 40–50° for a 70 cm Yagi, 70–80° for a 2 m one), **Average** (seconds the noise is averaged at each point, default 10), **Cycles**
+  (1–20, default 3), **Own flux SFU** (empty: the estimate from the SFI of PROPAGATION, shown greyed in the field; a measured value of Learmonth, San Vito or Penticton at a
+  nearby frequency is better and is then used as is), **Scan ±°** (default 15) and **Sweeps ×** (default 2) for SCAN.
+- **What is measured:** the noise floor of the whole band the SDR receives, not the S-meter: the median of the spectrum
+  of every block (about 12 a second) without 10 % at each edge and the centre (`sdr.wide_noise_db`, event `wide`).
+  Carriers and narrow interference are left out, and thousands of points make it far smoother than a narrow filter. A
+  wide signal in the band (a broadcast FM or DAB transmitter) lifts it: put the band on a quiet part.
 - **POINT** turns the rotor to the body now (to peak the antenna by ear). **START** measures: in each cycle the rotor goes
-  to the body, waits until it is within 2°, settles 2 s, averages the S-meter power (linear, of the filter of the active
-  VFO, so any mode; a wider filter reads steadier), then goes to cold sky (the same elevation, the azimuth + offset) and
-  averages again. ON − OFF in dB is the Y of the cycle. **STOP** ends it and stops the rotor.
+  to the body, waits until it is within 2°, settles 2 s, averages the noise (linear), then goes to cold sky (the same
+  elevation, the azimuth + offset) and averages again. ON − OFF in dB is the Y of the cycle. **STOP** ends it and stops the rotor.
 - **Result:** Y (mean of the cycles) ± its spread and G/T, with a table of the cycles; **Log** of the steps.
-- **SCAN** (SUN SCAN, in RUN; **EL** ticked also in elevation): the antenna steps across the Sun ±20° in azimuth, 2.5° a
-  step, averaging at least 5 s at each point; the offset of each point is where the rotor really stood against the Sun at
-  that moment. The beam is fitted as a Gaussian on a flat baseline (`sunnoise.fit_scan`): the **pointing error** (the
-  rotor reads this much too high or low on the Sun) ± its uncertainty, the beam width and the peak Y, with a chart of the
-  points and the fitted beam. An error larger than twice its uncertainty can be applied: **APPLY TO ROTOR CALIBRATION**
-  shifts both values of the AZ calibration of RCTRL › SETTINGS (true azimuth at K3NG 0 / 450) by it, after a
-  confirmation; the scale stays. Elevation is calibrated in the K3NG controller itself, so its error is only shown. A
-  scan whose peak is at its edge, wider than the scan or under 0.15 dB is refused (POINT, peak by ear and scan again).
+- **SCAN** (SUN SCAN block, `static/snfast.js`; **EL** ticked also in elevation): the antenna sweeps across the Sun
+  without stopping, ± **Scan °** there and back **Sweeps ×** times, in about a minute. The rotor is read 10 times a second
+  and every noise reading is put at the rotor position of its moment, against the Sun at that moment; the readings are
+  averaged in 1° bins, separately for each direction. A lag of the noise or of the position reading (the median filter
+  of rotor.py, about 0.3 s) shifts the peak in the direction of the sweep, so the beam is fitted in each direction
+  (`sunnoise.fit_scan`, a Gaussian on a flat baseline; in elevation on a sloping one): the **pointing error** (the rotor
+  reads this much too high or low on the Sun) is their mean, the lag cancelled, and half their difference is the lag,
+  shown in seconds. The result also gives the rotor position of the peak and the Sun: a peak that stays at one rotor
+  azimuth while the Sun moves is a noise source on the ground. An error larger than twice its uncertainty can be
+  applied (not with a lag over 3 s): **APPLY TO ROTOR CALIBRATION** shifts both values of the AZ calibration of RCTRL ›
+  SETTINGS (true azimuth at K3NG 0 / 450) by it, after a confirmation; the scale stays. In elevation it changes the
+  **EL offset** of RCTRL › SETTINGS (true elevation = K3NG elevation + offset, −30…+30°; the readings, the targets and
+  the satellite tracking all use the true elevation). The elevation is scanned only with the Sun at least 1.3 beam
+  widths high: lower, the bottom of the beam sees the warm ground and the fit is wrong (at 48° N: around noon, about
+  March to September). A scan whose peak is at its edge, wider than the scan or under 0.15 dB is refused.
 
 The RF gain must be fixed: START refuses with AGC or AGC+ on, and the measurement stops if one is switched on during it. The
 measurement also ends when the VFO or its frequency changes, the rotor is busy with satellite tracking, or the Sun is

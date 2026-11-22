@@ -2688,7 +2688,7 @@ function renderRds() {
 // (disabled, with the reason in their tip), and SETTINGS › VFO › AUDIO says why. NB and SP act on the samples before
 // the channel and its baseband decoders, so they stay usable while such a decoder (FT8, CW, …) runs beside.
 const RAW_DEC_NAMES = { vdl2: "VDL2", ism: "ISM", hfdl: "HFDL", ais: "AIS", adsb: "ADS-B", acars: "ACARS", sonde: "SONDE" };
-const BASEBAND_DECS = ["ft8", "wefax", "cw", "rtty", "packet", "pocsag", "sstv", "wspr", "msk144", "meteor"];
+const BASEBAND_DECS = ["ft8", "wefax", "cw", "rtty", "packet", "pocsag", "sstv", "wspr", "msk144", "meteor", "q65", "bpsk"];
 const BYPASS_KEYS = ["stereoKey", "notchKey", "hpfKey", "lpfKey", "alcKey", "dynKey", "afiKey", "asqKey", "tsqcKey", "tsqdKey", "dnrKey", "humKey", "tnfKey", "apfKey", "binKey"];
 function audioBypassWhy(s) {
   if (s.dab) return "DAB is on: welle-cli decodes the ensemble from the raw IQ and plays the station";
@@ -3948,7 +3948,7 @@ function setBodyTab(tab, save = true) {
 // order of the page keys; "|" = a vertical separator between the groups (HF digital, aircraft, ships, radiosondes, ISM)
 const DEC_LAYOUT = [
   { key: "cw", title: "CW" }, { key: "ft8", title: "FT8" }, { key: "packet", title: "PACKET" }, { key: "pocsag", title: "POCSAG" }, { key: "rtty", title: "RTTY" },
-  { key: "sstv", title: "SSTV" }, { key: "wefax", title: "WEFAX" }, { key: "wspr", title: "WSPR" }, { key: "msk144", title: "MSK144" }, { key: "meteor", title: "METEORS" }, "|",
+  { key: "sstv", title: "SSTV" }, { key: "wefax", title: "WEFAX" }, { key: "wspr", title: "WSPR" }, { key: "msk144", title: "MSK144" }, { key: "q65", title: "Q65/JT65" }, { key: "meteor", title: "METEORS" }, { key: "bpsk", title: "BPSK" }, "|",
   { key: "acars", title: "ACARS" }, { key: "adsb", title: "ADS-B" }, { key: "hfdl", title: "HFDL" }, { key: "vdl2", title: "VDL2" }, "|",
   { key: "ais", title: "AIS" }, "|",
   { key: "sonde", title: "SONDE" }, "|",
@@ -4200,7 +4200,7 @@ function decOnlyThis(key) {
   }
   if (key !== "ism" && st) st.ism = false;
 }
-for (const id of ["ft8On", "wefaxOn", "cwOn", "rttyOn", "sstvOn", "packetOn", "pocsagOn", "sondeOn", "acarsOn", "vdl2On", "hfdlOn", "aisOn", "adsbOn", "wsprOn", "msk144On", "meteorOn"]) {
+for (const id of ["ft8On", "wefaxOn", "cwOn", "rttyOn", "sstvOn", "packetOn", "pocsagOn", "sondeOn", "acarsOn", "vdl2On", "hfdlOn", "aisOn", "adsbOn", "wsprOn", "msk144On", "meteorOn", "q65On", "bpskOn"]) {
   $(id).addEventListener("change", (e) => {
     if (e.target.checked) decOnlyThis(id.slice(0, -2));
     renderDecTab();
@@ -11901,6 +11901,7 @@ function openSetSub(page) {
 function setSubOpened(name) {
   if (bodyTab !== "set") return;      // setBodyTab("set") calls it again
   if (name === "gen:location") setTimeout(() => locLoad());
+  if (name === "gen:spots") setTimeout(() => spLoad());                    // SETTINGS › GENERAL › SPOTS (declared further down)
   if (name === "gen:ant") setTimeout(() => antLoad(true));
   if (name === "gen:recs") setTimeout(() => recDirLoad());
   if (name === "gen:backup") setTimeout(() => bkLoad());                   // SETTINGS › GENERAL › BACKUP (declared further down)
@@ -11930,7 +11931,7 @@ function openSetPage(name) {
   showSetTab(page);
   store("setTab", page);
 }
-const SET_PAGE_OF = { ui: "gen:skins", display: "gen:skins", skins: "gen:skins", meter: "gen:meter", wheel: "gen:wheel", location: "gen:location", ant: "gen:ant", antennas: "gen:ant", recs: "gen:recs", backup: "gen:backup",
+const SET_PAGE_OF = { ui: "gen:skins", display: "gen:skins", skins: "gen:skins", meter: "gen:meter", wheel: "gen:wheel", location: "gen:location", spots: "gen:spots", ant: "gen:ant", antennas: "gen:ant", recs: "gen:recs", backup: "gen:backup",
   dongle: "vfo:dongle", adv: "vfo:dongle", audio: "vfo:audio", tx: "vfo:tx" };
 
 // SETTINGS › VFO: one key per VFO window, like the VFO keys beside the S-meter; the lit one (= the active VFO)
@@ -12122,27 +12123,18 @@ function renderRotor(info) {
   $("rotorOffNote").hidden = on;
   $("rotorPortBox").hidden = !on;
   $("rotorOnBox").hidden = !on;
-  const deg = (v) => (info.connected && v != null ? `${Math.round(v)}°` : "–");
-  $("rotAzNow").textContent = deg(info.azShow);
-  $("rotElNowT").textContent = deg(info.elShow);
-  $("rotAzReq").textContent = deg(info.target && info.target[0]);
-  $("rotElReq").textContent = deg(info.target && info.target[1]);
-  $("rotorTarget").textContent = !info.on ? "Choose the serial port of the rotor controller."
-    : !info.connected ? "Connecting to the rotor controller…"
-    : info.target ? `Moving to AZ ${Math.round(info.target[0])}° EL ${Math.round(info.target[1])}° (${info.source})` : "No target";
   rotorShowError(info.fault ? `Fault: ${info.fault}` : info.error);
-  $("rotorReset").classList.toggle("warn", !!info.fault);
-  $("rotorMon").classList.toggle("on", rotorMonOn());
-  rotDialRender(info);
   $("rotorRaw").textContent = info.k3ng_az == null ? ""
     : `K3NG now: ${Math.round(info.k3ng_az)}°${info.k3ng_guess ? " (0–90 or 360–450 not known yet: decided at the first move)" : ""}.`;
   if (info.az_cal) {
-    for (const [id, v] of [["rotorCal0", info.az_cal[0]], ["rotorCal450", info.az_cal[1]]]) {
-      if (document.activeElement !== $(id)) $(id).value = v;
+    for (const [id, v] of [["rotorCal0", info.az_cal[0]], ["rotorCal450", info.az_cal[1]], ["rotorElOff", info.el_off || 0]]) {
+      // an edited field keeps what was typed until SAVE (the poll of the rotor would put the saved value back)
+      if (document.activeElement !== $(id) && !$(id).dataset.edited) $(id).value = v;
     }
   }
   renderSat(info);
   rctrlRotor(info);
+  if (typeof rotDialDrawAll === "function") rotDialDrawAll(info);     // the rotor dials (rotdial.js): RCTRL, SUN NOISE, METEORS
 }
 
 // ---------- rotor control on the TRACK page: STOP and the error line ----------
@@ -12180,8 +12172,10 @@ async function pollRotor() {
   const trackOpen = bodyTab === "sat" && amsatPage === "track" && !document.hidden;     // the antenna on the polar plot
   const mon = rotorMonOn() && !document.hidden;                                       // AZ / EL in the AD
   const rcOpen = bodyTab === "rot" && !document.hidden;                               // the antenna on the ROTOR CONTROL map
+  const sunOpen = bodyTab === "sat" && amsatPage === "sun" && !document.hidden;       // SUN NOISE › ROTOR CONTROL
+  const mtOpen = mtShown() && !document.hidden;                                       // METEORS › ROTOR (the dial)
   if (!mon && adRotInfo) { adRotInfo = null; renderAd(); }
-  if ((!setOpen && !trackOpen && !mon && !rcOpen) || rotorPollBusy) return;
+  if ((!setOpen && !trackOpen && !mon && !rcOpen && !sunOpen && !mtOpen) || rotorPollBusy) return;
   const base = rotorBase();
   const needPorts = setOpen && rotorPortsFor !== base;
   rotorPollBusy = true;
@@ -12221,99 +12215,27 @@ $("rotorOnKey").addEventListener("click", () => {
 $("rotorPort").addEventListener("change", () => {
   if ((rotorInfo && rotorInfo.on) || rotorPendingOn) rotorLink(true);
 });
-$("rotorStop").addEventListener("click", () => rotorPost({ stop: true }));
-$("rotorReset").addEventListener("click", () => rotorPost({ reset: true }));
-$("rotorMon").addEventListener("click", () => {
+/** MONITOR key of the rotor dials (rotdial.js): AZ / EL in the AD on / off. */
+function rotorMonToggle() {
   const on = !rotorMonOn();
   store(rotorMonKey(), on ? "1" : "0");
-  $("rotorMon").classList.toggle("on", on);
   if (!on) adRotInfo = null;
   else if (rotorInfo) adRotInfo = rotorInfo;
   renderAd();
-});
-$("rotorCalSave").addEventListener("click", () => {
+  rotDialDrawAll(rotorInfo);
+}
+for (const id of ["rotorCal0", "rotorCal450", "rotorElOff"]) {
+  $(id).addEventListener("input", () => { $(id).dataset.edited = "1"; });
+  $(id).addEventListener("keydown", (e) => { if (e.key === "Enter") $("rotorCalSave").click(); });
+}
+$("rotorCalSave").addEventListener("click", async () => {
   if ($("rotorCal0").value === "" || $("rotorCal450").value === "") { rotorShowError("Enter both azimuths", true); return; }
-  rotorPost({ az_cal: [Number($("rotorCal0").value), Number($("rotorCal450").value)] });
+  await rotorPost({ az_cal: [Number($("rotorCal0").value), Number($("rotorCal450").value)], el_off: Number($("rotorElOff").value) || 0 });
+  for (const id of ["rotorCal0", "rotorCal450", "rotorElOff"]) delete $(id).dataset.edited;   // the saved values show again
 });
 setInterval(pollRotor, 500);
 
-// ---------- ROTOR page: polar plot (azimuth, elevation 0–90) and the elevation column 0–180 ----------
-// Like the TRACK page: red cross = the antenna now, ring = the target, a click moves the antenna.
-const ROT_EL = { top: 8, h: 216 };      // the column in the SVG: y of 180°, height of 0–180°
-const rotElY = (el) => ROT_EL.top + (1 - Math.min(Math.max(el, 0), 180) / 180) * ROT_EL.h;
-{
-  let g = "";
-  for (let el = 0; el <= 180; el += 15) {
-    const y = rotElY(el).toFixed(1), major = el % 30 === 0;
-    g += `<line class="${major ? "rot-elgrid major" : "rot-elgrid"}" x1="${major ? 26 : 30}" x2="46" y1="${y}" y2="${y}"/>`;
-    if (major) g += `<text class="rot-ellbl" x="22" y="${(+y + 3.5).toFixed(1)}">${el}</text>`;
-  }
-  $("rotElGrid").innerHTML = g;
-}
-
-function rotDialRender(info) {
-  const ok = info.connected && info.azShow != null && info.elShow != null;
-  const x = $("rotPolarX"), now = $("rotElNow"), tg = $("rotPolarTgt"), tgEl = $("rotElTgt");
-  x.setAttribute("visibility", ok ? "visible" : "hidden");
-  now.setAttribute("visibility", ok ? "visible" : "hidden");
-  if (ok) {
-    const az = info.azShow, el = info.elShow;
-    const back = el > 90, [px, py] = satPolarXY(back ? (az + 180) % 360 : az, back ? 180 - el : el, 100);
-    x.setAttribute("transform", `translate(${px.toFixed(1)},${py.toFixed(1)})`);
-    now.setAttribute("transform", `translate(0,${rotElY(el).toFixed(1)})`);
-  }
-  const t = info.connected && rotorMoving(info) && info.target;     // the green ring only while the rotor is on its way
-  tg.setAttribute("visibility", t ? "visible" : "hidden");
-  tgEl.setAttribute("visibility", t ? "visible" : "hidden");
-  if (t) {
-    const [az, el] = t, back = el > 90, [px, py] = satPolarXY(back ? (az + 180) % 360 : az, back ? 180 - el : el, 100);
-    tg.setAttribute("transform", `translate(${px.toFixed(1)},${py.toFixed(1)})`);
-    tgEl.setAttribute("transform", `translate(0,${rotElY(el).toFixed(1)})`);
-  }
-  const refusal = satDialRefusal(info);
-  $("rotPolar").classList.toggle("locked", !!refusal);
-  $("rotEl").classList.toggle("locked", !!refusal);
-}
-
-function rotNote(text) { $("rotPolarNote").textContent = text; }
-const ROT_NOTE = $("rotPolarNote").textContent;
-
-/** Elevation column point -> elevation 0–180 in whole degrees. */
-function rotElAt(e) {
-  const svg = $("rotEl"), p = new DOMPoint(e.clientX, e.clientY).matrixTransform(svg.getScreenCTM().inverse());
-  return Math.round(Math.min(Math.max((1 - (p.y - ROT_EL.top) / ROT_EL.h) * 180, 0), 180));
-}
-
-$("rotPolarHit").addEventListener("pointermove", (e) => {
-  const at = satPolarAt(e), x = $("rotPolarAim"), refusal = satDialRefusal(rotorInfo);
-  if (!at || refusal) { x.setAttribute("visibility", "hidden"); e.target.style.cursor = refusal ? "not-allowed" : ""; rotNote(refusal || ROT_NOTE); return; }
-  const [px, py] = satPolarXY(at[0], at[1], 100);
-  x.setAttribute("transform", `translate(${px.toFixed(1)},${py.toFixed(1)})`);
-  x.setAttribute("visibility", "visible");
-  e.target.style.cursor = "crosshair";
-  rotNote(`Click: turn the antenna to AZ ${at[0]}° EL ${at[1]}°.`);
-});
-$("rotPolarHit").addEventListener("pointerleave", () => { $("rotPolarAim").setAttribute("visibility", "hidden"); rotNote(ROT_NOTE); });
-$("rotPolarHit").addEventListener("click", (e) => {
-  const at = satPolarAt(e), refusal = satDialRefusal(rotorInfo);
-  if (!at) return;
-  if (refusal) { rotorShowError(refusal, true); return; }
-  rotorPost({ goto: at });
-});
-$("rotElHit").addEventListener("pointermove", (e) => {
-  const el = rotElAt(e), aim = $("rotElAim"), refusal = satDialRefusal(rotorInfo);
-  aim.setAttribute("visibility", refusal ? "hidden" : "visible");
-  aim.setAttribute("y1", rotElY(el).toFixed(1)); aim.setAttribute("y2", rotElY(el).toFixed(1));
-  e.target.style.cursor = refusal ? "not-allowed" : "crosshair";
-  rotNote(refusal || `Click: antenna EL ${el}°${el > 90 ? " (over the top, looking back)" : ""}, the azimuth stays.`);
-});
-$("rotElHit").addEventListener("pointerleave", () => { $("rotElAim").setAttribute("visibility", "hidden"); rotNote(ROT_NOTE); });
-$("rotElHit").addEventListener("click", (e) => {
-  const el = rotElAt(e), info = rotorInfo, refusal = satDialRefusal(info);
-  if (refusal) { rotorShowError(refusal, true); return; }
-  const az = info.target ? info.target[0] : info.az;     // the azimuth stays
-  rotorPost({ goto: [Math.round(az), el] });
-});
+// The polar plot and the elevation column of RCTRL › SETTINGS: rotdial.js (one dial for RCTRL, SUN NOISE and METEORS).
 
 // ---------- ROTOR CONTROL tab (RCTRL key): a map to aim the rotor at a place ----------
 // A click on the map, on a channel point or on a row of the list: azimuth from the QTH (great circle), elevation 0.
@@ -12724,7 +12646,6 @@ function rcConnBuild() {
     `<i class="rcx-w k-r${src.k}" data-rc-path="${src.k}" style="grid-row:${n + 1}"></i>`).join("") +
     `<i class="rcx-bus" id="rcFeed"><em></em></i>` +
     `<div class="sdg-b k-rot rcx-rot" id="rcRot"><b>ROTOR <span id="rcRotDev"></span></b>${ico(SDG_ICO.rot)}` +
-    `<div class="rcx-pos"><span><small>AZ</small><span id="rcRotAz"></span></span><span><small>EL</small><span id="rcRotEl"></span></span></div>` +
     `<span class="v" id="rcRotSt"></span><small id="rcRotSrc"></small><div class="chips"><span class="sdg-c" id="rcCount"></span></div></div>`;
 }
 
@@ -12753,9 +12674,7 @@ function rcRenderConn() {
   txt($("rcCount"), links ? `${n} / ${RC_LINKS.length} CONNECTED` : "links unknown");
   $("rcCount").classList.toggle("on", any);
   txt($("rcRotDev"), i && i.device ? `· ${i.device}` : "");
-  const ok = !!(i && i.connected && i.azShow != null);
-  txt($("rcRotAz"), ok ? `${String(Math.round(i.azShow) % 360).padStart(3, "0")}°` : "---°");
-  txt($("rcRotEl"), ok && i.elShow != null ? `${String(Math.round(i.elShow)).padStart(2, "0")}°` : "--°");
+  // the position itself is in the ROTOR · AZ / EL block beside (rotdial.js), here only the state
   txt($("rcRotSt"), !i ? "no answer" : i.error && !i.on ? i.error : !i.on ? "link off (below)" : !i.connected ? "connecting…"
     : i.fault ? `FAULT: ${i.fault}` : rotorMoving(i) && i.target ? `turning → AZ ${Math.round(i.target[0])}° EL ${Math.round(i.target[1])}°` : "standing");
   $("rcRot").classList.toggle("bad", !!(i && i.fault));
@@ -14178,6 +14097,7 @@ function onStatus(s) {
     sbBandOf.set(vbase, hamSbBand(s.tune_hz));   // tuned elsewhere (memory, scanner, other page): no switch
   }
   st = s;
+  snGainWatch();     // SATELLITES › SUN NOISE: AGC / AGC+ on -> red RF GAIN block and a message in the AD
   passSnrUpdate(s);
   renderRec();
   renderScanNow();
@@ -14194,6 +14114,8 @@ function onStatus(s) {
   renderFt8Info();
   wsprStatus(s);
   mskStatus(s);
+  q65Status(s);
+  bpskStatus(s);
   mtStatus(s);
   decBandsMark(s);
   $("wefaxOn").checked = s.wefax;
@@ -14332,7 +14254,8 @@ function connectEvents(v) {
     if (v.rows.length > VFO_ROWS_MAX) v.rows.splice(0, v.rows.length - VFO_ROWS_MAX);
     if (v === active && !MAP_ONLY) onRow(ev.c, ev.span, ev.row, false, wfFullOf(ev));
   });
-  on("meter", (d) => { setMeterTarget(d.db); if (snCollect) snCollect(d.db); });
+  on("meter", (d) => setMeterTarget(d.db));
+  on("wide", (d) => { if (snCollect) snCollect(d.db); });     // SUN NOISE measures the noise of the whole band (sdr.wide_noise_db)
   on("memories", () => memChanged());
   on("ft8", (d) => {
     addFt8(d, true);
@@ -14392,6 +14315,10 @@ function connectEvents(v) {
   on("ft8cycle", (d) => renderFt8Info(`cycle ${d.time} · decoding…`));
   on("wspr", (d) => { wsprAdd(d, true); decActivity("wspr"); });
   on("msk144", (d) => { mskAdd(d, true); decActivity("msk144"); });
+  on("q65", (d) => { q65Add(d, true); decActivity("q65"); });
+  on("q65cycle", (d) => q65Cycle(d));
+  on("bpsk", (d) => { bpskAdd(d, true); decActivity("bpsk"); });
+  on("bpskstat", (d) => bpskStat(d));
   on("meteor", (d) => { mtEvent(d); if (d.kind !== "plane") decActivity("meteor"); });
   on("wsprcycle", (d) => { wsprInfo(st, d.info); wsprProg = { ...wsprProg, ...d }; renderWsprProg(); });
   bus.addEventListener("down", () => {
@@ -14910,6 +14837,8 @@ async function selectVfo(v, keepTab) {
   $("ft8Rows").innerHTML = ""; $("ft8Empty").hidden = false; ft8Cycle = null; ft8Count = 0;
   wsprReset();
   mskReset();
+  q65Reset();
+  bpskReset();
   mtReset();
   cwReset(); rttyOut.clear();
   packetReset();
@@ -14973,6 +14902,8 @@ async function loadDecoders() {
   await ft8StLoad();
   await wsprLoad(v);
   await mskLoad(v);
+  await q65Load(v);
+  await bpskLoad(v);
   mtLoad(v);
   const ac = await fetch(vbase + "/api/acars").then((r) => r.json());
   const cp = await fetch(vbase + "/api/cpdlc").then((r) => r.json());
@@ -16010,12 +15941,13 @@ $("lgViewClose").addEventListener("click", lgViewClose);
 
 // LOGGING: the LOG switch of every decoder on every VFO (from their states), and what is always written
 const LG_LOGS = [["ft8", "FT8"], ["cw", "CW"], ["rtty", "RTTY"], ["wefax", "WEFAX"], ["sstv", "SSTV"], ["acars", "ACARS / VDL2"],
-  ["hfdl", "HFDL"], ["ais", "AIS"], ["adsb", "ADS-B"], ["ism", "ISM"], ["packet", "PACKET"], ["pocsag", "POCSAG"], ["dsd", "DSD"], ["wspr", "WSPR"], ["msk144", "MSK144"], ["meteor", "METEORS"]];
+  ["hfdl", "HFDL"], ["ais", "AIS"], ["adsb", "ADS-B"], ["ism", "ISM"], ["packet", "PACKET"], ["pocsag", "POCSAG"], ["dsd", "DSD"], ["wspr", "WSPR"], ["msk144", "MSK144"], ["q65", "Q65 / JT65"], ["bpsk", "BPSK"], ["meteor", "METEORS"]];
 const LG_ALWAYS = [["SCAN activities", "logs\\scan", "every activity of the scan; kept KEEP HISTORY days (⚙ of SCAN, default 31)"],
   ["RADIOSONDE flights", "logs\\radiosonde", "every frame while SONDE runs (the history of the sonde map 1D / 7D); kept until deleted"],
   ["COMPOSITE map history", "composite_<VFO>.json", "positions of the last 6 hours per VFO, written every 2 min (HISTORY)"],
   ["ADS-B range", "adsb_range.json", "the farthest position per 2° sector (HISTORY)"],
-  ["Server log", "server_logs", "the output of the server, one file per start of RADIMCOM"]];
+  ["Server log", "server_logs", "the output of the server, one file per start of RADIMCOM"],
+  ["SPOTS not sent", "logs\\spots", "FT8 / WSPR spots that did not reach PSK Reporter / WSPRnet, and why (SETTINGS › GENERAL › SPOTS)"]];
 function lgDecoderOn(s, k) {
   const v = k === "acars" ? (s.acars || s.vdl2) : s[k];
   return v === true || (v && typeof v === "object" && (v.on || v.enabled));
@@ -20557,25 +20489,15 @@ $("propChip").addEventListener("keydown", (e) => { if (e.key === "Enter" || e.ke
 
 function propBlocks(d) {
   const out = [], sc = d.scales || {}, now = sc["0"] || {};
-  const f = d.sfi, last = d.daily?.[d.daily.length - 1];
+  const f = d.sfi;
   out.push(sdgBlk("SOLAR FLUX", `<span class="v">SFI ${f ? Math.round(f.sfi) : "–"}</span><span>90-day mean ${f?.mean90 ? Math.round(f.mean90) : "–"}` +
     ` · sunspots ${d.ssn ?? "–"}</span>`, f ? "lit k-sun" : "off k-sun",
     "10.7 cm solar radio flux (Penticton, 3 a day) and the sunspot number of the last day. Higher = a denser F2 layer = higher bands open. " +
     "About 70 = solar minimum, 150+ = 10 m opens most days, 200+ = 6 m F2 possible."));
-  const x = d.xray, fl = d.flare, xc = (x?.cls || "")[0];
-  out.push(sdgBlk("X-RAY", `<span class="v">${x?.cls || "–"}</span><span>last flare ${fl?.max || "–"}${fl?.max_t ? ` at ${propHM(fl.max_t)}` : ""}` +
-    `${last ? ` · ${last.date.slice(5)}: C${last.c} M${last.m} X${last.x}` : ""}</span>`,
-    (x ? "lit " : "off ") + (xc === "X" ? "bad " : xc === "M" ? "warn " : "") + "k-xr",
-    "GOES X-ray flux 0.1–0.8 nm now and the flares of the last full day. An M or X flare ionises the D layer on the day side: " +
-    "short-wave fade-out, the low bands first (NOAA R scale)."));
   const w = d.wind;
   const wCls = !w ? "off" : (w.speed ?? 0) >= 700 || (w.bz ?? 0) <= -10 ? "lit bad" : (w.speed ?? 0) >= 500 || (w.bz ?? 0) <= -5 ? "lit warn" : "lit";
   out.push(sdgBlk("SOLAR WIND", `<span class="v">${w?.speed ?? "–"} km/s</span><span>Bt ${w?.bt ?? "–"} nT · Bz ${w?.bz ?? "–"} nT</span>`, wCls + " k-sw",
     "At L1, about an hour before the Earth. Fast wind (500+ km/s) and a field turned to the south (Bz negative, −10 nT and less) start geomagnetic storms."));
-  out.push(sdgBlk("GEOMAGNETIC", `<span class="v">Kp ${d.kp != null ? d.kp.toFixed(1) : "–"} · A ${d.a ?? "–"}</span><span>${propGeoText(d.kp)}</span>`,
-    (d.kp == null ? "off" : d.kp >= 5 ? "lit bad" : d.kp >= 4 ? "lit warn" : "lit") + " k-geo",
-    "Planetary Kp (estimated, each minute) and A of the last 24 h. Kp 0–2 quiet: best for the low bands and polar paths; 4 active; 5+ storm: " +
-    "the F2 layer drops (lower MUF), polar paths close, absorption; aurora on 6 m / 2 m possible."));
   const scl = (k) => { const v = now[k]?.scale; return `<span class="sdg-c ${v ? (v >= 3 ? "bad" : "warn") : "on"}">${k}${v ?? "–"}</span>`; };
   const fc = ["1", "2", "3"].map((k) => sc[k]).filter(Boolean);
   const rMax = fc.length ? Math.max(...fc.map((s) => s.R?.minor || 0)) : null, gMax = fc.length ? Math.max(...fc.map((s) => s.G?.scale || 0)) : null;
@@ -20585,7 +20507,12 @@ function propBlocks(d) {
     (now.R ? "lit " : "off ") + (sMax >= 3 ? "bad " : sMax >= 1 ? "warn " : "") + "k-scl",
     "NOAA space weather scales now: R = radio blackouts (X-ray flares), S = solar radiation storms (polar cap absorption), G = geomagnetic storms. " +
     "Under them the forecast for the next 3 days: probability of an R1+ blackout and the highest G expected."));
-  const p = d.prop;
+  return out.join("");
+}
+
+/** HF section, beside the band table: the estimate over the station and sporadic E (were in the top row until 1.1rc2). */
+function propHfBlocks(d) {
+  const out = [], p = d.prop;
   out.push(sdgBlk("HF AT THE STATION", p ? `<span class="v">MUF ≈ ${Math.round(p.muf)} MHz</span><span>foF2 ≈ ${p.fof2.toFixed(1)} MHz · ${p.hours[0].day ? "day" : "night"} · SFI ${p.sfi_used}</span>` +
     `<span title="${escHtml(p.cal_from?.join(", ") || "")}">${p.cal_from?.length ? `corrected ×${p.cal.toFixed(2)} by ${p.cal_from.length} ionosonde${p.cal_from.length > 1 ? "s" : ""}` : "model only (no near ionosonde)"}</span>`
     : `<span>set the location</span>`, (p ? "lit" : "off") + " k-muf",
@@ -20610,7 +20537,7 @@ function propBlocks(d) {
 /** The ionosondes up to 1500 km from the station, the nearest first: their newest foF2, MUF(3000), foEs. */
 function propIonoHtml(d) {
   const l = d.iono || [];
-  if (!l.length) return '<div class="muted">No ionosonde with a value in the last 6 hours up to 1500 km away.</div>';
+  if (!l.length) return sdgBlk("NO IONOSONDE", "<span>No ionosonde with a value in the last 6 hours up to 1500 km away.</span>", "off k-ion");
   const used = new Set(d.prop?.cal_from || []);
   return l.map((s) => sdgBlk(`${escHtml(s.code)} <em>${s.km} km</em>`,
     `<span class="v">MUF ${s.mufd != null ? s.mufd.toFixed(1) : "–"} · foF2 ${s.fof2 != null ? s.fof2.toFixed(1) : "–"}</span>` +
@@ -20688,12 +20615,19 @@ function propMagSvg(d) {
 function propChartsRender(d) {
   const kpc = propKpCls(d.kp), xc = (d.xray?.cls || "")[0], k = d.kir, dx = k?.dx3h;
   const magLvl = dx == null ? "" : dx >= 400 ? "bad" : dx >= 150 ? "warn" : "";
-  $("propKp").innerHTML = sdgBlk("Kp · 3 DAYS AND FORECAST", `<span class="v">Kp ${d.kp != null ? d.kp.toFixed(1) : "–"}<i>3 h bars, UTC; the forecast paler</i></span>${propKpSvg(d)}`,
+  // GEOMAGNETIC and X-RAY were separate blocks above until 1.1rc2: their numbers are now the heads of these charts
+  const fl = d.flare, last = d.daily?.[d.daily.length - 1];
+  $("propKp").innerHTML = sdgBlk("GEOMAGNETIC · Kp 3 DAYS AND FORECAST", `<span class="v">Kp ${d.kp != null ? d.kp.toFixed(1) : "–"} · A ${d.a ?? "–"}<i>3 h bars, UTC; the forecast paler</i></span>` +
+    `<span class="prop-sub">${propGeoText(d.kp)}</span>${propKpSvg(d)}`,
     `${d.kp_hist?.length ? "lit" : "off"} ${kpc === "bad" ? "bad" : kpc === "warn" ? "warn" : ""} k-geo`,
-    "Planetary Kp index (NOAA SWPC): observed 3-hour values of the last 3 days and the forecast. 4 = active, 5+ = geomagnetic storm (G1+).");
-  $("propXray").innerHTML = sdgBlk("X-RAY · LAST 6 HOURS", `<span class="v">${d.xray?.cls || "–"}<i>GOES 0.1–0.8 nm, log scale</i></span>${propXraySvg(d)}`,
+    "Planetary Kp (estimated, each minute) and A of the last 24 h; the bars: observed 3-hour values of the last 3 days and the forecast (NOAA SWPC). " +
+    "Kp 0–2 quiet: best for the low bands and polar paths; 4 active; 5+ storm (G1+): the F2 layer drops (lower MUF), polar paths close, " +
+    "absorption; aurora on 6 m / 2 m possible.");
+  $("propXray").innerHTML = sdgBlk("X-RAY · LAST 6 HOURS", `<span class="v">${d.xray?.cls || "–"}<i>GOES 0.1–0.8 nm, log scale</i></span>` +
+    `<span class="prop-sub">last flare ${fl?.max || "–"}${fl?.max_t ? ` at ${propHM(fl.max_t)}` : ""}${last ? ` · ${last.date.slice(5)}: C${last.c} M${last.m} X${last.x}` : ""}</span>${propXraySvg(d)}`,
     `${d.xray ? "lit" : "off"} ${xc === "X" ? "bad" : xc === "M" ? "warn" : ""} k-xr`,
-    "GOES X-ray flux. An M or X flare damps the HF bands on the day side for minutes to hours (short-wave fade-out).");
+    "GOES X-ray flux 0.1–0.8 nm and the flares of the last full day. An M or X flare ionises the D layer on the day side: " +
+    "short-wave fade-out for minutes to hours, the low bands first (NOAA R scale).");
   $("propMag").innerHTML = sdgBlk("MAGNETOGRAM · KIRUNA · 24 h",
     `<span class="v">${dx != null ? `ΔX 3 h ${dx} nT · ${magLvl === "bad" ? "disturbed" : magLvl ? "active" : "quiet"}` : "–"}` +
     `<i><em class="mx">X</em> <em class="my">Y</em> <em class="mz">Z</em> nT from the 24 h median${k ? ` · ${k.t.slice(11, 16)} UTC` : ""}</i></span>${propMagSvg(d)}`,
@@ -20772,6 +20706,7 @@ function renderProp() {
   $("propBands").innerHTML = sdgBlk("HF BANDS · ESTIMATE NEXT 24 H",`<div class="pb-grid">${propBandsHtml(d)}</div>`, "lit k-muf",
     "Our own estimate for one F2 hop (about 3000 km) now and for the next 24 hours (UTC), corrected by the ionosondes; NOW is raised by Es and by what FT8 hears.");
   $("propFt8").innerHTML = propFt8Html(d);
+  $("propHfNow").innerHTML = propHfBlocks(d);
   $("propIono").innerHTML = propIonoHtml(d);
   renderPropTest();
   const open = new Set([...$("propAlerts").querySelectorAll("details[open]")].map((e) => e.dataset.id));
@@ -22317,7 +22252,7 @@ $("msk144Clear").addEventListener("click", () => {
   if (active) fetch(active.base + "/api/msk144", { method: "DELETE" }).catch(() => {});
 });
 
-// ---------- RETRO (retro.py): the last minute of IQ in RAM, Alt+click on the waterfall plays that moment ----------
+// ---------- PRE-REC (retro.py): the last minute of IQ in RAM, Alt+click on the waterfall plays that moment ----------
 
 var retroTimes = null;     // the time each row of the waterfall image was drawn (row 0 = top = newest)
 var retroAudio = null, retroUrl = null, retroTimer = null;
@@ -22329,7 +22264,7 @@ function retroRowDrawn(h) {
   retroTimes.fill(Date.now() / 1000, 0, h);
   retroMark();
 }
-/** On the waterfall: a dark blue bar at the left edge over the rows RETRO still holds, a dashed line where it ends. */
+/** On the waterfall: a dark blue bar at the left edge over the rows PRE-REC still holds, a dashed line where it ends. */
 function retroMark() {
   const r = (st && st.retro) || {};
   let m = document.getElementById("retroMark");
@@ -22353,8 +22288,8 @@ function retroMark() {
   m.style.width = ov.clientWidth + "px";
   m.style.height = Math.max(1, hgt) + "px";
   m.classList.toggle("full", full);
-  m.querySelector("b").textContent = `RETRO ${Math.round(r.held_s)} s`;
-  m.title = `RETRO holds these ${Math.round(r.held_s)} s: Alt+click here to play`;
+  m.querySelector("b").textContent = `PRE-REC ${Math.round(r.held_s)} s`;
+  m.title = `PRE-REC holds these ${Math.round(r.held_s)} s: Alt+click here to play`;
 }
 /** Unix time of the waterfall at height frac (0 = top) of its image, or null where nothing was drawn yet. */
 function retroTimeAt(frac) {
@@ -22367,10 +22302,10 @@ function renderRetro() {
   const r = (st && st.retro) || {};
   const b = $("retroBtn");
   b.classList.toggle("armed", !!r.on);
-  $("retroTime").textContent = r.on ? `RETRO ${Math.round(r.held_s || 0)}s` : "RETRO";
+  $("retroTime").textContent = "PRE-REC";
   b.title = r.on
-    ? `RETRO on: the last ${Math.round(r.held_s || 0)} of ${r.seconds} s of IQ in RAM (${r.mb} MB). Alt+click on the waterfall plays that moment. Click: off (the buffer is dropped)`
-    : "RETRO: keep the last minute of IQ in RAM; then Alt+click on the waterfall replays a signal that was there (length and SAVE IQ in SETTINGS › GENERAL › RECORDINGS)";
+    ? `PRE-REC on: the last ${Math.round(r.held_s || 0)} of ${r.seconds} s of IQ in RAM (${r.mb} MB). Alt+click on the waterfall plays that moment. Click: off (the buffer is dropped)`
+    : "PRE-REC: keep the last minute of IQ in RAM; then Alt+click on the waterfall replays a signal that was there (length and SAVE IQ in SETTINGS › GENERAL › RECORDINGS)";
   if (document.activeElement !== $("retroLen") && r.seconds) $("retroLen").value = String(r.seconds);
   $("retroInfo").textContent = r.on ? `${Math.round(r.held_s || 0)} / ${r.seconds} s · ${r.mb} MB` : "off";
 }
@@ -22407,7 +22342,7 @@ function retroStop() {
 }
 async function retroPlay(hz, t) {
   if (!st) return;
-  if (!(st.retro && st.retro.on)) { adError("RETRO is off: switch the RETRO key on (under REC IQ) to keep the last minute of IQ"); return; }
+  if (!(st.retro && st.retro.on)) { adError("PRE-REC is off: switch the PRE-REC key on (under REC IQ) to keep the last minute of IQ"); return; }
   if (t == null) return;
   // the click is on the signal, not on its dial: inside the passband of the VFO it plays the VFO's own tuning, elsewhere
   // the clicked point goes to the middle of the passband (USB: the dial 1.5 kHz under it, LSB above, AM / FM / CW on it)
@@ -22417,7 +22352,7 @@ async function retroPlay(hz, t) {
   const bar = retroBar(), txt = bar.querySelector(".rb-txt");
   bar.hidden = false;
   const when = new Date(t * 1000).toISOString().slice(11, 19);
-  txt.textContent = `RETRO ${when} UTC · ${(hz / 1e6).toFixed(4)} MHz ${st.mode} · demodulating…`;
+  txt.textContent = `PRE-REC ${when} UTC · ${(hz / 1e6).toFixed(4)} MHz ${st.mode} · demodulating…`;
   try {
     const r = await fetch(vbase + "/api/retro/clip", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ t, hz: Math.round(hz) }) });
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
@@ -22433,25 +22368,25 @@ async function retroPlay(hz, t) {
       if (!retroAudio) return;
       const p = secs ? Math.min(1, retroAudio.currentTime / secs) : 0;
       bar.querySelector(".rb-prog i").style.width = `${(p * 100).toFixed(1)}%`;
-      txt.textContent = `RETRO ${from} UTC · ${(hz / 1e6).toFixed(4)} MHz ${st.mode} · ${retroAudio.currentTime.toFixed(0)} / ${secs.toFixed(0)} s`;
+      txt.textContent = `PRE-REC ${from} UTC · ${(hz / 1e6).toFixed(4)} MHz ${st.mode} · ${retroAudio.currentTime.toFixed(0)} / ${secs.toFixed(0)} s`;
     }, 250);
   } catch (e) {
     retroStop();
-    adError(`RETRO: ${e.message}`);
+    adError(`PRE-REC: ${e.message}`);
   }
 }
 
 // ---------- SATELLITES › SUN NOISE (sunnoise.py): Y factor on the Sun or the Moon with the rotor -> G/T ----------
-// The rotor points at the body, the S-meter power of the active VFO is averaged, then at cold sky beside it (the same
+// The rotor points at the body, the noise of the whole band of the active VFO is averaged, then at cold sky beside it (the same
 // elevation, the azimuth moved by the offset); ON / OFF of each cycle is the Y factor. RF gain must be fixed.
 
-var snCollect = null;        // set while a measurement averages the S-meter (on("meter"))
+var snCollect = null;        // set while a measurement averages the noise of the whole band (on("wide"))
 var snInfo = null;           // /api/sunnoise
 var snRun = null;            // the running measurement {abort, cycles: [{on, off}]}
 var snResult = null;         // the last result {y, spread, gt_sun, gt_moon, body, f, n}
 var snLog = [];
 var snTimer = null;
-var SN_DEFAULTS = { body: "sun", offset: 40, dwell: 10, cycles: 3, sfu: "", gain: "" };
+var SN_DEFAULTS = { body: "sun", offset: 40, dwell: 10, cycles: 3, sfu: "", gain: "", scan_span: 15, fast_trips: 2 };
 
 function snCfg() {
   let c = {};
@@ -22460,7 +22395,9 @@ function snCfg() {
 }
 function snSaveCfg() {
   const c = { body: "sun", offset: Number($("snOffset").value) || 20, dwell: Number($("snDwell").value) || 10,
-    cycles: Number($("snCycles").value) || 3, sfu: $("snSfu").value, gain: $("snGain").value };
+    cycles: Number($("snCycles").value) || 3, sfu: $("snSfu").value, gain: $("snGain").value,
+    scan_span: Math.min(SN_SCAN_MAX, Math.max(5, Number($("snSpan").value) || 15)),
+    fast_trips: Math.min(5, Math.max(1, Math.round(Number($("snFastN").value) || 2))) };
   store("sunNoise", JSON.stringify(c));
   return c;
 }
@@ -22487,7 +22424,7 @@ async function snLoad(y = null) {
     if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
     snInfo = j;
     snRot = await snRotor() || snRot;
-    if (amsatPage === "sun") { snRenderLive(); snRenderRotor(); }
+    if (amsatPage === "sun") { snRenderLive(); snRenderRotor(); rotDialDraw("sn", rotorInfo); }
     return j;
   } catch (e) {
     if (amsatPage === "sun") amsatInfo(`Sun / Moon position: ${e.message}`, true);
@@ -22524,48 +22461,52 @@ function renderSunNoise() {
       <p>Y = ON / OFF of each cycle; G/T = 8πk(Y−1) / (S λ²). The spread of the cycles shows how steady it was: over
         0.3 dB, measure again with a longer average. A beam much wider than the Sun is assumed (Yagis).</p>
     </div>
-    <span class="sdg-sec">NOW</span>
-    <div class="sdg-shared sn-blocks">
-      <div class="sdg-b k-sun" id="snSunB"><b>SUN</b>${ico("sun")}<span class="v" id="snSunPos">…</span><small id="snSunSub"></small></div>
-      <div class="sdg-b k-dev" id="snFreqB"><b>RECEIVER</b>${ico("dev")}<span class="v" id="snFreqV">…</span><small id="snFreqSub"></small></div>
+    <div class="sn-grid">
+    <span class="sdg-sec sn-sec-now">NOW</span>
+      <div class="sdg-b k-rot sn-rotb" id="snRotB"><b>ROTOR · AZ / EL</b>${ico("rot")}${rotDialHtml("sn", snDialOpts())}</div>
+      <div class="sdg-b k-dev" id="snFreqB"><b>RECEIVER</b>${ico("dev")}<span class="v" id="snFreqV">…</span><small id="snFreqSub"></small><small id="snSfuSub"></small></div>
       <div class="sdg-b k-agc" id="snGainB"><b>RF GAIN</b>${ico("agc")}<span class="v" id="snGainV">…</span><small id="snGainSub"></small></div>
-      <div class="sdg-b k-rot" id="snRotB"><b>ROTOR</b>${ico("rot")}<span class="v" id="snRotV">…</span>
-        <div class="chips"><span class="sdg-c" id="snLinkC" title="RCTRL › SETTINGS: the path SAT TRACKER → ROTOR. SUN NOISE moves the rotor through it">SAT TRACKER → ROTOR</span>
-          <button class="key small" id="snRotSet" title="Open RCTRL › SETTINGS (the connection of the sources to the rotor)">RCTRL SETTINGS</button></div>
-        <small id="snRotSub"></small></div>
       <div class="sdg-b k-tune"><b>SETTINGS</b>${ico("set")}
         <div class="sn-fields">
           <label class="set-field" title="Cold sky: the antenna is turned this many degrees in azimuth away from the body (several beam widths)"><span>Offset °</span><input id="snOffset" type="number" min="3" max="90" step="1"></label>
-          <label class="set-field" title="Seconds the S-meter is averaged at each point"><span>Average s</span><input id="snDwell" type="number" min="2" max="120" step="1"></label>
+          <label class="set-field" title="Seconds the noise is averaged at each point (START)"><span>Average s</span><input id="snDwell" type="number" min="2" max="120" step="1"></label>
           <label class="set-field"><span>Cycles</span><input id="snCycles" type="number" min="1" max="20" step="1"></label>
+          <label class="set-field" title="SUN SCAN: how far the antenna sweeps to each side of the Sun. About 1.5 beam widths"><span>Scan ±°</span><input id="snSpan" type="number" min="5" max="60" step="2.5"></label>
+          <label class="set-field" title="SUN SCAN: how many times the antenna sweeps there and back across the Sun"><span>Sweeps ×</span><input id="snFastN" type="number" min="1" max="5" step="1"></label>
           <label class="set-field" title="Flux of the Sun at the measuring frequency in SFU (1 SFU = 1e-22 W/m²/Hz). Empty: worked out from today's SFI of PROPAGATION (F10.7 = the flux at 2800 MHz). Type a value only if you have a measured one for a nearby frequency (Learmonth, San Vito, Penticton)"><span>Own flux SFU</span><input id="snSfu" type="number" min="1" max="100000" step="0.1" placeholder="est."></label>
           <label class="set-field" title="Gain of the antenna in dBi (optional): with it the result also gives the system noise temperature Tsys"><span>Ant. gain dBi</span><input id="snGain" type="number" min="0" max="60" step="0.1" placeholder="–"></label>
         </div></div>
       <div class="sdg-b k-run" id="snRunB"><b>RUN</b>${ico("run")}
         <div class="sn-keys"><button class="key small" id="snPoint" title="Turn the rotor to the body now (to peak the antenna by ear)">POINT</button>
           <button class="key small" id="snStart">START</button>
-          <button class="key small" id="snStop" disabled>STOP</button>
-          <button class="key small" id="snScan" title="SUN SCAN: the antenna steps across the Sun in azimuth (±20°) and the beam is fitted: the pointing error of the rotor calibration">SCAN</button>
-          <label class="sn-chk" title="Also scan in elevation (the result only shown: the elevation is calibrated in the K3NG controller)"><input type="checkbox" id="snScanEl">EL</label></div>
+          <button class="key small" id="snStop" disabled>STOP</button></div>
         <span class="v" id="snRunV">idle</span><small id="snRunSub"></small></div>
-    </div>
-    <span class="sdg-sec">RESULT</span>
-    <div class="sdg-shared sn-blocks sn-wide">
-      <div class="sdg-b k-res" id="snResB"><b>Y FACTOR · G/T</b>${ico("res")}<div id="snResult"><span class="v">no measurement yet</span></div></div>
+      <div class="sdg-b k-scan" id="snScanRunB"><b>SUN SCAN</b>${ico("scan")}
+        <div class="sn-keys"><button class="key small" id="snScan" title="SUN SCAN: the antenna sweeps across the Sun without stopping, ± Scan ° there and back (Sweeps × of SETTINGS), the noise of the whole band read all the way; the beam is fitted in each direction (their mean cancels the lag): the pointing error of the rotor calibration. About a minute">SCAN</button>
+          <button class="key small" id="snScanStop" disabled>STOP</button>
+          <label class="sn-chk" title="Also scan in elevation (APPLY then corrects the EL offset of the rotor)"><input type="checkbox" id="snScanEl">EL</label></div>
+        <span class="v" id="snScanV">idle</span><small id="snScanSub">pointing error of the rotor calibration</small></div>
+      <div class="sdg-b k-log" id="snLogB"><b>LOG</b>${ico("log")}<div id="snLog" class="sn-log"></div></div>
+    <span class="sdg-sec sn-sec-res">RESULT</span>
+      <div class="sdg-b k-res" id="snResB"><b>Y FACTOR · G/T</b>${ico("res")}<div id="snResult"><span class="v">no measurement yet</span><small>START measures Y = ON / OFF in cycles; here then
+        Y ± spread, G/T in dB/K and a table of the cycles.</small></div></div>
       <div class="sdg-b k-cmt" id="snCmtB"><b>WHAT IT MEANS</b>${ico("info")}<div id="snCmt" class="sn-cmt">After a measurement: what the Y factor and G/T say about the station.</div></div>
-      <div class="sdg-b k-scan" id="snScanB" hidden><b>SUN SCAN · POINTING</b>${ico("scan")}<div id="snScanR"></div></div>
-      <div class="sdg-b k-log"><b>LOG</b>${ico("log")}<div id="snLog" class="sn-log"></div></div>
+      <div class="sdg-b k-scan" id="snScanB"><b>SUN SCAN · POINTING</b>${ico("scan")}<div id="snScanR"></div></div>
     </div>
   </div></div>`;
+  rotDialWire("sn", snDialOpts());
   $("snOffset").value = c.offset; $("snDwell").value = c.dwell; $("snCycles").value = c.cycles; $("snSfu").value = c.sfu; $("snGain").value = c.gain;
-  for (const id of ["snOffset", "snDwell", "snCycles", "snSfu", "snGain"]) {
-    $(id).addEventListener("change", () => { snSaveCfg(); snLoad(); snRenderResult(); });
+  $("snSpan").value = c.scan_span;
+  $("snFastN").value = c.fast_trips;
+  for (const id of ["snOffset", "snDwell", "snCycles", "snSfu", "snGain", "snSpan", "snFastN"]) {
+    $(id).addEventListener("change", () => { snSaveCfg(); snLoad(); snRenderResult(); snRenderLive(); });
     $(id).addEventListener("wheel", (e) => { if (document.activeElement === e.target) e.target.blur(); }, { passive: true });   // no change by the wheel
   }
   $("snPoint").addEventListener("click", snPoint);
   $("snStart").addEventListener("click", snStart);
   $("snStop").addEventListener("click", () => snRun && snRun.abort("stopped"));
-  $("snScan").addEventListener("click", snScanStart);
+  $("snScanStop").addEventListener("click", () => snRun && snRun.abort("stopped"));
+  $("snScan").addEventListener("click", () => snFastStart());       // static/snfast.js
   $("snScanEl").checked = !!snCfg().scan_el;
   $("snScanEl").addEventListener("change", () => store("sunNoiseScanEl", $("snScanEl").checked ? "1" : ""));
   $("snRotSet").addEventListener("click", () => openSetPage("rotor"));
@@ -22599,48 +22540,62 @@ function snRenderButtons() {
   $("snStart").disabled = !!snRun;
   $("snPoint").disabled = !!snRun;
   $("snScan").disabled = !!snRun;
-  $("snStop").disabled = !snRun;
-  $("snRunB").classList.toggle("lit", !!snRun);
-  $("snRunV").textContent = snRun ? (snRun.scan ? "scanning…" : "measuring…") : "idle";
-  $("snRunSub").textContent = snRun ? (snLog[0] ? snLog[0].text : "") : "";
+  // RUN = the Y-factor measurement, SUN SCAN = the pointing scan: each block shows only its own run
+  const meas = !!snRun && !snRun.scan, scan = !!snRun && !!snRun.scan, last = snLog[0] ? snLog[0].text : "";
+  $("snStop").disabled = !meas;
+  $("snRunB").classList.toggle("lit", meas);
+  $("snRunV").textContent = meas ? "measuring…" : "idle";
+  $("snRunSub").textContent = meas ? last : "";
+  $("snScanStop").disabled = !scan;
+  $("snScanRunB").classList.toggle("lit", scan);
+  $("snScanV").textContent = scan ? "scanning…" : "idle";
+  $("snScanSub").textContent = scan ? last : "pointing error of the rotor calibration";
 }
 
 function snRenderLive() {
-  if (!document.getElementById("snSunPos")) return;
+  if (!document.getElementById("snFreqV")) return;
   const f = snFreq(), c = snCfg();
   $("snFreqV").textContent = `${fmtMHz(f, 3)} MHz`;
-  $("snFreqSub").textContent = `${active ? `VFO ${active.name}` : "VFO"} · ${st ? st.mode : ""} · S-meter of its filter`;
-  const g = snGainProblem();
-  $("snGainV").textContent = g ? (st && st.smart_agc ? "AGC+ on" : st && st.gain === "auto" ? "AGC on" : "no VFO") : `fixed ${st ? st.gain : ""}`;
-  $("snGainSub").textContent = g ? "a fixed gain is needed: AGC / AGC+ off" : "ready";
-  $("snGainB").classList.toggle("lit", !g);
-  $("snGainB").classList.toggle("warn", !!g);
+  $("snFreqSub").textContent = `${active ? `VFO ${active.name}` : "VFO"} · ${st ? st.mode : ""} · noise of the whole band`;
+  snGainWatch();
   const i = snInfo;
   if (!i) return;
-  const pos = (p) => `AZ ${p.az.toFixed(1)}° · EL ${p.el.toFixed(1)}°`;
-  $("snSunPos").textContent = pos(i.sun);
-  $("snSunSub").textContent = `${i.sun.el < 0 ? "below the horizon · " : ""}${c.sfu ? `${i.sfu} SFU typed in` : `${i.sfu_est} SFU at ${fmtMHz(f, 0)} MHz from SFI ${i.f107 != null ? Math.round(i.f107) : "? (minimum 70)"}`}`;
+  // the Sun position is in the ROTOR block (SUN row and the icon); its flux goes under the frequency
+  $("snSfuSub").textContent = `Sun ${c.sfu ? `${i.sfu} SFU typed in` : `${i.sfu_est} SFU at ${fmtMHz(f, 0)} MHz from SFI ${i.f107 != null ? Math.round(i.f107) : "? (minimum 70)"}`}`;
   if (document.getElementById("snSfu")) $("snSfu").placeholder = String(i.sfu_est);
-  $("snSunB").classList.toggle("lit", i.sun.el >= 15);
-  $("snSunB").classList.toggle("warn", i.sun.el >= 0 && i.sun.el < 15);
-  $("snSunB").classList.toggle("off", i.sun.el < 0);
+  const sunLow = i.sun.el < 0 ? "the Sun is below the horizon" : i.sun.el < 15 ? "the Sun is under 15°: the ground noise gets in" : "";
+  $("snSunWarn").textContent = sunLow;
+  $("snSunWarn").hidden = !sunLow;
   $("snHead").textContent = i.located ? "" : "station location not set (SETTINGS › GENERAL › LOCATION): the positions are wrong";
   $("snHead").classList.toggle("error", !i.located);
 }
 
 /** ROTOR block: connected, where it is, and whether the path SAT TRACKER → ROTOR is linked. */
 function snRenderRotor() {
-  if (!document.getElementById("snRotV")) return;
+  if (!document.getElementById("snLinkC")) return;
   const r = snRot;
   const link = !!(r && r.links && r.links.sat);
   const refusal = r ? satDialRefusal(r) : "rotor state not known yet";
-  $("snRotV").textContent = r && r.connected && r.az != null ? `AZ ${Math.round(r.az)}°${r.el != null ? ` · EL ${Math.round(r.el)}°` : " (no EL)"}` : "not connected";
   const lc = $("snLinkC");
   lc.textContent = `SAT TRACKER → ROTOR ${link ? "LINKED" : "OPEN"}`;
   lc.className = `sdg-c ${link ? "on" : "bad"}`;
   $("snRotSub").textContent = !link ? "open in RCTRL › SETTINGS: SUN NOISE cannot move the rotor" : refusal || "ready";
   $("snRotB").classList.toggle("lit", link && !refusal);
   $("snRotB").classList.toggle("warn", !link || !!refusal);
+}
+
+// ---------- SUN NOISE › ROTOR · AZ / EL: the rotor dial (rotdial.js) with the Sun on the plots ----------
+// Under the numbers: a warning when the Sun is low, the path SAT TRACKER → ROTOR (SUN NOISE moves the rotor through it).
+function snDialOpts() {
+  return {
+    mark: { cap: "SUN", cls: "sun", ico: ROT_MK_SUN, title: "The Sun now", at: () => (snInfo ? snInfo.sun : null) },
+    extra: `<small class="warn" id="snSunWarn" hidden></small>
+      <div class="chips"><span class="sdg-c" id="snLinkC" title="RCTRL › SETTINGS: the path SAT TRACKER → ROTOR. SUN NOISE moves the rotor through it">SAT TRACKER → ROTOR</span>
+        <button class="key small" id="snRotSet" title="Open RCTRL › SETTINGS (the connection of the sources to the rotor)">RCTRL</button></div>
+      <small id="snRotSub"></small>`,
+    say: (t) => snSay(t, true),
+    onStop: () => { if (snRun) snRun.abort("stopped"); },
+  };
 }
 
 function snRenderResult() {
@@ -22653,7 +22608,7 @@ function snRenderResult() {
   $("snResB").classList.add("lit");
   el.innerHTML = `<div class="sn-big"><span>Y <b>${r.y.toFixed(2)} dB</b> <i>± ${r.spread.toFixed(2)}</i></span><span>G/T <b>${gt == null ? "–" : gt.toFixed(1) + " dB/K"}</b></span>${r.partial ? `<i>after ${r.cycles.length} of ${r.of} cycles…</i>` : r.cycles.length < r.of ? `<i>${r.cycles.length} of ${r.of} cycles</i>` : ""}</div>
     <small>${r.body === "sun" ? `the Sun, ${r.sfu} SFU ${r.sfu_typed ? "typed in" : "from SFI"}${r.el != null ? `, EL ${r.el.toFixed(0)}°` : ""}` : `the Moon, ${r.moon_t_k} K, ${Math.round(r.range_km).toLocaleString()} km`} · ${fmtMHz(r.f, 3)} MHz · ${new Date(r.t * 1000).toLocaleString()}</small>
-    <table class="sn-tbl"><thead><tr><th>Cycle</th><th class="num">ON dB</th><th class="num">OFF dB</th><th class="num">Y dB</th></tr></thead><tbody>${rows}</tbody></table>`;
+    <div class="sn-tblbox"><table class="sn-tbl"><thead><tr><th>Cycle</th><th class="num">ON dB</th><th class="num">OFF dB</th><th class="num">Y dB</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   $("snCmt").innerHTML = snComment(r, gt);
 }
 
@@ -22724,22 +22679,25 @@ async function snGoto(az, el, run) {
       rotorInfo = snRot = i;
       snRenderRotor();
       const daz = Math.abs(((i.az - tgt[0] + 540) % 360) - 180), del = hasEl ? Math.abs(i.el - tgt[1]) : 0;
-      if (daz <= 2 && del <= 2) return tgt;
-      // stopped close to the target (the controller's own tolerance, a 1° step): good enough within 5°
-      still = last && Math.abs(i.az - last.az) < 0.3 && (!hasEl || Math.abs(i.el - last.el) < 0.3) ? still + 1 : 0;
+      // standing: under 0.6° a second (the readings jitter a little also when the antenna stands)
+      still = last && Math.abs(i.az - last.az) < 0.6 && (!hasEl || Math.abs(i.el - last.el) < 0.6) ? still + 1 : 0;
       last = i;
-      if (still >= 4 && daz <= 5 && del <= 5) { snSay(`rotor stopped at AZ ${i.az.toFixed(1)}° EL ${hasEl ? i.el.toFixed(1) : "–"}° (target ${tgt[0]}° / ${tgt[1]}°), measuring there`); return tgt; }
+      // within the rotor's tolerance (rotor.py moves only for an error over 5°) and no longer moving (it coasts
+      // 1–2° after a stop): measured where it stands, the offset of the point is its real position
+      if (daz <= SN_ROT_TOL && del <= SN_ROT_TOL && still >= 2) return tgt;
+      // standing still for long outside the tolerance (an end stop, the elevation at 0°): measured there too
+      if (still >= 6) { snSay(`rotor stands at AZ ${i.az.toFixed(1)}° EL ${hasEl ? i.el.toFixed(1) : "–"}° (target ${tgt[0]}° / ${tgt[1]}°), measuring there`); return tgt; }
       if (Date.now() - told > 10000) { told = Date.now(); snSay(`waiting for the rotor: AZ ${i.az.toFixed(1)}° EL ${hasEl ? i.el.toFixed(1) : "–"}° → ${tgt[0]}° / ${tgt[1]}°`); }
     } else if (Date.now() - told > 10000) { told = Date.now(); snSay("waiting for the rotor: no answer from the receiver"); }
     if (Date.now() - t0 > 120000) throw new Error("the rotor did not get there in 2 minutes");
   }
 }
-/** Average S-meter power (dB) over `secs` seconds, in linear power. */
+/** Average noise power of the whole band (dB) over `secs` seconds, in linear power. */
 async function snAverage(secs, run) {
   let sum = 0, n = 0;
   snCollect = (db) => { if (Number.isFinite(db)) { sum += 10 ** (db / 10); n++; } };
   try { await snSleep(secs * 1000, run); } finally { snCollect = null; }
-  if (n < 3) throw new Error("no S-meter readings: is the active VFO running?");
+  if (n < 3) throw new Error("no readings of the noise: is the active VFO running (its server restarted since 1.1rc2)?");
   return 10 * Math.log10(sum / n);
 }
 async function snBodyNow(c) {
@@ -22762,6 +22720,22 @@ async function snPoint() {
     await rotorPost({ source: "sat", goto: [Math.round(p.az * 10) / 10 % 360, info.el != null ? Math.round(Math.max(0, p.el) * 10) / 10 : 0] });
     snSay(`rotor → AZ ${p.az.toFixed(1)}° EL ${p.el.toFixed(1)}°`);
   } catch (e) { snSay(e.message, true); }
+}
+/** RF GAIN block of SUN NOISE from the VFO state (called by onStatus too, so a switch of AGC shows at once).
+ *  AGC or AGC+ on: the block is red and the AD shows a message (once per switch-on, while the page is open). */
+var snAgcWas = "";
+function snGainWatch() {
+  const shown = amsatPage === "sun" && amsatTabShown() && !!document.getElementById("snGainV");
+  const agc = !st ? "" : st.smart_agc ? "AGC+" : st.gain === "auto" ? "AGC" : "";
+  if (!shown) { snAgcWas = ""; return; }
+  if (agc && agc !== snAgcWas) adError(`SUN NOISE: ${agc} is on. Switch it off and set a fixed RF gain, the Y factor is wrong with ${agc}.`);
+  snAgcWas = agc;
+  const g = snGainProblem();
+  $("snGainV").textContent = agc ? `${agc} on` : g ? "no VFO" : `fixed ${st.gain}`;
+  $("snGainSub").textContent = agc ? `switch ${agc} off: a fixed gain is needed` : g || "ready";
+  $("snGainB").classList.toggle("lit", !g);
+  $("snGainB").classList.toggle("bad", !!agc);
+  $("snGainB").classList.toggle("warn", !!g && !agc);
 }
 function snGainProblem() {
   if (!st) return "no VFO";
@@ -22831,98 +22805,54 @@ renderAudioBlocks();
 
 // ---------- SUN NOISE › SCAN: the beam across the Sun -> the pointing error, applied to the rotor calibration on request ----------
 var snScan = null;           // the last scan {az: {pts, fit}, el: {pts, fit}, f, t, cal}
-var SN_SCAN_SPAN = 20, SN_SCAN_STEP = 2.5, SN_SCAN_MAX = 60;
+var SN_SCAN_MAX = 60;
+var SN_ROT_TOL = 5.5;     // the rotor's own tolerance (DEADBAND_DEG 5° of rotor.py) plus the jitter of the reading
 
-async function snScanStart() {
-  if (snRun) return;
-  const c = snSaveCfg();
-  const g = snGainProblem();
-  if (g) { snSay(g, true); return; }
-  const run = { why: "", cycles: [], f: snFreq(), vfo: active, scan: true };
-  run.abort = (why) => { run.why = why; if (run.onAbort) run.onAbort(); };
-  snRun = run;
-  snRenderButtons();
-  const dwell = Math.max(5, c.dwell);
-  snScan = { f: run.f, t: Date.now() / 1000, az: null, el: null };
-  try {
-    for (const axis of c.scan_el ? ["az", "el"] : ["az"]) {
-      const pts = [];
-      snScan[axis] = { pts, fit: null };
-      let p = await snBodyNow(c);
-      const offs = [];
-      for (let o = -SN_SCAN_SPAN; o <= SN_SCAN_SPAN + 1e-9; o += SN_SCAN_STEP) if (axis === "az" || p.el + o >= 0) offs.push(o);
-      snSay(`SCAN ${axis.toUpperCase()}: ${offs.length} points ±${SN_SCAN_SPAN}° around the Sun, ${dwell} s each`);
-      const point = async (o) => {
-        if (snFreq() !== run.f || active !== run.vfo) throw new Error("the frequency or the VFO changed");
-        p = await snBodyNow(c);
-        await snGoto(axis === "az" ? p.az + o : p.az, axis === "el" ? p.el + o : p.el, run);
-        await snSleep(1500, run);
-        const db = await snAverage(dwell, run);
-        if (snGainProblem()) throw new Error(snGainProblem());
-        const now = await snBodyNow(c), r = snRot || {};
-        // the offset where the rotor really stood, against the Sun at that moment
-        const x = axis === "az" ? ((r.az - now.az + 540) % 360) - 180 : r.el - now.el;
-        pts.push({ x: Number.isFinite(x) ? x : o, db });
-        pts.sort((a, b) => a.x - b.x);
-        snSay(`${axis.toUpperCase()} ${x >= 0 ? "+" : ""}${(Number.isFinite(x) ? x : o).toFixed(1)}°: ${db.toFixed(2)} dB`);
-        snRenderScan();
-      };
-      for (const o of offs) await point(o);
-      let lo = offs[0], hi = offs[offs.length - 1];
-      snScan[axis].fit = await snScanFit(pts);
-      // the peak at an edge (a large calibration error): go on beyond that edge, 15° at a time, up to ±60°
-      for (let ext = 0; ext < 3 && !snScan[axis].fit.ok && /edge/.test(snScan[axis].fit.why || ""); ext++) {
-        const top = pts.reduce((a, b) => (b.db > a.db ? b : a));
-        const side = top.x < (lo + hi) / 2 ? -1 : 1;
-        if ((side < 0 ? lo : hi) * side >= SN_SCAN_MAX) break;
-        snSay(`SCAN ${axis.toUpperCase()}: the peak is near the ${side < 0 ? "lower" : "upper"} edge, scanning 15° further`);
-        snRenderScan();
-        for (let k = 1; k <= 6; k++) {
-          const o = (side < 0 ? lo : hi) + side * SN_SCAN_STEP;
-          if (Math.abs(o) > SN_SCAN_MAX || (axis === "el" && p.el + o < 0)) break;
-          if (side < 0) lo = o; else hi = o;
-          await point(o);
-        }
-        snScan[axis].fit = await snScanFit(pts);
-      }
-      snRenderScan();
-      const ft = snScan[axis].fit;
-      snSay(ft && ft.ok ? `SCAN ${axis.toUpperCase()}: error ${ft.x0 >= 0 ? "+" : ""}${ft.x0.toFixed(1)}° ± ${ft.sigma.toFixed(1)}°, beam ${ft.width.toFixed(0)}°, peak ${ft.peak_db.toFixed(2)} dB`
-        : `SCAN ${axis.toUpperCase()}: ${(ft && ft.why) || "no fit"}`, !(ft && ft.ok));
-    }
-    snScan.cal = (await snRotor() || {}).az_cal || null;
-  } catch (e) {
-    snSay(`scan ended: ${e.message}`, true);
-    if (run.why === "stopped") rotorPost({ stop: true });
-  } finally {
-    snRun = null;
-    snCollect = null;
-    snRenderButtons();
-    snRenderScan();
-  }
+/** An elevation scan needs the Sun clear of the ground: the lower part of the beam on the warm ground makes a slope
+ *  the fit cannot take apart from the Sun (simulated: under ~1.3 beam widths the error is several degrees). "" = OK. */
+function snElTooLow(sunEl) {
+  const ft = snScan && snScan.az && snScan.az.fit, w = ft && ft.ok ? ft.width : 30, min = 1.3 * w;
+  return sunEl < min ? `ELEVATION not scanned: the Sun is ${sunEl.toFixed(0)}° high, under ${min.toFixed(0)}° (1.3 beam widths) ` +
+    "the lower part of the beam sees the warm ground and the fit is wrong. Scan the elevation when the Sun is higher " +
+    "(around noon, about March to September)" : "";
 }
-
-async function snScanFit(pts) {
+/** The beam fitted to the scan points (sunnoise.fit_scan). slope: a baseline with a slope (the elevation: the ground
+ *  seen by the lower part of the beam). */
+async function snScanFit(pts, slope) {
   try {
     const r = await snFetch(rotorBase() + "/api/sunnoise/fit", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ x: pts.map((q) => q.x), db: pts.map((q) => q.db) }) });
+      body: JSON.stringify({ x: pts.map((q) => q.x), db: pts.map((q) => q.db), slope: !!slope }) });
     return await r.json();
   } catch (e) { return { ok: false, why: e.message }; }
 }
 
-/** The scan as a small chart (noise against the offset, the fitted beam) and the result with APPLY. */
 function snRenderScan() {
   const box = document.getElementById("snScanR");
   if (!box) return;
-  $("snScanB").hidden = !snScan;
-  if (!snScan) return;
+  $("snScanB").classList.toggle("lit", !!snScan);
+  if (!snScan) {     // the block stays in place, ready for the result
+    box.innerHTML = `<span class="v">no scan yet</span><small>SCAN sweeps the antenna across the Sun there and back and fits the beam:
+      the pointing error of the rotor calibration, with a chart of each axis and APPLY.</small>`;
+    return;
+  }
+  // the charts fill the block: as wide as it, the height shared by the axes (room left for the text under each chart);
+  // drawn in real pixels (viewBox = size), again when the block changes its size
+  if (!box._ro) {
+    box._ro = new ResizeObserver(() => {
+      const k = `${box.clientWidth}x${box.clientHeight}`;
+      if (k !== box._sz) { box._sz = k; requestAnimationFrame(snRenderScan); }
+    });
+    box._ro.observe(box);
+  }
+  const nAx = ["az", "el"].filter((k) => snScan[k] && snScan[k].pts.length).length || 1;
+  const fitW = Math.max(220, box.clientWidth - 14), fitH = snRenderScan.fitH || Math.min(300, Math.max(90, ((box.clientHeight || 300) - 20) / nAx - 64));
   const parts = [];
   for (const axis of ["az", "el"]) {
     const a = snScan[axis];
     if (!a || !a.pts.length) continue;
-    const W = 300, H = 110, L = 30, B = 16, ft = a.fit && a.fit.ok ? a.fit : null;
+    const W = Math.round(fitW), H = Math.round(fitH), L = 30, B = 16, ft = a.fit && a.fit.ok ? a.fit : null;
     const lo = Math.min(...a.pts.map((q) => q.db)), hi = Math.max(lo + 0.5, ...a.pts.map((q) => q.db));
-    const x0 = Math.min(-SN_SCAN_SPAN, ...a.pts.map((q) => q.x)) - 2, x1 = Math.max(SN_SCAN_SPAN, ...a.pts.map((q) => q.x)) + 2;
+    const sp = snCfg().scan_span, x0 = Math.min(-sp, ...a.pts.map((q) => q.x)) - 2, x1 = Math.max(sp, ...a.pts.map((q) => q.x)) + 2;
     const X = (x) => L + (x - x0) / (x1 - x0) * (W - L - 4);
     const Y = (db) => 4 + (1 - (db - lo) / (hi - lo)) * (H - B - 8);
     let curve = "";
@@ -22938,31 +22868,67 @@ function snRenderScan() {
     const tk = [];
     for (let t = Math.ceil(x0 / 10) * 10; t <= x1; t += 10) tk.push(t);
     const ticks = tk.map((t) => `<line class="sn-grid" x1="${X(t)}" x2="${X(t)}" y1="4" y2="${H - B}"/><text x="${X(t)}" y="${H - 4}" text-anchor="middle">${t > 0 ? "+" : ""}${t}°</text>`).join("");
-    const dots = a.pts.map((q) => `<circle cx="${X(q.x).toFixed(1)}" cy="${Y(q.db).toFixed(1)}" r="2.6"/>`).join("");
+    const dots = a.pts.map((q) => `<circle class="${q.dir < 0 ? "sn-back" : ""}" cx="${X(q.x).toFixed(1)}" cy="${Y(q.db).toFixed(1)}" r="2.6"/>`).join("");
     const mark = ft ? `<line class="sn-peak" x1="${X(ft.x0)}" x2="${X(ft.x0)}" y1="4" y2="${H - B}"/>` : "";
-    const svg = `<svg class="sn-chart" viewBox="0 0 ${W} ${H}"><text x="2" y="12">+${(hi - lo).toFixed(1)}</text><text x="2" y="${H - B}">0 dB</text>${ticks}${curve}${mark}${dots}</svg>`;
+    const svg = `<svg class="sn-chart" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}"><text x="2" y="12">+${(hi - lo).toFixed(1)}</text><text x="2" y="${H - B}">0 dB</text>${ticks}${curve}${mark}${dots}</svg>`;
     let txt;
     if (!a.fit) txt = `<small>${a.pts.length} points…</small>`;
     else if (!ft) txt = `<span class="warn">${escHtml(a.fit.why || "no fit")}</span>`;
     else {
-      const sure = Math.abs(ft.x0) > 2 * ft.sigma;
+      const sure = Math.abs(ft.x0) > 2 * ft.sigma, dr = a.dirs, lagBad = !!(dr && (dr.bad || dr.why));     // dirs: only in scans made there and back (older)
       txt = `<span class="v">${axis.toUpperCase()} error ${ft.x0 >= 0 ? "+" : ""}${ft.x0.toFixed(1)}° <i>± ${ft.sigma.toFixed(1)}°</i></span>
         <small>beam ${ft.width.toFixed(0)}° (−3 dB${axis === "az" ? ", in azimuth degrees" : ""}) · peak ${ft.peak_db.toFixed(2)} dB · the rotor reads ${Math.abs(ft.x0).toFixed(1)}° too ${ft.x0 >= 0 ? "high" : "low"} on the Sun
         ${sure ? "" : " · within the uncertainty: no correction needed"}</small>`;
-      if (axis === "az" && sure && snScan.cal && !snRun)
-        txt += `<div class="sn-apply"><button class="key small" id="snApply">APPLY TO ROTOR CALIBRATION</button>
+      if (dr && dr.why) txt += `<small class="warn">there and back could not be fitted apart (${escHtml(dr.why)}): the lag is not checked, not applied – scan again</small>`;
+      else if (dr) txt += `<small class="${lagBad ? "warn" : ""}">● there ${dr.there >= 0 ? "+" : ""}${dr.there.toFixed(1)}° · ● back ${dr.back >= 0 ? "+" : ""}${dr.back.toFixed(1)}°` +
+        ` (difference ${dr.d.toFixed(1)}°${dr.lag_s != null ? `, lag ${dr.lag_s.toFixed(2)} s` : ""})${lagBad ? (a.fast ? ": a lag over 3 s, something is wrong; not applied" : ": too different; not applied") : ": the lag cancelled"}</small>`;
+      // where the rotor stood at the peak and where the Sun was: a peak that stays at one rotor azimuth while the Sun
+      // moves (scans some time apart) is a noise source on the ground, not the Sun
+      if (a.sun != null) { const pk = axis === "az" ? ((a.sun + ft.x0) % 360 + 360) % 360 : a.sun + ft.x0;
+        txt += `<small>peak at rotor ${axis.toUpperCase()} ${pk.toFixed(1)}° · the Sun at ${a.sun.toFixed(1)}° (at the start of the scan)</small>`; }
+      if (axis === "az" && sure && !lagBad && snScan.cal && !snRun)
+        txt += `<div class="sn-apply"><button class="key small" id="snApply" data-axis="az">APPLY TO ROTOR CALIBRATION</button>
           <small>AZ calibration ${snScan.cal[0].toFixed(1)}° / ${snScan.cal[1].toFixed(1)}° → ${(snScan.cal[0] - ft.x0).toFixed(1)}° / ${(snScan.cal[1] - ft.x0).toFixed(1)}° (RCTRL › SETTINGS)</small></div>`;
-      if (axis === "el" && sure) txt += `<small class="warn">Elevation is calibrated in the K3NG controller itself (its EL calibration), not here.</small>`;
+      if (axis === "el" && sure && !lagBad && snScan.elOff != null && !snRun)
+        txt += `<div class="sn-apply"><button class="key small" id="snApplyEl" data-axis="el">APPLY TO ROTOR CALIBRATION</button>
+          <small>EL offset ${snScan.elOff >= 0 ? "+" : ""}${snScan.elOff.toFixed(1)}° → ${snScan.elOff - ft.x0 >= 0 ? "+" : ""}${(snScan.elOff - ft.x0).toFixed(1)}° (RCTRL › SETTINGS)</small></div>`;
     }
     parts.push(`<div class="sn-scan-ax"><b>${axis === "az" ? "AZIMUTH" : "ELEVATION"}</b>${svg}${txt}</div>`);
   }
+  if (!snScan.el && snScan.elSkip) parts.push(`<div class="sn-scan-ax"><b>ELEVATION</b><small class="warn">${escHtml(snScan.elSkip)}</small></div>`);
+  else if (!snScan.el && !snRun) parts.push(`<div class="sn-scan-ax"><b>ELEVATION</b><small>not scanned: tick <b>EL</b> beside SCAN to scan the elevation too</small></div>`);
   box.innerHTML = parts.join("") + `<small>${fmtMHz(snScan.f, 3)} MHz · ${new Date(snScan.t * 1000).toLocaleString()}</small>`;
-  const ap = document.getElementById("snApply");
-  if (ap) ap.addEventListener("click", snScanApply);
+  // too tall for the block (the text under the charts): the charts shrink by the overflow, once
+  if (!snRenderScan.again && box.scrollHeight > box.clientHeight + 1 && nAx) {
+    const over = box.scrollHeight - box.clientHeight;
+    snRenderScan.fitH = Math.max(80, fitH - Math.ceil(over / nAx) - 2);
+    snRenderScan.again = true;
+    try { snRenderScan(); } finally { snRenderScan.again = false; snRenderScan.fitH = 0; }
+    return;
+  }
+  for (const id of ["snApply", "snApplyEl"]) {
+    const ap = document.getElementById(id);
+    if (ap) ap.addEventListener("click", () => snScanApply(ap.dataset.axis));
+  }
 }
 
-/** Shifts the AZ calibration of the rotor by the error found (the scale stays), after a confirmation. */
-async function snScanApply() {
+/** Shifts the AZ calibration (the scale stays) or the EL offset of the rotor by the error found, after a confirmation. */
+async function snScanApply(axis) {
+  if (axis === "el") {
+    const ft = snScan && snScan.el && snScan.el.fit, off = snScan && snScan.elOff;
+    if (!ft || !ft.ok || off == null) return;
+    const no = Math.round((off - ft.x0) * 10) / 10, sg = (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}°`;
+    if (!confirm(`Correct the rotor elevation by ${ft.x0 >= 0 ? "−" : "+"}${Math.abs(ft.x0).toFixed(1)}°?\n\n` +
+      `EL offset (true elevation = K3NG elevation + offset): ${sg(off)} → ${sg(no)}\n\n` +
+      "The rotor then shows the elevation where the antenna really points. RCTRL › SETTINGS shows and edits the offset.")) return;
+    snSay(`rotor EL offset ${sg(off)} → ${sg(no)}`);
+    await rotorPost({ el_off: no });
+    snScan.elOff = null;          // applied: the button goes, a new scan checks it
+    snRot = await snRotor() || snRot;
+    snRenderRotor();
+    snRenderScan();
+    return;
+  }
   const ft = snScan && snScan.az && snScan.az.fit, cal = snScan && snScan.cal;
   if (!ft || !ft.ok || !cal) return;
   const nc = [Math.round((cal[0] - ft.x0) * 10) / 10, Math.round((cal[1] - ft.x0) * 10) / 10];
@@ -22985,7 +22951,7 @@ const MT_SHOWERS = [["01-04", "QUA", "Quadrantids"], ["04-22", "LYR", "Lyrids"],
   ["06-07", "ARI", "Arietids (daytime)"], ["06-09", "ZPE", "ζ Perseids (daytime)"], ["08-12", "PER", "Perseids"],
   ["10-08", "DRA", "Draconids"], ["10-21", "ORI", "Orionids"], ["11-17", "LEO", "Leonids"], ["12-14", "GEM", "Geminids"],
   ["12-22", "URS", "Ursids"]];
-const MT_KIND = { under: ["UNDERDENSE", "mt-under"], over: ["OVERDENSE", "mt-over"], plane: ["AIRCRAFT", "mt-plane"] };
+const MT_KIND = { under: ["UNDERDENSE", "mt-under", "UNDER"], over: ["OVERDENSE", "mt-over", "OVER"], plane: ["AIRCRAFT", "mt-plane", "PLANE"] };   // [name, class, short name in the table]
 const MT_GRAVES = 143050000, MT_DIAL = 143049000;
 var mtData = null, mtBusy = false, mtLastEv = "", mtRot = null, mtRotAt = 0, mtRotMsg = "";
 const mtShown = () => !MAP_ONLY && bodyTab === "dec" && decPage === "meteor";
@@ -22999,14 +22965,128 @@ function mtStatus(s) {
 function mtReset() {
   mtData = null; mtLastEv = "";
   $("mtRows").innerHTML = ""; $("mtEmpty").hidden = false;
+  mtDetClose();
   for (const id of ["mtScope", "mtHours", "mtDays"]) $(id).innerHTML = "";
-  $("mtStats").innerHTML = "";
+  $("mtStats").innerHTML = mtStatsHtml(null);
+  mtWf = mtWfNew();
+  mtWfDraw(0);
+}
+
+// ---------- METEORS › the small waterfall: ±500 Hz around the carrier (the whole watched band), 2 minutes, the same time axis as the chart under it ----------
+// The server keeps one column per scope point (4 a second) of dB over the floor (uint8, 0..30 dB); only the new ones are fetched.
+// The time shown (30 s … 1 h, remembered): the server sends columns k of span/480 s buckets (the max of each); the
+// newest one may still grow and is replaced.
+const MT_SPANS = { 30: "30 SECONDS", 60: "1 MINUTE", 120: "2 MINUTES", 600: "10 MINUTES", 3600: "1 HOUR" };
+const mtSpan = () => (MT_SPANS[recall("mtSpan")] ? Number(recall("mtSpan")) : 120);
+const mtWfNew = (base = null, span = 0) => ({ base, span, last: -1, b: 0.25, hz: "", cols: new Map(), img: null, kA: 0, srvNow: 0, perfAt: 0 });
+var mtWf = mtWfNew();
+function mtSpanShow() {
+  $("mtSpanT").textContent = MT_SPANS[mtSpan()];
+  for (const k of $("mtSpans").querySelectorAll("[data-span]")) k.classList.toggle("on", Number(k.dataset.span) === mtSpan());
+}
+$("mtSpans").addEventListener("click", (e) => {
+  const k = e.target.closest("[data-span]");
+  if (!k) return;
+  store("mtSpan", k.dataset.span);
+  mtSpanShow();
+  mtWf = mtWfNew();
+  if (active) mtLoad(active);
+});
+mtSpanShow();
+// Smooth like the main waterfall: the columns are fetched every 250 ms into an image (one pixel per column, built only when
+// data come), and every animation frame draws it moved by the time since the last answer of the server, a little in the
+// past (MT_WF_LAG) so the newest column is already there. The whole history scrolls by whole screen pixels, not by columns.
+const MT_WF_LAG = 1.2;      // over the 1 s of the chart's answers too: the curve reaches the right edge between them
+/** The moment shown at the right edge of the waterfall and the chart (server time, a little in the past), null before data. */
+function mtWfClock() {
+  return mtWf.srvNow ? mtWf.srvNow + (performance.now() - mtWf.perfAt) / 1000 - MT_WF_LAG : null;
+}
+var mtWfBusy = false, mtWfRaf = 0;
+async function mtWfLoad(v) {
+  if (!v || mtWfBusy) return;
+  const span = mtSpan();
+  if (mtWf.base !== v.base || mtWf.span !== span) mtWf = mtWfNew(v.base, span);
+  mtWfBusy = true;
+  try {
+    const j = await fetch(v.base + `/api/meteors/wf?span=${span}&since=${mtWf.last}`).then((r) => r.json());
+    if (mtWf.base !== v.base || mtWf.span !== span) return;          // switched meanwhile
+    const hz = j.hz.length ? `${j.hz[0]}:${j.hz[j.hz.length - 1]}:${j.hz.length}` : "";
+    if (hz !== mtWf.hz || j.bucket_s !== mtWf.b) { mtWf.hz = hz; mtWf.b = j.bucket_s; mtWf.cols = new Map(); }   // retuned: the old ones do not fit
+    for (const [k, b] of j.cols) {
+      const raw = atob(b), col = new Uint8Array(raw.length);
+      for (let i = 0; i < raw.length; i++) col[i] = raw.charCodeAt(i);
+      mtWf.cols.set(k, col);
+      mtWf.last = Math.max(mtWf.last, k);
+    }
+    mtWf.srvNow = j.now;
+    mtWf.perfAt = performance.now();
+    const kCut = Math.floor((j.now - span) / mtWf.b) - 4;
+    for (const k of mtWf.cols.keys()) if (k < kCut) mtWf.cols.delete(k);
+    if (j.cols.length || !mtWf.img) mtWfBuild();
+    if (!mtWfRaf) mtWfRaf = requestAnimationFrame(mtWfFrame);
+  } catch { /* server unreachable: the waterfall stays */ } finally { mtWfBusy = false; }
+}
+/** The image of the columns kA … kA + width − 1 (the shown span and a few more on both sides). */
+function mtWfBuild() {
+  const first = mtWf.cols.values().next().value, nb = first ? first.length : 128;
+  const b = mtWf.b, W = Math.max(1, Math.round(mtSpan() / b)), n = W + 8;
+  const kA = Math.floor((mtWf.srvNow || 0) / b) - W - 4;
+  const img = mtWf.img && mtWf.img.width === n && mtWf.img.height === nb ? mtWf.img : Object.assign(document.createElement("canvas"), { width: n, height: nb });
+  const ctx = img.getContext("2d"), data = ctx.createImageData(n, nb), px = data.data;
+  for (let i = 0; i < n * nb; i++) { px[i * 4] = LUT[0]; px[i * 4 + 1] = LUT[1]; px[i * 4 + 2] = LUT[2]; px[i * 4 + 3] = 255; }
+  for (const [k, col] of mtWf.cols) {
+    const x = k - kA;
+    if (x < 0 || x >= n || col.length !== nb) continue;
+    for (let q = 0; q < nb; q++) {
+      const v = Math.max(0, Math.min(255, (col[q] - 25) * 1.12)) | 0;     // under ~3 dB = the noise: dark
+      const o = ((nb - 1 - q) * n + x) * 4;                                // Doppler up
+      px[o] = LUT[v * 3]; px[o + 1] = LUT[v * 3 + 1]; px[o + 2] = LUT[v * 3 + 2];
+    }
+  }
+  ctx.putImageData(data, 0, 0);
+  mtWf.img = img;
+  mtWf.kA = kA;
+}
+function mtWfFrame() {
+  mtWfRaf = 0;
+  const cv = document.getElementById("mtWf");
+  if (!cv || !mtShown() || document.hidden) return;          // starts again with the next answer
+  mtWfRaf = requestAnimationFrame(mtWfFrame);
+  const w = Math.max(1, Math.round(cv.clientWidth * (window.devicePixelRatio || 1))), h = Math.max(1, Math.round(cv.clientHeight * (window.devicePixelRatio || 1)));
+  if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+  const ctx = cv.getContext("2d");
+  ctx.fillStyle = `rgb(${LUT[0]},${LUT[1]},${LUT[2]})`;
+  ctx.fillRect(0, 0, w, h);
+  if (!mtWf.img || !mtWf.srvNow) return;
+  const span = mtSpan(), b = mtWf.b, t1 = mtWfClock();
+  mtScopeShift(t1);
+  const colPx = w / (span / b), left = (t1 - span) / b;                    // the column index at the left edge (fractional)
+  const x0 = Math.round((mtWf.kA - left) * colPx);                         // whole screen pixels: no blur
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(mtWf.img, x0, 0, mtWf.img.width * colPx, h);
+}
+function mtWfDraw() {          // after a reset: an empty waterfall
+  const cv = document.getElementById("mtWf");
+  if (!cv) return;
+  const ctx = cv.getContext("2d");
+  ctx.fillStyle = `rgb(${LUT[0]},${LUT[1]},${LUT[2]})`;
+  ctx.fillRect(0, 0, cv.width, cv.height);
+}
+setInterval(() => { if (mtShown() && active && !document.hidden) mtWfLoad(active); }, 250);
+/** COUNTS: five numbers, "–" before the first data (the block keeps its size). */
+function mtStatsHtml(d) {
+  const stat = (k, v, t) => `<div class="mt-stat" title="${t}"><span>${k}</span><b>${d ? v : "–"}</b></div>`;
+  return stat("HOUR", d && d.this_hour, "Meteor echoes in this UTC hour") +
+    stat("PREV", d && d.last_hour, "Meteor echoes in the previous UTC hour") +
+    stat("60 MIN", d && d.last_60min, "Meteor echoes in the last 60 minutes (rolling)") +
+    stat("TODAY", d && d.today, "Meteor echoes since 00:00 UTC") +
+    stat("PLANES", d && d.planes, "Echoes recognised as aircraft since the start (not counted)");
 }
 async function mtLoad(v) {
   if (!v || mtBusy) return;
   mtBusy = true;
   try {
-    const d = await fetch(v.base + "/api/meteors").then((r) => r.json());
+    const d = await fetch(v.base + `/api/meteors?span=${mtSpan()}`).then((r) => r.json());
     if (v === active) { mtData = d; mtRender(); }
     if (Date.now() - mtRotAt > 2000) {          // the rotor (held by one VFO for the whole station)
       mtRotAt = Date.now();
@@ -23029,17 +23109,16 @@ function mtRenderRx() {
 }
 /** ROTOR: the link METEORS → ROTOR and where GRAVES is from the QTH. */
 function mtRenderRot() {
-  if (!document.getElementById("mtRotV")) return;
+  if (!document.getElementById("mtLinkC")) return;
   const r = mtRot, p = mtData && mtData.path;
   const link = !!(r && r.links && r.links.meteor);
   const refusal = r ? satDialRefusal(r) : "rotor state not known yet";
   const has = !!(r && r.enabled !== false && r.connected);
   $("mtRotB").classList.toggle("off", !has);
-  $("mtRotV").textContent = has && r.az != null ? `AZ ${Math.round(r.az)}°${r.el != null ? ` · EL ${Math.round(r.el)}°` : ""}` : "no rotor";
   const lc = $("mtLinkC");
   lc.textContent = `METEORS → ROTOR ${link ? "LINKED" : "OPEN"}`;
   lc.className = `sdg-c ${link ? "on" : "bad"}`;
-  const to = p ? `GRAVES AZ ${Math.round(p.az)}° · EL ${Math.round(p.el)}° · ${p.km} km` : "set the QTH (SETUP › LOCATION) for the bearing";
+  const to = p ? `GRAVES ${p.km} km` : "set the QTH (SETUP › LOCATION) for the bearing";     // its AZ / EL: the GRAVES row of the dial
   $("mtRotSub").textContent = mtRotMsg || (!has ? `${to} · no rotor connected (optional)` : !link ? `${to} · open in RCTRL › SETTINGS` : refusal ? `${to} · ${refusal}` : to);
   const ok = has && link && !refusal && !!p;
   $("mtPoint").disabled = !ok;
@@ -23050,17 +23129,15 @@ function mtRender() {
   const d = mtData;
   if (!d) return;
   if (document.activeElement !== $("mtThr")) $("mtThr").value = d.threshold_db;
+  $("mtHead").checked = !!d.head;
+  $("mtHeadK").classList.toggle("warn", !!d.head && d.enabled && !d.head_hz && /listening/.test(d.status));   // on, but the VFO band is too narrow
+  if (mtDet && mtDet.d && $("mtDetCv").clientWidth !== mtDet.w) mtDetDraw();      // resized
   $("mtDetV").textContent = d.enabled ? (d.error || d.status || "listening") : "off";
   $("mtDetB").classList.toggle("lit", d.enabled && !d.error && d.status === "listening");
   $("mtDetB").classList.toggle("warn", d.enabled && (!!d.error || /outside/.test(d.status)));
-  const stat = (k, v, t) => `<div class="mt-stat" title="${t}"><span>${k}</span><b>${v}</b></div>`;
-  $("mtStats").innerHTML = stat("HOUR", d.this_hour, "Meteor echoes in this UTC hour") +
-    stat("PREV", d.last_hour, "Meteor echoes in the previous UTC hour") +
-    stat("60 MIN", d.last_60min, "Meteor echoes in the last 60 minutes (rolling)") +
-    stat("TODAY", d.today, "Meteor echoes since 00:00 UTC") +
-    stat("PLANES", d.planes, "Echoes recognised as aircraft since the start (not counted)");
+  $("mtStats").innerHTML = mtStatsHtml(d);
   $("mtCntB").classList.toggle("lit", d.enabled);
-  mtScope(d); mtHours(d); mtDays(d); mtTable(d); mtRenderRx(); mtRenderRot();
+  mtScope(d); mtHours(d); mtDays(d); mtTable(d); mtRenderRx(); mtRenderRot(); rotDialDraw("mt", rotorInfo);
 }
 /** An SVG of the real width (text is not stretched): sets the viewBox, gives the width. */
 function mtSvg(id, H) {
@@ -23068,21 +23145,37 @@ function mtSvg(id, H) {
   el.setAttribute("viewBox", `0 0 ${W} ${H}`);
   return W;
 }
+// The chart moves with the waterfall above it: the curve and the echo marks are drawn once per answer of the server in
+// a group placed for d.now, and every animation frame of the waterfall shifts that group to the same moment (mtWfClock).
+// The grid, the dB and the time labels stay.
+var mtScopeAt = null;        // {now, span, W} of the drawn group
 function mtScope(d) {
-  const H = 100, W = mtSvg("mtScope", H), t1 = d.now, t0 = t1 - 120, lo = -5, hi = 30;
-  const x = (t) => ((t - t0) / 120) * W, y = (v) => H - ((Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo)) * H;
-  let s = "";
+  const span = d.span_s || mtSpan(), H = 100, W = mtSvg("mtScope", H), t1 = d.now, t0 = t1 - span - 2, lo = -5, hi = 30;
+  const x = (t) => ((t - (t1 - span)) / span) * W, y = (v) => H - ((Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo)) * H;
+  let s = "", mv = "";
   for (const v of [0, 10, 20]) s += `<line class="mt-gl" x1="0" x2="${W}" y1="${y(v)}" y2="${y(v)}"/><text x="3" y="${y(v) - 2}">${v} dB</text>`;
   for (const e of d.events) {
     if (e.ts + e.dur < t0) continue;
     const k = MT_KIND[e.kind] || MT_KIND.under;
-    s += `<rect class="${k[1]}" x="${x(e.ts).toFixed(1)}" y="0" width="${Math.max(2, (e.dur / 120) * W).toFixed(1)}" height="${H}" opacity=".25"><title>${e.time} ${k[0]} ${e.snr} dB ${e.doppler} Hz</title></rect>`;
+    mv += `<rect class="${k[1]}" x="${x(e.ts).toFixed(1)}" y="0" width="${Math.max(2, (e.dur / span) * W).toFixed(1)}" height="${H}" opacity=".25"><title>${e.time} ${k[0]} ${e.snr} dB ${e.doppler} Hz</title></rect>`;
   }
-  s += `<line class="mt-thrl" x1="0" x2="${W}" y1="${y(d.threshold_db)}" y2="${y(d.threshold_db)}"/>`;
   const pts = d.scope.filter((p) => p[0] >= t0).map((p) => `${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join(" ");
-  if (pts) s += `<polyline class="mt-line" points="${pts}"/>`;
-  for (const m of [30, 60, 90]) s += `<text x="${x(t1 - m) + 2}" y="${H - 3}">−${m} s</text>`;
+  if (pts) mv += `<polyline class="mt-line" points="${pts}"/>`;
+  s += `<g id="mtScopeMv">${mv}</g><line class="mt-thrl" x1="0" x2="${W}" y1="${y(d.threshold_db)}" y2="${y(d.threshold_db)}"/>`;
+  for (const f of [0.25, 0.5, 0.75]) {          // three marks back from now: in s up to 2 min, in min above
+    const m = span * f;
+    s += `<text x="${((1 - f) * W + 2).toFixed(1)}" y="${H - 3}">−${span > 120 ? `${+(m / 60).toFixed(1)} min` : `${m} s`}</text>`;
+  }
   $("mtScope").innerHTML = s;
+  mtScopeAt = { now: t1, span, W };
+  const c = mtWfClock();
+  if (c != null) mtScopeShift(c);
+}
+/** Moves the curve and the echo marks to the moment t1 (the clock of the waterfall). */
+function mtScopeShift(t1) {
+  const g = document.getElementById("mtScopeMv"), a = mtScopeAt;
+  if (!g || !a) return;
+  g.setAttribute("transform", `translate(${(-((t1 - a.now) / a.span) * a.W).toFixed(2)},0)`);
 }
 function mtHours(d) {
   const H = 120, W = mtSvg("mtHours", H), B = 16, n = d.hours.length, bw = W / n;
@@ -23134,11 +23227,130 @@ function mtTable(d) {
   mtLastEv = key;
   $("mtEmpty").hidden = ev.length > 0;
   $("mtRows").innerHTML = ev.slice().reverse().map((e) => {
-    const k = MT_KIND[e.kind] || MT_KIND.under;
-    return `<tr class="${e.kind === "plane" ? "mt-dim" : ""}"><td class="utc">${e.time}</td><td class="num">${e.snr.toFixed(1)}</td><td class="num">${e.dur.toFixed(2)}</td>` +
-      `<td class="num">${e.doppler > 0 ? "+" : ""}${e.doppler}</td><td class="num">${e.drift ? e.drift.toFixed(1) : ""}</td><td><span class="mt-kind ${k[1]}">${k[0]}</span></td></tr>`;
+    const k = MT_KIND[e.kind] || MT_KIND.under, h = e.head;
+    const cls = [e.kind === "plane" ? "mt-dim" : "", mtDet && mtDet.ts === e.ts ? "sel" : ""].join(" ").trim();
+    return `<tr class="${cls}" data-ts="${e.ts}" title="Click: the detail of this echo"><td class="utc">${e.time}</td><td class="num">${e.snr.toFixed(1)}</td><td class="num">${e.dur.toFixed(2)}</td>` +
+      `<td class="num">${e.doppler > 0 ? "+" : ""}${e.doppler}</td><td class="num">${e.drift ? e.drift.toFixed(1) : ""}</td><td><span class="mt-kind ${k[1]}" title="${k[0]}">${k[2]}</span>` +
+      `${h ? `<span class="mt-hd" title="Head echo: ${h.f0 > 0 ? "+" : ""}${h.f0} → ${h.f1 > 0 ? "+" : ""}${h.f1} Hz, ${(h.slope / 1000).toFixed(1)} kHz/s, ${h.t} s before the echo">H</span>` : ""}</td></tr>`;
   }).join("");
 }
+
+// ---------- METEORS › the detail of one echo (a click on a row): /api/meteors/echo, full resolution ----------
+// The main part: ±500 Hz, one column per detector frame (~30 ms), 1 s before and after the echo. With HEAD ECHO also
+// ±5 kHz with ~15 ms frames before it, where the head echo is a steep streak ending at the trail echo.
+var mtDet = null;            // {ts, base, d (the answer) or null, msg, w (drawn width)}
+function mtDetClose() {
+  mtDet = null;
+  $("mtDet").hidden = true;
+  for (const r of $("mtRows").querySelectorAll("tr.sel")) r.classList.remove("sel");
+}
+async function mtDetOpen(ts) {
+  if (!active) return;
+  const base = active.base;
+  mtDet = { ts, base, d: null, msg: "loading…", w: 0 };
+  for (const r of $("mtRows").querySelectorAll("tr")) r.classList.toggle("sel", Number(r.dataset.ts) === ts);
+  mtDetShow();
+  try {
+    const res = await fetch(base + `/api/meteors/echo?ts=${ts}`);
+    const d = await res.json();
+    if (!mtDet || mtDet.ts !== ts) return;
+    if (res.ok) { mtDet.d = d; mtDet.msg = ""; } else mtDet.msg = d.error || "no detail";
+  } catch { if (mtDet && mtDet.ts === ts) mtDet.msg = "server not reachable"; }
+  mtDetShow();
+}
+function mtDetShow() {
+  const m = mtDet;
+  $("mtDet").hidden = !m;
+  if (!m) return;
+  const d = m.d, e = d ? d.echo : (mtData && mtData.events.find((x) => x.ts === m.ts));
+  const k = e ? (MT_KIND[e.kind] || MT_KIND.under) : null;
+  $("mtDetT").innerHTML = e ? `<b>${e.time} UTC</b> · ${k[0]} · ${e.snr.toFixed(1)} dB · ${e.dur.toFixed(2)} s · ${e.doppler > 0 ? "+" : ""}${e.doppler} Hz` +
+    `${e.drift ? ` · drift ${e.drift.toFixed(1)} Hz/s` : ""}` : "";
+  $("mtDetHB").hidden = !(d && d.head);
+  const h = e && e.head;
+  $("mtDetSub").textContent = m.msg || (h ? `Head echo: ${h.f0 > 0 ? "+" : ""}${h.f0} → ${h.f1 > 0 ? "+" : ""}${h.f1} Hz, ${(h.slope / 1000).toFixed(1)} kHz/s, starts ${h.t} s before the echo`
+    : d && d.head ? "No head echo found in the ±5 kHz spectrum (a steep streak before the echo)" : "HEAD ECHO is off: only the trail echo (±500 Hz)");
+  if (d) mtDetDraw();
+}
+/** Draws the echo (and the head echo spectrum) into their canvases at the real size. */
+function mtDetDraw() {
+  const d = mtDet && mtDet.d;
+  if (!d) return;
+  const e = d.echo;
+  mtDetPart($("mtDetCv"), d, e, [[e.ts, "start"], [e.ts + e.dur, "end"]], [0], null);
+  if (d.head) {
+    const h = e.head;
+    const fit = h ? [e.ts - h.t, h.f0, e.ts - h.t + (h.f1 - h.f0) / h.slope, h.f1] : null;
+    mtDetPart($("mtDetHv"), d.head, e, [[e.ts, "echo"]], [0, -500, 500], fit);
+  }
+  mtDet.w = $("mtDetCv").clientWidth;
+}
+/** One spectrogram: part {t0, dt, hz, rows (base64 uint8 frames × bins), n}; marks [t, label] (dashed), lines at Hz,
+ *  fit [t0, f0, t1, f1] (dotted) or null. Time to the right, Doppler up, labels in s from the echo start. */
+function mtDetPart(cv, part, e, marks, hzLines, fit) {
+  const dpr = window.devicePixelRatio || 1;
+  const W = Math.max(1, Math.round(cv.clientWidth * dpr)), H = Math.max(1, Math.round(cv.clientHeight * dpr));
+  cv.width = W; cv.height = H;
+  const ctx = cv.getContext("2d");
+  ctx.fillStyle = `rgb(${LUT[0]},${LUT[1]},${LUT[2]})`;
+  ctx.fillRect(0, 0, W, H);
+  const raw = atob(part.rows), nb = part.hz.length, n = part.n;
+  if (!n || !nb || raw.length < n * nb) return;
+  const img = document.createElement("canvas");
+  img.width = n; img.height = nb;
+  const ic = img.getContext("2d"), data = ic.createImageData(n, nb), px = data.data;
+  for (let i = 0; i < n; i++) {
+    for (let q = 0; q < nb; q++) {
+      const v = Math.max(0, Math.min(255, (raw.charCodeAt(i * nb + q) - 25) * 1.12)) | 0;
+      const o = ((nb - 1 - q) * n + i) * 4;                                 // Doppler up
+      px[o] = LUT[v * 3]; px[o + 1] = LUT[v * 3 + 1]; px[o + 2] = LUT[v * 3 + 2]; px[o + 3] = 255;
+    }
+  }
+  ic.putImageData(data, 0, 0);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(img, 0, 0, W, H);
+  const span = n * part.dt, fLo = part.hz[0], fHi = part.hz[nb - 1];
+  const x = (t) => ((t - (part.t0 - part.dt)) / span) * W, y = (f) => ((fHi - f) / (fHi - fLo)) * H;
+  ctx.font = `${9 * dpr}px system-ui, sans-serif`;
+  ctx.lineWidth = dpr;
+  ctx.strokeStyle = "rgba(255,255,255,.18)";
+  ctx.fillStyle = "rgba(255,255,255,.6)";
+  for (const f of hzLines) {
+    ctx.beginPath(); ctx.moveTo(0, y(f)); ctx.lineTo(W, y(f)); ctx.stroke();
+  }
+  ctx.fillText(`+${Math.round(fHi)} Hz`, 4 * dpr, 10 * dpr);
+  ctx.fillText(`−${Math.round(-fLo)} Hz`, 4 * dpr, H - 3 * dpr);
+  const step = span > 8 ? 2 : span > 3 ? 1 : 0.5;                          // time labels from the echo start
+  for (let s = Math.ceil((part.t0 - part.dt - e.ts) / step) * step; e.ts + s <= part.t0 + span; s += step) {
+    const xx = x(e.ts + s);
+    if (xx < 30 * dpr || xx > W - 20 * dpr) continue;
+    ctx.fillText(`${s > 0 ? "+" : s < 0 ? "−" : ""}${Math.abs(s)} s`, xx + 2 * dpr, H - 3 * dpr);
+  }
+  ctx.setLineDash([4 * dpr, 3 * dpr]);
+  ctx.strokeStyle = "rgba(255,255,255,.55)";
+  for (const [t] of marks) {
+    ctx.beginPath(); ctx.moveTo(x(t), 0); ctx.lineTo(x(t), H); ctx.stroke();
+  }
+  if (fit) {
+    ctx.setLineDash([1.5 * dpr, 2.5 * dpr]);
+    ctx.strokeStyle = "#ff9bd0";
+    ctx.lineWidth = 1.5 * dpr;
+    ctx.beginPath(); ctx.moveTo(x(fit[0]), y(fit[1])); ctx.lineTo(x(fit[2]), y(fit[3])); ctx.stroke();
+  }
+  ctx.setLineDash([]);
+}
+$("mtRows").addEventListener("click", (ev) => {
+  const r = ev.target.closest("tr[data-ts]");
+  if (!r) return;
+  const ts = Number(r.dataset.ts);
+  if (mtDet && mtDet.ts === ts) mtDetClose(); else mtDetOpen(ts);
+});
+$("mtDetX").addEventListener("click", mtDetClose);
+$("mtHead").addEventListener("change", () => {
+  if (!active) return;
+  fetch(active.base + "/api/meteors", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ head: $("mtHead").checked }) })
+    .then((r) => r.json()).then((d) => { mtData = d; mtRender(); }).catch(() => {});
+});
 $("meteorOn").addEventListener("change", () => {
   if (!st) return;
   st.meteor = $("meteorOn").checked;
@@ -23188,3 +23400,95 @@ $("mtReset").addEventListener("click", () => {
   fetch(active.base + "/api/meteors?stats=1", { method: "DELETE" }).then(() => mtLoad(active)).catch(() => {});
 });
 setInterval(() => { if (mtShown() && active) mtLoad(active); }, 1000);
+
+// ===== SETTINGS › GENERAL › SPOTS: callsign for PSK Reporter (FT8) and WSPRnet (WSPR), spotting.py =====
+function spMsg(text, err) {
+  $("spMsg").textContent = text || "";
+  $("spMsg").classList.toggle("error", !!err);
+}
+function spAgo(t) {
+  if (!t) return "";
+  const s = Math.max(0, Date.now() / 1000 - t);
+  return s < 90 ? `${Math.round(s)} s ago` : `${Math.round(s / 60)} min ago`;
+}
+function spNet(name, st, on) {
+  if (!on) return `${name} off`;
+  if (!st) return `${name}: nothing decoded yet`;
+  let t = `${name}: ${st.sent} sent${st.last_sent ? ` (${spAgo(st.last_sent)})` : ""}, ${st.queued} waiting`;
+  if (st.next_in_s != null && st.queued) t += `, next in ${Math.ceil(st.next_in_s / 60)} min`;
+  return st.error ? `${t} – ${st.error}` : t;
+}
+function spFill(s, form) {
+  spDecRender(s);
+  if (form) {
+    $("spCall").value = s.callsign;
+    $("spAnt").value = s.antenna;
+    $("spPsk").checked = s.pskreporter;
+    $("spWspr").checked = s.wsprnet;
+  }
+  const any = s.pskreporter || s.wsprnet;
+  $("spNow").textContent = !s.callsign ? "off (no callsign)" : !any ? `${s.callsign} · no network on` : `${s.callsign} · ${[s.pskreporter && "PSK Reporter", s.wsprnet && "WSPRnet"].filter(Boolean).join(" + ")}`;
+  $("spStat").textContent = `${spNet("PSK Reporter", s.psk, s.callsign && s.pskreporter)} · ${spNet("WSPRnet", s.wspr, s.callsign && s.wsprnet)}`;
+  if (s.callsign && any && !s.ready) spMsg(s.why, true);
+}
+async function spLoad(body) {
+  try {
+    const s = await satFetch("/api/spotting", body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {});
+    spFill(s, true);
+    return true;
+  } catch (e) {
+    spMsg(e.message, true);
+    return false;
+  }
+}
+$("spSave").addEventListener("click", async () => {
+  spMsg("");
+  const ok = await spLoad({ callsign: $("spCall").value.trim().toUpperCase(), antenna: $("spAnt").value,
+    pskreporter: $("spPsk").checked, wsprnet: $("spWspr").checked });
+  if (ok && !$("spMsg").textContent) spMsg("Saved");
+});
+// the switch and the counter in the heads of DECODERS › FT8 (PSK Reporter) and WSPR (WSPRnet)
+let spCfg = null;
+function spDecRender(s) {
+  spCfg = s;
+  for (const el of document.querySelectorAll("[data-spot]")) {
+    el.checked = !!(s.callsign && s[el.dataset.spot]);
+    el.closest("label").classList.toggle("on", el.checked);
+  }
+  for (const el of document.querySelectorAll("[data-spot-cnt]")) {
+    const net = el.dataset.spotCnt, st = net === "pskreporter" ? s.psk : s.wspr;
+    if (!s.callsign || !s[net]) { el.innerHTML = ""; continue; }
+    const sent = st ? st.sent : 0, bad = st ? st.failed : 0, wait = st ? st.queued : 0;
+    const next = st && wait && st.next_in_s != null ? ` (next in ${st.next_in_s < 90 ? `${st.next_in_s} s` : `${Math.ceil(st.next_in_s / 60)} min`})` : "";
+    el.innerHTML = `${sent} sent` + (wait ? ` · ${wait} waiting${next}` : "") + (bad ? ` · <span class="spot-bad">${bad} failed</span>` : "");
+    el.title = `Spots sent by this VFO since its start${st && st.last_sent ? `, the last ${spAgo(st.last_sent)}` : ""}`
+      + (st && st.error ? `. Last error: ${st.error}` : "") + ". Failed ones are listed in the daily log logs\\spots.";
+  }
+}
+function spDecShown() {
+  return bodyTab === "dec" && !document.hidden && (decPage === "ft8" || decPage === "wspr");
+}
+for (const el of document.querySelectorAll("[data-spot]")) {
+  el.addEventListener("change", async () => {
+    const net = el.dataset.spot;
+    if (el.checked && !(spCfg && spCfg.callsign)) {    // no callsign yet: it is entered in SETTINGS › GENERAL › SPOTS
+      el.checked = false;
+      openSetPage("spots");
+      spMsg("Enter your callsign first, switch the network on and SAVE.", true);
+      return;
+    }
+    try {
+      spDecRender(await satFetch("/api/spotting", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ [net]: el.checked }) }));
+    } catch (e) {
+      el.checked = !el.checked;
+      alert(e.message);
+    }
+  });
+}
+setInterval(() => {      // the counters while SETTINGS › GENERAL › SPOTS or DECODERS › FT8 / WSPR is open
+  if (document.hidden) return;
+  const set = bodyTab === "set" && openSetSub("gen") === "gen:spots";
+  if (!set && !spDecShown()) return;
+  satFetch("/api/spotting").then((s) => (set ? spFill(s, false) : spDecRender(s))).catch(() => {});
+}, 10000);
+setTimeout(() => satFetch("/api/spotting").then(spDecRender).catch(() => {}), 1500);

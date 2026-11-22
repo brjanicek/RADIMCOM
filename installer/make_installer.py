@@ -102,7 +102,7 @@ def make_upgrade(full_zip):
 
 
 CODE = ["app.py", "launcher.py", "paths.py", "serverlog.py", "sdr.py", "gainctl.py", "autotune.py", "lime.py", "airspy.py", "rds.py", "cw.py", "rtty.py", "packet.py", "pocsag.py", "sonde.py", "sonde_ext.py", "sonde_sites.py", "wind.py", "aprs.py", "daylog.py", "ft8.py", "wspr.py", "clocksync.py", "spyserver.py", "sources.py", "backup.py", "countries.json", "wefax.py", "sstv.py", "acars.py", "cpdlc.py", "cpdlc_schema.py", "adsc.py", "vdl2.py", "hfdl.py", "ais.py", "adsb.py", "tonesq.py", "scanner.py", "airports.py", "dab.py", "ism.py", "dsd.py", "recorder.py", "iqrec.py", "install_dsd.py", "install_dsd.bat",
-        "memories.py", "datafiles.py", "satellites.py", "update_check.py", "sattrack.py", "moon.py", "satplan.py", "audiofx.py", "nrx.py", "msk144.py", "msk144_ldpc.py", "meteor.py", "retro.py", "sunnoise.py", "location.py", "antennas.py", "sysload.py", "rotor.py", "iqshare.py", "eeprom_tool.py", "setup_sdr.py", "setup_web.py", "rtltcp.py", "spacewx.py", "dxcluster.py", "start.bat", "setup.bat", "README.md", "CHANGELOG.md",
+        "memories.py", "datafiles.py", "satellites.py", "update_check.py", "sattrack.py", "moon.py", "satplan.py", "audiofx.py", "nrx.py", "msk144.py", "msk144_ldpc.py", "q65.py", "bpsk.py", "funcube.py", "meteor.py", "retro.py", "sunnoise.py", "location.py", "antennas.py", "sysload.py", "rotor.py", "iqshare.py", "eeprom_tool.py", "setup_sdr.py", "setup_web.py", "rtltcp.py", "spacewx.py", "dxcluster.py", "start.bat", "setup.bat", "README.md", "CHANGELOG.md",
         "LICENSE", "NOTICE.md", "API/API.md",
         # rtl_tcp server for a Raspberry Pi (brjanicek): install script + manager, also pushed by the UPDATE key (rtltcp.latest_manager)
         "rpi/install_rtltcp.sh", "rpi/rtltcp_manager.py"]
@@ -118,6 +118,8 @@ LIBS += sorted("lib/dab/" + f for f in os.listdir(os.path.join(ROOT, "lib", "dab
 LIBS += ["lib/ism/rtl_433.exe"]
 # WSPR: wsprd of WSJT-X 2.7.0 built with MSYS2 UCRT64, static (installer/build_wspr.sh, see installer/WSPR.txt)
 LIBS += ["lib/wspr/wsprd.exe"] if os.path.isfile(os.path.join(ROOT, "lib", "wspr", "wsprd.exe")) else []
+# Q65 / JT65: jt9 of WSJT-X 2.7.0 built with MSYS2 UCRT64, static (installer/build_jt9.sh, see installer/JT9.txt)
+LIBS += ["lib/jt9/jt9.exe"] if os.path.isfile(os.path.join(ROOT, "lib", "jt9", "jt9.exe")) else []
 # RNNoise for the DNR algorithm RNN: the DLL of the pyrnnoise wheel (installer/get_rnnoise.py, see installer/RNNOISE.txt)
 LIBS += ["lib/rnnoise/rnnoise.dll"] if os.path.isfile(os.path.join(ROOT, "lib", "rnnoise", "rnnoise.dll")) else []
 # HFDL: dumphfdl built with MSYS2 (installer/build_hfdl.sh, see installer/HFDL.txt) with its DLLs and ground station table
@@ -326,6 +328,7 @@ def stage(build):
     copy(os.path.join(HERE, "ISM.txt"), "lib/ism/README.txt", build)     # licences and sources of rtl_433
     copy(os.path.join(HERE, "HFDL.txt"), "lib/hfdl/README.txt", build)   # licences and sources of dumphfdl
     copy(os.path.join(HERE, "WSPR.txt"), "lib/wspr/README.txt", build)   # licence and sources of wsprd
+    copy(os.path.join(HERE, "JT9.txt"), "lib/jt9/README.txt", build)     # licence and sources of jt9
     copy(os.path.join(HERE, "RNNOISE.txt"), "lib/rnnoise/README.txt", build)   # licences and sources of rnnoise.dll
     shutil.copytree(os.path.join(ROOT, "static"), os.path.join(build, "static"))
     for dst, src in EXTERNAL.items():
