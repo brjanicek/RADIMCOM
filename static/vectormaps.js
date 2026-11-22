@@ -60,14 +60,14 @@ const VM_VIEW_KEYS = ["cats", "lbl", "maxFL", "maps", "hidden", "style", "srcs"]
 let vmView = null;   // from the server (GET /api/vectormaps → view)
 const vmOpt = () => { const b = mapOpts.vm || vmOptsNorm(null); return vmView ? { ...b, ...vmView } : b; };
 const vmCatOn = (kind, cat) => {
-  const c = vmOpt().cats, k = c[kind] != null ? c[kind] : !VM_OFF.has(kind);
-  return k && (cat == null || (c[`${kind}.${cat}`] != null ? c[`${kind}.${cat}`] : !VM_OFF.has(`${kind}.${cat}`)));
+  const c = vmOpt().cats, d = VM_VIEW_DEF.cats, on = (x) => c[x] != null ? c[x] : d[x] != null ? d[x] : !VM_OFF.has(x);
+  return on(kind) && (cat == null || on(`${kind}.${cat}`));
 };
 const vmMapOn = (id) => vmOpt().maps[id] !== false;
 const vmSrcOn = (src) => (vmOpt().srcs || {})[src || "openaip"] !== false;
 const vmShown = (m) => vmSrcOn(m.source) && vmMapOn(m.id);   // drawn: its source used and the map on
 const VM_LBL_DEF = { fua: true, airspace: true, airport: true, navaid: true, point: false, wpt: true, obstacle: false, tx: true, chan: true, own: true, aero: true };
-const vmLblOn = (kind) => { const l = vmOpt().lbl; return l[kind] != null ? l[kind] : !!VM_LBL_DEF[kind]; };
+const vmLblOn = (kind) => { const l = vmOpt().lbl, d = VM_VIEW_DEF.lbl; return l[kind] != null ? l[kind] : d[kind] != null ? d[kind] : !!VM_LBL_DEF[kind]; };
 const vmKey = (p) => `${p.src || "x"}:${p.srcId || p.name}`;   // an object, for hiding it
 // names on the map from this zoom on (per kind; big airports earlier); at most VM_LBL_MAX in the view
 const VM_LBL_ZOOM = { fua: 7, airspace: 8, airport: 9, navaid: 7, point: 9, wpt: 9, obstacle: 11, tx: 10, chan: 9, own: 9, aero: 13 };
@@ -121,7 +121,8 @@ const VM_ZOOM_DEF = {
   tx: { s: [9, 18], l: [12, 18] }, chan: { s: [1, 18], l: [9, 18] }, own: { s: [1, 18], l: [9, 18] },
 };
 const vmZoomDef = (kind, cat) => VM_ZOOM_DEF[`${kind}.${cat}`] || VM_ZOOM_DEF[kind] || { s: [1, 18], l: [VM_LBL_ZOOM[kind] || 9, 18] };
-function vmStyDef(kind, cat) {
+const vmStyDef = (kind, cat) => ({ ...vmStyBase(kind, cat), ...(VM_VIEW_DEF.style[`${kind}.${cat}`] || {}) });
+function vmStyBase(kind, cat) {
   const zd = vmZoomDef(kind, cat);
   if (vmIsArea(kind, cat)) {
     const [c, w, dash, fo] = kind === "own" ? ["#c8a0ff", 2, "", cat === "line" ? 0 : 0.06] : kind === "aero" ? VM_AERO_STYLE[cat] || VM_AS_DEF
@@ -136,6 +137,59 @@ function vmStyDef(kind, cat) {
   return { fc: c, r: big ? r + 2 : term ? r - 1 : r, sym: aero || (kind === "chan" ? "square" : "circle"), fo: cat === "closed" ? 0.6 : 0.95,
     lc: c, ls: 10, lz: Math.max(1, zd.l[0] - (major ? 1 : 0)), lx: zd.l[1], sz: zd.s[0], sx: zd.s[1] };   // sz-sx: the symbol from / to these zooms
 }
+// what is shown at first, until something is stored (the parts on / off, the names and the looks set up on the author's
+// station); under VM_OFF / VM_LBL_DEF / the looks above, and what ↺ brings back
+const VM_VIEW_DEF = {
+  cats: {
+    aero: true, "aero.aerodrome": true, airport: true, "airport.civil": false, "airport.closed": false,
+    "airport.glider": false, "airport.heli": true, "airport.intl": true, "airport.large": true, "airport.small": false,
+    "airport.ul": false, airspace: true, "airspace.ATZ": false, "airspace.CTA": true, "airspace.CTR": true,
+    "airspace.D": false, "airspace.FIR": true, "airspace.FIS": true, "airspace.GLIDING": false,
+    "airspace.LOWFLY": true, "airspace.MCTR": true, "airspace.MTA": false, "airspace.OTHER": true, "airspace.P": false,
+    "airspace.R": false, "airspace.SPORT": false, "airspace.TMA": true, "airspace.TRA": false, "airspace.TSA": false,
+    chan: false, "fua.active": true, navaid: true, "navaid.DME": false, "navaid.NDB": false, "navaid.TACAN": false,
+    "navaid.VOR-DME": true, "navaid.VORTAC": false, obstacle: false, "obstacle.building": false,
+    "obstacle.chimney": false, "obstacle.obstacle": false, "obstacle.tower": false, "obstacle.wind": false,
+    point: true, "point.RP": true, "point.RP_OPT": true, tx: false, "tx.bcast": false, "tx.comm": false,
+    "tx.ham": false, "tx.mobile": false, "tx.radar": false, wpt: true, "wpt.terminal": false
+  },
+  lbl: { airport: true, airspace: false, point: true },
+  style: {
+    "aero.aerodrome": { lz: 9, cz: 9, fz: 9 }, "aero.apron": { lz: 9, cz: 9, fz: 9 },
+    "aero.helipad": { lz: 9, cz: 9, fz: 9 }, "aero.runway": { lz: 9, cz: 9, fz: 9 },
+    "aero.taxiway": { lz: 9, cz: 9, fz: 9 }, "airport.agri": { lz: 1, lx: 8, sx: 8 },
+    "airport.airport": { lz: 1, lx: 8, sx: 8 }, "airport.altiport": { lz: 1, lx: 8, sx: 8 },
+    "airport.balloon": { lz: 1, lx: 8, sx: 8 }, "airport.civil": { ls: 8, r: 3, lz: 1, lx: 8, sx: 8 },
+    "airport.closed": { lz: 1, lx: 8, sx: 8 }, "airport.glider": { lz: 1, lx: 8, sx: 8 },
+    "airport.heli": { lz: 1, lx: 8, sx: 8 }, "airport.heli_mil": { r: 3, lz: 1, lx: 8, sx: 8 },
+    "airport.ifr": { lz: 1, lx: 8, sx: 8 }, "airport.intl": { lz: 1, lx: 8, sx: 8 },
+    "airport.large": { lz: 1, lx: 8, sx: 8 }, "airport.medium": { lz: 1, lx: 8, sx: 8 },
+    "airport.military": { lz: 1, lx: 8, sx: 8 }, "airport.small": { lz: 1, lx: 8, sx: 8 },
+    "airport.strip": { lz: 1, lx: 8, sx: 8 }, "airport.ul": { lz: 1, lx: 8, sx: 8 },
+    "airport.water": { lz: 1, lx: 8, sx: 8 }, "airspace.ACC": { lz: 13 }, "airspace.ADIZ": { lz: 13 },
+    "airspace.ALERT": { lz: 13 }, "airspace.ATZ": { c: "#008000", fc: "#008000", lc: "#008000", lz: 13 },
+    "airspace.AWY": { lz: 13 }, "airspace.CTA": { fo: 0, lz: 13 },
+    "airspace.CTR": { c: "#0000ff", fc: "#0000ff", lc: "#0000ff", w: 1, lz: 13 }, "airspace.D": { lz: 13 },
+    "airspace.FIR": { lz: 13 }, "airspace.FIS": { lz: 13 }, "airspace.GLIDING": { lz: 13 }, "airspace.HTZ": { lz: 13 },
+    "airspace.LOWFLY": { lz: 13 }, "airspace.LTA": { lz: 13 }, "airspace.MATZ": { lz: 13 },
+    "airspace.MCTR": { c: "#0000ff", d: "solid", fc: "#0000ff", fo: 0.08, lc: "#0000ff", w: 1, lz: 13 },
+    "airspace.MRT": { lz: 13 },
+    "airspace.MTA": { c: "#008000", d: "dashdot", fc: "#008000", lc: "#008000", w: 1.5, lz: 13 },
+    "airspace.MTR": { lz: 13 }, "airspace.OTHER": { lz: 13 }, "airspace.P": { lz: 13 },
+    "airspace.PROTECTED": { lz: 13 }, "airspace.R": { lz: 13 }, "airspace.RMZ": { lz: 13 },
+    "airspace.SPORT": { lz: 13 }, "airspace.TFR": { lz: 13 }, "airspace.TIA": { lz: 13 }, "airspace.TIZ": { lz: 13 },
+    "airspace.TMA": { c: "#008000", d: "dashdot", fc: "#008000", fo: 0.05, lc: "#008000", lz: 13 },
+    "airspace.TMZ": { lz: 13 }, "airspace.TRA": { lz: 13 }, "airspace.TRP": { lz: 13 }, "airspace.TSA": { lz: 13 },
+    "airspace.UIR": { lz: 13 }, "airspace.UTA": { lz: 13 }, "airspace.VFR": { lz: 13 }, "airspace.WARNING": { lz: 13 },
+    "chan.nogroup": { lx: 15, lz: 5, sx: 12, sz: 8 }, "fua.active": { cz: 5, fo: 0.05, fz: 5, o: 0.4, lz: 9 },
+    "fua.planned": { cz: 5, fz: 5, lz: 9 }, "navaid.DME": { sz: 7 }, "navaid.DVOR": { sz: 7 },
+    "navaid.DVOR-DME": { sz: 7 }, "navaid.DVORTAC": { sz: 7 }, "navaid.NDB": { sz: 7 }, "navaid.NDB-DME": { sz: 7 },
+    "navaid.TACAN": { sz: 7 }, "navaid.VOR": { sz: 7 }, "navaid.VOR-DME": { sz: 7 }, "navaid.VORTAC": { sz: 7 },
+    "point.RP": { sz: 11 }, "point.RP_OPT": { sz: 11 }, "tx.bcast": { sz: 8 }, "tx.comm": { sz: 8 },
+    "tx.ham": { sz: 8 }, "tx.mobile": { sz: 8 }, "tx.radar": { sz: 8 }, "wpt.enroute": { sz: 8 },
+    "wpt.terminal": { sz: 8 }
+  },
+};
 const vmSty = (kind, cat) => ({ ...vmStyDef(kind, cat), ...(((vmOpt().style || {})[`${kind}.${cat}`]) || {}) });
 /** The Leaflet style of an object; z: the zoom of the map (the line and the fill of an area each from their own zoom on). */
 function vmStyle(p, z = 99) {

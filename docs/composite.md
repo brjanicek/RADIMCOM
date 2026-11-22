@@ -134,9 +134,10 @@ at once in all open tabs and windows of the same address.
   show under **Own files** in the tree (a file in this format keeps its kinds), the same name again replaces it. In the tree of **Maps** each kind has two bargraphs of the zooms 1–18 beside its name, like the meters of the display:
   from which to which zoom the symbol (or the line of an area) and, under it, the name are drawn, lit in the colour of
   the layer, the rest grey, the zoom of the map now as a taller mark; dragging an end of a bar with the mouse sets it for
-  all the parts of the kind. At first the airport symbol is drawn up to zoom 11 and the aerodrome layout (runways,
-  aprons, …) from 12, navaids always with names from 9, en-route waypoints from 7 (names from 9), terminal ones and
-  reporting points from 9 (names from 11), obstacles from 11, transmitters from 9. ↺ beside the bars returns a kind to
+  all the parts of the kind. What is shown at first (the parts on or off, the names, the colours and the zooms) is
+  `VM_VIEW_DEF` in `static/vectormaps.js` (as set up on the author's station: e.g. the airport symbol up to zoom 8 and the
+  aerodrome layout from 9, airspace outlines with names from 13, en-route waypoints on, terminal ones off) over the
+  built-in looks; it is used until something is changed and stored. ↺ beside the bars returns a kind to
   the default zooms, **All default zooms** under the tree every kind (the colours and shapes stay). The tree in **Maps** (▸ opens a kind or a part) switches the
   kinds (**Airspaces**, **Airports**, **Navaids**, **Reporting points**, **Obstacles**: off at first) and their parts
   (CTR, TMA, R, D, … / international, civil, ultralight, … / VOR-DME, NDB, …) on and off; each part opens to its objects
