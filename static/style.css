@@ -4594,6 +4594,11 @@ details[data-sec=vmaps] > .map-opts-body:empty { display: none; }
 /* Zoom levels: a bargraph of the zooms 1-18 per layer (segments like the meters of the display), ends dragged */
 .vm-zoom td { vertical-align: middle; }
 .vm-zoom th { white-space: nowrap; }
+.vm-zoom .vm-zk { padding-right: 6px; white-space: nowrap; color: #8b95a1; font-size: .9em; }
+.vm-zoom .vm-zk label { display: inline-flex; align-items: center; gap: 4px; margin: 0; }
+.vm-zoom tr.vm-zr1 > * { padding-top: 5px; border-top: 1px solid #1f2834; }
+.vm-zoom tr.vm-zr2 > td { padding-bottom: 5px; }
+.vm-zbw.off .vm-zb { opacity: .35; }
 .vm-zbw { display: flex; align-items: center; gap: 6px; }
 .vm-zb { --c: #6cb8ff; display: flex; align-items: flex-end; gap: 2px; height: 15px; padding: 0 1px; cursor: ew-resize; touch-action: none; user-select: none; }
 .vm-zb i { display: block; width: 5px; height: 9px; border-radius: 1px; background: #2a3442; }

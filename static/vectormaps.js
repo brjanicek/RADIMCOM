@@ -674,7 +674,7 @@ function vmZoomHtml(cnt) {
   if (!rows.length) return "";
   const cur = vmPanelZoom();
   return `<div class="map-opts-sub2">Zoom levels <small>drag the ends of a bar; the taller mark: the zoom of the map now${cur ? ` (${cur})` : ""}</small></div>` +
-    `<table class="map-opts-t vm-zoom"><tr class="vm-sty-h"><th></th><td>Symbol / outline</td><td>Name</td><td></td></tr>` +
+    `<table class="map-opts-t vm-zoom">` +
     rows.map(([k, c, name]) => {
       const i = VM_ZOOM_ROWS.findIndex((r) => r[0] === k && r[1] === c), cats = vmZoomCats(k, c, cnt).filter((x) => !cnt[k] || cnt[k][x]);
       const y = vmSty(k, cats[0] || c || ""), area = vmIsArea(k, cats[0] || c || "");
@@ -682,10 +682,13 @@ function vmZoomHtml(cnt) {
       const mixed = own && (cats.some((x) => { const z = vmSty(k, x); return area ? z.cz !== y.cz || z.cx !== y.cx : z.sz !== y.sz || z.sx !== y.sx; }) ||
         cats.some((x) => { const z = vmSty(k, x); return z.lz !== y.lz || z.lx !== y.lx; }));
       const s0 = area ? y.cz : y.sz, s1 = area ? y.cx : y.sx;
-      return `<tr><th title="${mixed ? "Some parts have their own zooms: a change here sets all of them" : ""}">${escHtml(name)}${mixed ? " *" : ""}</th>` +
-        `<td><div class="vm-zbw">${vmZoomBar(i, "s", s0, s1, area ? y.c : y.fc, cur)}<span class="vm-zv">${vmZoomTxt(s0, s1)}</span></div></td>` +
-        `<td><div class="vm-zbw">${vmZoomBar(i, "l", y.lz, y.lx, y.lc, cur)}<span class="vm-zv">${vmZoomTxt(y.lz, y.lx)}</span></div></td>` +
-        `<td><button type="button" class="vm-get" data-vmzdef="${i}"${own ? "" : " disabled"} title="The default zooms of ${escHtml(name)}">↺</button></td></tr>`;
+      // two lines per layer: the symbol / outline and under it the name with its checkbox (names on the map on / off)
+      const lbl = vmLblOn(k);
+      return `<tr class="vm-zr1"><th rowspan="2" title="${mixed ? "Some parts have their own zooms: a change here sets all of them" : ""}">${escHtml(name)}${mixed ? " *" : ""}</th>` +
+        `<td class="vm-zk">${area ? "Outline" : "Symbol"}</td><td><div class="vm-zbw">${vmZoomBar(i, "s", s0, s1, area ? y.c : y.fc, cur)}<span class="vm-zv">${vmZoomTxt(s0, s1)}</span></div></td>` +
+        `<td rowspan="2"><button type="button" class="vm-get" data-vmzdef="${i}"${own ? "" : " disabled"} title="The default zooms of ${escHtml(name)}">↺</button></td></tr>` +
+        `<tr class="vm-zr2"><td class="vm-zk"><label title="Names on the map on / off"><input type="checkbox" data-vmlbl="${k}"${lbl ? " checked" : ""}> Name</label></td>` +
+        `<td><div class="vm-zbw${lbl ? "" : " off"}">${vmZoomBar(i, "l", y.lz, y.lx, y.lc, cur)}<span class="vm-zv">${lbl ? vmZoomTxt(y.lz, y.lx) : "off"}</span></div></td></tr>`;
     }).join("") + `</table><button type="button" class="vm-btn" data-vmzdef="*" title="The default zooms of all kinds (colours and shapes stay)">All default</button>`;
 }
 // dragging an end of a zoom bar: the nearer end follows the mouse, stored on release
