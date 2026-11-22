@@ -8,16 +8,16 @@ const VM_KINDS = [
   ["airspace", "Airspaces", ["CTR", "TMA", "CTA", "ATZ", "MCTR", "R", "D", "P", "TRA", "TSA", "RMZ", "TMZ", "GLIDING", "SPORT", "MTA",
     "FIS", "FIR", "UIR", "ACC", "AWY", "ADIZ", "MATZ", "HTZ", "TIZ", "TIA", "LTA", "UTA", "LOWFLY", "VFR", "TRP", "MTR", "MRT", "TFR",
     "ALERT", "WARNING", "PROTECTED", "OTHER"]],
-  ["fua", "FUA (activated airspaces)", ["active", "planned"]],
+  ["fua", "FUA", ["active", "planned"]],
   ["airport", "Airports", ["intl", "large", "medium", "ifr", "airport", "small", "civil", "military", "glider", "ul", "heli", "heli_mil", "water", "strip", "agri", "altiport", "balloon", "closed"]],
   ["navaid", "Navaids", ["VOR", "VOR-DME", "DVOR", "DVOR-DME", "VORTAC", "DVORTAC", "TACAN", "DME", "NDB", "NDB-DME"]],
-  ["point", "Reporting points", ["RP", "RP_OPT"]],
+  ["point", "Rep. points", ["RP", "RP_OPT"]],
   ["wpt", "IFR waypoints", ["enroute", "terminal"]],
   ["obstacle", "Obstacles", ["tower", "chimney", "wind", "building", "obstacle"]],
   ["tx", "Transmitters", ["bcast", "radar", "ham", "comm", "mobile"]],
-  ["chan", "MEMORIES channels", ["nogroup"]],   // one part per group (names from the map file)
+  ["chan", "MEMORIES", ["nogroup"]],   // one part per group (names from the map file)
   ["own", "Own files", ["area", "line", "point"]],
-  ["aero", "Aerodrome layout", ["aerodrome", "runway", "apron", "taxiway", "helipad"]],
+  ["aero", "AD layout", ["aerodrome", "runway", "apron", "taxiway", "helipad"]],
 ];
 const vmIsArea = (kind, cat) => kind === "airspace" || kind === "aero" || kind === "fua" || (kind === "own" && cat !== "point");   // drawn with line and fill
 function vmCatName(c) {   // the name of a part; the groups of the MEMORIES channels come with their map
@@ -625,7 +625,8 @@ function vmSettingsHtml() {
   // the tree: kind › part, the counts of all shown maps together
   const cnt = {};
   for (const m of list) if (vmShown(m)) for (const [k, cs] of Object.entries(m.cats || {})) for (const [c, x] of Object.entries(cs)) { cnt[k] = cnt[k] || {}; cnt[k][c] = (cnt[k][c] || 0) + x; }
-  h += vmZoomHtml(cnt);
+  const cur = vmPanelZoom();   // the zoom of the map now: the taller mark of the zoom bars
+  if (Object.keys(cnt).length) h += `<p class="map-opts-note">The bars: from – to which zoom the symbol (or line) and the name are drawn; drag an end. The taller mark: the zoom of the map now.</p>`;
   for (const [k, name, order] of VM_KINDS) {
     const cs = cnt[k];
     if (!cs) continue;
@@ -633,23 +634,24 @@ function vmSettingsHtml() {
     const tot = Object.values(cs).reduce((a, b) => a + b, 0);
     const sw = (c) => { const y = vmSty(k, c); return `${vmIsArea(k, c) ? `<i class="vm-sw" data-vmswatch="${escHtml(`${k}.${c}`)}" title="Style (click)" style="--c:${y.c}"></i>`
       : `<img class="vm-sw pt" data-vmswatch="${escHtml(`${k}.${c}`)}" title="Style (click)" alt="" src="${vmSymIcon(y.sym, y.fc)}">`}`; };
-    h += `<details class="vm-kind" data-vmkind="${k}"${vmKindOpen().includes(k) ? " open" : ""}><summary title="${escHtml(`Sources: ${list.filter((m) => vmShown(m) && m.cats && m.cats[k]).map((m) => m.name || m.id).join(", ")}`)}">${chk(`data-vmcat="${k}"`, vmCatOn(k))} ${name} <small class="muted">${n(tot)}</small></summary>` +
+    h += `<details class="vm-kind" data-vmkind="${k}"${vmKindOpen().includes(k) ? " open" : ""}><summary title="${escHtml(`Sources: ${list.filter((m) => vmShown(m) && m.cats && m.cats[k]).map((m) => m.name || m.id).join(", ")}`)}">${chk(`data-vmcat="${k}"`, vmCatOn(k))} <span class="vm-kn">${name} <small class="muted">${n(tot)}</small></span>${vmZoomKind(k, cnt, cur)}</summary>` +
       `<div class="vm-cats">${cats.map((c) => { const id = escHtml(`${k}.${c}`);   // a part: its objects one by one when opened
         const srcs = list.filter((m) => vmShown(m) && m.cats && m.cats[k] && m.cats[k][c]).map((m) => m.name || m.id);
         return `<details class="vm-cat" data-vmcatd="${id}"${vmCatOpen().includes(`${k}.${c}`) ? " open" : ""}><summary title="${escHtml(`Source${srcs.length > 1 ? "s" : ""}: ${srcs.join(", ")}`)}">${chk(`data-vmcat="${id}"`, vmCatOn(k, c))}${sw(c)} ` +
           `${escHtml(vmCatName(c))} <small class="muted">${cs[c]}</small></summary><div class="vm-objs" data-vmobjs="${id}"><p class="map-opts-note">Loading…</p></div></details>` +
           (vmStyOpen === `${k}.${c}` ? vmStyEditor(k, c) : ""); }).join("")}</div>` +
-      `<label>${chk(`data-vmlbl="${k}"`, vmLblOn(k))} Names on the map <small class="muted">(zooms in Zoom levels)</small></label>` +
+      `<label>${chk(`data-vmlbl="${k}"`, vmLblOn(k))} Names on the map</label>` +
       (k === "airspace" ? `<label>Only starting below <select data-vm="maxFL">${VM_MAX_FL.map((v) => `<option value="${v}"${v === o.maxFL ? " selected" : ""}>${v ? `FL${v}` : "any altitude"}</option>`).join("")}</select></label>` : "") +
       `</details>`;
   }
+  if (Object.keys(cnt).length) h += `<button type="button" class="vm-btn" data-vmzdef="*" title="The default zooms of all kinds (colours and shapes stay)">All default zooms</button>`;
   if (o.hidden.length) h += `<div class="map-opts-sub2">Hidden objects <small>a click on an object on the map hides it</small></div>` +
     `<label>${o.hidden.length} hidden <button type="button" class="vm-btn" data-vmshow="*">Show all</button></label>`;
   return h;
 }
 // Zoom levels: one row per kind (IFR waypoints per part), from–to zoom of the symbol / outline and of the name, for all its parts
 const VM_ZOOM_ROWS = [["airport", "", "Airports"], ["aero", "", "Aerodrome layout"], ["navaid", "", "Navaids"],
-  ["wpt", "enroute", "IFR en-route"], ["wpt", "terminal", "IFR terminal"], ["point", "", "Reporting points"],
+  ["wpt", "", "IFR waypoints"], ["point", "", "Reporting points"],
   ["airspace", "", "Airspaces"], ["fua", "", "FUA"], ["obstacle", "", "Obstacles"], ["tx", "", "Transmitters"], ["chan", "", "MEMORIES"], ["own", "", "Own files"]];
 function vmZoomCats(kind, cat, cnt) {   // the parts a row sets
   if (cat) return [cat];
@@ -669,28 +671,19 @@ function vmZoomBar(i, w, from, to, col, cur) {
     Array.from({ length: 18 }, (_, n) => `<i class="${n + 1 >= from && n + 1 <= to ? "on" : ""}${n + 1 === cur ? " cur" : ""}"></i>`).join("") + `</div>`;
 }
 const vmZoomTxt = (a, b) => (a <= 1 && b >= 18 ? "all" : `${a}–${b}`);
-function vmZoomHtml(cnt) {
-  const rows = VM_ZOOM_ROWS.filter(([k, c]) => cnt[k] && (!c || cnt[k][c]));
-  if (!rows.length) return "";
-  const cur = vmPanelZoom();
-  return `<div class="map-opts-sub2">Zoom levels <small>drag the ends of a bar; the taller mark: the zoom of the map now${cur ? ` (${cur})` : ""}</small></div>` +
-    `<table class="map-opts-t vm-zoom">` +
-    rows.map(([k, c, name]) => {
-      const i = VM_ZOOM_ROWS.findIndex((r) => r[0] === k && r[1] === c), cats = vmZoomCats(k, c, cnt).filter((x) => !cnt[k] || cnt[k][x]);
-      const y = vmSty(k, cats[0] || c || ""), area = vmIsArea(k, cats[0] || c || "");
-      const own = cats.some((x) => ["sz", "sx", "cz", "cx", "fz", "fx", "lz", "lx"].some((q) => q in (((vmOpt().style || {})[`${k}.${x}`]) || {})));
-      const mixed = own && (cats.some((x) => { const z = vmSty(k, x); return area ? z.cz !== y.cz || z.cx !== y.cx : z.sz !== y.sz || z.sx !== y.sx; }) ||
-        cats.some((x) => { const z = vmSty(k, x); return z.lz !== y.lz || z.lx !== y.lx; }));
-      const s0 = area ? y.cz : y.sz, s1 = area ? y.cx : y.sx;
-      // two lines per layer: the symbol / outline and under it the name with its checkbox (names on the map on / off)
-      const lbl = vmLblOn(k);
-      return `<tr class="vm-zr1"><th rowspan="2" title="${mixed ? "Some parts have their own zooms: a change here sets all of them" : ""}">${escHtml(name)}${mixed ? " *" : ""}</th>` +
-        `<td class="vm-zk">${area ? "Outline" : "Symbol"}</td><td><div class="vm-zbw">${vmZoomBar(i, "s", s0, s1, area ? y.c : y.fc, cur)}<span class="vm-zv">${vmZoomTxt(s0, s1)}</span></div></td>` +
-        `<td rowspan="2"><button type="button" class="vm-get" data-vmzdef="${i}"${own ? "" : " disabled"} title="The default zooms of ${escHtml(name)}">↺</button></td></tr>` +
-        `<tr class="vm-zr2"><td class="vm-zk"><label title="Names on the map on / off"><input type="checkbox" data-vmlbl="${k}"${lbl ? " checked" : ""}> Name</label></td>` +
-        `<td><div class="vm-zbw${lbl ? "" : " off"}">${vmZoomBar(i, "l", y.lz, y.lx, y.lc, cur)}<span class="vm-zv">${lbl ? vmZoomTxt(y.lz, y.lx) : "off"}</span></div></td></tr>`;
-    }).join("") + `</table><button type="button" class="vm-btn" data-vmzdef="*" title="The default zooms of all kinds (colours and shapes stay)">All default</button>`;
+/** The zoom bars of a kind in its row of the tree: the symbol / outline over the name, ↺ beside them. */
+function vmZoomKind(k, cnt, cur) {
+  const i = VM_ZOOM_ROWS.findIndex((r) => r[0] === k && !r[1]);
+  if (i < 0) return "";
+  const cats = vmZoomCats(k, "", cnt).filter((x) => !cnt[k] || cnt[k][x]);
+  const y = vmSty(k, cats[0] || ""), area = vmIsArea(k, cats[0] || "");
+  const own = cats.some((x) => ["sz", "sx", "cz", "cx", "fz", "fx", "lz", "lx"].some((q) => q in (((vmOpt().style || {})[`${k}.${x}`]) || {})));
+  const s0 = area ? y.cz : y.sz, s1 = area ? y.cx : y.sx;
+  return `<span class="vm-kz"><span class="vm-zbw"><b>${area ? "Line" : "Sym"}</b>${vmZoomBar(i, "s", s0, s1, area ? y.c : y.fc, cur)}<span class="vm-zv">${vmZoomTxt(s0, s1)}</span></span>` +
+    `<span class="vm-zbw"><b>Name</b>${vmZoomBar(i, "l", y.lz, y.lx, y.lc, cur)}<span class="vm-zv">${vmZoomTxt(y.lz, y.lx)}</span></span></span>` +
+    `<button type="button" class="vm-get vm-kzdef" data-vmzdef="${i}"${own ? "" : " disabled"} title="The default zooms of this kind">↺</button>`;
 }
+document.addEventListener("click", (e) => { if (e.target.closest && e.target.closest(".vm-kz")) e.preventDefault(); }, true);   // the bars in a row of the tree: no open / close
 // dragging an end of a zoom bar: the nearer end follows the mouse, stored on release
 document.addEventListener("pointerdown", (e) => {
   const bar = e.target.closest && e.target.closest(".vm-zb");
@@ -954,7 +947,7 @@ function vmOnClick(e, panel) {
   }
   if (e.target.closest("button[data-vmstyclose]")) { vmStyOpen = ""; vmRefill(panel); return true; }
   const zd = e.target.closest("button[data-vmzdef]");
-  if (zd) { vmZoomDefault(zd.dataset.vmzdef); vmRefill(panel); return true; }
+  if (zd) { e.preventDefault(); vmZoomDefault(zd.dataset.vmzdef); vmRefill(panel); return true; }
   const tz = e.target.closest("button[data-vmthiszoom]");
   if (tz) {   // the names (lz) or the symbols (sz) of the part from the zoom the map has now
     const box = panel.closest(".leaflet-container"), map = box && box._vmMap;

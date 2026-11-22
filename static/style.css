@@ -3952,7 +3952,7 @@ html.app-shell .r-master .r-logo { margin-top: 10px; }
 .map-opts { background: rgba(10, 13, 18, .78); color: #dfe4ea; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
 .map-opts .map-opts-btn { background: transparent; color: #dfe4ea; font-size: 16px; line-height: 30px; text-align: center; text-decoration: none; }
 .map-opts .map-opts-btn:hover { background: #1c2533; color: #fff; }
-.map-opts-panel { padding: 6px 10px 8px; font: 12px/1.5 system-ui, sans-serif; width: 470px; max-width: calc(100vw - 80px); box-sizing: border-box; border-top: 1px solid #2a3546; text-shadow: 0 0 2px #000; }
+.map-opts-panel { padding: 6px 10px 8px; font: 12px/1.5 system-ui, sans-serif; width: 500px; max-width: calc(100vw - 80px); box-sizing: border-box; border-top: 1px solid #2a3546; text-shadow: 0 0 2px #000; }
 .map-opts-panel[hidden] { display: none; }
 .map-opts-panel label { display: flex; align-items: center; gap: 6px; margin: 3px 0; cursor: pointer; white-space: nowrap; }
 .map-opts-panel select { font: inherit; color: #dfe4ea; background: #141b26; border: 1px solid #3a4a60; border-radius: 3px; padding: 1px 2px; cursor: pointer; }
@@ -4599,6 +4599,14 @@ details[data-sec=vmaps] > .map-opts-body:empty { display: none; }
 .vm-zoom tr.vm-zr1 > * { padding-top: 5px; border-top: 1px solid #1f2834; }
 .vm-zoom tr.vm-zr2 > td { padding-bottom: 5px; }
 .vm-zbw.off .vm-zb { opacity: .35; }
+.vm-kind > summary .vm-kn { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vm-kz { display: flex; flex-direction: column; gap: 1px; flex: none; }
+.vm-kz .vm-zb { height: 11px; }
+.vm-kz .vm-zb i { height: 7px; }
+.vm-kz .vm-zb i.cur { height: 11px; }
+.vm-kz b { width: 30px; font: 600 10px system-ui, sans-serif; color: #8b95a1; text-align: right; }
+.vm-kz .vm-zv { min-width: 30px; font-size: 10px; }
+.vm-kzdef { flex: none; }
 .vm-zbw { display: flex; align-items: center; gap: 6px; }
 .vm-zb { --c: #6cb8ff; display: flex; align-items: flex-end; gap: 2px; height: 15px; padding: 0 1px; cursor: ew-resize; touch-action: none; user-select: none; }
 .vm-zb i { display: block; width: 5px; height: 9px; border-radius: 1px; background: #2a3442; }

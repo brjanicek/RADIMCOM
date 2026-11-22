@@ -131,14 +131,13 @@ at once in all open tabs and windows of the same address.
   shown follow. Information only: check the airspace with the ATS unit before flying. The **MEMORIES** tab shows the MEMORIES channels that have a location (LAT / LON) as
   **MEMORIES channels**, one part per group, with the frequency and mode; the map is made again whenever the channels
   change. On **Own files** **Add** stores a GeoJSON, KML or GPX file as a vector map: its areas, lines and points
-  show under **Own files** in the tree (a file in this format keeps its kinds), the same name again replaces it. **Zoom levels** at the top of **Maps** shows per kind (IFR waypoints per part) two bargraphs of the zooms 1–18, like
-  the meters of the display: from which to which zoom the symbol (or the outline of an area) and the name are drawn, lit
-  in the colour of the layer, the rest grey, the zoom of the map now as a taller mark; dragging an end of a bar with the
-  mouse sets it for all the parts; the name bar is under the symbol bar, with a checkbox for the names on the map: at first the airport symbol up to zoom 11 and the
-  aerodrome layout (runways, aprons, …) from 12, navaids always with names from 9, en-route waypoints from 7 (names from 9),
-  terminal ones and reporting points from 9 (names from 11), obstacles from 11, transmitters from 9 (* = some parts have
-  their own zooms; a change sets them all; ↺ returns a row to the default zooms, **All default** every row, the
-  colours and shapes stay). The tree in **Maps** (▸ opens a kind or a part) switches the
+  show under **Own files** in the tree (a file in this format keeps its kinds), the same name again replaces it. In the tree of **Maps** each kind has two bargraphs of the zooms 1–18 beside its name, like the meters of the display:
+  from which to which zoom the symbol (or the line of an area) and, under it, the name are drawn, lit in the colour of
+  the layer, the rest grey, the zoom of the map now as a taller mark; dragging an end of a bar with the mouse sets it for
+  all the parts of the kind. At first the airport symbol is drawn up to zoom 11 and the aerodrome layout (runways,
+  aprons, …) from 12, navaids always with names from 9, en-route waypoints from 7 (names from 9), terminal ones and
+  reporting points from 9 (names from 11), obstacles from 11, transmitters from 9. ↺ beside the bars returns a kind to
+  the default zooms, **All default zooms** under the tree every kind (the colours and shapes stay). The tree in **Maps** (▸ opens a kind or a part) switches the
   kinds (**Airspaces**, **Airports**, **Navaids**, **Reporting points**, **Obstacles**: off at first) and their parts
   (CTR, TMA, R, D, … / international, civil, ultralight, … / VOR-DME, NDB, …) on and off; each part opens to its objects
   in groups by country (by map for MEMORIES and own files), each group with a checkbox for all its objects, and in them
