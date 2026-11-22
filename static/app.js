@@ -17523,7 +17523,7 @@ function comPrune() {
 
 // ----- the bars over the bottom of the map: Tracks (the labels of all tracks) above Tracker (the view); each folds to
 // the left into its name and opens over the whole width of the map (remembered)
-const COM_BARS = [["tracks", "Tracks"], ["tracker", "Tracker"]];
+const COM_BARS = [["tracks", "Tracks"], ["tracker", "Tracker"], ["maps", "Maps"]];   // Maps: the map memories (mapmemo.js)
 try { localStorage.removeItem("comTbarOpen"); } catch { /* the former single bar */ }
 function comBarOpen(k) {
   try { const v = JSON.parse(localStorage.getItem("comBarsOpen") || "{}") || {}; return v[k] !== false; } catch { return true; }
@@ -17547,6 +17547,7 @@ function renderComTbar() {
       `<button type="button" data-tb="ad" title="The azimuth / distance rings around the station (Map in the map settings)">${mapOpts.ad ? "Hide" : "Show"} A/D map</button>` +
       `<button type="button" data-tb="find" title="Find a track by its name, flight, registration, ICAO, MMSI, call sign or serial">Find track</button>` +
       (lk ? `<button type="button" data-tb="unlock" title="The map stops following the track">Unlock ${escHtml(String(comName(lk)))}</button>` : ""),
+    maps: mapMemoBarHtml(),
   };
   const html = COM_BARS.map(([k, name]) => {
     const open = comBarOpen(k);
@@ -17578,6 +17579,7 @@ document.addEventListener("click", (e) => {
     comTrkSave();
     renderComMap();
   } else if (a === "unlock") comLockSet(null);
+  else if (a.startsWith("mm")) mapMemoClick(b);
 });
 
 // the border between the map and the lists beside it: dragged with the mouse, the width of the lists remembered
@@ -17687,9 +17689,9 @@ async function comMapOpen() {
     return false;
   }
   if (comMap) return true;   // another poll made it meanwhile
-  comMap = L.map($("comMap"), { worldCopyJump: true, minZoom: 2 }).setView([48, 17], 5);
+  comMap = L.map($("comMap"), { worldCopyJump: true, minZoom: 2, maxZoom: 18 }).setView([48, 17], 5);
   L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 13, className: "hfdl-dark",
+    maxZoom: 18, className: "hfdl-dark",
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors',
   }).addTo(comMap);
   mapPopout(comMap, "com");   // remembers the view; the ↗ key opens the map alone in a new tab
@@ -18111,7 +18113,7 @@ function mapBaseInit(map) {
   map.eachLayer((l) => { if (!base0 && l instanceof L.TileLayer && /tile\.openstreetmap\.org/.test(l._url)) base0 = l; });
   const maxZoom = base0 ? base0.options.maxZoom : 16;
   let base = base0, baseSig = "osm|1|", sea = null, lays = new Map();   // id -> {sig, layer}
-  let cloud = null, cloudTimer = null, aip = null, aipKey = "";
+  let cloud = null, cloudTimer = null;
   const statClouds = document.getElementById("comStatClouds");   // the status row under the COMPOSITE map
   return async function apply() {
     const o = mapOpts, url = o.base === "custom" ? o.baseUrl : (MAP_BASES[o.base] || MAP_BASES.osm)[1];
@@ -18150,38 +18152,9 @@ function mapBaseInit(map) {
       if (statClouds) statClouds.hidden = true;
     }
     if (cloud) cloud.setOpacity(o.cldOpa);
-    // OpenAIP: airspaces, airports, navaids over the map (needs the free API key, stored on the server)
-    const key = o.aip ? ((await mapKeysGet()).openaip || "") : "";
-    if (aip && (!o.aip || key !== aipKey)) { map.removeLayer(aip); aip = null; }
-    if (o.aip && key && !aip) {
-      aipKey = key;
-      aip = L.tileLayer(`https://api.tiles.openaip.net/api/data/openaip/{z}/{x}/{y}.png?apiKey=${encodeURIComponent(key)}`, { maxZoom, maxNativeZoom: 14, zIndex: 260,
-        opacity: o.aipOpa, attribution: '&copy; <a href="https://www.openaip.net" target="_blank" rel="noopener noreferrer">openAIP</a> (CC BY-NC)' }).addTo(map);
-    }
-    if (aip) aip.setOpacity(o.aipOpa);
-    // own layers
-    const list = await mapLayListGet();
-    const ids = new Set(list.map((x) => x.id));
-    for (const [id, x] of lays) if (!ids.has(id) || !mapLayOpt(id).on) { map.removeLayer(x.layer); lays.delete(id); }
-    for (const it of list) {
-      const lo = mapLayOpt(it.id), s2 = `${lo.c}|${lo.o}`;
-      if (!lo.on) continue;
-      const had = lays.get(it.id);
-      if (had && had.sig === s2) continue;
-      const gj = await mapLayGet(it.id);
-      if (!gj || !mapLayOpt(it.id).on) continue;
-      if (had) map.removeLayer(had.layer);
-      const st = { color: lo.c, weight: 2, opacity: lo.o, fillColor: lo.c, fillOpacity: lo.o * 0.2, interactive: true };
-      const layer = L.geoJSON(gj, {
-        style: () => st,
-        pointToLayer: (f, ll) => L.circleMarker(ll, { ...st, radius: 4, fillOpacity: lo.o }),
-        onEachFeature: (f, l) => {
-          const p = f.properties || {}, n = p.name || p.Name || p.title || "";
-          if (n || p.description) l.bindTooltip(`${n ? `<b>${escHtml(String(n))}</b>` : ""}${p.description ? `${n ? "<br>" : ""}${escHtml(String(p.description).replace(/<[^>]*>/g, " ").slice(0, 300))}` : ""}`, { className: "ais-label", sticky: true });
-        },
-      }).addTo(map);
-      lays.set(it.id, { sig: s2, layer });
-    }
+    await vmApply(map);   // vector maps (vectormaps.js)
+    for (const x of lays.values()) map.removeLayer(x.layer);   // own layers: replaced by Own files of the vector maps
+    lays.clear();
   };
 }
 
@@ -18269,7 +18242,7 @@ function mapOptsRead0() {
     base: MAP_BASES[o.base] ? o.base : "osm", baseColor: mapHex(o.baseColor, "#000000"), dark: o.dark != null ? !!o.dark : true, baseUrl: typeof o.baseUrl === "string" ? o.baseUrl.slice(0, 500) : "",
     sea: !!o.sea, layRev: +o.layRev || 0,
     stIcon: MAP_ST_ICONS.some(([v]) => v === o.stIcon) ? o.stIcon : "circle", cSt: mapHex(o.cSt, "#ff5a3c"),   // COMPOSITE: the station
-    aip: !!o.aip, aipOpa: MAP_LAY_OPA.includes(+o.aipOpa) ? +o.aipOpa : 0.8, keyRev: +o.keyRev || 0,
+    keyRev: +o.keyRev || 0, vm: vmOptsNorm(o.vm),
     sym: MAP_SYMS.some(([v]) => v === o.sym) ? o.sym : "icon", cld: !!o.cld, cldOpa: Math.min(1, Math.max(0.1, +o.cldOpa || 0.7)),
     lay: Object.fromEntries(Object.entries(o.lay && typeof o.lay === "object" ? o.lay : {}).filter(([id, v]) => /^[\w-]{1,64}$/.test(id) && v && typeof v === "object")
       .map(([id, v]) => [id, { on: v.on !== false, c: mapHex(v.c, "#ff6cd2"), o: MAP_LAY_OPA.includes(+v.o) ? +v.o : 0.8 }])),
@@ -18948,6 +18921,7 @@ function comMapSettings(map, kind, rerender, noTrails) {
       });
       panel.addEventListener("dragend", () => { dragging = null; clearMarks(); });
       panel.addEventListener("click", (e) => {   // "auto" next to a colour: back to the map's own colours
+        if (vmOnClick(e, panel)) return;   // the Vector maps section (vectormaps.js)
         const mv = e.target.closest("button[data-lmove], button[data-limove]");
         if (mv) {   // an item or a line break of a label / of the list one place up or down
           const lbl = mv.dataset.lmove != null, p = lbl ? mv.dataset.lmove : mv.dataset.limove;
@@ -19059,47 +19033,42 @@ function comMapSettings(map, kind, rerender, noTrails) {
       `<button type="button" data-cr="${k}" title="Automatic: the map's own colours">auto</button></span>`;
     const sec = (id, title, hint, body) => `<details class="map-opts-sec" data-sec="${id}"${open.includes(id) ? " open" : ""}><summary>${title}` +
       `${hint ? ` <small>${hint}</small>` : ""}</summary><div class="map-opts-body">${body}</div></details>`;
+    const part = (id, title, hint, body, first = "") => `<details class="map-opts-subsec" data-sec="${id}"${open.includes(id) ? " open" : ""}><summary>${title}` +
+      `${hint ? ` <small>${hint}</small>` : ""}</summary>${first}<div class="map-opts-body">${body}</div></details>`;
     const sub = (t, hint) => `<div class="map-opts-sub2">${t}${hint ? ` <small>${hint}</small>` : ""}</div>`;
     if (!mapLayList) mapLayListGet().then(() => { if (!panel.hidden) fill(); });
     const lays = mapLayList || [];
-    const mapSec =
-      sub("Base map") +
+    const baseSec =
       `<label><select data-o="base">${Object.entries(MAP_BASES).map(([k, [n]]) => `<option value="${k}"${k === o.base ? " selected" : ""}>${n}</option>`).join("")}</select>` +
       `<input type="checkbox" data-o="dark"${o.dark ? " checked" : ""}> darken</label>` +
       (o.base === "solid" ? `<label>Colour <input type="color" class="map-opts-cp" data-o="baseColor" value="${o.baseColor}"></label>` : "") +
       (o.base === "custom" ? `<label><input type="text" class="map-opts-url" data-o="baseUrl" value="${escHtml(o.baseUrl)}" placeholder="https://…/{z}/{x}/{y}.png" spellcheck="false"></label>` : "") +
       `<label><input type="checkbox" data-o="sea"${o.sea ? " checked" : ""}> OpenSeaMap <small class="muted">(sea marks, waterways)</small></label>` +
-      `<label><input type="checkbox" data-o="aip"${o.aip ? " checked" : ""}> OpenAIP <small class="muted">(airspaces, airports, navaids)</small>` +
-      `<select data-o="aipOpa">${MAP_LAY_OPA.map((v) => `<option value="${v}"${v === o.aipOpa ? " selected" : ""}>${pc(v)}</option>`).join("")}</select></label>` +
-      (o.aip ? `<label>API key <input type="text" class="map-opts-url" data-key="openaip" value="${escHtml((mapKeys && mapKeys.openaip) || "")}" placeholder="from openaip.net (free account)" spellcheck="false"></label>` : "") +
-      sub("Own layers", "GeoJSON, KML, GPX") +
-      (lays.length ? `<table class="map-opts-t map-opts-lays">` + lays.map((it) => {
-        const lo = mapLayOpt(it.id), id = escHtml(it.id);
-        return `<tr><th><label title="${it.n} object${it.n === 1 ? "" : "s"}, ${Math.max(1, Math.round(it.size / 1024))} kB"><input type="checkbox" data-lay="${id}" data-k="on"${lo.on ? " checked" : ""}> ${escHtml(it.name)}</label></th>` +
-          `<td><input type="color" class="map-opts-cp" data-lay="${id}" data-k="c" value="${lo.c}"></td>` +
-          `<td><select data-lay="${id}" data-k="o">${MAP_LAY_OPA.map((v) => `<option value="${v}"${v === lo.o ? " selected" : ""}>${pc(v)}</option>`).join("")}</select></td>` +
-          `<td><button type="button" class="map-opts-del" data-laydel="${id}" title="Delete the layer (for all windows)">✕</button></td></tr>`;
-      }).join("") + `</table>` : `<p class="map-opts-note">${mapLayList ? "No layer yet." : "Loading…"}</p>`) +
-      `<label class="map-opts-up">Add <input type="file" data-up accept=".geojson,.json,.kml,.gpx"></label><p class="map-opts-note map-opts-msg"></p>` +
-      (kind === "com" ? sub("Station", "your location (MENU › SETUP › LOCATION)") +
-        `<label>Icon <select data-o="stIcon">${MAP_ST_ICONS.map(([v, n]) => `<option value="${v}"${v === o.stIcon ? " selected" : ""}>${n}</option>`).join("")}</select>` +
-        `<input type="color" class="map-opts-cp" data-o="cSt" value="${o.cSt}" title="Colour of the station"></label>` : "") +
-      sub("A/D map", "azimuth / distance rings around the station") +
+      (extra.length ? sub("This map") + extra.map(([l, n], i) => `<label><input type="checkbox" data-x="${i}"${map.hasLayer(l) ? " checked" : ""}> ${escHtml(n)}</label>`).join("") : "");
+    const stSec = kind !== "com" ? "" :
+      `<label>Icon <select data-o="stIcon">${MAP_ST_ICONS.map(([v, n]) => `<option value="${v}"${v === o.stIcon ? " selected" : ""}>${n}</option>`).join("")}</select>` +
+      `<input type="color" class="map-opts-cp" data-o="cSt" value="${o.cSt}" title="Colour of the station"></label>`;
+    const adSec =
       `<label><input type="checkbox" data-o="ad"${o.ad ? " checked" : ""}> Show the rings and azimuths</label>` +
       `<label>Up to <select data-o="adMax">${MAP_AD_MAX.map((v) => `<option value="${v}"${v === o.adMax ? " selected" : ""}>${v}</option>`).join("")}</select>` +
       `<select data-o="adUnit"><option value="km"${o.adUnit === "km" ? " selected" : ""}>km</option><option value="nm"${o.adUnit === "nm" ? " selected" : ""}>NM</option></select></label>` +
       `<label><input type="checkbox" data-o="adFine"${o.adFine ? " checked" : ""}> Also every 10 km / NM and 10°</label>` +
       `<table class="map-opts-t"><tr><th></th><th>50 · 30°</th><th>10 · 10°</th></tr>` +
       `<tr><th>Colour</th><td><input type="color" class="map-opts-cp" data-o="cAd" value="${o.cAd}"></td><td><input type="color" class="map-opts-cp" data-o="cAdFine" value="${o.cAdFine}"></td></tr>` +
-      `<tr><th>Brightness</th><td>${sel(MAP_AD_OPA, pc)("adOpa")}</td><td>${sel(MAP_AD_OPA, pc)("adFineOpa")}</td></tr></table>` +
-      `<label class="map-opts-sub2" title="The farthest positions decoded by the ADS-B decoder, per altitude band"><input type="checkbox" data-o="rng"${o.rng ? " checked" : ""}> ADS-B range</label>` +
+      `<tr><th>Brightness</th><td>${sel(MAP_AD_OPA, pc)("adOpa")}</td><td>${sel(MAP_AD_OPA, pc)("adFineOpa")}</td></tr></table>`;
+    const rngSec =
+      `<label title="The farthest positions decoded by the ADS-B decoder, per altitude band"><input type="checkbox" data-o="rng"${o.rng ? " checked" : ""}> Show the ADS-B range</label>` +
       `<table class="map-opts-t"><tr><th></th><th colspan="2">Line</th><th colspan="2">Fill</th></tr>` +
       ADSB_RANGE_BANDS.map(([, label], i) => `<tr><th>${label}</th><td><input type="color" class="map-opts-cp" data-o="cRng${i}" value="${o["cRng" + i]}"></td>` +
         `<td><select data-o="oRng${i}" title="Brightness of the line">${MAP_RNG_OPA.map((v) => `<option value="${v}"${v === o["oRng" + i] ? " selected" : ""}>${v ? pc(v) : "none"}</option>`).join("")}</select></td>` +
         `<td><input type="color" class="map-opts-cp" data-o="fRng${i}" value="${o["fRng" + i]}"></td>` +
         `<td><select data-o="pRng${i}" title="Opacity of the fill">${MAP_LBL_BG.map((v) => `<option value="${v}"${v === o["pRng" + i] ? " selected" : ""}>${v ? pc(v) : "none"}</option>`).join("")}</select></td></tr>`).join("") +
-      `</table>` +
-      (extra.length ? sub("This map") + extra.map(([l, n], i) => `<label><input type="checkbox" data-x="${i}"${map.hasLayer(l) ? " checked" : ""}> ${escHtml(n)}</label>`).join("") : "");
+      `</table>`;
+    const mapSec = part("vmaps", "Vector maps", "airspaces, FUA, airports, navaids, transmitters, channels", "",
+      part("vsrc", "Map sources", "openAIP, OurAirports, OSM, FUA, MEMORIES, own files", vmSourcesHtml()) + part("vlist", "Maps", "what is shown", vmSettingsHtml())) +
+      part("mbase", "Base map", "tiles, OpenSeaMap", baseSec) +
+      part("mad", "A/D map", "azimuth / distance rings", adSec) + part("mrng", "ADS-B range", "farthest positions per altitude", rngSec) +
+      (stSec ? part("mst", "Station", "your location (MENU › SETUP › LOCATION)", stSec) : "");
     const weatherSec =
       sub("Precipitation", "RainViewer radar") +
       `<label><input type="checkbox" data-o="precip"${o.precip ? " checked" : ""}> Show the precipitation</label>` +
@@ -19173,13 +19142,14 @@ function comMapSettings(map, kind, rerender, noTrails) {
       MAP_LBL.map(([id, n]) => `<tr><th>${n}</th><td>${box("lblSel", id)}</td><td>${box("lbl", id)}</td><td>${box("lblShr", id)}</td></tr>`).join("") +
       `</table><p class="map-opts-note">Drag a label to move it (this window only), a double click puts it back.</p>`;
     panel.innerHTML = (kind === "com" ? sec("sources", "Sources", "aircrafts, radiosondes, ships", srcHtml()) : "") +
-      sec("map", "Map", "base map, layers, rings, range", mapSec) + sec("weather", "Weather", "precipitation, clouds", weatherSec) +
+      sec("map", "Maps", "vector maps, base map, rings, range", mapSec) + sec("weather", "Weather", "precipitation, clouds", weatherSec) +
       (rerender ? sec("objects", "Aircrafts", "symbol, label", kindSec("", true)) + sec("sondes", "Radiosondes", "symbol, label", kindSec("s_", false)) +
         sec("ships", "Ships", "symbol, label", kindSec("w_", false)) : "") +
       `<p class="map-opts-note">Remembered in the browser, the same in all windows.</p>`;
   }
   function onInput(e) {
     const t = e.target;
+    if (vmOnInput(e, panel)) return;   // the Vector maps section (vectormaps.js)
     if (t.dataset.x != null) {   // a switch of this map only: the map's own overlayadd / overlayremove handler keeps it
       if (e.type !== "change") return;
       const [l] = extra[+t.dataset.x];
@@ -19231,12 +19201,6 @@ function comMapSettings(map, kind, rerender, noTrails) {
         .catch((err) => { panel.querySelector(".map-opts-msg").textContent = `Key not stored: ${err.message}`; });
       return;
     }
-    if (t.dataset.o === "aip") {   // the key field shows with the switch
-      if (e.type !== "change") return;
-      mapOptsSet({ aip: t.checked });
-      mapKeysGet().then(() => fill());
-      return;
-    }
     if (t.dataset.o === "base" || t.dataset.o === "baseUrl") {
       if (e.type !== "change") return;
       mapOptsSet({ [t.dataset.o]: t.value.trim() });
@@ -19270,7 +19234,7 @@ function comMapSettings(map, kind, rerender, noTrails) {
       mapOptsSet({ [k]: t.value / 100 });
     } else if (e.type === "change") {
       if (/^(?:[sw]_)?pred/.test(k) && t.value === "land") { mapOptsSet({ [k]: "land" }); return; }
-      mapOptsSet({ [k]: ["precip", "ad", "adFine", "rng", "dark", "sea", "cld", "shAfi", "shNotLocal", "shGround", "noUnits", "noUnitsSel", "noUnitsShr"].includes(k) || /^(?:[sw]_)?(noUnits|lblShow|lblNote)/.test(k) ? t.checked : /^(?:[sw]_)?(span|icon|font|drop|bg|pred|adMax|adOpa|adFineOpa|stale|oRng|pRng|aipOpa|shDist|shInt|shAlt|shMax|shAisDist|shAisMax|shShDist|shShAge)/.test(k) && !/^(?:[sw]_)?(cStale)/.test(k) ? +t.value : t.value });
+      mapOptsSet({ [k]: ["precip", "ad", "adFine", "rng", "dark", "sea", "cld", "shAfi", "shNotLocal", "shGround", "noUnits", "noUnitsSel", "noUnitsShr"].includes(k) || /^(?:[sw]_)?(noUnits|lblShow|lblNote)/.test(k) ? t.checked : /^(?:[sw]_)?(span|icon|font|drop|bg|pred|adMax|adOpa|adFineOpa|stale|oRng|pRng|shDist|shInt|shAlt|shMax|shAisDist|shAisMax|shShDist|shShAge)/.test(k) && !/^(?:[sw]_)?(cStale)/.test(k) ? +t.value : t.value });
     }
   }
   function apply(other) {   // other = changed in another tab / window
