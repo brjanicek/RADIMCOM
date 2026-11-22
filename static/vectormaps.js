@@ -10,6 +10,7 @@ const VM_KINDS = [
     "ALERT", "WARNING", "PROTECTED", "OTHER"]],
   ["fua", "FUA", ["active", "planned"]],
   ["airport", "Airports", ["intl", "large", "medium", "ifr", "airport", "small", "civil", "military", "glider", "ul", "heli", "heli_mil", "water", "strip", "agri", "altiport", "balloon", "closed"]],
+  ["aero", "AD layout", ["aerodrome", "runway", "apron", "taxiway", "helipad"]],
   ["navaid", "Navaids", ["VOR", "VOR-DME", "DVOR", "DVOR-DME", "VORTAC", "DVORTAC", "TACAN", "DME", "NDB", "NDB-DME"]],
   ["point", "Rep. points", ["RP", "RP_OPT"]],
   ["wpt", "IFR waypoints", ["enroute", "terminal"]],
@@ -17,7 +18,6 @@ const VM_KINDS = [
   ["tx", "Transmitters", ["bcast", "radar", "ham", "comm", "mobile"]],
   ["chan", "MEMORIES", ["nogroup"]],   // one part per group (names from the map file)
   ["own", "Own files", ["area", "line", "point"]],
-  ["aero", "AD layout", ["aerodrome", "runway", "apron", "taxiway", "helipad"]],
 ];
 const vmIsArea = (kind, cat) => kind === "airspace" || kind === "aero" || kind === "fua" || (kind === "own" && cat !== "point");   // drawn with line and fill
 function vmCatName(c) {   // the name of a part; the groups of the MEMORIES channels come with their map
