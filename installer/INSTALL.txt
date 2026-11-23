@@ -80,6 +80,9 @@ Change log
 ----------
 (also in CHANGELOG.md)
 
+Ver. 1.1rc3
+(third release candidate, GitHub branch 1.1rc3; continues 1.1rc2, whose changes are below)
+
 Ver. 1.1rc2
 (second release candidate, GitHub branch 1.1rc2; continues 1.1rc1, whose changes are below)
 - Vector maps on the COMPOSITE map (by Brano, brjanicek, PR #24), offline: openAIP airspaces, airports, navaids and

@@ -6,7 +6,7 @@ The full rules for people are in [CONTRIBUTING.md](CONTRIBUTING.md#git-workflow)
 
 ## Which branch
 
-- The active development branch is the current version branch (now `1.1rc2`), not `main`. `main` holds only
+- The active development branch is the current version branch (now `1.1rc3`), not `main`. `main` holds only
   releases. Check `git branch -r` for the newest `origin/<version>` branch if unsure, and ask if it is not clear.
 - In a fork, the original repository is the remote `upstream` (`https://github.com/om2amr/RADIMCOM.git`). Add it if it
   is missing.
@@ -14,12 +14,12 @@ The full rules for people are in [CONTRIBUTING.md](CONTRIBUTING.md#git-workflow)
 ## Contributor workflow (pull requests from a fork)
 
 1. Start every topic from a fresh branch off the latest version branch:
-   `git fetch upstream && git switch -c <topic> upstream/1.1rc2`
+   `git fetch upstream && git switch -c <topic> upstream/1.1rc3`
 2. One topic per branch and per pull request. Keep it short: days, not weeks.
 3. Before opening the PR, and again whenever the maintainer asks, rebase instead of merging:
-   `git fetch upstream && git rebase upstream/1.1rc2`, resolve any conflict in your branch, then
+   `git fetch upstream && git rebase upstream/1.1rc3`, resolve any conflict in your branch, then
    `git push --force-with-lease`. Never merge the version branch into the topic branch.
-4. Open the PR against the version branch (`1.1rc2`), not `main`.
+4. Open the PR against the version branch (`1.1rc3`), not `main`.
 5. After the PR is merged, delete the topic branch and start the next topic from step 1. Do not keep working on a
    merged branch.
 

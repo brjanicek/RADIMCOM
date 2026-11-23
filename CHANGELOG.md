@@ -1,5 +1,9 @@
 # Changelog
 
+## Ver. 1.1rc3
+
+Third release candidate (GitHub branch `1.1rc3`; continues `1.1rc2`, whose changes are below).
+
 ## Ver. 1.1rc2
 
 Second release candidate (GitHub branch `1.1rc2`; continues `1.1rc1`, whose changes are below).
