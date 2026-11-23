@@ -1745,12 +1745,13 @@ body.map-only .ft8-map.map-only-box { flex-direction: column; }
 .wf-opt { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
 .wf-opt select { padding: 4px 8px; font-size: 12px; }
 .wf-opt input[type=number] { width: 72px; padding: 4px 6px; font-size: 12px; }
-.wefax-wrap.aligning .wefax-block { cursor: cell; }
+.wefax-wrap.aligning .wefax-block, .wefax-wrap.aligning.dragging .wefax-block { cursor: cell; }
 .log-opt { cursor: pointer; user-select: none; }
 .log-opt input { margin: 0; accent-color: var(--yellow); }
 .wefax-wrap { max-height: calc(var(--vh) * .7); overflow: auto; border: 1px solid var(--line); border-radius: 6px; background: #000; }
 /* .wefax-wrap prefix: must beat ".scope canvas { height: 100% }" (the decoder pane sits inside .scope) */
-.wefax-wrap .wefax-block { display: block; width: 100%; height: auto; cursor: crosshair; }
+.wefax-wrap .wefax-block { display: block; width: 100%; height: auto; cursor: grab; touch-action: pan-y; }
+.wefax-wrap.dragging .wefax-block { cursor: grabbing; }
 .wefax .note code, .sstv .note code { color: var(--text); }
 .sstv-main { display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
 .sstv-wrap { position: relative; flex: 0 1 640px; min-width: 260px; border: 1px solid var(--line); border-radius: 6px;
@@ -4868,6 +4869,8 @@ body.map-only #comStatus, #comPane:fullscreen #comStatus { display: flex; }
 .meteor .mt-tbl tbody tr { cursor: pointer; }
 .meteor .mt-tbl tr.sel td { background: rgba(159, 216, 255, .16); }
 .meteor .mt-hd { margin-left: 4px; font: 700 10px system-ui, sans-serif; color: #ff9bd0; }
+.meteor .mt-chart .mt-sat, .meteor .mt-kind.mt-sat { fill: #c79bff; color: #c79bff; }
+.meteor .mt-satn { margin-left: 4px; font-size: 10px; color: #c79bff; }
 
 /* DECODERS › Q65 / JT65 (q65.py, static/q65.js) */
 .q65-tbl col.c-mode { width: 104px; }
@@ -5020,3 +5023,46 @@ details[data-sec=vmaps] > .map-opts-body:empty { display: none; }
 .vm-zb i.on { background: var(--c); box-shadow: 0 0 3px color-mix(in srgb, var(--c) 60%, transparent); }
 .vm-zb i.cur { height: 15px; outline: 1px solid #f2fff4; outline-offset: -1px; }
 .vm-zv { min-width: 34px; font: 700 .85em ui-monospace, Consolas, monospace; color: #8b95a1; }
+
+/* SETTINGS › VFO › AUDIO: the "Now" line of every block (as in DYN); TNF: CLEAR NOTCHES next to DEFAULT */
+.set-audio .dyn-now { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; }
+.set-audio .dyn-now > span:first-child { color: var(--dim); }
+.set-tnf .def-row { gap: 6px; flex-wrap: wrap; }
+
+/* AD: satellite tracking of the VFO (satad.js): small polar plot, beside it the satellite and the frequency */
+.ad-sat { display: flex; align-items: center; gap: 8px; height: 100%; padding: 0 8px 0 2px; white-space: nowrap; overflow: hidden; }
+.ad-sat[hidden] { display: none !important; }
+.ad-sat-polar { flex: 0 0 auto; height: 100%; min-height: 40px; max-height: 64px; width: auto; aspect-ratio: 1; }
+.ad-sat-polar .pg-ring { stroke-width: 4; }
+.ad-sat-polar .pg-track { stroke: #5aa0ff; stroke-width: 7; }
+.ad-sat-polar .pg-end { stroke-width: 4; }
+.ad-sat-polar .pg-now { stroke-width: 4; }
+.ad-sat-polar .pg-rot line { stroke-width: 7; }
+.ad-sat-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; line-height: 1.05; }
+.ad-sat-name { overflow: hidden; text-overflow: ellipsis; color: #8fc3ff; font: 700 12px system-ui, sans-serif; }
+.ad-sat-f { color: var(--amber); font: 700 12px/1 ui-monospace, Consolas, monospace; }
+.ad-sat-f small { margin-left: 3px; color: var(--muted); font: 700 9px system-ui, sans-serif; }
+.ad-sat .ad-sat-flag { display: inline-block; flex: none; white-space: nowrap; min-width: 0; padding: 1px 5px; border-radius: 3px; font-size: 9px; line-height: 1.2; box-shadow: none; }
+.ad-sat-count { color: var(--muted); font: 10px system-ui, sans-serif; }
+.ad-sat-count b { color: var(--text); font: 700 11px ui-monospace, Consolas, monospace; }
+.ad-sat-count.live b { color: var(--green); }
+
+/* STATION: a chained VFO – no dongle of its own; the raw A/D samples of the owner come in from the left (sdgPlaceChain) */
+.sdg-lane .sdg-b.sdg-chn::before, .sdg-lane .sdg-b.sdg-chn::after { display: none; }
+.sdg-chnl { position: absolute; inset: 0; pointer-events: none; font-style: normal; }
+.sdg-chnl[hidden] { display: none; }
+.sdg-chnl > i { position: absolute; border: 0 solid #5ee0d0; pointer-events: auto; }
+.sdg-chnl > i:nth-child(1), .sdg-chnl > i:nth-child(3) { width: 0; border-left-width: 2px; }
+.sdg-chnl > i:nth-child(2), .sdg-chnl > i:nth-child(4) { height: 0; border-top-width: 2px; }
+.sdg-chnl > i:nth-child(4)::after { content: ""; position: absolute; right: -2px; top: -6px; border: 5px solid transparent;
+  border-left: 6px solid #5ee0d0; border-right: 0; }
+.sdg-chnl > em { position: absolute; font: 600 9px system-ui, sans-serif; font-style: normal; letter-spacing: .06em; color: #5ee0d0; white-space: nowrap; }
+
+/* AD: DSD – the callsign of the caller (from its alias) after its ID */
+.ad-dsd-call { flex: 0 0 auto; color: #8fc3ff; font-weight: 700; letter-spacing: .02em; }
+
+/* the dark tooltip of every title="" (tooltip.js), instead of the browser's white one */
+.key-tip { position: fixed; z-index: 10000; max-width: 420px; padding: 5px 8px; border: 1px solid var(--line2); border-radius: 4px;
+  background: #1b222c; color: var(--text); font: 12px/1.35 system-ui, sans-serif; white-space: pre-line; pointer-events: none;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .5); }
+.key-tip[hidden] { display: none; }

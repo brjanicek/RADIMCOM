@@ -1,5 +1,4 @@
-"""nrx.py: NR4 (SpecBleach) on synthetic SSB speech, its faster tracking of a rising noise than the Wiener DNR,
-the streaming interpolation of RNN and RNN itself when lib\\rnnoise\\rnnoise.dll is there.
+"""nrx.py: NR4 (SpecBleach) on synthetic SSB speech and its faster tracking of a rising noise than the Wiener DNR.
 
 Run: python -m unittest tests.test_nrx
 """
@@ -71,29 +70,6 @@ class Nr4(unittest.TestCase):
             ch.nr_algo = algo
             audio, _ = ch.process(z)
             self.assertEqual(len(audio), len(z))
-
-
-class Interp(unittest.TestCase):
-    def test_rate_and_shape(self):
-        fs = 37500
-        x = np.sin(2 * np.pi * 700 * np.arange(fs) / fs)
-        up, down = nrx._Interp(fs, 48000), nrx._Interp(48000, fs)
-        y48 = np.concatenate([up.process(x[i:i + 1000]) for i in range(0, fs, 1000)])
-        self.assertLess(abs(len(y48) - 48000), 2)
-        back = np.concatenate([down.process(y48[i:i + 1234]) for i in range(0, len(y48), 1234)])
-        self.assertLess(abs(len(back) - fs), 2)
-        self.assertLess(float(np.max(np.abs(back[100:fs - 100] - x[100:fs - 100]))), 0.02)
-
-
-@unittest.skipIf(nrx.rnn_library() is None, "lib\\rnnoise\\rnnoise.dll not installed")
-class Rnn(unittest.TestCase):
-    def test_runs_and_lowers_noise(self):
-        rng = np.random.default_rng(3)
-        x = (0.05 * rng.normal(size=3 * FS)).astype(np.float32)
-        nr = nrx.RnNoise(FS)
-        y = np.concatenate([nr.process(x[i:i + 2048]) for i in range(0, len(x), 2048)])
-        self.assertEqual(len(y), len(x))
-        self.assertLess(np.mean(y[FS:] ** 2), 0.3 * np.mean(x[FS:] ** 2))
 
 
 if __name__ == "__main__":

@@ -218,11 +218,8 @@ browser – and the **CUE** key of that VFO (orange LED): that VFO stays audible
     +4.6 dB at 6 and 0 dB, the noise in pauses −12 to −14 dB. The VFO window shows **DNR** after NTH. ~2 % of a CPU core.
     **Algorithm** (SETTINGS › AUDIO › DNR): **WIENER** (the above), **NR4** – spectral bleaching after libspecbleach: the
     noise follows a speech presence probability (not the minimum of 1.5 s, so it adapts at once), the gains are smoothed
-    over time and frequency, less "music noise" and about 3 dB less speech lost than WIENER at the same noise reduction;
-    **RNN** – the RNNoise neural network of Xiph (trained on speech, best on SSB / AM voice, resampled to its 48 kHz). RNN
-    needs `lib\rnnoise\rnnoise.dll`: run `python installer\get_rnnoise.py` once (it downloads the pyrnnoise 0.4.6
-    wheel from PyPI, checks its SHA-256 and takes the DLL out of it; licences in `lib\rnnoise\README.txt`). Without the
-    DLL RNN works as WIENER and the DNR info says so.
+    over time and frequency, less "music noise" and about 3 dB less speech lost than WIENER at the same noise reduction.
+    The tooltip of the DNR key shows the algorithm and the level; it stays up while the mouse wheel changes the level.
   - NB – Noise Blanker (right of NTH; all modes except WFM and DAB): pulses of ignition, electric fences, switching
     supplies or radar are blanked in the wideband samples of the dongle, before the channel filter, where they are still
     a few µs long. A pulse is a short jump (≤ 100 µs) of the magnitude out of the envelope of the band (13 µs moving

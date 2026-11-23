@@ -1123,7 +1123,6 @@ q65_mod.register(app, q65_dec)      # /api/q65: DECODERS › Q65 / JT65 (jt9 of 
 bpsk_mod.register(app, bpsk_dec)    # /api/bpsk: DECODERS › BPSK (satellite telemetry: FUNcube AO-40 FEC, AX.25)
 spotting.register(app, same_host, _tag)   # /api/spotting: SETTINGS › GENERAL › SPOTS (PSK Reporter from FT8, WSPRnet from WSPR)
 
-
 @app.route("/api/sonde", methods=["GET"])
 def api_sonde():
     return jsonify(sonde.info())
@@ -3097,6 +3096,8 @@ def api_set():
             changes["sagc"] = new
         if "dc_remove" in body:
             changes["dc_remove"] = bool(body["dc_remove"])
+        if "wf_comp" in body:                      # WF GAIN COMP (wfcomp.py)
+            changes["wf_comp"] = bool(body["wf_comp"])
         if "dc_hz" in body:
             hz = int(body["dc_hz"])
             if not 0 <= hz <= 1000:

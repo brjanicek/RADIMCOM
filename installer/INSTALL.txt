@@ -97,6 +97,14 @@ Ver. 1.1rc2
   and sets the new EL offset of the rotor in elevation.
 - One rotor dial for RCTRL > SETTINGS, SUN NOISE and METEORS.
 - METEORS: chart and small waterfall for 30 s ... 1 h, detail of an echo, head echo spectrum.
+- METEORS: satellites (SAT) in a +-8 kHz spectrum are not counted as meteors and are identified from public orbital
+  elements (CelesTrak, data\graves_tle.txt) by their bistatic Doppler; aircraft echoes (PLANE) are identified on adsb.fi
+  (ADS-B key, only the middle of the path is sent); HEAD ECHO is optional; SATS in COUNTS.
+- AGC+ LINEARITY: intermodulation of the tuner (phantom stations without A/D clipping) found across gain steps, with a
+  ceiling under it.
+- WF GAIN COMP: waterfall and spectrum corrected for the tuner gain, no jumps when the gain changes.
+- DNR: the RNN algorithm removed (WIENER and NR4 stay).
+- Dark tooltips for the whole page; AD shows the satellite tracking of the VFO; WEFAX image can be dragged sideways.
 - RETRO key renamed PRE-REC (the IQ of the last minute kept in RAM; SAVE IQ writes ..._IQ_PREREC.wav).
 
 Ver. 1.1rc1

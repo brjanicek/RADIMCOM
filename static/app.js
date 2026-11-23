@@ -2620,10 +2620,8 @@ function renderRds() {
   if (st.dnr_level != null && document.activeElement !== $("dnrLevel")) $("dnrLevel").value = st.dnr_level;
   renderDnrKey();
   if (st.dnr_algo && document.activeElement !== $("dnrAlgo")) $("dnrAlgo").value = st.dnr_algo;
-  const dnrAlgo = (st.dnr_algo || "wiener").toUpperCase(), rnnMissing = st.dnr_algo === "rnn" && st.dnr_rnn_error;
   $("dnrInfo").textContent = !st.dnr ? "DNR off" : !alcMode ? "not in " + st.mode
-    : `${rnnMissing ? "RNN unavailable, WIENER" : dnrAlgo}${st.dnr_algo === "rnn" && !rnnMissing ? "" : ` level ${st.dnr_level}`} · noise −${(st.dnr_reduction_db || 0).toFixed(0)} dB`;
-  $("dnrInfo").title = rnnMissing ? st.dnr_rnn_error : "";
+    : `${(st.dnr_algo || "wiener").toUpperCase()} level ${st.dnr_level} · noise −${(st.dnr_reduction_db || 0).toFixed(0)} dB`;
   $("dynLim").checked = st.dyn_lim !== false;
   $("dynExp").checked = st.dyn_exp !== false;
   const expOn = st.dyn_exp !== false;
@@ -2732,7 +2730,8 @@ ${b.dataset.tip0 || ""}` : b.dataset.tip0 || "";
 }
 
 // ---------- AD = additional display under the S-meter: one thing at a time, by priority ----------
-// 1. error messages (red, the frame blinks, OK accepts them), 2. rotor AZ / EL (MONITOR in RCTRL › SETTINGS),
+// 1. error messages (red, the frame blinks, OK accepts them), 1b. satellite tracking of this VFO (satad.js),
+// 2. rotor AZ / EL (MONITOR in RCTRL › SETTINGS),
 // 3. DAB now on air (station, SNR, DLS text), 4. DSD calls on air (a line per time slot), 5. RDS.
 const adErrors = [];       // messages not accepted yet, oldest first
 let adRotInfo = null;      // the last rotor state of the active VFO while its MONITOR is on
@@ -2746,8 +2745,19 @@ function adError(msg) {
   renderAd();
 }
 
+/** DSD in the AD: the callsign of the caller from its alias (DMR talker alias, NXDN …), when it has one and the ID
+ *  itself is not the callsign (D-Star, YSF send the callsign as the caller). */
+function dsdAdCall(c) {
+  const m = DSD_CALL_RE.exec(String(c.alias || "").toUpperCase());
+  if (!m || String(c.src || "").toUpperCase().includes(m[1])) return "";
+  return `<b class="ad-dsd-call" title="${escHtml(c.alias)}">${escHtml(m[1])}</b>`;
+}
+
 function renderAd() {
-  const err = adErrors.length > 0, rot = !err && rotorMonOn() && !!adRotInfo;
+  const err = adErrors.length > 0, sat = !err && typeof satAdOn === "function" && satAdOn();     // satad.js
+  const rot = !err && !sat && rotorMonOn() && !!adRotInfo;
+  $("adSat").hidden = !sat;
+  if (sat) satAdRender();
   $("mfd").classList.toggle("alarm", err);
   $("adErr").hidden = !err;
   if (err) {
@@ -2768,7 +2778,7 @@ function renderAd() {
       : rotorMoving(i) ? `→ ${Math.round(i.target[0])}° / ${Math.round(i.target[1])}°` : "";
     $("adRotTgt").classList.toggle("bad", bad);
   }
-  const dab = !err && !rot && !!adDabInfo;
+  const dab = !err && !sat && !rot && !!adDabInfo;
   $("adDab").hidden = !dab;
   if (dab) {
     const d = adDabInfo, snr = d.snr == null ? null : Number(d.snr);
@@ -2789,7 +2799,7 @@ function renderAd() {
     }
   }
   // DSD: one line per call on air (both DMR time slots under each other), slot 1 first; no call = empty
-  const dsd = !err && !rot && !dab && !!adDsdInfo;
+  const dsd = !err && !sat && !rot && !dab && !!adDsdInfo;
   $("adDsd").hidden = !dsd;
   if (dsd) {
     const d = adDsdInfo, calls = [...d.active].sort((a, b) => (a.slot || 0) - (b.slot || 0)).slice(0, 2);
@@ -2799,10 +2809,10 @@ function renderAd() {
       // only the basics: slot, talk group (or private ID), caller, time; encrypted = the target in orange
       `<div class="ad-dsd-row${c.enc ? " enc" : ""}" title="${escHtml(`${c.proto || ""} ${dsdTarget(c)} ${dsdTgName(c.tgt)} from ${c.src || "-"} ${c.alias || ""}${c.enc ? " (encrypted)" : ""}`)}">` +
       `${c.slot ? dsdSlot(c.slot) : ""}${dsdProto(c.proto)}<span class="ad-dsd-to">${escHtml(dsdTarget(c))}</span>` +
-      `<span class="ad-dsd-from">${escHtml(c.src || "-")}</span><span class="ad-dsd-dur">${dsdDuration(c.duration)}</span></div>`).join("")
+      `<span class="ad-dsd-from">${escHtml(c.src || "-")}</span>${dsdAdCall(c)}<span class="ad-dsd-dur">${dsdDuration(c.duration)}</span></div>`).join("")
       : "";   // no call on air: the AD stays empty (in DSD mode, not the RDS)
   }
-  $("rds").hidden = err || rot || dab || dsd;
+  $("rds").hidden = err || sat || rot || dab || dsd;
 }
 
 $("adErrOk").addEventListener("click", () => { adErrors.shift(); renderAd(); });
@@ -2817,7 +2827,17 @@ function renderWfLabels() {
   $("wfRangeText").textContent = `${$("wfRange").value} dB`;
   const s = Number($("wfShift").value);
   $("wfShiftText").textContent = `${s > 0 ? "+" : ""}${s} dB`;
+  if (st) {      // WF GAIN COMP (wfcomp.py): on / off and the correction now
+    $("wfComp").checked = st.wf_comp !== false;
+    $("wfCompText").textContent = st.wf_comp === false ? "off" : st.gain === "auto" ? "not in auto"
+      : `${st.wf_comp_db > 0 ? "−" : "+"}${Math.abs(st.wf_comp_db || 0).toFixed(1)} dB`;
+  }
 }
+$("wfComp").addEventListener("change", () => {
+  if (st) st.wf_comp = $("wfComp").checked;
+  renderWfLabels();
+  send({ wf_comp: $("wfComp").checked });
+});
 
 function setAgc(on) {
   st.gain = on ? "auto" : st.gains[Number($("gainSlider").value)] ?? 0;
@@ -3094,14 +3114,20 @@ function setDnrLevel(v) {
   send({ dnr_level: v });
 }
 $("dnrLevel").addEventListener("change", () => setDnrLevel($("dnrLevel").value));
-$("dnrAlgo").addEventListener("change", () => send({ dnr_algo: $("dnrAlgo").value }));
-// DNR key: the level in its tooltip (no number on the key: it would move the keys of the row), the mouse wheel
-// changes it (1–10, as in SETTINGS). The title is set only when the text changes, so a shown tooltip is not hidden
-// by every status, only by a new level.
+$("dnrAlgo").addEventListener("change", () => {
+  if (st) st.dnr_algo = $("dnrAlgo").value;
+  renderDnrKey();
+  send({ dnr_algo: $("dnrAlgo").value });
+});
+const DNR_ALGO_TXT = { wiener: "WIENER (spectral, minimum statistics)", nr4: "NR4 (spectral, follows a changing noise faster)" };
+// DNR key: the algorithm and the level in its tooltip (no number on the key: it would move the keys of the row), the
+// mouse wheel changes the level (1–10, as in SETTINGS). The title is set only when the text changes; the tooltip
+// (tooltip.js) follows a new title while it is shown, also while the wheel turns.
 function renderDnrKey() {
   const lv = st && st.dnr_level != null ? st.dnr_level : DNR_DEF;
-  const t = `DNR level ${lv} (1 gentle … 10 strong; ${DNR_DEF} default)\nDigital Noise Reduction in AM/LSB/USB/CW: takes ` +
-    `the noise out all the time, also under speech (spectral, Wiener). Click = on/off, mouse wheel = level (also in SETTINGS › VFO › AUDIO)`;
+  const algo = DNR_ALGO_TXT[st && st.dnr_algo] || DNR_ALGO_TXT.wiener;
+  const t = `DNR ${algo}, level ${lv} (1 gentle … 10 strong; ${DNR_DEF} default)\nDigital Noise Reduction in AM/LSB/USB/CW: takes ` +
+    "the noise out all the time, also under speech. Click = on/off, mouse wheel = level; the algorithm in SETTINGS › VFO › AUDIO";
   if ($("dnrKey").title !== t) $("dnrKey").title = t;
 }
 $("dnrKey").addEventListener("wheel", (e) => {
@@ -3534,6 +3560,7 @@ $("ft8Bands").addEventListener("click", async (e) => {
   if (!b || !st) return;
   await ensureVfoFor(Number(b.dataset.f));   // HF band -> VFO with upconverter
   if (!st) return;
+  decTuneLeave();
   st.mode = "USB";
   renderControls();
   tune(Number(b.dataset.f));
@@ -6672,6 +6699,11 @@ function dabOff() {
   send({ dab: false });
   renderDab(st);
 }
+/** A band key or TUNE of a baseband decoder (FT8, WEFAX, METEORS…): DAB and ISM end as with another band. */
+function decTuneLeave() {
+  if (st.dab) dabOff();
+  if (st.ism) ismOff();
+}
 
 $("acarsBands").addEventListener("click", onLinkBand);
 $("acarsRows").addEventListener("click", (e) => {
@@ -6837,6 +6869,7 @@ $("wefaxBands").addEventListener("click", async (e) => {
   if (!b || !st) return;
   await ensureVfoFor(Number(b.dataset.f) - 1900);
   if (!st) return;
+  decTuneLeave();
   // Standard: USB tuning 1.9 kHz below the assigned frequency (AFC finds the exact centre anyway).
   st.mode = "USB";
   renderControls();
@@ -6877,8 +6910,59 @@ $("wefaxWrap").addEventListener("click", (e) => {
     wefaxCmd({ slant_ppm: Math.max(-3000, Math.min(3000, ppm)) });
     return;
   }
-  wefaxCmd({ action: "phase", x: (e.clientX - r.left) / r.width });
+  // (outside ALIGN a click or a drag is handled by the pointer events below)
 });
+
+// Drag the image sideways: it slides round (what leaves one edge comes in at the other), shown at once from a copy of
+// each block; on release the server rolls the lines received so far and starts the following ones the same way.
+let wfxDrag = null;
+$("wefaxWrap").addEventListener("pointerdown", (e) => {
+  const cv = e.target.closest("canvas");
+  if (!cv || wfxAlign !== null || e.button !== 0 || !wfx.rows) return;
+  const snaps = wfx.blocks.map((ctx) => {
+    const c = document.createElement("canvas");
+    c.width = ctx.canvas.width; c.height = ctx.canvas.height;
+    c.getContext("2d").drawImage(ctx.canvas, 0, 0);
+    return c;
+  });
+  const r = cv.getBoundingClientRect();
+  wfxDrag = { x0: e.clientX, xr: (e.clientX - r.left) / r.width, scale: wfx.width / r.width, snaps, px: 0, moved: false, raf: 0 };
+  $("wefaxWrap").setPointerCapture(e.pointerId);
+});
+$("wefaxWrap").addEventListener("pointermove", (e) => {
+  const d = wfxDrag;
+  if (!d) return;
+  const W = wfx.width;
+  d.px = Math.round((e.clientX - d.x0) * d.scale) % W;
+  if (!d.moved && Math.abs(e.clientX - d.x0) < 4) return;    // a click may move a pixel or two
+  if (!d.moved) { d.moved = true; $("wefaxWrap").classList.add("dragging"); }
+  if (d.raf) return;
+  d.raf = requestAnimationFrame(() => {
+    d.raf = 0;
+    const s = ((d.px % W) + W) % W;
+    wfx.blocks.forEach((ctx, i) => {
+      if (!d.snaps[i]) return;
+      ctx.clearRect(0, 0, W, ctx.canvas.height);
+      ctx.drawImage(d.snaps[i], s, 0);
+      ctx.drawImage(d.snaps[i], s - W, 0);
+    });
+  });
+});
+function wefaxDragEnd(e) {
+  const d = wfxDrag;
+  if (!d) return;
+  wfxDrag = null;
+  $("wefaxWrap").classList.remove("dragging");
+  if (d.raf) cancelAnimationFrame(d.raf);
+  if (!d.moved) {      // a click: the spot becomes the left edge of the whole image (the lines so far and the following)
+    if (e.type === "pointerup") wefaxCmd({ action: "shift", dx: -d.xr });
+    return;
+  }
+  if (e.type === "pointercancel" || !d.px) { wefaxLoadImage(); return; }
+  wefaxCmd({ action: "shift", dx: d.px / wfx.width });       // the server reloads the image (wefaxreload)
+}
+$("wefaxWrap").addEventListener("pointerup", wefaxDragEnd);
+$("wefaxWrap").addEventListener("pointercancel", wefaxDragEnd);
 
 // ---------- SSTV ----------
 
@@ -6976,6 +7060,7 @@ $("sstvBands").addEventListener("click", async (e) => {
   if (!b || !st) return;
   await ensureVfoFor(Number(b.dataset.f));
   if (!st) return;
+  decTuneLeave();
   st.mode = b.dataset.mode;
   renderControls();
   tune(Number(b.dataset.f));
@@ -19702,7 +19787,8 @@ init();
 var sdg = { rotor: null, dop: {}, qth: null, at: 0, timer: null, html: "" };   // var: setSubOpened can run before this line
 const SDG_DEC = [["ft8", "FT8"], ["cw", "CW"], ["rtty", "RTTY"], ["packet", "PACKET"], ["pocsag", "POCSAG"], ["sstv", "SSTV"],
   ["wefax", "WEFAX"], ["acars", "ACARS"], ["vdl2", "VDL2"], ["hfdl", "HFDL"], ["adsb", "ADS-B"], ["ais", "AIS"], ["ism", "ISM"],
-  ["sonde", "SONDE"], ["dab", "DAB"]];
+  ["sonde", "SONDE"], ["dab", "DAB"], ["wspr", "WSPR"], ["msk144", "MSK144"], ["q65", "Q65/JT65"], ["meteor", "METEORS"],
+  ["bpsk", "BPSK"]];     // every new decoder goes here too (state key, chip text); SDG_RAW when it takes the raw IQ
 // where a decoder takes its samples: the raw A/D samples of the whole band (IQ, before DC, NB and the channel filter),
 // otherwise the baseband of the channel or the demodulated audio (SSTV, DSD); SONDE MULTI works on the raw samples
 const SDG_RAW = new Set(["vdl2", "dab", "ism", "hfdl", "ais", "adsb"]);
@@ -19821,7 +19907,12 @@ function sdgLane(v) {
   const mode = s.dab ? "DAB" : s.dsd && s.dsd.enabled ? "DSD" : s.mode || "";
   // antenna
   const a = antById(s.antenna), cov = a ? antCovers(a, s.tune_hz) : null;
-  const ant = sdgBlk("ANTENNA", a ? `<span class="v">${escHtml(a.name)}</span><span>${escHtml([a.type, a.pol].filter(Boolean).join(" · "))}</span>` +
+  const ownV = s.chain_owner ? vfos.find((x) => x.name === s.chain_owner) : null;
+  const ownS = ownV ? (ownV === active ? st || ownV.st : ownV.st) || {} : {};
+  const ownA = ownV ? antById(ownS.antenna) : null;
+  // a chained VFO: no dongle of its own – the raw A/D samples of the owner's dongle (iqshare.py), its antenna and AGC+
+  const ant = s.chain_owner ? sdgBlk("ANTENNA", `<span class="v">${ownA ? escHtml(ownA.name) : "–"}</span><span>of VFO-${escHtml(s.chain_owner)}</span>`,
+    "off k-ant", `VFO-${s.chain_owner} owns the dongle: this VFO receives on its antenna`) : sdgBlk("ANTENNA", a ? `<span class="v">${escHtml(a.name)}</span><span>${escHtml([a.type, a.pol].filter(Boolean).join(" · "))}</span>` +
     `<span>${a.rotor ? sdgChip("ROTOR", sdg.rotor && sdg.rotor.connected ? "on" : "") : ""}${cov === false ? sdgChip("OUT OF RANGE", "warn") : ""}</span>` : "<span>not chosen</span>",
     (a ? (cov === false ? "lit warn" : "lit") : "off") + " k-ant", "SETTINGS › VFO › RX CHAIN › ANTENNA");
   // dongle
@@ -19836,7 +19927,13 @@ function sdgLane(v) {
     `<span class="${clip ? "err" : ""}">${!auto && s.adc_peak != null ? `${minusSign(s.adc_peak)} dBFS${clip ? " clip" : ""}` : "peak –"}</span></div>`;
   const chips = `${s.upconv && s.upconv !== "off" ? sdgChip("UPCONV", "on") : ""}${s.bias_tee ? sdgChip("BIAS-T", "on") : ""}` +
     `${s.ppm ? sdgChip(`${s.ppm} ppm`, "on") : ""}${chained ? sdgChip(escHtml(chained), "on") : ""}`;
-  const sdr = sdgBlk(`${escHtml(devName)} <em>${escHtml(s.serial || "")}</em>`, `<div class="sdg-inner">${tuner}${adc}</div>` +
+  const sdr = s.chain_owner ? sdgBlk(`IQ FROM VFO-${escHtml(s.chain_owner)}`, `<span class="v">raw A/D samples</span>` +
+    `<span>${escHtml(devName)} ${escHtml(ownS.serial || s.serial || "")} · ${+((s.sample_rate || 0) / 1e6).toFixed(3)} MS/s</span>` +
+    `<span>gain ${auto ? "auto" : gainLabel(s)}${smart ? ` · AGC+ by VFO-${escHtml(s.chain_owner)}` : ""}</span>` +
+    `<span class="chips">${sdgChip("CHAINED", "on")}</span>`,
+    `sdg-dev sdg-chn k-dev ${s.error ? "lit bad" : "lit"}`, `Chained VFO: no dongle of its own. VFO-${s.chain_owner} sends it every block of raw A/D samples ` +
+    "with the state of the dongle (centre, rate, gain); DC, NB, the spectrum, the mixer and everything after run here") :
+    sdgBlk(`${escHtml(devName)} <em>${escHtml(s.serial || "")}</em>`, `<div class="sdg-inner">${tuner}${adc}</div>` +
     (chips ? `<span class="chips">${chips}</span>` : ""),
     `sdg-dev k-dev ${s.error || clip ? "lit bad" : "lit"}`, "SETTINGS › VFO › RX CHAIN");
   // IQ: DC removal and the noise blanker on the wideband samples
@@ -19942,7 +20039,7 @@ function sdgLane(v) {
   const owner = s.chain_owner ? `VFO-${escHtml(s.chain_owner)}` : "";
   const ctl = `<i class="sdg-ctl" title="VFO-${escHtml(v.name)} ${sdgHz(s.tune_hz || 0)} = dongle centre ${sdgHz(s.center_hz || 0)}` +
     `${s.lo_hz ? ` (tuner ${sdgHz(tunerHz)} with the upconverter)` : ""} ${offHz < 0 ? "−" : "+"} offset ${sdgHz(Math.abs(offHz))} in the mixer">` +
-    `<em class="l0">tunes</em><i class="d1${owner ? " no" : ""}"></i><em class="l1">${owner ? `centre by ${owner}` : `centre ${sdgHz(tunerHz)}`}</em>` +
+    `<em class="l0">tunes</em>${owner ? "" : `<i class="d1"></i><em class="l1">centre ${sdgHz(tunerHz)}</em>`}` +
     `<i class="d2"></i><em class="l2">offset</em></i>`;
   // a raw-IQ decoder (its audio muted) or DAB: the chain after the A/D is not used; IQ and MIXER still feed a
   // baseband decoder running beside (FT8, CW, …), the output still plays DAB
@@ -19960,7 +20057,7 @@ function sdgLane(v) {
   // on a shared dongle the owner VFO runs it; with the squelch set it also switches ASQ on
   const ag = s.agc || {};
   const agcTxt = owner ? `by ${owner}` : smart ? `headroom ${ag.head ?? "–"} / ${ag.target ?? "–"} dB` : auto ? "AGC (tuner)" : "manual gain";
-  const agc = sdgBlk("AGC+", `<span class="v">${smart ? "on" : "off"}</span><span>${agcTxt}</span>` +
+  const agc = owner ? "" : sdgBlk("AGC+", `<span class="v">${smart ? "on" : "off"}</span><span>${agcTxt}</span>` +
     (smart && s.auto_sql_on && !s.auto_sql ? `<span class="chips">${sdgChip("→ ASQ", "on", "AGC+ switched the auto squelch on")}</span>` : ""),
     `sdg-agc k-agc ${smart ? "lit" : "off"}`, "AGC+: keeps the A/D headroom of the signal kind and band – measures the A/D peak and the noise floor of the band, " +
     "sets the TUNER gain (SETTINGS › VFO › RX CHAIN, AGC+ key). Runs in RADIMCOM on the PC" +
@@ -19985,7 +20082,13 @@ function sdgLane(v) {
 function renderSdg() {
   const named = vfos.filter((v) => v.name);
   const top = sdgShared();
-  const lanes = named.map((v) => `<div class="sdg-lane" data-vfo="${escHtml(v.name)}">${sdgLane(v)}</div>`).join("");
+  const lanes = named.map((v) => `<div class="sdg-lane" data-vfo="${escHtml(v.name)}">${sdgLane(v)}</div>`).join("")
+    // chained VFOs: the raw A/D samples from the dongle of the owner into their IQ FROM block (sdgPlaceChain)
+    + named.map((v) => {
+      const o = v.online && ((v === active ? st || v.st : v.st) || {}).chain_owner;
+      return o ? `<i class="sdg-chnl" data-from="${escHtml(o)}" data-to="${escHtml(v.name)}" title="raw A/D samples of VFO-${escHtml(o)} into VFO-${escHtml(v.name)}">` +
+        `<i></i><i></i><i></i><i></i><em>raw IQ → VFO-${escHtml(v.name)}</em></i>` : "";
+    }).join("");
   // MAIN and CUE: two vertical buses over all rows, the speaker side at the top (the faders of the MONITOR)
   const anyMain = named.some((v) => v === active && v.online && v.st && !v.mute && !(v.st || {}).audio_muted);
   const anyCue = named.some((v) => v !== active && v.cue && v.online && v.st && !v.mute && !(v.st || {}).audio_muted);
@@ -20015,7 +20118,7 @@ function sdgPlace() {
   }
   for (const el of lanes.querySelectorAll(".sdg-ctl")) {
     const lane = el.parentElement, h = lane.querySelector(".sdg-h"), f = h && h.querySelector(".f");
-    const dev = lane.querySelector(".sdg-dev"), tu = dev && dev.querySelector(".sdg-in"), mix = lane.querySelector(".sdg-mix");
+    const dev = lane.querySelector(".sdg-dev"), tu = dev && (dev.querySelector(".sdg-in") || dev), mix = lane.querySelector(".sdg-mix");
     if (!f || !tu || !mix) continue;
     const x0 = h.offsetLeft + h.offsetWidth + 8, y0 = 8, yf = h.offsetTop + f.offsetTop + f.offsetHeight / 2;
     const xt = dev.offsetLeft + tu.offsetLeft + tu.offsetWidth / 2, xm = mix.offsetLeft + mix.offsetWidth / 2;
@@ -20024,6 +20127,30 @@ function sdgPlace() {
   }
   sdgPlaceOut();
   sdgPlaceDop();
+  sdgPlaceChain();
+}
+
+/** Chained VFO: from under the A/D of the owner's dongle left into the gap before the dongle column, along it down (or
+ *  up) to the row of the chained VFO and right into its IQ FROM block. Coordinates of .sdg-lanes. */
+function sdgPlaceChain() {
+  const box = $("sdgLanes");
+  for (const el of box.querySelectorAll(".sdg-chnl")) {
+    const from = box.querySelector(`.sdg-lane[data-vfo="${CSS.escape(el.dataset.from)}"]`);
+    const to = box.querySelector(`.sdg-lane[data-vfo="${CSS.escape(el.dataset.to)}"]`);
+    const dev = from && from.querySelector(".sdg-dev"), chn = to && to.querySelector(".sdg-chn");
+    const ad = dev && dev.querySelectorAll(".sdg-in")[1];
+    if (!dev || !chn) { el.hidden = true; continue; }
+    el.hidden = false;
+    const xa = from.offsetLeft + dev.offsetLeft + (ad ? ad.offsetLeft + ad.offsetWidth - 14 : dev.offsetWidth - 14);
+    const ya = from.offsetTop + dev.offsetTop + dev.offsetHeight, yh = ya + 6;
+    const xg = to.offsetLeft + chn.offsetLeft - 8, yb = to.offsetTop + chn.offsetTop + chn.offsetHeight / 2;
+    const [s0, s1, s2, s3, lab] = el.children;
+    Object.assign(s0.style, { left: `${xa}px`, top: `${ya}px`, height: `${yh - ya}px` });
+    Object.assign(s1.style, { left: `${xg}px`, top: `${yh}px`, width: `${xa - xg}px` });
+    Object.assign(s2.style, { left: `${xg}px`, top: `${Math.min(yh, yb)}px`, height: `${Math.abs(yb - yh)}px` });
+    Object.assign(s3.style, { left: `${xg}px`, top: `${yb}px`, width: "8px" });
+    Object.assign(lab.style, { left: `${xg + 8}px`, top: `${yh + 1}px` });
+  }
 }
 
 /** OUT and CUE of each row out of AUDIO into the MAIN / CUE buses (a dot = connected; a wire crosses the MAIN bus
@@ -20929,6 +21056,7 @@ $("wsprBands").addEventListener("click", async (e) => {
   if (!b || !st) return;
   await ensureVfoFor(Number(b.dataset.f));   // HF band -> VFO with upconverter
   if (!st) return;
+  decTuneLeave();
   st.mode = "USB";
   renderControls();
   tune(Number(b.dataset.f));
@@ -22240,6 +22368,7 @@ $("msk144Bands").addEventListener("click", async (e) => {
   if (!b || !st) return;
   await ensureVfoFor(Number(b.dataset.f));
   if (!st) return;
+  decTuneLeave();
   st.mode = "USB";
   renderControls();
   tune(Number(b.dataset.f));
@@ -22951,7 +23080,29 @@ const MT_SHOWERS = [["01-04", "QUA", "Quadrantids"], ["04-22", "LYR", "Lyrids"],
   ["06-07", "ARI", "Arietids (daytime)"], ["06-09", "ZPE", "ζ Perseids (daytime)"], ["08-12", "PER", "Perseids"],
   ["10-08", "DRA", "Draconids"], ["10-21", "ORI", "Orionids"], ["11-17", "LEO", "Leonids"], ["12-14", "GEM", "Geminids"],
   ["12-22", "URS", "Ursids"]];
-const MT_KIND = { under: ["UNDERDENSE", "mt-under", "UNDER"], over: ["OVERDENSE", "mt-over", "OVER"], plane: ["AIRCRAFT", "mt-plane", "PLANE"] };   // [name, class, short name in the table]
+const MT_KIND = { under: ["UNDERDENSE", "mt-under", "UNDER"], over: ["OVERDENSE", "mt-over", "OVER"], plane: ["AIRCRAFT", "mt-plane", "PLANE"],
+  sat: ["SATELLITE", "mt-sat", "SAT"] };   // [name, class, short name in the table]
+/** Which aircraft a PLANE echo was (meteor_air.identify, adsb.fi): flight (else registration / hex), or the whole text. */
+function mtAirName(e, long) {
+  const a = e && e.air;
+  if (!a) return long ? (e && "air" in e ? "looking up on adsb.fi…" : "not looked up (ADS-B off or no location)") : "";
+  if (!a.hex) return long ? `not identified: ${a.why || ""}` : "?";
+  const name = a.flight || a.reg || a.hex.toUpperCase();
+  if (!long) return name;
+  return `${name}${a.reg && a.reg !== name ? ` ${a.reg}` : ""}${a.type ? ` ${a.type}` : ""}${a.desc ? ` (${a.desc})` : ""} · ICAO ${a.hex.toUpperCase()} · ` +
+    `FL${String(Math.round(a.alt_ft / 100)).padStart(3, "0")} · ${a.km} km from here · fit ${a.rms} Hz` +
+    `${a.others ? ` · ${a.others} other${a.others > 1 ? "s" : ""} fit almost as well` : ""}`;
+}
+/** Which satellite a SAT echo was (meteor_sat.identify): a short name for the table, the whole text for the detail. */
+function mtSatName(e, long) {
+  if (e && e.kind === "plane") return mtAirName(e, long);
+  const s = e && e.sat;
+  if (!s) return long ? "identifying…" : "";
+  if (!s.norad) return long ? `not identified: ${s.why || ""}` : "?";
+  if (!long) return s.name;
+  return `${s.name} (NORAD ${s.norad}) · from here AZ ${Math.round(s.az)}° EL ${Math.round(s.el)}° ${s.km} km · fit ${s.rms} Hz, receiver offset ${s.offset > 0 ? "+" : ""}${s.offset} Hz` +
+    `${s.lit ? "" : " · outside the sector GRAVES lights (less sure)"}${s.others ? ` · ${s.others} other${s.others > 1 ? "s" : ""} fit almost as well (e.g. a train of satellites)` : ""}`;
+}
 const MT_GRAVES = 143050000, MT_DIAL = 143049000;
 var mtData = null, mtBusy = false, mtLastEv = "", mtRot = null, mtRotAt = 0, mtRotMsg = "";
 const mtShown = () => !MAP_ONLY && bodyTab === "dec" && decPage === "meteor";
@@ -23080,7 +23231,8 @@ function mtStatsHtml(d) {
     stat("PREV", d && d.last_hour, "Meteor echoes in the previous UTC hour") +
     stat("60 MIN", d && d.last_60min, "Meteor echoes in the last 60 minutes (rolling)") +
     stat("TODAY", d && d.today, "Meteor echoes since 00:00 UTC") +
-    stat("PLANES", d && d.planes, "Echoes recognised as aircraft since the start (not counted)");
+    stat("PLANES", d && d.planes, "Echoes recognised as aircraft since the start (not counted)") +
+    stat("SATS", d && d.sats, "Echoes recognised as satellites since the start (not counted); which one: in the ECHOES table");
 }
 async function mtLoad(v) {
   if (!v || mtBusy) return;
@@ -23130,6 +23282,9 @@ function mtRender() {
   if (!d) return;
   if (document.activeElement !== $("mtThr")) $("mtThr").value = d.threshold_db;
   $("mtHead").checked = !!d.head;
+  $("mtAir").checked = !!d.air;
+  $("mtAirK").title = `ADS-B: an aircraft echo (PLANE) is compared with the aircraft adsb.fi sees around the middle of the path (only that point is sent). ` +
+    `Receiver offset used: ${d.rx_offset > 0 ? "+" : ""}${d.rx_offset} Hz` + (d.rx_offset_n ? ` (measured on ${d.rx_offset_n} identified satellite${d.rx_offset_n > 1 ? "s" : ""})` : " (none measured yet: 0 = calibrated receiver)");
   $("mtHeadK").classList.toggle("warn", !!d.head && d.enabled && !d.head_hz && /listening/.test(d.status));   // on, but the VFO band is too narrow
   if (mtDet && mtDet.d && $("mtDetCv").clientWidth !== mtDet.w) mtDetDraw();      // resized
   $("mtDetV").textContent = d.enabled ? (d.error || d.status || "listening") : "off";
@@ -23228,9 +23383,11 @@ function mtTable(d) {
   $("mtEmpty").hidden = ev.length > 0;
   $("mtRows").innerHTML = ev.slice().reverse().map((e) => {
     const k = MT_KIND[e.kind] || MT_KIND.under, h = e.head;
-    const cls = [e.kind === "plane" ? "mt-dim" : "", mtDet && mtDet.ts === e.ts ? "sel" : ""].join(" ").trim();
+    const cls = [e.kind === "plane" || e.kind === "sat" ? "mt-dim" : "", mtDet && mtDet.ts === e.ts ? "sel" : ""].join(" ").trim();
+    const sn = e.kind === "sat" || e.kind === "plane" ? mtSatName(e) : "";
     return `<tr class="${cls}" data-ts="${e.ts}" title="Click: the detail of this echo"><td class="utc">${e.time}</td><td class="num">${e.snr.toFixed(1)}</td><td class="num">${e.dur.toFixed(2)}</td>` +
       `<td class="num">${e.doppler > 0 ? "+" : ""}${e.doppler}</td><td class="num">${e.drift ? e.drift.toFixed(1) : ""}</td><td><span class="mt-kind ${k[1]}" title="${k[0]}">${k[2]}</span>` +
+      `${sn ? `<span class="mt-satn" title="${mtEsc(mtSatName(e, true))}">${mtEsc(sn.length > 14 ? sn.slice(0, 13) + "…" : sn)}</span>` : ""}` +
       `${h ? `<span class="mt-hd" title="Head echo: ${h.f0 > 0 ? "+" : ""}${h.f0} → ${h.f1 > 0 ? "+" : ""}${h.f1} Hz, ${(h.slope / 1000).toFixed(1)} kHz/s, ${h.t} s before the echo">H</span>` : ""}</td></tr>`;
   }).join("");
 }
@@ -23267,8 +23424,11 @@ function mtDetShow() {
   $("mtDetT").innerHTML = e ? `<b>${e.time} UTC</b> · ${k[0]} · ${e.snr.toFixed(1)} dB · ${e.dur.toFixed(2)} s · ${e.doppler > 0 ? "+" : ""}${e.doppler} Hz` +
     `${e.drift ? ` · drift ${e.drift.toFixed(1)} Hz/s` : ""}` : "";
   $("mtDetHB").hidden = !(d && d.head);
-  const h = e && e.head;
-  $("mtDetSub").textContent = m.msg || (h ? `Head echo: ${h.f0 > 0 ? "+" : ""}${h.f0} → ${h.f1 > 0 ? "+" : ""}${h.f1} Hz, ${(h.slope / 1000).toFixed(1)} kHz/s, starts ${h.t} s before the echo`
+  const h = e && e.head, sat = e && e.kind === "sat";
+  $("mtDetSub").textContent = m.msg || (e && e.kind === "plane" ? `${mtAirName(e, true)}${e.air && e.air.hex ? " · dotted: its calculated Doppler" : ""}`
+    : sat ?`${e.f0 > 0 ? "+" : ""}${e.f0} → ${e.f1 > 0 ? "+" : ""}${e.f1} Hz · ${mtSatName(e, true)}` +
+      `${e.sat && e.sat.norad ? " · dotted: its calculated Doppler" : ""}`
+    : h ? `Head echo: ${h.f0 > 0 ? "+" : ""}${h.f0} → ${h.f1 > 0 ? "+" : ""}${h.f1} Hz, ${(h.slope / 1000).toFixed(1)} kHz/s, starts ${h.t} s before the echo`
     : d && d.head ? "No head echo found in the ±5 kHz spectrum (a steep streak before the echo)" : "HEAD ECHO is off: only the trail echo (±500 Hz)");
   if (d) mtDetDraw();
 }
@@ -23277,16 +23437,20 @@ function mtDetDraw() {
   const d = mtDet && mtDet.d;
   if (!d) return;
   const e = d.echo;
-  mtDetPart($("mtDetCv"), d, e, [[e.ts, "start"], [e.ts + e.dur, "end"]], [0], null);
+  if (e.kind === "sat") {          // the wide spectrum of the whole track; dotted: the Doppler of the satellite found
+    mtDetPart($("mtDetCv"), d, e, [[e.ts, "start"], [e.ts + e.dur, "end"]], [0, -500, 500], d.curve && d.curve.length > 1 ? d.curve : null);
+  } else {          // an aircraft: dotted, the Doppler of the aircraft found on adsb.fi
+    mtDetPart($("mtDetCv"), d, e, [[e.ts, "start"], [e.ts + e.dur, "end"]], [0], d.curve && d.curve.length > 1 ? d.curve : null);
+  }
   if (d.head) {
     const h = e.head;
-    const fit = h ? [e.ts - h.t, h.f0, e.ts - h.t + (h.f1 - h.f0) / h.slope, h.f1] : null;
+    const fit = h ? [[e.ts - h.t, h.f0], [e.ts - h.t + (h.f1 - h.f0) / h.slope, h.f1]] : null;
     mtDetPart($("mtDetHv"), d.head, e, [[e.ts, "echo"]], [0, -500, 500], fit);
   }
   mtDet.w = $("mtDetCv").clientWidth;
 }
 /** One spectrogram: part {t0, dt, hz, rows (base64 uint8 frames × bins), n}; marks [t, label] (dashed), lines at Hz,
- *  fit [t0, f0, t1, f1] (dotted) or null. Time to the right, Doppler up, labels in s from the echo start. */
+ *  fit [[t, Hz], …] (dotted) or null. Time to the right, Doppler up, labels in s from the echo start. */
 function mtDetPart(cv, part, e, marks, hzLines, fit) {
   const dpr = window.devicePixelRatio || 1;
   const W = Math.max(1, Math.round(cv.clientWidth * dpr)), H = Math.max(1, Math.round(cv.clientHeight * dpr));
@@ -23320,7 +23484,7 @@ function mtDetPart(cv, part, e, marks, hzLines, fit) {
   }
   ctx.fillText(`+${Math.round(fHi)} Hz`, 4 * dpr, 10 * dpr);
   ctx.fillText(`−${Math.round(-fLo)} Hz`, 4 * dpr, H - 3 * dpr);
-  const step = span > 8 ? 2 : span > 3 ? 1 : 0.5;                          // time labels from the echo start
+  const step = span > 90 ? 20 : span > 40 ? 10 : span > 16 ? 5 : span > 8 ? 2 : span > 3 ? 1 : 0.5;   // time labels from the echo start
   for (let s = Math.ceil((part.t0 - part.dt - e.ts) / step) * step; e.ts + s <= part.t0 + span; s += step) {
     const xx = x(e.ts + s);
     if (xx < 30 * dpr || xx > W - 20 * dpr) continue;
@@ -23335,7 +23499,9 @@ function mtDetPart(cv, part, e, marks, hzLines, fit) {
     ctx.setLineDash([1.5 * dpr, 2.5 * dpr]);
     ctx.strokeStyle = "#ff9bd0";
     ctx.lineWidth = 1.5 * dpr;
-    ctx.beginPath(); ctx.moveTo(x(fit[0]), y(fit[1])); ctx.lineTo(x(fit[2]), y(fit[3])); ctx.stroke();
+    ctx.beginPath();
+    fit.forEach(([t, f], i) => (i ? ctx.lineTo(x(t), y(f)) : ctx.moveTo(x(t), y(f))));
+    ctx.stroke();
   }
   ctx.setLineDash([]);
 }
@@ -23346,6 +23512,11 @@ $("mtRows").addEventListener("click", (ev) => {
   if (mtDet && mtDet.ts === ts) mtDetClose(); else mtDetOpen(ts);
 });
 $("mtDetX").addEventListener("click", mtDetClose);
+$("mtAir").addEventListener("change", () => {
+  if (!active) return;
+  fetch(active.base + "/api/meteors", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ air: $("mtAir").checked }) })
+    .then((r) => r.json()).then((d) => { mtData = d; mtRender(); }).catch(() => {});
+});
 $("mtHead").addEventListener("change", () => {
   if (!active) return;
   fetch(active.base + "/api/meteors", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ head: $("mtHead").checked }) })
@@ -23361,6 +23532,7 @@ $("meteorOn").addEventListener("change", () => {
 $("mtTune").addEventListener("click", async () => {
   await ensureVfoFor(MT_DIAL);
   if (!st) return;
+  decTuneLeave();
   st.mode = "USB";
   renderControls();
   tune(MT_DIAL);
@@ -23492,3 +23664,4 @@ setInterval(() => {      // the counters while SETTINGS › GENERAL › SPOTS or
   satFetch("/api/spotting").then((s) => (set ? spFill(s, false) : spDecRender(s))).catch(() => {});
 }, 10000);
 setTimeout(() => satFetch("/api/spotting").then(spDecRender).catch(() => {}), 1500);
+

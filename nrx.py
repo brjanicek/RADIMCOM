@@ -5,20 +5,15 @@
                 which follows a changing noise within a fraction of a second and needs no speech pauses; the gain from
                 the decision-directed a-priori SNR, smoothed in time (fast attack, slow release) and over neighbouring
                 bins, so the rest of the noise stays smooth. Level 1-10 sets the reduction (6-30 dB), as for DNR.
-    RnNoise     "RNN": the recurrent neural network RNNoise (Xiph.Org, BSD licence) for speech, through lib\\rnnoise\\
-                rnnoise.dll (installer/get_rnnoise.py puts it there). It works at 48 kHz on 10 ms frames: the audio is
-                interpolated to 48 kHz and back. No level (the network decides); for speech (SSB, AM), not for CW.
 
-Both have the interface of sdr.SpectralNR: process(x) -> the same number of samples, reset(), level, reduction_db.
+(1.1rc2: the RNNoise algorithm "RNN" was removed, it did not give good results on the air.)
+
+It has the interface of sdr.SpectralNR: process(x) -> the same number of samples, reset(), level, reduction_db.
 """
-import ctypes
-import os
-
 import numpy as np
 
-ALGOS = ("wiener", "nr4", "rnn")
+ALGOS = ("wiener", "nr4")
 ALGO_DEFAULT = "wiener"
-RNN_DLL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib", "rnnoise", "rnnoise.dll")
 
 
 def reduction_floor(level):
@@ -96,108 +91,3 @@ class SpecBleach:
         self.pending = allout[len(x):]
         return allout[:len(x)]
 
-
-class _Interp:
-    """Streaming linear interpolation from fs_in to fs_out (the audio has nothing above ~4 kHz, so this is enough)."""
-
-    def __init__(self, fs_in, fs_out):
-        self.step = fs_in / fs_out
-        self.prev = 0.0
-        self.t = 1.0          # position of the next output, in input samples after self.prev (1 = the first new sample)
-
-    def process(self, x):
-        buf = np.concatenate(([self.prev], np.asarray(x, np.float64)))
-        n = int(np.floor((len(buf) - 1 - self.t) / self.step)) + 1 if len(buf) > 1 else 0
-        pos = self.t + self.step * np.arange(max(n, 0))
-        pos = pos[pos <= len(buf) - 1]
-        y = np.interp(pos, np.arange(len(buf)), buf)
-        self.t = (pos[-1] + self.step if len(pos) else self.t) - (len(buf) - 1)
-        self.prev = buf[-1]
-        return y.astype(np.float32)
-
-
-_lib = None
-_lib_error = ""
-
-
-def rnn_library():
-    """The loaded rnnoise.dll, or None (rnn_error() says why)."""
-    global _lib, _lib_error
-    if _lib is not None or _lib_error:
-        return _lib
-    if not os.path.isfile(RNN_DLL):
-        _lib_error = "lib\\rnnoise\\rnnoise.dll is missing (run installer\\get_rnnoise.py)"
-        return None
-    try:
-        lib = ctypes.CDLL(RNN_DLL)
-        lib.rnnoise_create.argtypes = [ctypes.c_void_p]
-        lib.rnnoise_create.restype = ctypes.c_void_p
-        lib.rnnoise_destroy.argtypes = [ctypes.c_void_p]
-        lib.rnnoise_process_frame.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_float), ctypes.POINTER(ctypes.c_float)]
-        lib.rnnoise_process_frame.restype = ctypes.c_float
-        lib.rnnoise_get_frame_size.restype = ctypes.c_int
-        if lib.rnnoise_get_frame_size() != 480:
-            raise OSError("unexpected frame size")
-        _lib = lib
-    except OSError as e:
-        _lib_error = f"rnnoise.dll cannot be loaded: {e}"
-    return _lib
-
-
-def rnn_error():
-    rnn_library()
-    return _lib_error
-
-
-class RnNoise:
-    RATE = 48000
-    FRAME = 480
-
-    def __init__(self, fs):
-        self.fs = fs
-        self.level = 3                  # not used: the network has no strength
-        self.lib = rnn_library()
-        self.state = self.lib.rnnoise_create(None) if self.lib else None
-        self.reset()
-
-    def __del__(self):
-        try:
-            if self.state and self.lib:
-                self.lib.rnnoise_destroy(self.state)
-        except Exception:
-            pass
-
-    def reset(self):
-        self.up = _Interp(self.fs, self.RATE)
-        self.down = _Interp(self.RATE, self.fs)
-        self.in48 = np.zeros(0, np.float32)
-        self.out = np.zeros(int(self.fs * 0.02), np.float32)     # 20 ms head start: the frames and interpolation lag
-        self.vad = 0.0
-        self.reduction_db = 0.0
-        self._quiet = [0.0, 0.0]
-
-    def process(self, x):
-        x = np.asarray(x, np.float32)
-        if not self.state:
-            return x
-        self.in48 = np.concatenate((self.in48, self.up.process(x)))
-        nfr = len(self.in48) // self.FRAME
-        res = np.empty(nfr * self.FRAME, np.float32)
-        for k in range(nfr):
-            fr = np.ascontiguousarray(self.in48[k * self.FRAME:(k + 1) * self.FRAME] * 32767.0, np.float32)
-            pin = float(np.mean(fr * fr))
-            ptr = fr.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
-            self.vad = float(self.lib.rnnoise_process_frame(self.state, ptr, ptr))
-            res[k * self.FRAME:(k + 1) * self.FRAME] = fr / 32767.0
-            if self.vad < 0.2:                                     # no speech: how much of the noise is taken out
-                self._quiet = [0.95 * self._quiet[0] + pin, 0.95 * self._quiet[1] + float(np.mean(fr * fr))]
-        self.in48 = self.in48[nfr * self.FRAME:]
-        if self._quiet[0] > 0:
-            self.reduction_db = round(float(10 * np.log10((self._quiet[0] + 1e-9) / (self._quiet[1] + 1e-9))), 1)
-        self.out = np.concatenate((self.out, self.down.process(res)))
-        if len(self.out) < len(x):                                 # never short: pad (only right after a reset)
-            self.out = np.concatenate((np.zeros(len(x) - len(self.out), np.float32), self.out))
-        y, self.out = self.out[:len(x)], self.out[len(x):]
-        if len(self.out) > self.fs * 0.1:                          # never a growing delay
-            self.out = self.out[-int(self.fs * 0.03):]
-        return y

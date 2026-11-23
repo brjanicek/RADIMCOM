@@ -17,6 +17,7 @@ from collections import deque
 
 import audiofx
 import nrx
+import wfcomp
 from autotune import AutoTune
 from gainctl import (SAGC_PARAMS, SAGC_SETTLE, SmartAgc, Target, analyse, kind_for, sagc_params,  # noqa: F401
                      warning)
@@ -1296,9 +1297,8 @@ class Channel:
         self.sam_on = False
         self.sam_sb = "dsb"
         self.nr = SpectralNR(fs)
-        self.nr_algo = nrx.ALGO_DEFAULT     # DNR algorithm: wiener (SpectralNR), nr4 (nrx.SpecBleach), rnn (nrx.RnNoise)
+        self.nr_algo = nrx.ALGO_DEFAULT     # DNR algorithm: wiener (SpectralNR), nr4 (nrx.SpecBleach)
         self.nr4 = nrx.SpecBleach(fs)
-        self.rnn = None                     # made when first chosen (loads rnnoise.dll)
         self.tnf = audiofx.Tnf()      # TNF key: notches fixed on radio frequencies (offsets from the tuned one)
         self.tnf_offsets = []
         self.tnf_width = audiofx.TNF_WIDTH_DEFAULT_HZ
@@ -1330,14 +1330,8 @@ class Channel:
         self._ea_reset()
 
     def nr_now(self):
-        """The noise reduction of the chosen DNR algorithm (RNN falls back to the Wiener DNR without its DLL)."""
-        if self.nr_algo == "nr4":
-            return self.nr4
-        if self.nr_algo == "rnn" and nrx.rnn_library() is not None:
-            if self.rnn is None:
-                self.rnn = nrx.RnNoise(self.fs)
-            return self.rnn
-        return self.nr
+        """The noise reduction of the chosen DNR algorithm."""
+        return self.nr4 if self.nr_algo == "nr4" else self.nr
 
     def configure(self, mode, bw, filt=None):
         """filt: the filter width, if it differs from bw (the FM deviation scale still follows bw)."""
@@ -1369,8 +1363,6 @@ class Channel:
         self.notch.reset()
         self.nr.reset()
         self.nr4.reset()
-        if self.rnn is not None:
-            self.rnn.reset()
         self.sam.reset()
         self.hum.reset()
 
@@ -1421,8 +1413,6 @@ class Channel:
             audio = self.nr_now().process(audio)
         else:
             self.nr.reduction_db = self.nr4.reduction_db = 0.0
-            if self.rnn is not None:
-                self.rnn.reduction_db = 0.0
         if self.apf_on and self.mode in audiofx.APF_MODES:     # after DNR, before the ALC (it levels the narrow tone)
             audio = self.apf.process(audio, self.fs, CW_PITCH, self.apf_width)
         if self.agc_on:
@@ -1758,6 +1748,7 @@ class Receiver:
         self.sagc = SmartAgc()
         self._agc_spec_t = 0.0
         self.gain_glitch = 0                    # blocks left that may carry the transient of a tuner gain step (WFM: mono)
+        self.wf_comp = wfcomp.GainComp()        # WF GAIN COMP: the rows corrected for the tuner gain
         self.sq_open, self.sq_hang, self.sq_gain = True, 0, 1.0
         self.tsq = ToneSquelch()                 # TSQ-C / TSQ-D: CTCSS / DCS detector (tonesq.py)
         self.tsq_hpf = PassFilter("highpass")    # with a tone squelch on, the tone is not heard
@@ -2122,7 +2113,7 @@ class Receiver:
         for k in ("lpf", "lpf_hz", "hpf", "hpf_hz"):
             if k in changes:
                 c[k] = changes[k]
-        for k in ("dc_remove", "dc_hz", "dc_db", "spur_on", "spur_hz", "spur_edge", "spur_db", "spur_shift"):
+        for k in ("dc_remove", "dc_hz", "dc_db", "spur_on", "spur_hz", "spur_edge", "spur_db", "spur_shift", "wf_comp"):
             if k in changes:
                 c[k] = changes[k]
         if changes.get("spur_learn"):
@@ -2317,8 +2308,11 @@ class Receiver:
         # when zoomed in, encoding) only while a browser takes them: all paused (RUN / PAUSE) or none connected = skipped.
         if self.want_rows is not None and not self.want_rows():
             return
+        comp = self.wf_comp.update(c, power, self.gain_glitch, getattr(self.sdr, "gain_db_per_unit", 1.0),
+                                   max(self.gains) if self.gains else None)
+
         def to_row(p):
-            db = 10 * np.log10(p.reshape(WF_BINS, -1).mean(axis=1) + 1e-20)
+            db = 10 * np.log10(p.reshape(WF_BINS, -1).mean(axis=1) + 1e-20) - comp     # WF GAIN COMP (wfcomp.py)
             return np.clip((db - WF_DB_MIN) / WF_DB_STEP, 0, 255).astype(np.uint8).tobytes()
 
         if span_bins < WF_BINS:
@@ -2516,6 +2510,9 @@ class Receiver:
                 self.sagc.meter.spec = {}
         if not busy or c.get("gain", "auto") == "auto":
             return
+        # LINEARITY (imd.py): the mean spectrum of this gain, without the blocks that may still carry the old one
+        self.sagc.lin.feed(power, float(c["gain"]), self.sagc.t, blk_s, self.gain_glitch > 0 or self.sagc.skip > 0,
+                           c["center_hz"], self.fs)
         new = self.sagc.step(None, self.gains, float(c["gain"]), blk_s, backlog, sagc_params(c),
                              getattr(sdr, "gain_db_per_unit", 1.0), self.agc_target(), measured=True)
         if new is not None:
@@ -2794,7 +2791,7 @@ class Receiver:
             "apf": bool(c.get("apf", False)), "apf_width": int(c.get("apf_width", audiofx.APF_WIDTH_DEFAULT)),
             "bin": bool(c.get("bin", False)),
             "dnr_reduction_db": self.chan.nr_now().reduction_db if getattr(self, "chan", None) is not None else 0.0,
-            "dnr_algo": c.get("dnr_algo", nrx.ALGO_DEFAULT), "dnr_rnn_error": nrx.rnn_error(),
+            "dnr_algo": c["dnr_algo"] if c.get("dnr_algo") in nrx.ALGOS else nrx.ALGO_DEFAULT,
             "dyn_lim": bool(c.get("dyn_lim", True)),
             "dyn_exp": bool(c.get("dyn_exp", True)),
             "dyn_exp_db": float(c.get("dyn_exp_db", EXP_DEPTH_DEFAULT_DB)),
@@ -2873,6 +2870,7 @@ class Receiver:
             "agc": self.agc_state(),
             "ppm": c.get("ppm", 0),
             "dc_remove": bool(c.get("dc_remove", True)),
+            "wf_comp": bool(c.get("wf_comp", True)), "wf_comp_db": round(self.wf_comp.offset, 1),
             "dc_hz": c.get("dc_hz", 0),
             "dc_db": c.get("dc_db", 60),
             "spur_on": bool(c.get("spur_on", False)),

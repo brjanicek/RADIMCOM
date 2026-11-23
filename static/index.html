@@ -49,7 +49,8 @@
     </div>
 
     <!-- right cell of the glass: the clock (digits, under them the date and LOC / UTC), under it the AD = additional display.
-         The AD shows one thing, by priority: 1. error messages (red, confirmed by OK), 2. rotor AZ / EL (MONITOR in
+         The AD shows one thing, by priority: 1. error messages (red, confirmed by OK), 1b. the satellite the Doppler
+         correction of this VFO follows (satad.js), 2. rotor AZ / EL (MONITOR in
          RCTRL › SETTINGS), 3. DAB now on air (station, SNR, DLS text), 4. DSD calls on air (a line per slot), 5. RDS -->
     <div class="r-aux">
     <div class="r-clock" id="clockBox" role="button" tabindex="0" title="Click to switch UTC / local time">
@@ -61,6 +62,7 @@
         <span class="ad-err-text" id="adErrText"></span><span class="ad-err-more" id="adErrMore"></span>
         <button class="ad-ok" id="adErrOk" title="Accept the message">OK</button>
       </div>
+      <div class="ad-sat" id="adSat" hidden></div>
       <div class="ad-rot" id="adRot" hidden title="Rotor of the station (MONITOR in RCTRL › SETTINGS)">
         <span class="ad-rot-v"><span class="ad-rot-tag">ROTOR</span><small>AZ</small><b id="adRotAz">–</b><small>EL</small><b id="adRotEl">–</b></span>
         <span class="ad-rot-tgt" id="adRotTgt"></span>
@@ -221,8 +223,7 @@
     <div class="kgroup" data-g="FILTER"><span class="klabel">FILTER</span><div class="keys" id="bandwidths"></div></div>
     <div class="kgroup" data-g="GAIN"><span class="klabel">GAIN</span><div class="keys">
       <button id="agcKey" class="key" title="Automatic tuner gain on/off for this VFO (manual gain in SETTINGS)">AGC</button>
-      <button id="agcPlusKey" class="key" title="AGC+ (AUTO): the tuner gain keeps the A/D headroom of the signal kind and band, cuts at once on clipping, stops climbing when more gain buys nothing (SETTINGS › VFO › RX CHAIN)">AGC+</button>
-    </div></div>
+      <button id="agcPlusKey" class="key" title="AGC+ (AUTO): the tuner gain keeps the A/D headroom of the signal kind and band, cuts at once on clipping, stops climbing when more gain buys nothing (SETTINGS › VFO › RX CHAIN)">AGC+</button>    </div></div>
     <div class="kgroup" data-g="STEP"><span class="klabel">STEP</span><div class="keys" id="steps"></div></div>
     <div class="kgroup" data-g="TUNE"><span class="klabel">TUNE</span><div class="keys">
       <button id="atuKey" class="key" title="ATU: autotune in USB / LSB / AM / CW. A click on a signal in the spectrum or waterfall listens for a moment and moves the tuning: SSB puts the signal edge on the red line (USB lower, LSB upper edge, ~2 s), AM onto the carrier (&lt;1 s), CW zero beat onto the keyed carrier (~1 s)">ATU</button>
@@ -241,7 +242,7 @@
       <button id="tsqdKey" class="key" title="TSQ-D: DCS code squelch (FM)">TSQ-D</button>
       <button id="recsKey" class="key" aria-controls="recsPane" title="RECS: the RECORDINGS tab – all recordings (REC, REC SQ, SCAN, DAB, IQ) in day folders YYYY/MM/DD of the recordings folder: browse, sort, delete, play a day as a playlist">RECS</button>
       <button id="nbKey" class="key" title="NB – Noise Blanker (all modes except WFM / DAB): pulses (ignition, electric fences, switching supplies, radar) blanked in the wideband samples before the channel filter, where they are still a few µs long. Level and width in SETTINGS › VFO › AUDIO">NB</button>
-      <button id="dnrKey" class="key" title="DNR – Digital Noise Reduction in AM/LSB/USB/CW: takes the noise out all the time, also under speech (spectral, Wiener). Click = on/off, mouse wheel = level 1–10 (also in SETTINGS › VFO › AUDIO)">DNR</button>
+      <button id="dnrKey" class="key" title="DNR – Digital Noise Reduction in AM/LSB/USB/CW: takes the noise out all the time, also under speech. Click = on/off, mouse wheel = level 1–10; the algorithm in SETTINGS › VFO › AUDIO">DNR</button>
       <button id="humKey" class="key" title="HUM – mains hum filter in AM/LSB/USB: narrow notches at 50 Hz (or 60 Hz) and all its multiples, following the exact mains frequency of the transmitter. Base and width in SETTINGS › VFO › AUDIO">HUM</button>
       <button id="tnfKey" class="key" title="TNF – tracking notch filters (all modes except WFM): Shift+click in the spectrum or waterfall puts a notch on that frequency, Shift+click near a notch removes it. The notches stay on their frequencies while you tune. Click = all on/off; width and CLEAR in SETTINGS › VFO › AUDIO">TNF</button>
       <button id="apfKey" class="key" title="APF – audio peak filter in CW: a narrow resonance on the CW pitch lifts a weak signal out of the noise. Width 50 / 100 / 200 Hz in SETTINGS › VFO › AUDIO (mouse wheel on the key changes it)">APF</button>
@@ -329,7 +330,9 @@
           <input id="wfRange" data-def="35" type="range" min="20" max="80" step="1" value="35">
           <div class="wf-cfg-row"><span>Colour offset</span><span id="wfShiftText" class="value"></span></div>
           <input id="wfShift" data-def="0" type="range" min="-20" max="20" step="1" value="0">
-          <div class="def-row"><button class="key small def-btn" data-def-for="wfRange wfShift" title="Colour range 35 dB, offset 0 (default)">DEFAULT</button></div>        </div>
+          <div class="def-row"><button class="key small def-btn" data-def-for="wfRange wfShift" title="Colour range 35 dB, offset 0 (default)">DEFAULT</button></div>
+          <label class="wf-cfg-row wf-comp" title="WF GAIN COMP: the RF gain of the tuner taken off the waterfall and the spectrum, so their colours do not change when AGC+ or you change the gain; also in the history (each row keeps the correction of its time). At the highest gain of the tuner nothing is taken off; under it the band is shown as it would be there. The real step is measured on the noise floor of the band (the tuner table is off by 1–2 dB). Not with the tuner AGC (auto). The S-meter and squelch stay in dBFS"><span><input type="checkbox" id="wfComp" checked> GAIN COMP</span><span id="wfCompText" class="value"></span></label>
+        </div>
       </div>
       <!-- waterfall speed / vertical zoom, the same bar as the frequency zoom: − / +, a cell or the mouse wheel -->
       <div class="zoom-bar wf-zoom-bar" id="wfZoomBar" title="Waterfall speed: below 1× rows are averaged (slower, longer history), above 1× each row is drawn taller (faster). Click − / + or a cell, mouse wheel changes it">
@@ -759,6 +762,16 @@
               spectrum with short frames: the head echo, the reflection from the meteoroid itself, is a fast sloping streak
               (kHz in a fraction of a second) ending where the trail echo starts. It is rare and weak; <b>H</b> in the table
               marks one found.</li>
+            <li><b>SAT</b>: GRAVES is a radar for satellites, and they reflect it too: a long streak (seconds to tens of
+              seconds) sweeping over hundreds of Hz to kHz, often in pieces as the beam moves on. A ±8 kHz spectrum always
+              runs for them; a satellite is not counted as a meteor. Which one it was: its Doppler between GRAVES and this
+              station is compared with every satellite with public orbital elements (CelesTrak, data\graves_tle.txt,
+              downloaded once a day; needs the location in SETUP). Debris and secret objects stay unknown (?).</li>
+            <li><b>ADS-B</b>: an aircraft echo (PLANE) is compared with the aircraft adsb.fi sees around the middle of the
+              path to GRAVES (only that point is sent): the Doppler of each, moved to the time of the echo, against the
+              measured one. The receiver offset matters (an aircraft gives only ±250 Hz): it is measured on the satellites
+              identified surely, else taken as 0. Near the middle of the path every aircraft is close to 0 Hz, so there
+              several may fit (shown as "others").</li>
             <li>Counts per UTC hour are kept for 400 days (data\meteors_&lt;VFO&gt;.json). The YEAR chart shows echoes per
               hour of monitoring, so days with a short watch compare fairly; the showers are marked at their peaks. The
               rate also changes every day: most echoes around 6 h local time, fewest around 18 h.</li>
@@ -789,7 +802,7 @@
               <button id="mtReset" class="key small" title="Delete the hourly and daily statistics of this VFO">RESET</button></div>
             <small>an echo = the strongest bin THR dB over its floor</small></div>
           <div class="sdg-b k-res" id="mtCntB"><b>COUNTS</b><i class="sdg-ico"><svg viewBox="0 0 16 16"><path d="M3 13V8M6.5 13V4M10 13V6.5M13.5 13V9.5"/></svg></i>
-            <div class="mt-stats" id="mtStats"><div class="mt-stat" title="Meteor echoes in this UTC hour"><span>HOUR</span><b>–</b></div><div class="mt-stat" title="Meteor echoes in the previous UTC hour"><span>PREV</span><b>–</b></div><div class="mt-stat" title="Meteor echoes in the last 60 minutes (rolling)"><span>60 MIN</span><b>–</b></div><div class="mt-stat" title="Meteor echoes since 00:00 UTC"><span>TODAY</span><b>–</b></div><div class="mt-stat" title="Echoes recognised as aircraft since the start (not counted)"><span>PLANES</span><b>–</b></div></div></div>
+            <div class="mt-stats" id="mtStats"><div class="mt-stat" title="Meteor echoes in this UTC hour"><span>HOUR</span><b>–</b></div><div class="mt-stat" title="Meteor echoes in the previous UTC hour"><span>PREV</span><b>–</b></div><div class="mt-stat" title="Meteor echoes in the last 60 minutes (rolling)"><span>60 MIN</span><b>–</b></div><div class="mt-stat" title="Meteor echoes since 00:00 UTC"><span>TODAY</span><b>–</b></div><div class="mt-stat" title="Echoes recognised as aircraft since the start (not counted)"><span>PLANES</span><b>–</b></div><div class="mt-stat" title="Echoes recognised as satellites since the start (not counted)"><span>SATS</span><b>–</b></div></div></div>
           <div class="sdg-b k-cmt" id="mtScopeB"><div class="mt-scopehead"><b>LAST <span id="mtSpanT">2 MINUTES</span> · waterfall ±500 Hz around GRAVES, under it the strongest bin above its floor, echoes marked</b>
               <span class="mt-spans" id="mtSpans" role="group" aria-label="Time shown"><button class="key small" data-span="30">30 S</button><button class="key small" data-span="60">1 M</button><button class="key small" data-span="120">2 M</button><button class="key small" data-span="600">10 M</button><button class="key small" data-span="3600">1 H</button></span></div>
             <!-- the small waterfall: time to the right as in the chart under it, Doppler up; a meteor is a short bright flash -->
@@ -800,11 +813,12 @@
           <div class="sdg-b k-cmt" id="mtHoursB"><b>LAST 48 HOURS · echoes per UTC hour</b><svg id="mtHours" class="mt-chart"></svg></div>
           <div class="sdg-b k-cmt" id="mtDaysB"><b>YEAR · echoes per hour of monitoring, showers marked</b><svg id="mtDays" class="mt-chart"></svg></div>
           <div class="sdg-b k-log" id="mtEchoB"><div class="mt-echohead"><b>ECHOES · a click on one shows its detail</b>
-              <label class="key small toggle" id="mtHeadK" title="HEAD ECHO: a second spectrum ±5 kHz with short frames (~15 ms) for the head echo, the reflection from the meteoroid itself: a fast sloping streak just before the trail echo. Shown in the detail of each echo; H in the table = one found"><input id="mtHead" type="checkbox">HEAD ECHO</label></div>
+              <label class="key small toggle" id="mtHeadK" title="HEAD ECHO: a second spectrum ±5 kHz with short frames (~15 ms) for the head echo, the reflection from the meteoroid itself: a fast sloping streak just before the trail echo. Shown in the detail of each echo; H in the table = one found"><input id="mtHead" type="checkbox">HEAD ECHO</label>
+              <label class="key small toggle" id="mtAirK" title="ADS-B: aircraft echoes looked up on adsb.fi"><input id="mtAir" type="checkbox">ADS-B</label></div>
             <!-- the detail of one echo (meteor.py _cut): full resolution ±500 Hz, with HEAD ECHO also ±5 kHz before it -->
             <div class="mt-det" id="mtDet" hidden>
               <div class="mt-dethead"><span id="mtDetT"></span><button type="button" class="key small" id="mtDetX" title="Close the detail">×</button></div>
-              <div class="mt-detbox" title="The echo at full resolution: ~30 ms frames, ±500 Hz around GRAVES, from 1 s before to 1 s after (dashed: its start and end)">
+              <div class="mt-detbox" title="The echo at full resolution: ~30 ms frames, ±500 Hz around GRAVES, from 1 s before to 1 s after (dashed: its start and end). A satellite: ±8 kHz over its whole track, dotted: the calculated Doppler of the satellite found">
                 <canvas id="mtDetCv" class="mt-detcv"></canvas></div>
               <div class="mt-detbox" id="mtDetHB" title="HEAD ECHO: ±5 kHz, ~15 ms frames, from 1.5 s before the echo to 0.5 s after its start. A head echo = a steep streak ending at the trail echo (dotted: the one found)">
                 <canvas id="mtDetHv" class="mt-detcv"></canvas></div>
@@ -2308,10 +2322,10 @@
                 <div class="row"><span>TNF – tracking notch filters (TNF key)</span></div>
                 <div class="set-cols">
                   <label class="set-field"><span>Width (Hz)</span><input id="tnfWidth" data-def="50" type="number" step="10" min="10" max="500" value="50"></label>
-                  <button class="key small" id="tnfClear" title="Remove all notches of this VFO">CLEAR NOTCHES</button>
                 </div>
                 <div class="dyn-now"><span>Now</span><span id="tnfInfo" class="value"></span></div>
-                <div class="def-row"><button class="key small def-btn" data-def-for="tnfWidth" title="Width 50 Hz (default)">DEFAULT</button></div>
+                <div class="def-row"><button class="key small" id="tnfClear" title="Remove all notches of this VFO">CLEAR NOTCHES</button>
+                  <button class="key small def-btn" data-def-for="tnfWidth" title="Width 50 Hz (default)">DEFAULT</button></div>
                 <p class="note">Shift+click in the spectrum or waterfall puts a notch on that radio frequency (a carrier, a
                   steady whistle), Shift+click near one removes it; up to 16 per VFO, shown as red marks. Unlike NF they stay on
                   their frequency while you tune and also take out a tone NF would leave (a keyed one, a slow sweep). They act on
@@ -2336,8 +2350,8 @@
               <div class="setting set-dnr" data-keys="dnrKey">
                 <div class="row"><span>DNR – Digital Noise Reduction (DNR key)</span></div>
                 <div class="set-cols">
-                  <label class="set-field"><span>Algorithm</span><select id="dnrAlgo" title="WIENER: the DNR of RADIMCOM (minimum statistics). NR4: spectral, follows a changing noise faster (after libspecbleach, as Thetis NR4). RNN: the RNNoise neural network for speech (needs lib\rnnoise\rnnoise.dll)">
-                    <option value="wiener">WIENER</option><option value="nr4">NR4</option><option value="rnn">RNN</option></select></label>
+                  <label class="set-field"><span>Algorithm</span><select id="dnrAlgo" title="WIENER: the DNR of RADIMCOM (minimum statistics). NR4: spectral, follows a changing noise faster (after libspecbleach, as Thetis NR4)">
+                    <option value="wiener">WIENER</option><option value="nr4">NR4</option></select></label>
                   <label class="set-field"><span>Level (1–10)</span><input id="dnrLevel" data-def="3" type="number" step="1" min="1" max="10" value="3"></label>
                 </div>
                 <div class="dyn-now"><span>Now</span><span id="dnrInfo" class="value"></span></div>
@@ -2352,9 +2366,7 @@
                   <i>Algorithm</i>: WIENER is the one described above. NR4 learns the noise from the probability that speech is
                   present (SPP), so it follows a changing noise (QSB, a rising band noise) within a fraction of a second and needs
                   no pauses; its gain rises fast and falls slowly (after libspecbleach / noise-repellent, like Thetis NR4); the
-                  same level 1–10. RNN is the RNNoise neural network (Xiph.Org) trained on speech: very clean SSB and AM voice,
-                  no level, not for CW or music; it needs <code>lib\rnnoise\rnnoise.dll</code> (installer\get_rnnoise.py),
-                  without it the WIENER DNR works instead.</p>
+                  same level 1–10.</p>
               </div>
               <div class="setting set-alc" data-keys="alcKey">
                 <div class="row"><span>ALC – audio level (ALC key)</span><span id="alcInfo" class="value"></span></div>
@@ -2645,6 +2657,8 @@
 <script src="/static/app.js"></script>
 <script src="/static/q65.js"></script><!-- DECODERS › Q65 / JT65 (q65.py) -->
 <script src="/static/bpsk.js"></script><!-- DECODERS › BPSK (bpsk.py, funcube.py) -->
+<script src="/static/tooltip.js"></script><!-- the dark tooltip of every title="" -->
+<script src="/static/satad.js"></script><!-- AD: satellite tracking of the VFO (polar plot, name, frequency) -->
 <script src="/static/rotdial.js"></script><!-- the rotor dial of RCTRL › SETTINGS, SUN NOISE and METEORS -->
 <script src="/static/snfast.js"></script><!-- SUN NOISE › SUN SCAN · FAST: continuous sweeps there and back -->
 </body>

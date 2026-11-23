@@ -20,6 +20,10 @@ from collections import deque
 
 import numpy as np
 
+from imd import CHECK_DB, QUIET_DB, QUIET_S, Linearity
+
+IMD_HOLD_S, IMD_HOLD_MAX_S = 120.0, 900.0   # the ceiling under intermodulation: 2 min, doubled each time, 15 min max
+
 # Settings of AGC+ (SETTINGS › VFO › ADVANCED), name: (default, min, max). Kept in the config as "sagc".
 # The defaults = BOLD (SAGC_PRESETS.bold in app.js); from 1.1beta1 the only one (the others set too little gain on HF).
 SAGC_PARAMS = {
@@ -248,6 +252,10 @@ class SmartAgc:
         self.ceil_ref = None                    # the same under the ceiling when the probe failed
         self.calm_since = 0.0                   # since when the band is quieter than at ceil_ref
         self.cwin, self.cwin_gain = deque(), None   # (time, clipped ppm) of the blocks at this gain, 2 s
+        self.lin = Linearity()                  # LINEARITY (imd.py): mean spectra per gain, fed by the receiver
+        self.lin_probe = None                   # ("up" | "down", gain before, gain after, time): a step being checked
+        self.lin_next, self.lin_wait = 0.0, 30.0   # the next check one step down, and the wait after a linear one
+        self.lin_last = None                    # the last result (for the page)
         self.reset()
 
     def reset(self, settle=0, acquire=True):
@@ -257,6 +265,11 @@ class SmartAgc:
             self.acq_until = self.t + self.ACQ_S
             self.before = None
             self.fails = {}                     # another band or a start: the probes start again
+            self.lin_probe = None
+            self.lin_next, self.lin_wait = self.t + 20.0, 30.0
+            self.imd_n = 0                      # intermodulation found on this band (each one holds longer)
+            self.imd_ref = None                 # the level of the strongest lines then (dB at the antenna, gain out)
+            self.imd_calm = 0.0                 # since when they are not QUIET_DB under it
 
     def _note(self, text):
         self.last, self.last_t = text, time.time()
@@ -475,7 +488,11 @@ class SmartAgc:
             what = f"one block {ppm / 1e4:.3f} %" if heavy else f"{mean1 / 1e4:.3f} % in the mean of 1 s"
             self._note(f"down {(gain - new) * dpu:.1f} dB: the A/D clipped {what} (limit {lim / 1e4:.3f} %)")
             self.last_down = t
+            self.lin_probe = None
             return new
+        lin = self._linearity(gains, gain, dpu, tgt, margin, t)
+        if lin is not False:
+            return lin
         wasted = margin is not None and margin > tgt.goal + p["wasted_db"]
         if wasted:
             self.limit = "wasted"
@@ -503,8 +520,97 @@ class SmartAgc:
         self._note(f"up {(up - gain) * dpu:.1f} dB: " + ("no clipping" if clean else
                                                         f"clipping {mean2 / 1e4:.4f} % (mean) under the limit, probing"))
         self.last_up, self.up_from, self.up_ref = t, gain, (mean2, head)
+        if (up - gain) * dpu >= CHECK_DB - 0.5:    # and is it still linear up there (_linearity; a 1 dB step tells nothing)
+            self.lin_probe = ("up", gain, up, t)
         self.limit = ""
         return up
+
+    def _linearity(self, gains, gain, dpu, tgt, margin, t):
+        """LINEARITY (imd.py): intermodulation of the tuner, which does not clip the A/D. -> a new gain, None (hold
+        this one) or False (nothing to do here, the smart clipping decides).
+        * A step up (a probe) is checked when both gains have a mean spectrum: intermodulation = a failed probe, back
+          down, a ceiling under that gain (IMD_HOLD_S, doubled with each one found on the band up to IMD_HOLD_MAX_S;
+          a probe up that stays linear halves the next one). When the strongest stations fall QUIET_DB under their level
+          then for QUIET_S (gain out), the ceiling goes at once and it climbs again.
+        * At the top (held by the clipping, a ceiling or the end of the range) a step of at least CHECK_DB down (one or
+          more tuner steps) is tried now and then:
+          when the phantoms fall with it far more than the real signals, it stays down (a ceiling over it) and tries
+          the next step soon, down to the floor goal; when it was linear it goes back up and waits longer (30 s,
+          doubled to 5 min)."""
+        if self.imd_ref is not None and self.ceil is not None and t < self.ceil_until:
+            # the stations that drive it went (or faded): the ceiling under the intermodulation goes at once
+            s = self.lin.strong(gain)
+            if s is None or self.imd_ref - (s - gain * dpu) < QUIET_DB:
+                self.imd_calm = t
+            elif t - self.imd_calm >= QUIET_S:
+                self._note(f"the strongest stations fell {self.imd_ref - (s - gain * dpu):.0f} dB: "
+                           "the intermodulation ceiling goes, probing again")
+                self.ceil, self.ceil_until, self.imd_ref = None, 0.0, None
+                self.imd_n = max(0, self.imd_n - 1)
+                if self.limit == "imd":
+                    self.limit = ""
+        lp = self.lin_probe
+        if lp is not None:
+            kind, g_from, g_to, t0 = lp
+            if gain != g_to:
+                self.lin_probe = None
+                return False
+            if not (self.lin.ready(g_to, t0) and self.lin.ready(g_from, t0 - 5.0)):
+                if t - t0 > 6.0:                    # no spectrum came: give up (a check down goes back up)
+                    self.lin_probe = None
+                    if kind == "down":
+                        self.lin_next = t + self.lin_wait
+                        return g_from
+                    return False
+                return None                         # wait for the mean spectrum of this gain
+            self.lin_probe = None
+            hi, lo = (g_to, g_from) if kind == "up" else (g_from, g_to)
+            res = self.lin.compare(hi, lo, (hi - lo) * dpu)
+            self.lin_last = res
+            if res["imd"]:
+                self.fails[hi] = self.fails.get(hi, 0) + 1
+                # one count for the band, not per gain: the products are heard, so they come back only rarely
+                # (2026-11-22, VFO A: 20 s ceilings let it climb back into the phantom AM station every half minute)
+                self.imd_n += 1
+                self.ceil = lo if self.ceil is None or t >= self.ceil_until else min(self.ceil, lo)
+                self.ceil_until = max(self.ceil_until, t + min(IMD_HOLD_S * 2 ** (self.imd_n - 1), IMD_HOLD_MAX_S))
+                s = self.lin.strong(lo)
+                if s is not None:
+                    self.imd_ref, self.imd_calm = s - lo * dpu, t
+                self.ceil_ref, self.calm_since = (0.0, 99.0), t   # not lifted by a quieter clipping: only by time
+                self.limit = "imd"
+                self.lin_wait = 30.0
+                self.lin_next = t + 3.0             # one step further down soon, if it is still there
+                if kind == "up":
+                    self._note(f"down {(hi - lo) * dpu:.1f} dB: {self.lin.describe(res)}")
+                    self.last_down = t
+                    return lo
+                self._note(f"stays {(hi - lo) * dpu:.1f} dB lower: {self.lin.describe(res)}")
+                return None
+            if kind == "down":
+                self.lin_wait = min(self.lin_wait * 2, 300.0)
+                self.lin_next = t + self.lin_wait
+                self._note(f"up {(g_from - g_to) * dpu:.1f} dB: linear one step down "
+                           f"({res['lines']} lines moved {res['step_db']:.1f} dB), next check in {self.lin_wait:.0f} s")
+                self.last_up, self.up_from = t, None
+                return g_from
+            self.imd_n = max(0, self.imd_n - 1)     # a probe up that stayed linear: the next hold is shorter
+            return False
+        # at the top: now and then one step down, to see whether phantoms fall faster than the signals
+        settled = t - self.last_up >= 5.0 and t - self.last_down >= 5.0 and t - self.last_clip_t >= 3.0
+        top = self.limit in ("smart", "ceiling", "top", "imd")
+        # the step down: at least CHECK_DB (a 1 dB step of the tuner tells nothing), more tuner steps if needed
+        below = [g for g in gains if (gain - g) * dpu >= CHECK_DB - 1e-9]
+        if not (settled and top and below and t >= self.lin_next and self.lin.ready(gain, t - 3.0)):
+            return False                            # (no fresh spectrum of this gain: the receiver does not feed it)
+        step = (gain - below[-1]) * dpu
+        if margin is not None and margin - step < tgt.goal - 4.0:
+            self.lin_next = t + self.lin_wait       # no lower: the floor would sink under the antenna's noise
+            return False
+        self.lin_probe = ("down", gain, below[-1], t)
+        self._note(f"down {step:.1f} dB for a moment: linearity check")
+        self.last_down = t
+        return below[-1]
 
     def _hunting(self, hunt, new, t):
         """A step down right after a step up: hold the gain under the one that was too hot for 30 s."""
@@ -523,6 +629,7 @@ class SmartAgc:
             parts.append(f"floor {s['margin']:.0f} dB over the A/D's noise (goal {tgt.goal:.0f})")
         lim = {"overload": "limited by an overload",
                "ceiling": f"held under the gain that clipped ({max(0, self.ceil_until - self.t):.0f} s)",
+               "imd": f"held under the gain with intermodulation ({max(0, self.ceil_until - self.t):.0f} s)",
                "wasted": "more gain buys nothing (the antenna's noise is far over the A/D's)",
                "top": "top of the gain range", "sensitivity": "raising the sensitivity",
                "smart": f"smart clipping: the A/D at its top, spikes under {p['clip_ppm'] / 1e4:.3g} %"}.get(self.limit)

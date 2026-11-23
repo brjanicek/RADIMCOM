@@ -49,6 +49,35 @@ Second release candidate (GitHub branch `1.1rc2`; continues `1.1rc1`, whose chan
   SUN NOISE and METEORS; a click in a plot turns the rotor.
 - **METEORS:** the chart and a small waterfall of the watched band for 30 s … 1 h, the detail of an echo, and the head
   echo spectrum before an echo (a fast, straight Doppler streak).
+- **METEORS: satellites and aircraft** (`meteor_sat.py`, `meteor_air.py`):
+  - A ±8 kHz spectrum always runs beside the meteor detector. A long, smooth streak that drifts faster than an aircraft
+    or runs further from the carrier than an aircraft can is a **SAT** echo: one row per pass, the pieces of it are not
+    counted as meteors, **SATS** in COUNTS. Meteor echoes are reported about 5 s later (they wait for that decision).
+  - **Which satellite:** its bistatic Doppler GRAVES → satellite → station is compared with every satellite with public
+    orbital elements (CelesTrak *active*, *visual*, *stations*, `data\graves_tle.txt`, downloaded once a day, plus the
+    elements of SATELLITES), with the receiver offset fitted. Name, NORAD, AZ / EL / distance and the fit in the table
+    and the detail (its calculated Doppler dotted over the spectrum). Debris and objects without public elements stay
+    *?*. Needs the station location.
+  - **Which aircraft (ADS-B key):** a PLANE echo is compared with the aircraft adsb.fi (else adsb.lol) sees within
+    250 NM of the middle of the path (only that point is sent), moved to the time of the echo; flight, registration,
+    type, FL and distance shown. The receiver offset is learned from the satellites identified surely (else 0).
+  - **HEAD ECHO** key: the head echo spectrum (±5 kHz, ~15 ms frames) is optional now; *H* in the table marks one found.
+- **AGC+ LINEARITY** (`imd.py`): intermodulation of the tuner that does not clip the A/D (phantom stations) is found by
+  comparing the spectra at two neighbouring gains, line by line: a real signal moves with the gain one to one, a
+  product about three times as much. A probe up with intermodulation goes back down and holds a ceiling under it (2 min,
+  doubled each time on the band, 15 min max, lifted at once when the strongest stations fade); at the top a step down
+  is tried now and then.
+- **WF GAIN COMP** (`wfcomp.py`): the waterfall and spectrum rows corrected for the tuner gain, so the colours do not
+  jump when AGC+ or a hand changes the RF gain (each real step measured on the noise floor; none with tuner AGC).
+- **DNR RNN removed:** the RNNoise algorithm did not give good results on the air; DNR has WIENER and NR4
+  (`installer/get_rnnoise.py` and `lib\rnnoise` are no longer used). The tooltip of the DNR key shows the algorithm and
+  the level and stays up while the wheel changes it.
+- **Tooltips:** one dark tooltip of RADIMCOM for every title of the page (`static/tooltip.js`), kept current while the
+  mouse wheel changes a value.
+- **AD satellite tracking** (`static/satad.js`): while the Doppler correction tunes the VFO, the AD under the clock shows
+  a small polar plot of the pass, the satellite, the frequency received and the rotor tracking.
+- **WEFAX:** the image can be dragged sideways (wrapping round), the following lines keep the alignment; a saved image is
+  saved again after a shift or a slant fix.
 - **RETRO renamed PRE-REC:** the key under REC IQ, its tooltips, the waterfall mark (*PRE-REC 60 s*), the replay bar and
   the docs now say PRE-REC (it records what came before you pressed anything). The key shows only PRE-REC; the seconds
   held are in its tooltip and on the waterfall mark. SAVE IQ now names the file `…_IQ_PREREC.wav`. Settings and the API
