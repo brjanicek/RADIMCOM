@@ -23,6 +23,10 @@ echoes. An echo is reported DETAIL_POST_S after its end, when that detail is com
 HEAD (optional, set_head): the head echo, the reflection from the meteoroid itself, sweeps fast (kHz in a fraction of a
 second) just before the trail echo. A second spectrum with short frames (~15 ms, ~70 Hz bins) over ±HEAD_HZ is kept for
 the HEAD_PRE_S before the echo; a chain of strong points with a steep slope in it marks the echo as with a head echo.
+
+SAT (meteor_sat.py): a wide spectrum (±8 kHz) always runs for the echoes of satellites. A meteor echo that is part of
+a satellite track is not counted (it waits for the end of the track, SAT_WAIT_S at most); the track is reported as one
+echo of kind "sat" after a thread found which satellite it was (orbital elements, the bistatic Doppler).
 """
 import collections
 import base64
@@ -34,6 +38,8 @@ import time
 
 import numpy as np
 
+import meteor_air
+from meteor_sat import SAT_HZ, SAT_DIV, SAT_SMOOTH, SAT_THR_DB, SAT_RING_S, Spec, SatTracker, identify, tle_state
 from paths import data
 
 GRAVES_HZ = 143050000.0
@@ -75,6 +81,12 @@ HEAD_SKIP_HZ = 150.0                    # the trail echo itself (near the carrie
 HEAD_MIN_PTS = 5
 HEAD_MIN_SLOPE = 2000.0                 # Hz/s: slower is wind drift or an aircraft
 HEAD_MIN_SPAN_HZ = 300.0
+SAT_WAIT_S = 200.0                      # an echo waits at most this long for the end of the track it is part of
+SAT_PRE_S = 2.0                         # the detail of a satellite: from this before its track to this after it
+SAT_COLS = 600                          # … in at most this many columns
+OFFSET_RMS_HZ = 20.0                    # a satellite fit this good measures the receiver offset …
+OFFSET_N = 10                           # … the median of the last this many is used for the aircraft
+SAT_DETAIL_N = 30                      # (~0.6 MB each) the details of the last this many satellites are kept
 
 
 def graves_path(lat, lon):
@@ -119,6 +131,13 @@ class MeteorCounter:
         self.details = collections.OrderedDict()    # ts of an echo -> its detail (_cut)
         self._pending = []              # closed echoes waiting for DETAIL_POST_S of frames
         self._ring = collections.deque()            # (t, uint8 bytes): full-resolution frames, RING_S
+        self._ws = None                 # the wide spectrum (meteor_sat.Spec) and its tracks (SatTracker)
+        self._trk = SatTracker()
+        self.sat_hz = 0.0               # its band as set up (± Hz), 0 = does not fit
+        self.sats = 0                   # satellite echoes since the start (not counted as meteors)
+        self.station = None             # () -> (lat, lon) or None: for which satellite / aircraft it was (register)
+        self.air = True                 # aircraft echoes looked up on adsb.fi (set_air)
+        self.rx_offsets = []            # [[t, Hz]]: the receiver offset measured on satellites (rx_offset)
         self._load()
 
     # ----- settings -----
@@ -165,6 +184,8 @@ class MeteorCounter:
         self._wf_max = None
         self._ring = collections.deque(maxlen=int(RING_S / self.dt) + 1)
         self._hs = None
+        self._ws = None
+        self._trk = SatTracker()
         with self.lock:
             self.wf.clear()
             self.wf_hz = [round(float(h), 1) for h in self.bin_hz[self.wf_sel]]
@@ -191,8 +212,10 @@ class MeteorCounter:
         if not len(self.idx):
             return
         base = np.asarray(base, np.complex64)
+        # first the wide spectrum and the head echo spectrum: their frames up to now are there when an echo is cut
+        self._wide_feed(base, now)
         if self.head:
-            self._head_feed(base, now)  # first: the head frames up to now are there when an echo is cut
+            self._head_feed(base, now)
         else:
             self._hs = None
         buf = np.concatenate((self._buf, base))
@@ -221,7 +244,13 @@ class MeteorCounter:
         inst = (p / med)[self.wf_sel] / np.maximum(self.floor[self.wf_sel], 1e-12)     # this frame alone: the detail
         self._ring.append((t, self._db8(inst)))
         while self._pending and t >= self._pending[0][0]["t1"] + DETAIL_POST_S:
-            self._finish(*self._pending.pop(0))
+            ev = self._pending[0][0]
+            if "link" not in ev:        # once: the track has all its points up to now
+                ev["link"] = self._trk.link(ev["track"]) if self._ws else None
+            tr = ev["link"]
+            if tr is not None and self._trk.is_open(tr) and t < ev["t1"] + SAT_WAIT_S:
+                break                   # part of a track still going on: a satellite or not is told when it ends
+            self._finish(*self._pending.pop(0), tr)
         self.floor += (s - self.floor) * (self.dt / tau)
         if learning:
             return
@@ -288,25 +317,43 @@ class MeteorCounter:
             kind = "under" if dur < UNDER_S else "over"
         if kind == "plane":
             self._last_hot = (ev["t1"], ev["dop"])
-            self.planes += 1
         e = {"ts": round(ev["t0"], 2), "time": time.strftime("%H:%M:%S", time.gmtime(ev["t0"])), "dur": round(dur, 2),
              "snr": round(ev["peak"], 1), "doppler": round(ev["dop"]), "drift": round(drift, 1), "kind": kind,
              "freq_hz": round(GRAVES_HZ + ev["dop"]), "det": False, "head": None}
         self._pending.append((ev, e))   # reported when its detail is complete (DETAIL_POST_S later)
 
     def _flush(self):
-        """Reports the waiting echoes with the frames there are (stop, retune)."""
+        """Reports the waiting echoes with the frames there are (stop, retune); the open tracks end."""
+        if self._ws:
+            for tr in self._trk.close_all(self._ws.bin):
+                if tr["sat"]:
+                    self._sat_found(tr)
         while self._pending:
-            self._finish(*self._pending.pop(0))
+            ev = self._pending[0][0]
+            tr = ev["link"] if "link" in ev else (self._trk.link(ev["track"]) if self._ws else None)
+            self._finish(*self._pending.pop(0), tr)
 
-    def _finish(self, ev, e):
+    def _finish(self, ev, e, tr=None):
+        """An echo is complete: counted, or left out as a piece of a satellite track (that track is reported)."""
+        if tr is not None and tr.get("sat"):
+            tr["pieces"] = tr.get("pieces", 0) + 1
+            return
         try:
             self._cut(ev, e)
         except Exception as x:          # the echo is counted even if its detail fails
             self.error = f"meteor detail: {x}"
+        if e["kind"] == "plane" and self.station and self.air:
+            with self.lock:
+                self.planes += 1
+            e["air"] = None             # which aircraft: asked from adsb.fi in a thread, reported then
+            threading.Thread(target=self._air_publish, args=(e, [(p[0], p[1]) for p in ev["track"]]), daemon=True,
+                             name="meteor-air").start()
+            return
         with self.lock:
             self.events.append(e)
-            if e["kind"] != "plane":
+            if e["kind"] == "plane":
+                self.planes += 1
+            else:
                 h = self.hours.setdefault(hour_key(ev["t0"]), [0, 0, 0.0])
                 h[0 if e["kind"] == "under" else 1] += 1
                 self._dirty = True
@@ -332,11 +379,11 @@ class MeteorCounter:
         det = {"ts": e["ts"], "t0": rows[0][0], "dt": self.dt, "hz": [round(float(h), 1) for h in self.bin_hz[self.wf_sel]],
                "rows": b"".join(c for _, c in rows), "n": len(rows), "echo": e, "head": None}
         hs = self._hs
-        if hs and hs["ring"] and ev["t1"] - ev["t0"] < DETAIL_MAX_S:
+        if hs and hs.ring and ev["t1"] - ev["t0"] < DETAIL_MAX_S:
             a, b = ev["t0"] - HEAD_PRE_S, ev["t0"] + HEAD_POST_S
-            hrows = [(t, c) for t, c in hs["ring"] if a <= t <= b]
+            hrows = [(t, c) for t, c in hs.ring if a <= t <= b and len(c) == len(hs.hz)]
             if hrows:
-                det["head"] = {"t0": hrows[0][0], "dt": hs["dt"], "hz": hs["hz_list"], "rows": b"".join(c for _, c in hrows),
+                det["head"] = {"t0": hrows[0][0], "dt": hs.dt, "hz": hs.hz_list, "rows": b"".join(c for _, c in hrows),
                                "n": len(hrows)}
                 e["head"] = self._head_find(hrows, hs, ev["t0"])
         e["det"] = True
@@ -361,57 +408,122 @@ class MeteorCounter:
         out["head"] = dict(h, rows=base64.b64encode(h["rows"]).decode()) if h else None
         return out
 
-    # ----- the head echo spectrum -----
-    def _head_setup(self, fs):
-        f_off = self.f_off
-        band = min(HEAD_HZ, fs / 2 * 0.9 - abs(f_off))
-        if band < 1000:
-            self.head_hz = 0.0
-            return None
-        n = 1 << int(round(math.log2(max(64.0, fs / 64.0))))
-        freqs = np.fft.fftfreq(n, 1.0 / fs)
-        idx = np.nonzero(np.abs(freqs - f_off) <= band)[0]
-        idx = idx[np.argsort(freqs[idx])]
-        hz = freqs[idx] - f_off
-        hop = n // 2
-        self.head_hz = float(band)
-        return {"fs": fs, "n": n, "hop": hop, "dt": hop / fs, "win": np.hanning(n).astype(np.float32), "idx": idx,
-                "hz": hz, "hz_list": [round(float(h), 1) for h in hz], "bin": fs / n, "buf": np.zeros(0, np.complex64),
-                "floor": None, "learn": 0.0, "ring": collections.deque(maxlen=int(RING_S * fs / hop) + 1)}
+    # ----- the wide spectrum: satellites (meteor_sat.py) -----
+    def _band(self, want):
+        """± Hz around the carrier that fit in the VFO band, at most want; 0 if under 1 kHz."""
+        band = min(want, self._fs / 2 * 0.9 - abs(self.f_off))
+        return float(band) if band >= 1000 else 0.0
 
+    def _wide_feed(self, base, now):
+        ws = self._ws
+        if ws is None:
+            band = self._band(SAT_HZ)
+            if not band:
+                self.sat_hz = 0.0
+                return
+            n = 1 << int(round(math.log2(max(128.0, self._fs / SAT_DIV))))
+            ws = self._ws = Spec(self._fs, self.f_off, n, n // 2, band, SAT_SMOOTH, SAT_RING_S, True, WF_DB)
+            self._trk = SatTracker()
+            self.sat_hz = band
+        thr = 10 ** (SAT_THR_DB / 10)
+        for t, ratio in ws.feed(base, now, thr):
+            for tr in self._trk.frame(t, ratio, ws.hz, thr, ws.bin):
+                if tr["sat"]:
+                    self._sat_found(tr)
+
+    def _sat_found(self, tr):
+        """A satellite track ended: its echo, its detail (the wide spectrum) and, in a thread, which satellite it was."""
+        pts = tr["pts"]
+        k = max(range(len(pts)), key=lambda i: pts[i][2])
+        t0, t1 = tr["t0"], tr["t1"]
+        e = {"ts": round(t0, 2), "time": time.strftime("%H:%M:%S", time.gmtime(t0)), "dur": round(t1 - t0, 2),
+             "snr": round(pts[k][2], 1), "doppler": round(pts[k][1]), "drift": round(tr["slope"], 1), "kind": "sat",
+             "freq_hz": round(GRAVES_HZ + pts[k][1]), "det": False, "head": None,
+             "f0": round(pts[0][1]), "f1": round(pts[-1][1]), "sat": None}
+        cut = self._ws.rows(t0 - SAT_PRE_S, t1 + SAT_PRE_S, SAT_COLS)
+        step = max(1, len(pts) // 400)
+        det = None
+        if cut:
+            det = {"ts": e["ts"], "t0": cut[0], "dt": cut[1], "n": cut[2], "rows": cut[3], "hz": self._ws.hz_list,
+                   "echo": e, "head": None, "pts": [[round(p[0], 3), round(p[1], 1)] for p in pts[::step]], "curve": None}
+            e["det"] = True
+        self.sats += 1
+        threading.Thread(target=self._sat_publish, args=(e, det, [(p[0], p[1]) for p in pts]), daemon=True,
+                         name="meteor-sat").start()
+
+    def _sat_publish(self, e, det, pts):
+        try:
+            qth = self.station() if self.station else None
+            res = identify(pts, qth, (GRAVES_LAT, GRAVES_LON), GRAVES_HZ)
+        except Exception as x:          # the echo is reported anyway
+            res = {"norad": None, "why": f"identification failed: {x}"}
+        if det is not None:
+            det["curve"] = res.pop("curve", None)
+        else:
+            res.pop("curve", None)
+        e["sat"] = res
+        if res.get("norad") and not res.get("others") and res.get("rms", 99) <= OFFSET_RMS_HZ:
+            with self.lock:             # a sure fit measures the receiver offset (for the aircraft)
+                self.rx_offsets = (self.rx_offsets + [[round(e["ts"]), res["offset"]]])[-OFFSET_N:]
+                self._dirty = True
+        with self.lock:
+            if det is not None:
+                self.details[e["ts"]] = det
+                sat = [k for k, v in self.details.items() if v["echo"]["kind"] == "sat"]
+                for k in sat[:-SAT_DETAIL_N]:           # the big ones: only the last few
+                    del self.details[k]
+                while len(self.details) > DETAIL_N:
+                    self.details.popitem(last=False)
+            self.events.append(e)
+        if self.on_echo:
+            self.on_echo(e)
+
+    # ----- which aircraft (meteor_air.py, adsb.fi) -----
+    def rx_offset(self):
+        """The receiver offset at 143 MHz (Hz) measured on the satellites identified surely, 0 before any."""
+        with self.lock:
+            offs = [o for _, o in self.rx_offsets]
+        return float(np.median(offs)) if offs else 0.0
+
+    def _air_publish(self, e, pts):
+        try:
+            qth = self.station() if self.station else None
+            if not qth:
+                res = {"hex": None, "why": "the station location is not set (SETUP › LOCATION)"}
+            else:
+                mid = meteor_air.midpoint(qth[0], qth[1], GRAVES_LAT, GRAVES_LON)
+                t_now, ac = meteor_air.fetch(*mid)
+                res = meteor_air.identify(pts, qth, (GRAVES_LAT, GRAVES_LON), GRAVES_HZ, ac, t_now, self.rx_offset())
+        except Exception as x:          # no internet, adsb.fi down: the echo is reported anyway
+            res = {"hex": None, "why": f"adsb.fi: {x}"}
+        curve = res.pop("curve", None)
+        e["air"] = res
+        with self.lock:
+            det = self.details.get(e["ts"])
+            if det is not None:
+                det["curve"] = curve
+            self.events.append(e)
+        if self.on_echo:
+            self.on_echo(e)
+
+    # ----- the head echo spectrum -----
     def _head_feed(self, base, now):
         hs = self._hs
-        if hs is None or hs["fs"] != self._fs:
-            hs = self._hs = self._head_setup(self._fs)
-            if hs is None:
+        if hs is None:
+            band = self._band(HEAD_HZ)
+            if not band:
+                self.head_hz = 0.0
                 return
-        buf = np.concatenate((hs["buf"], base))
-        n, hop = hs["n"], hs["hop"]
-        nfr = (len(buf) - n) // hop + 1 if len(buf) >= n else 0
-        if nfr > 0:
-            seg = buf[np.arange(nfr)[:, None] * hop + np.arange(n)] * hs["win"]
-            pw = np.abs(np.fft.fft(seg, axis=1)[:, hs["idx"]]) ** 2
-            thr = 10 ** (self.threshold_db / 10)
-            for i in range(nfr):
-                med = float(np.median(pw[i]))
-                if med <= 0:
-                    continue
-                r = pw[i] / med
-                if hs["floor"] is None:
-                    hs["floor"] = r.copy()
-                hs["learn"] += hs["dt"]
-                ratio = r / np.maximum(hs["floor"], 1e-12)
-                tau = hs["learn"] if hs["learn"] < LEARN_S else np.where(ratio >= thr, TAU_HOT_S, TAU_S)
-                hs["floor"] += (r - hs["floor"]) * (hs["dt"] / tau)
-                t = now - (len(buf) - i * hop - n) / self._fs
-                hs["ring"].append((t, self._db8(ratio)))
-        hs["buf"] = buf[nfr * hop:]
+            n = 1 << int(round(math.log2(max(64.0, self._fs / 64.0))))
+            hs = self._hs = Spec(self._fs, self.f_off, n, n // 2, band, 1, RING_S, False, WF_DB)
+            self.head_hz = band
+        hs.feed(base, now, 10 ** (self.threshold_db / 10))
 
     def _head_find(self, hrows, hs, t_echo):
         """A head echo: a chain of strong points (THR dB, away from the carrier) before the echo, steep and straight.
         Returns {"slope": Hz/s, "f0", "f1": Hz, "t": s before the echo} or None."""
         lim = int(min(255, self.threshold_db * 255.0 / WF_DB))
-        hz = hs["hz"]
+        hz = hs.hz
         away = np.abs(hz) >= HEAD_SKIP_HZ
         pts = []
         for t, c in hrows:
@@ -428,7 +540,7 @@ class MeteorCounter:
             best = None
             for ch in chains:
                 lt, lf = ch[-1]
-                if 0 < t - lt <= 3.5 * hs["dt"] and abs(f - lf) <= 1000.0 and (best is None or ch[-1][0] > best[-1][0]):
+                if 0 < t - lt <= 3.5 * hs.dt and abs(f - lf) <= 1000.0 and (best is None or ch[-1][0] > best[-1][0]):
                     best = ch
             if best is None:
                 chains.append([(t, f)])
@@ -442,7 +554,7 @@ class MeteorCounter:
         ff = np.array([p[1] for p in ch])
         slope, icpt = np.polyfit(tt, ff, 1)
         rms = float(np.sqrt(np.mean((ff - (slope * tt + icpt)) ** 2)))
-        if abs(slope) < HEAD_MIN_SLOPE or ff.max() - ff.min() < HEAD_MIN_SPAN_HZ or rms > 2.5 * hs["bin"]:
+        if abs(slope) < HEAD_MIN_SLOPE or ff.max() - ff.min() < HEAD_MIN_SPAN_HZ or rms > 2.5 * hs.bin:
             return None
         return {"slope": round(float(slope)), "f0": round(float(ff[0])), "f1": round(float(ff[-1])),
                 "t": round(float(t_echo - ch[0][0]), 2)}
@@ -463,6 +575,8 @@ class MeteorCounter:
             self.hours = {k: [int(v[0]), int(v[1]), float(v[2])] for k, v in (d.get("hours") or {}).items()}
             self.threshold_db = float(d.get("threshold_db", THRESHOLD_DB))
             self.head = bool(d.get("head", False))
+            self.air = bool(d.get("air", True))
+            self.rx_offsets = [[float(a), float(b)] for a, b in d.get("rx_offsets", [])][-OFFSET_N:]
         except (OSError, ValueError, TypeError, IndexError, AttributeError):
             self.hours = {}
 
@@ -474,7 +588,7 @@ class MeteorCounter:
         cut = hour_key(now - LONG_DAYS * 86400)
         with self.lock:
             self.hours = {k: v for k, v in self.hours.items() if k >= cut}
-            d = {"graves_hz": GRAVES_HZ, "threshold_db": self.threshold_db, "head": self.head,
+            d = {"graves_hz": GRAVES_HZ, "threshold_db": self.threshold_db, "head": self.head, "air": self.air, "rx_offsets": self.rx_offsets,
                  "hours": {k: [v[0], v[1], round(v[2], 1)] for k, v in self.hours.items()}}
             self._dirty = False
         try:
@@ -559,10 +673,11 @@ class MeteorCounter:
                 else:
                     scope.append([round(k * b, 2), v])
                     last_k = k
-        last60 = sum(1 for e in events if e["kind"] != "plane" and now - e["ts"] < 3600)
+        last60 = sum(1 for e in events if e["kind"] in ("under", "over") and now - e["ts"] < 3600)
         today = days.get(hh[-1][:10], [0, 0, 0.0])
         return {"enabled": self.enabled, "status": self.status, "error": self.error, "threshold_db": self.threshold_db,
-                "head": self.head, "head_hz": self.head_hz,
+                "head": self.head, "head_hz": self.head_hz, "air": self.air, "rx_offset": round(self.rx_offset(), 1),
+                "rx_offset_n": len(self.rx_offsets), "sat_hz": self.sat_hz, "sats": self.sats, "tle": tle_state(),
                 "graves_hz": GRAVES_HZ, "dial_usb_hz": DIAL_USB_HZ, "now": now, "planes": self.planes,
                 "this_hour": hours[-1][1] + hours[-1][2], "last_hour": hours[-2][1] + hours[-2][2],
                 "last_60min": last60, "today": today[0] + today[1],
@@ -575,6 +690,7 @@ def register(app, counter, station=None):
     POST {threshold_db, head}: the detection threshold, the head echo spectrum on/off. GET /api/meteors/echo?ts=: the
     detail of one echo."""
     from flask import jsonify, request
+    counter.station = station           # which satellite a satellite echo was (meteor_sat.identify)
 
     @app.route("/api/meteors", methods=["GET", "POST", "DELETE"])
     def api_meteors():
@@ -594,6 +710,10 @@ def register(app, counter, station=None):
                 counter.save()
             if "head" in body:
                 counter.set_head(body["head"])
+                counter._dirty = True
+                counter.save()
+            if "air" in body:
+                counter.air = bool(body["air"])
                 counter._dirty = True
                 counter.save()
         try:

@@ -169,6 +169,158 @@ class MeteorTest(unittest.TestCase):
         self.assertEqual(len(ev), 2, ev)
         self.assertTrue(all(e["head"] is None for e in ev), ev)
 
+    def _sat_run(self, x, station=None):
+        import threading
+        with tempfile.TemporaryDirectory() as dd:
+            c = meteor.MeteorCounter(path=os.path.join(dd, "m.json"))
+            c.station = station
+            ev, c = run(x, c)
+            for th in threading.enumerate():        # the satellite echoes are reported from a thread
+                if th.name == "meteor-sat":
+                    th.join(10)
+        return list(c.events), c
+
+    def test_satellite_track(self):
+        """A satellite: +1500 -> -1500 Hz in 20 s, cut into pieces by the beam; one SAT echo, no meteor counted."""
+        x = baseband(30)
+        for a in np.arange(4.0, 24.0, 3.0):           # 2 s on, 1 s off
+            b = a + 2.0
+            f_a, f_b = 1500 - 150 * (a - 4.0), 1500 - 150 * (b - 4.0)
+            x = chirp(x, a, b, f_a, f_b, 0.15)
+        ev, c = self._sat_run(x)
+        sats = [e for e in ev if e["kind"] == "sat"]
+        self.assertEqual(len(sats), 1, ev)
+        s = sats[0]
+        self.assertAlmostEqual(s["drift"], -150, delta=15)
+        self.assertAlmostEqual(s["ts"] - T0, 4.0, delta=0.5)
+        self.assertGreater(s["dur"], 17)
+        self.assertEqual(s["sat"]["norad"], None)                   # no station: not identified
+        self.assertEqual([e for e in ev if e["kind"] in ("under", "over")], [], ev)
+        self.assertEqual(c.summary(T0 + 30)["this_hour"], 0)
+        d = c.detail(s["ts"])
+        self.assertEqual(d["echo"]["kind"], "sat")
+        self.assertGreater(abs(d["hz"][0]), 7000)
+        self.assertGreater(len(d["pts"]), 50)
+
+    def test_fast_satellite_not_a_meteor(self):
+        """A fast one crosses the ±500 Hz of the meteor detector in under a second: still SAT, not UNDER."""
+        x = chirp(baseband(16), 5.0, 9.0, 2000.0, -2000.0, 0.3)
+        ev, c = self._sat_run(x)
+        self.assertEqual([e["kind"] for e in ev], ["sat"], ev)
+        self.assertEqual(c.summary(T0 + 16)["this_hour"], 0)
+
+    def test_meteor_still_counted(self):
+        """The wide spectrum sees a meteor too, but its track does not drift: it stays a meteor."""
+        ev, c = self._sat_run(baseband(12, [(5.0, 7.0, -60.0, 0.3, 0.0), (9.0, 9.3, 80.0, 0.3, 0.0)]))
+        self.assertEqual([e["kind"] for e in ev], ["over", "under"], ev)
+
+    def test_identify_iss(self):
+        """The bistatic Doppler of the ISS over GRAVES and western Slovakia: found among four, with the receiver offset."""
+        from sgp4.api import Satrec, SatrecArray
+        import meteor_sat as ms
+        tle = [("ISS (ZARYA)", "1 25544U 98067A   26326.17166235  .00010101  00000+0  18757-3 0  9993",
+                "2 25544  51.6321 238.2738 0007393  52.3454 307.8204 15.49546258596247"),
+               ("FUNCUBE-1 (AO-73)", "1 39444U 13066AE  26326.18876087  .00005672  00000+0  33441-3 0  9991",
+                "2 39444  97.8472 301.3416 0035767  28.4133 331.9037 15.11455703703514"),
+               ("NOAA 20 (JPSS-1)", "1 43013U 17073A   26326.24178322  .00000055  00000+0  46828-4 0  9998",
+                "2 43013  98.7355 264.3976 0001382 122.6984 237.4325 14.19550807466892"),
+               ("NOAA 21 (JPSS-2)", "1 54234U 22150A   26326.27213746  .00000039  00000+0  39071-4 0  9994",
+                "2 54234  98.7218 262.4891 0002801  95.9965 264.1530 14.19560493208970")]
+        sats = [Satrec.twoline2rv(a, b) for _, a, b in tle]
+        el = (SatrecArray(sats), [n for n, _, _ in tle], [25544, 39444, 43013, 54234])
+        qth = (48.7, 17.9)
+        iss = SatrecArray(sats[:1])
+        ep = (sats[0].jdsatepoch + sats[0].jdsatepochF - 2440587.5) * 86400
+        tt = np.arange(ep, ep + 2 * 86400, 5.0)
+        _, r, _ = ms._ecef(iss, tt)
+        e_t = ms._look(r, ms._site(meteor.GRAVES_LAT, meteor.GRAVES_LON))[0][0]
+        e_r = ms._look(r, ms._site(*qth))[0][0]
+        both = np.nonzero((e_t > 10) & (e_r > 10))[0]
+        self.assertTrue(len(both), "no common pass in 2 days")
+        t = tt[both[0]] + np.arange(0, 30, 0.25)
+        _, r, v = ms._ecef(iss, t)
+        fd = ms.bistatic_doppler(r[0], v[0], ms._site(meteor.GRAVES_LAT, meteor.GRAVES_LON)[0], ms._site(*qth)[0], meteor.GRAVES_HZ)
+        rng = np.random.default_rng(2)
+        pts = list(zip(t, fd + 37 + rng.normal(0, 8, len(t))))
+        res = ms.identify(pts, qth, (meteor.GRAVES_LAT, meteor.GRAVES_LON), meteor.GRAVES_HZ, elements=el)
+        self.assertEqual(res["norad"], 25544, res)
+        self.assertAlmostEqual(res["offset"], 37, delta=10)
+        self.assertLess(res["rms"], 15)
+        self.assertTrue(res["curve"])
+        bad = ms.identify([(a, 3000.0 - 400 * (a - t[0])) for a in t], qth, (meteor.GRAVES_LAT, meteor.GRAVES_LON),
+                          meteor.GRAVES_HZ, elements=el)
+        self.assertIsNone(bad["norad"], bad)
+        self.assertIsNone(ms.identify(pts, None)["norad"])
+
+    def test_identify_aircraft(self):
+        """An aircraft over southern Germany: its bistatic Doppler found among others; the receiver offset is known."""
+        import meteor_air as ma
+        import meteor_sat as ms
+        qth, tx = (48.7, 17.9), (meteor.GRAVES_LAT, meteor.GRAVES_LON)
+        mid = ma.midpoint(qth[0], qth[1], *tx)
+        self.assertAlmostEqual(mid[0], 48.3, delta=0.5)
+        self.assertAlmostEqual(mid[1], 11.8, delta=0.7)
+
+        def rec(hexid, lat, lon, trk, gs=450, alt=37000, seen=2.0):
+            return {"hex": hexid, "flight": hexid.upper() + "  ", "r": "D-" + hexid[:4].upper(), "t": "A320", "lat": lat,
+                    "lon": lon, "alt_baro": alt, "gs": gs, "track": trk, "baro_rate": 0, "seen_pos": seen}
+        ac = [rec("aaa111", mid[0] + 0.3, mid[1] - 0.5, 75), rec("bbb222", mid[0] - 0.4, mid[1] + 0.2, 300),
+              rec("ccc333", mid[0], mid[1] + 0.8, 160, gs=380), rec("ddd444", 52.0, 13.0, 90),     # Berlin: too far
+              {"hex": "eee555", "lat": mid[0], "lon": mid[1], "alt_baro": "ground", "gs": 10, "track": 0}]
+        t_now = T0 + 30
+        t = T0 + np.arange(0, 20, 0.25)
+        st = ma._state(ac[1], t_now)
+        r, v = ma._track(st, t)
+        fd = ms.bistatic_doppler(r, v, ms._site(*tx)[0], ms._site(*qth)[0], meteor.GRAVES_HZ)
+        rng = np.random.default_rng(4)
+        pts = list(zip(t, fd + 12 + rng.normal(0, 4, len(t))))
+        res = ma.identify(pts, qth, tx, meteor.GRAVES_HZ, ac, t_now, offset=10.0)
+        self.assertEqual(res["hex"], "bbb222", res)
+        self.assertEqual(res["flight"], "BBB222")
+        self.assertEqual(res["candidates"], 3)
+        self.assertLess(res["rms"], 10)
+        self.assertEqual(len(res["curve"]), ma.AIR_POINTS)
+        far = ma.identify(pts, qth, tx, meteor.GRAVES_HZ, ac, t_now, offset=150.0)     # offset known wrong: no fit
+        self.assertIsNone(far["hex"], far)
+        self.assertIsNone(ma.identify(pts, qth, tx, meteor.GRAVES_HZ, ac[3:], t_now)["hex"])
+
+    def test_aircraft_echo_looked_up(self):
+        """A PLANE echo with a station: adsb.fi asked (here faked) in a thread, the answer in the echo and its detail."""
+        import threading
+        import meteor_air as ma
+        calls = []
+        real_fetch, real_id = ma.fetch, ma.identify
+        ma.fetch = lambda lat, lon, dist=250: (calls.append((lat, lon)) or (T0, []))
+        ma.identify = lambda pts, qth, tx, f, ac, t_now, off: {"hex": "abc123", "flight": "TEST1", "rms": 5.0, "others": 0,
+                                                              "curve": [[pts[0][0], 0.0], [pts[-1][0], 1.0]]}
+        try:
+            with tempfile.TemporaryDirectory() as dd:
+                c = meteor.MeteorCounter(path=os.path.join(dd, "m.json"))
+                c.station = lambda: (48.7, 17.9)
+                ev, c = run(baseband(14, [(4.0, 10.0, -100.0, 0.3, 30.0)]), c)
+                for th in threading.enumerate():
+                    if th.name in ("meteor-air", "meteor-sat"):
+                        th.join(10)
+        finally:
+            ma.fetch, ma.identify = real_fetch, real_id
+        planes = [e for e in c.events if e["kind"] == "plane"]
+        self.assertTrue(planes, list(c.events))
+        self.assertEqual(planes[0]["air"]["flight"], "TEST1")
+        self.assertTrue(calls)
+        self.assertAlmostEqual(calls[0][1], 11.8, delta=0.7)          # the middle of the path, not the station
+        self.assertEqual(c.detail(planes[0]["ts"])["curve"][1][1], 1.0)
+        self.assertEqual(c.summary(T0 + 14)["planes"], len(planes))
+
+    def test_rx_offset_from_satellites(self):
+        with tempfile.TemporaryDirectory() as dd:
+            p = os.path.join(dd, "m.json")
+            c = meteor.MeteorCounter(path=p)
+            self.assertEqual(c.rx_offset(), 0.0)
+            c.rx_offsets = [[T0, 20], [T0 + 1, 30], [T0 + 2, 26]]
+            c._dirty = True
+            c.save()
+            self.assertEqual(meteor.MeteorCounter(path=p).rx_offset(), 26.0)
+
     def test_graves_path(self):
         p = meteor.graves_path(48.7, 17.9)          # western Slovakia
         self.assertAlmostEqual(p["az"], 265, delta=3)
