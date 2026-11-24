@@ -38,6 +38,7 @@ class IqRecorder:
         self.on = False
         self.error = ""
         self.file = ""               # file being written, otherwise the last saved one
+        self.path = ""               # its full path (RECORDINGS: not deleted while written)
         self.saved = 0
         self.dropped = 0
         self.out = None
@@ -127,7 +128,7 @@ class IqRecorder:
             n += 1
             path = os.path.join(folder, f"{stem}_{n}.wav")
         self.out = open(path, "xb")
-        self.key, self.data_bytes, self.file = (fs, center, bits), 0, os.path.basename(path)
+        self.key, self.data_bytes, self.file, self.path = (fs, center, bits), 0, os.path.basename(path), path
         self._header()
 
     def _header(self):

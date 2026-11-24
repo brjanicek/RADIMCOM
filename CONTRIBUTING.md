@@ -31,10 +31,31 @@ The third-party binaries in `lib\` and `drivers\` are not in git. Take them from
 - Keep each pull request to one topic.
 - Write code, comments and documentation in English.
 - Update `README.md` when behaviour changes, and `API/API.md` when the HTTP API changes.
-- Update `CHANGELOG.md` and `installer/INSTALL.txt` for changes users will notice.
+- Do not edit `CHANGELOG.md` or `installer/INSTALL.txt`. For changes users will notice, write the change log text in
+  the pull request description under a `## Changelog` heading; the maintainer copies it in after the merge.
 - Do not change the version number or build release packages. The maintainer does that.
 - Do not commit `data\`, `dist\`, `lib\`, `drivers\`, recordings, logs, dongle serial numbers or anything else from
   your own station.
+
+## Git workflow
+
+The maintainer commits directly to the current version branch while contributors send pull requests to it. These rules
+keep the two from conflicting. AI assistants find the same rules in [CLAUDE.md](CLAUDE.md).
+
+- Work happens on the current **version branch** (for example `1.1rc4`), not on `main`, which holds only releases.
+  Pull requests go to the version branch.
+- In your fork, add the original repository as `upstream`:
+  `git remote add upstream https://github.com/om2amr/RADIMCOM.git`
+- Start each topic on a fresh branch: `git fetch upstream && git switch -c <topic> upstream/<version branch>`.
+  One topic per branch and per pull request, kept short (days, not weeks).
+- Before opening the pull request, and whenever the maintainer asks, **rebase** onto the version branch instead of
+  merging it in: `git fetch upstream && git rebase upstream/<version branch>`, resolve any conflict, then
+  `git push --force-with-lease`.
+- After the merge, delete the branch and start the next topic from the latest version branch.
+- Put a new feature in its own module and add only the few lines that register it in the shared files `app.py`,
+  `static/app.js`, `static/index.html` and `static/style.css`. Do not reformat, reorder or move existing code there
+  without agreeing on it first.
+- Line endings are handled by `.gitattributes`; do not change them.
 
 ## Testing
 

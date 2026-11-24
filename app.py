@@ -4,7 +4,9 @@ Frequencies in the interface are real frequencies. On HF the dongle is tuned to 
 + lo_offset_hz (upconverter LO, e.g. 100 MHz: 3.6 MHz -> 103.6 MHz), above 30 MHz
 (upconverter mode "auto") directly.
 """
+import atexit
 import base64
+import calendar
 import json
 import os
 import queue
@@ -15,7 +17,7 @@ import time
 import wave
 
 import numpy as np
-from flask import Flask, Response, jsonify, request, send_from_directory
+from flask import Flask, Response, jsonify, request, send_file, send_from_directory
 
 from paths import BASE, data
 
@@ -29,25 +31,36 @@ if __name__ == "__main__":
     else:
         serverlog.start()
 
-# Without arguments and with vfos.json: the launcher, which starts one receiver (process) per VFO.
-if __name__ == "__main__" and "--vfo" not in sys.argv and os.path.exists(VFOS_PATH):
+# Without arguments: the launcher, which starts one receiver (process) per VFO (without vfos.json: VFO A without a
+# source, paths.no_source_setup).
+if __name__ == "__main__" and "--vfo" not in sys.argv:
     import launcher
     launcher.main()
     sys.exit(0)
 
+import audiofx
+import nrx
 import location
 import antennas
 import memories
 import scanner as scanner_mod
 import satellites
+import datafiles
 import sysload
 import update_check
+import vectormaps
 try:
     import sattrack       # needs the sgp4 package (upgrade.bat installs it)
     import satplan
 except ImportError:
     sattrack = None
 from ft8 import FT8_FREQS, Ft8Decoder
+from wspr import WSPR_FREQS, WsprDecoder
+from msk144 import MSK144_FREQS, Msk144Decoder
+import q65 as q65_mod
+import bpsk as bpsk_mod
+import meteor
+import spotting
 from cw import CwDecoder
 from rtty import RttyDecoder, station_list as rtty_station_list
 from packet import PacketDecoder
@@ -57,6 +70,7 @@ from daylog import LOG_DIR, DayLog, TextLog
 import recorder as recorder_mod
 from recorder import Recorder
 from iqrec import IqRecorder
+from retro import RetroBuffer
 import rotor as rotor_module
 from wefax import WefaxDecoder
 from sstv import SstvDecoder
@@ -73,7 +87,7 @@ from ais import AisDecoder
 import adsb as adsb_mod
 from adsb import RATE as ADSB_RATE, AdsbDecoder
 from tonesq import norm_ctcss, norm_dcs
-from sdr import (WF_FFT, DSD_BW, DSD_FILTERS, SAM_SIDEBANDS, HUM_BASES, HUM_WIDTH_MIN_HZ, HUM_WIDTH_MAX_HZ, AFI_MAX_HZ, AFI_MIN_HZ, DNR_LEVEL_MAX, DNR_LEVEL_MIN, NB_LEVEL_MAX, NB_LEVEL_MIN, NB_WIDTH_MAX_US, NB_WIDTH_MIN_US, EXP_DEPTH_MAX_DB, EXP_DEPTH_MIN_DB, EXP_SENS_MAX, EXP_SENS_MIN, EXP_HOLD_MAX_MS, EXP_HOLD_MIN_MS, ASQ_MAX_DB, ASQ_MIN_DB, DECIM, DSD_MODE, HPF_MAX_HZ, HPF_MIN_HZ, LPF_MAX_HZ, LPF_MIN_HZ, MODES, SQUELCH_OFF,
+from sdr import (WF_FFT, DSD_BW, DSD_FILTERS, SAM_SIDEBANDS, HUM_BASES, HUM_WIDTH_MIN_HZ, HUM_WIDTH_MAX_HZ, AFI_MAX_HZ, AFI_MIN_HZ, DNR_LEVEL_MAX, DNR_LEVEL_MIN, NB_LEVEL_MAX, NB_LEVEL_MIN, NB_WIDTH_MAX_US, NB_WIDTH_MIN_US, EXP_DEPTH_MAX_DB, EXP_DEPTH_MIN_DB, EXP_SENS_MAX, EXP_SENS_MIN, EXP_HOLD_MAX_MS, EXP_HOLD_MIN_MS, ALC_HANG_MIN_MS, ALC_HANG_MAX_MS, ALC_DECAY_MIN_MS, ALC_DECAY_MAX_MS, ASQ_MAX_DB, ASQ_MIN_DB, DECIM, DSD_MODE, HPF_MAX_HZ, HPF_MIN_HZ, LPF_MAX_HZ, LPF_MIN_HZ, MODES, SQUELCH_OFF,
                  SAGC_PARAMS, UPCONV_MAX_HZ, ZOOMS, Receiver, list_devices, lowpass, sagc_params)
 
 
@@ -82,8 +96,12 @@ def vfo_from_args():
     if "--vfo" not in sys.argv:
         return None
     name = sys.argv[sys.argv.index("--vfo") + 1]
-    with open(VFOS_PATH, encoding="utf-8") as f:
-        vfos = json.load(f)["vfos"]
+    if os.path.exists(VFOS_PATH):
+        with open(VFOS_PATH, encoding="utf-8") as f:
+            vfos = json.load(f)["vfos"]
+    else:
+        from paths import no_source_setup
+        vfos = no_source_setup()["vfos"]
     return next(v for v in vfos if v["name"] == name), vfos
 
 
@@ -112,6 +130,7 @@ class Hub:
         self.lock = threading.Lock()
         self.events = []
         self.audio = []
+        self.paused = set()     # browser tabs (their id) with the spectrum / waterfall paused: no "wf" events to them
 
     def _add(self, lst, maxsize):
         q = queue.Queue(maxsize=maxsize)
@@ -127,6 +146,8 @@ class Hub:
     @staticmethod
     def _put(qs, item):
         for q in qs:
+            if isinstance(item, tuple) and item[0] in getattr(q, "skip", ()):
+                continue                 # PAUSE of the spectrum / waterfall: this client gets no rows (saves the link)
             try:
                 q.put_nowait(item)
             except queue.Full:
@@ -136,6 +157,11 @@ class Hub:
                     q.put_nowait(item)
                 except (queue.Empty, queue.Full):
                     pass
+
+    def wants(self, kind):
+        """Does any connected browser take events of this kind (not paused for it)?"""
+        with self.lock:
+            return any(kind not in getattr(q, "skip", ()) for q in self.events)
 
     def event(self, kind, data):
         with self.lock:
@@ -163,9 +189,18 @@ if VFO:
         cfg["ism"] = False           # ISM too
     else:
         cfg.pop("chain", None)
-RTL_DONGLE = cfg.get("driver", "rtl") == "rtl"   # VDL2, DAB and ISM need the rates and raw samples of an RTL dongle
+if "smart_agc" not in cfg and not cfg.get("chain"):
+    # AGC+ on by default (1.1beta2, smart clipping), not for a network source: on a SpyServer the gain is the server's,
+    # over rtl_tcp every step goes over the network; a VFO where it was switched off keeps it off
+    cfg["smart_agc"] = cfg.get("driver", "rtl") not in ("spyserver", "rtltcp")
+# VDL2, DAB and ISM need the rates and raw samples of an RTL dongle (over USB or rtl_tcp)
+RTL_DONGLE = cfg.get("driver", "rtl") in ("rtl", "rtltcp")
 if not RTL_DONGLE:
     cfg["vdl2"] = cfg["dab"] = cfg["ism"] = False
+if cfg.get("driver") == "spyserver":
+    # SpyServer: the rates its server allows (asked once at start; spyserver.py)
+    import spyserver
+    DRIVER_SAMPLE_RATES["spyserver"] = spyserver.rates_for(cfg.get("serial", "")) or (int(cfg.get("sample_rate") or 912000),)
 if cfg.get("driver") in DRIVER_SAMPLE_RATES:
     SAMPLE_RATES = DRIVER_SAMPLE_RATES[cfg["driver"]]
     if cfg["sample_rate"] not in SAMPLE_RATES:
@@ -210,10 +245,15 @@ def save_config_later():
 
 # ---------- daily decoder logs (turned on with LOG in the decoder card) ----------
 
-LOG_KEYS = ("ft8", "wefax", "cw", "rtty", "sstv", "acars", "dsd", "ism", "packet", "pocsag", "hfdl", "ais", "adsb")
+LOG_KEYS = ("ft8", "wefax", "cw", "rtty", "sstv", "acars", "dsd", "ism", "packet", "pocsag", "hfdl", "ais", "adsb", "wspr", "msk144", "meteor", "q65", "bpsk")
 _tag = cfg.get("vfo") or ""
 logs = {"ft8": DayLog("ft8", _tag), "wefax": DayLog("wefax", _tag), "sstv": DayLog("sstv", _tag), "dsd": DayLog("dsd", _tag), "ism": DayLog("ism", _tag), "packet": DayLog("packet", _tag), "pocsag": DayLog("pocsag", _tag), "hfdl": DayLog("hfdl", _tag), "ais": DayLog("ais", _tag), "adsb": DayLog("adsb", _tag),
         "cw": TextLog("cw", _tag), "rtty": TextLog("rtty", _tag)}
+logs["wspr"] = DayLog("wspr", _tag)
+logs["msk144"] = DayLog("msk144", _tag)
+logs["q65"] = DayLog("q65", _tag)
+logs["bpsk"] = DayLog("bpsk", _tag)
+logs["meteor"] = DayLog("meteor", _tag)
 _saved_logged = {"wefax": None, "sstv": None}
 
 
@@ -258,10 +298,27 @@ def decoder_event(kind, data):
     if kind == "adsb":
         _adsb_log(data.pop("log", []))
     hub.event(kind, data)
+    if kind in ("ft8", "wspr"):
+        try:
+            spotting.decode(kind, data)     # PSK Reporter / WSPRnet, if set in SETTINGS › GENERAL › SPOTS
+        except Exception:
+            pass
     try:
         if kind == "ft8" and log_on("ft8"):
             logs["ft8"].write(f"{_mhz(data['freq_hz'])} {data['snr']:+d} dB DT {data['dt']:+.1f} "
                               f"{data['df']} Hz | {data['msg']}")
+        elif kind == "wspr" and log_on("wspr"):
+            logs["wspr"].write(f"{_mhz(data['freq_hz'])} {data['snr']:+d} dB DT {data['dt']:+.1f} drift {data['drift']:+d} | {data['msg']}")
+        elif kind == "q65" and log_on("q65"):
+            logs["q65"].write(f"{_mhz(data['freq_hz'])} {data['mode']} {data['snr']:+d} dB DT {data['dt']:+.1f} {data['df']} Hz | {data['msg']}")
+        elif kind == "bpsk" and log_on("bpsk"):
+            logs["bpsk"].write(f"{_mhz(data['freq_hz'])} {data['baud']} Bd {data['framing']} {data['snr']:.1f} dB | "
+                               f"{data['sat'] + ' ' if data['sat'] else ''}{data['text']} | {data['hex']}")
+        elif kind == "msk144" and log_on("msk144"):
+            logs["msk144"].write(f"{_mhz(data['freq_hz'])} {data['snr']:+d} dB DF {data['df']} Hz frames {data['nav']} | {data['msg']}")
+        elif kind == "meteor" and log_on("meteor"):
+            logs["meteor"].write(f"{_mhz(data['freq_hz'])} {data['doppler']:+d} Hz {data['snr']:.1f} dB {data['dur']:.2f} s {data['kind']}"
+                                 f"{meteor.log_name(data)}", data["ts"])     # the time of the echo; | the satellite / aircraft, H
         elif kind == "dsdcall" and log_on("dsd"):
             slot = f" slot {data['slot']}" if data["slot"] else ""
             alias = f" | {data['alias']}" if data["alias"] else ""
@@ -316,6 +373,11 @@ def decoder_event(kind, data):
 
 ft8 = Ft8Decoder(on_decode=lambda d: decoder_event("ft8", d),
                  on_cycle=lambda t: hub.event("ft8cycle", {"time": t}))
+wspr_dec = WsprDecoder(on_decode=lambda d: decoder_event("wspr", d), on_cycle=lambda i: hub.event("wsprcycle", i))
+msk_dec = Msk144Decoder(on_decode=lambda d: decoder_event("msk144", d))
+q65_dec = q65_mod.Q65Decoder(on_decode=lambda d: decoder_event("q65", d), on_cycle=lambda i: hub.event("q65cycle", i))
+bpsk_dec = bpsk_mod.BpskDecoder(on_decode=lambda d: decoder_event("bpsk", d), on_stat=lambda d: hub.event("bpskstat", d))
+meteors = meteor.MeteorCounter(_tag, on_echo=lambda e: decoder_event("meteor", e))
 
 
 def wefax_retune(old_hz, new_hz):
@@ -419,9 +481,9 @@ def audio_muted():
 
 def state():
     capable = tx_capable()
-    return dict(receiver.state(), ft8=ft8.enabled, ft8_error=ft8.error, wefax=wefax.enabled, cw=cw.enabled, rtty=rtty.enabled, packet=packet.enabled, pocsag=pocsag.enabled, sonde=sonde.enabled, sonde_multi=sonde.multi,
+    return dict(receiver.state(), ft8=ft8.enabled, ft8_error=ft8.error, wspr=wspr_dec.enabled, wspr_error=wspr_dec.error, wspr_info=wspr_dec.info, wspr_prog=wspr_dec.progress(), msk144=msk_dec.enabled, msk144_error=msk_dec.error, msk144_info=msk_dec.info, meteor=meteors.enabled, meteor_error=meteors.error, meteor_info=meteors.info, wefax=wefax.enabled, cw=cw.enabled, rtty=rtty.enabled, packet=packet.enabled, pocsag=pocsag.enabled, sonde=sonde.enabled, sonde_multi=sonde.multi,
                 sstv=sstv.enabled, acars=acars.enabled, vdl2=vdl2.enabled, vdl2_error=vdl2.error, vdl2_region=vdl2.region, cpdlc=acars.cpdlc_on,
-                dsd=dsd.info(), dab=dab.enabled, dab_error=dab.error, dab_channel=dab.channel, dab_sids=cfg.get("dab_sids") or {}, ism=ism.enabled, ism_error=ism.error, ism_raw=ism.raw, hfdl=hfdl.enabled, hfdl_error=hfdl.error, ais=ais.enabled, ais_error=ais.error, adsb=adsb.enabled, adsb_error=adsb.error, ism_hz=cfg.get("ism_hz", ISM_DEFAULT), audio_muted=audio_muted(), recording=recorder.state(), iq_rec=iq_recorder.state(), logs={k: log_on(k) for k in LOG_KEYS},
+                dsd=dsd.info(), dab=dab.enabled, dab_error=dab.error, dab_channel=dab.channel, dab_sids=cfg.get("dab_sids") or {}, ism=ism.enabled, ism_error=ism.error, ism_raw=ism.raw, hfdl=hfdl.enabled, hfdl_error=hfdl.error, ais=ais.enabled, ais_error=ais.error, adsb=adsb.enabled, adsb_error=adsb.error, ism_hz=cfg.get("ism_hz", ISM_DEFAULT), audio_muted=audio_muted(), recording=recorder.state(), iq_rec=iq_recorder.state(), retro=retro.state(), **q65_dec.status(), **bpsk_dec.status(),logs={k: log_on(k) for k in LOG_KEYS},
                 **doppler_trsp(), antenna=cfg.get("antenna", ""),
                 tx_capable=capable, tx_enabled=bool(cfg.get("tx_enabled", False)),
                 can_tx=capable and bool(cfg.get("tx_enabled", False)) and hasattr(receiver.sdr, "tx_start"))
@@ -449,6 +511,11 @@ def on_baseband(base, fs, dial_hz):
     if receiver.scan.on:
         return                           # SCAN: the decoders of this VFO are paused (they would get every channel)
     ft8.feed(base, fs, dial_hz)
+    wspr_dec.feed(base, fs, dial_hz)
+    msk_dec.feed(base, fs, dial_hz)
+    q65_dec.feed(base, fs, dial_hz)
+    bpsk_dec.feed(base, fs, dial_hz)
+    meteors.feed(base, fs, dial_hz)
     wefax.feed(base, fs, dial_hz)
     if cw.enabled:
         cw.feed(base, fs, dial_hz, cw_band())
@@ -470,7 +537,10 @@ def on_baseband(base, fs, dial_hz):
 
 recorder = Recorder()
 # REC IQ: the raw samples of the dongle to WAV (SDR# style) in the subfolder iq of the recordings folder (iqrec.py)
-iq_recorder = IqRecorder(lambda: os.path.join(recorder.folder, "iq"), (VFO or {}).get("name", ""))
+iq_recorder = IqRecorder(lambda: os.path.join(recorder_mod.day_folder(recorder.folder), "iq"), (VFO or {}).get("name", ""))
+# PRE-REC (retro.py): the last minute of raw IQ in RAM, replayed by Alt+click on the waterfall (retro.py)
+retro = RetroBuffer((VFO or {}).get("name", ""))
+retro.set(on=bool(cfg.get("retro", False)), seconds=cfg.get("retro_s", 60))
 
 
 def _dab_recording():
@@ -527,6 +597,8 @@ receiver = Receiver(
     on_meter=lambda db: hub.event("meter", {"db": round(db, 1)}),
     on_dsd=dsd.process,
 )
+receiver.on_wide = lambda db: hub.event("wide", {"db": round(db, 2)})   # SUN NOISE › Meter WIDE: the noise of the whole band
+receiver.want_rows = lambda: hub.wants("wf")   # no spectrum / waterfall rows built while no browser takes them
 dsd.set_enabled(cfg["mode"] == DSD_MODE)
 # one decoder on the IQ (IQ_ONE): a config from an older version may have several on (e.g. DAB with SONDE); the first of
 # this order stays, the others are left off
@@ -534,6 +606,11 @@ _iq_on = [k for k in ("dab", "adsb", "vdl2", "acars", "ism", "hfdl", "ais", "son
 for _k in _iq_on[1:]:
     cfg[_k] = False
 ft8.set_enabled(cfg.get("ft8", False))
+wspr_dec.set_enabled(cfg.get("wspr", False))
+msk_dec.set_enabled(cfg.get("msk144", False))
+q65_dec.configure(cfg)
+bpsk_dec.configure(cfg)
+meteors.set_enabled(cfg.get("meteor", False))
 wefax.slant_ppm = float(cfg.get("wefax_slant_ppm", 0.0))
 wefax.afc_vfo = bool(cfg.get("wefax_afc_vfo", True))
 wefax.set_enabled(cfg.get("wefax", False))
@@ -557,6 +634,7 @@ acars.set_enabled(cfg.get("acars", False) and not cfg.get("vdl2", False))
 
 def on_raw(raw, fs, center_hz):
     iq_recorder.feed(raw, fs, center_hz)
+    retro.feed(raw, fs, center_hz)
     vdl2.feed_raw(raw, fs, center_hz)
     dab.feed_raw(raw, fs, center_hz, receiver.lo)
     ism.feed_raw(raw, fs, center_hz)
@@ -615,6 +693,7 @@ def sync_cpdlc():
 sync_cpdlc()
 
 app = Flask(__name__, static_folder="static")
+app.register_blueprint(vectormaps.bp)   # vector maps of the decoder maps (/api/vectormaps…)
 
 
 def same_host(req):
@@ -653,7 +732,7 @@ def api_whatsnew():
 
 @app.route("/api/state")
 def api_state():
-    return jsonify(dict(state(), sample_rates=SAMPLE_RATES, modes=MODES, ft8_freqs=FT8_FREQS, acars_freqs=ACARS_FREQS,
+    return jsonify(dict(state(), sample_rates=SAMPLE_RATES, modes=MODES, ft8_freqs=FT8_FREQS, wspr_freqs=WSPR_FREQS, msk144_freqs=MSK144_FREQS, acars_freqs=ACARS_FREQS,
                         vdl2_freqs=region_freqs(vdl2.region), vdl2_region_freqs={r: region_freqs(r) for r in VDL2_REGIONS}, vdl2_center=VDL2_CENTER, vdl2_rate=VDL2_RATE, tx_bands=TX_BANDS,
                         dab_channels=DAB_CHANNELS, ism_freqs=ISM_FREQS, hfdl_bands=hfdl_mod.BANDS,
                         hfdl_stations=hfdl_mod.STATIONS, ais_center=ais_mod.CENTER_HZ, ais_channels=sorted(ais_mod.CHANNELS), adsb_freq=adsb_mod.FREQ_HZ))
@@ -803,6 +882,55 @@ def api_ft8_stations():
         hub.event("ft8stclear", {})
         return jsonify(ok=True)
     return jsonify(ft8.station_list())
+
+
+@app.route("/api/wspr")
+def api_wspr():
+    return jsonify(list(wspr_dec.decodes))
+
+
+@app.route("/api/retro/clip", methods=["POST"])
+def api_retro_clip():
+    """PRE-REC: {"t": unix time, "hz": frequency} -> WAV of up to 20 s demodulated from the IQ kept in RAM, with the mode,
+    filter and all the AUDIO keys of this VFO (no squelch); X-Retro-Start / X-Retro-Seconds say what it is."""
+    body = request.get_json(force=True) or {}
+    try:
+        t, hz = float(body["t"]), float(body["hz"])
+    except (KeyError, TypeError, ValueError):
+        return jsonify({"error": "t and hz must be numbers"}), 400
+    wav, info = retro.clip_wav(t, hz, dict(cfg))       # the whole AUDIO chain of this VFO as it is set now
+    if wav is None:
+        return jsonify({"error": info}), 404
+    return Response(wav, mimetype="audio/wav", headers={"X-Retro-Start": f"{info['start']:.2f}",
+                                                         "X-Retro-Seconds": str(info["seconds"]), "Cache-Control": "no-store"})
+
+
+@app.route("/api/retro/save", methods=["POST"])
+def api_retro_save():
+    """PRE-REC SAVE: the whole buffer as an IQ WAV into the iq folder of today's recordings."""
+    try:
+        path = retro.save_iq(os.path.join(recorder_mod.day_folder(recorder.folder), "iq"))
+    except (OSError, ValueError) as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify(ok=True, file=os.path.basename(path), mb=round(os.path.getsize(path) / 1e6))
+
+
+@app.route("/api/msk144", methods=["GET", "DELETE"])
+def api_msk144():
+    """MSK144 decodes (msk144.py); DELETE clears them."""
+    if request.method == "DELETE":
+        msk_dec.clear()
+        return jsonify(ok=True)
+    return jsonify(list(msk_dec.decodes))
+
+
+@app.route("/api/wspr/stations", methods=["GET", "DELETE"])
+def api_wspr_stations():
+    """WSPR stations heard in the last 24 h (the same fields as /api/ft8/stations + drift, dBm); DELETE clears them."""
+    if request.method == "DELETE":
+        wspr_dec.clear_stations()
+        return jsonify(ok=True)
+    return jsonify(wspr_dec.station_list())
 
 
 @app.route("/api/wefax", methods=["GET"])
@@ -977,6 +1105,26 @@ def api_wind():
     keys = [k for k in request.args.get("cells", "").split(",") if re.fullmatch(r"-?\d{1,2}\.\d{2}_-?\d{1,3}\.\d{2}", k)]
     return jsonify(wind.cells(keys))
 
+
+@app.route("/api/spacewx")
+def api_spacewx():
+    """Space weather for the PROP tab and the header chip: NOAA SWPC feeds (sun, solar wind, Kp, scales, alerts),
+    downloaded when stale and kept in data/spacewx, and the band conditions at the station (spacewx.py)."""
+    import spacewx
+    q = location.load()
+    return jsonify(spacewx.summary(q.get("lat"), q.get("lon")))
+
+
+import dxcluster  # noqa: E402
+dxcluster.register(app)     # /api/dxcluster for a receiver without the launcher (the launcher has its own)
+import sunnoise  # noqa: E402
+sunnoise.register(app)      # /api/sunnoise: SATELLITES › SUN NOISE (Sun / Moon position, flux, G/T)
+meteor.register(app, meteors, own_station)    # /api/meteors: DECODERS › GRAVES (meteor echoes, hourly / daily counts)
+q65_mod.register(app, q65_dec)      # /api/q65: DECODERS › Q65 / JT65 (jt9 of WSJT-X)
+bpsk_mod.register(app, bpsk_dec)    # /api/bpsk: DECODERS › BPSK (satellite telemetry: FUNcube AO-40 FEC, AX.25)
+spotting.register(app, same_host, _tag)   # /api/spotting: SETTINGS › GENERAL › SPOTS (PSK Reporter from FT8, WSPRnet from WSPR)
+import dbgstats  # noqa: E402
+dbgstats.register(app)      # /api/debug/threads: SETTINGS › DEBUG (CPU of each thread, where they work)
 
 @app.route("/api/sonde", methods=["GET"])
 def api_sonde():
@@ -1254,6 +1402,614 @@ def api_adsb_cmd():
     return jsonify(adsb.info())
 
 
+def _emerg_sq(sq):
+    """The 4th element of a trail point: the squawk, only an emergency one (7500 / 7600 / 7700), so the map draws
+    that part of the trail red; nothing otherwise (the points stay short)."""
+    return [sq] if sq in ("7500", "7600", "7700") else []
+
+
+def _sonde_pts(pts):
+    """The points of a sonde's flight for the COMPOSITE map: [lat, lon, alt, t], at most ~600, the newest always kept
+    (the landing predictor starts from it)."""
+    out = [p[:4] for p in pts[::max(1, len(pts) // 600)]]
+    if pts and (not out or out[-1] != pts[-1][:4]):
+        out.append(pts[-1][:4])
+    return out
+
+
+def _positions_live():
+    """COMPOSITE map: everything with a position from the decoders running on this VFO, in one shape for all
+    sources (also a test of a format to merge the feeds of several stations):
+    {"t", "sources": [running source keys], "items": [{"src", "id", "label", "lat", "lon", "alt_m", "t", "trail": [[lat, lon, t, (emergency squawk)]…],
+     "air": aircraft details or absent}], "gs": [{"src", "id", "label", "lat", "lon", "t"}]}  – alt_m in metres (None = not known),
+     t = UNIX seconds; air = {"hex", "reg", "flight", "type", "desc", "alt_ft", "gs_kt", "squawk", "ground", "gs", "n"}."""
+    now = time.time()
+    items, gs, srcs = [], [], []
+
+    def air(old, hex_="", reg="", flight="", ac=None, **kw):
+        """Aircraft details joined over the messages: newer values win, empty ones keep the older."""
+        d = dict(old or {"hex": "", "reg": "", "flight": "", "type": "", "desc": "", "alt_ft": None, "gs_kt": None,
+                         "squawk": "", "ground": False, "gs": "", "n": 0})
+        ac = ac if isinstance(ac, dict) and ac.get("found") else {}
+        new = {"hex": (hex_ or "").upper(), "reg": reg or ac.get("reg", ""), "flight": (flight or ac.get("callsign", "") or "").strip(),
+               "type": ac.get("type", ""), "desc": ac.get("desc", ""), "alt_ft": ac.get("alt_ft", ac.get("alt")),
+               "gs_kt": ac.get("gs_kt", ac.get("gs")), "squawk": ac.get("squawk", ""), "ground": ac.get("ground"),
+               "track": ac.get("track")}   # heading from the ADS-B lookup: for an aircraft with one position only
+        new.update(kw)
+        for k, v in new.items():
+            if v not in (None, "") and k != "n":
+                d[k] = v
+        d["n"] = kw.get("n", d["n"] + 1)
+        return d
+
+    def vdl2_hex(m):
+        """24-bit ICAO address of the aircraft of an ACARS / VDL2 message (as acarsAirHex in app.js)."""
+        if m.get("atn"):
+            a = m.get("reg") or ""
+        else:
+            v = m.get("vdl2") or {}
+            a = (v.get("src") if m.get("dir") == "down" else v.get("dst")) or ""
+        return a.upper() if re.fullmatch(r"[0-9A-Fa-f]{6}", a) and a.lower() != "ffffff" else ""
+
+    def item(src, iid, label, lat, lon, t, alt_m=None, trail=None, **extra):
+        if lat is None or lon is None:
+            return
+        items.append(dict(src=src, id=iid, label=label, lat=round(lat, 5), lon=round(lon, 5), alt_m=alt_m,
+                          t=round(t or now, 1), trail=trail or [], **extra))
+
+    if adsb.enabled:
+        srcs.append("adsb")
+        for a in adsb.aircraft_list():
+            alt = a.get("alt")
+            net = a.get("net") if isinstance(a.get("net"), dict) else None
+            item("adsb", a["icao"], (a.get("flight") or "").strip() or a["icao"], a.get("lat"), a.get("lon"),
+                 a.get("pos_time") or a.get("last"), None if alt is None else round(alt * 0.3048),
+                 [[p[0], p[1], p[2]] + _emerg_sq(p[4] if len(p) > 4 else "") for p in a.get("trail", [])], track=a.get("track"),
+                 air=air(None, a["icao"], "", a.get("flight"), net, alt_ft=alt, gs_kt=a.get("gs"), squawk=a.get("squawk"),
+                         ground=bool(a.get("ground")), n=a.get("n", 0)))
+    if ais.enabled:
+        srcs.append("ais")
+        for s in ais.ship_list():
+            item("ais", str(s["mmsi"]), s.get("name") or s.get("callsign") or str(s["mmsi"]), s.get("lat"), s.get("lon"),
+                 s.get("pos_time") or s.get("last"), track=s.get("cog") if s.get("hdg") is None else s.get("hdg"),
+                 ship={k: v for k, v in s.items() if not k.startswith("_")})
+    if sonde.enabled:
+        srcs.append("sonde")
+        for s in sonde.info().get("sondes", []):
+            item("sonde", s["serial"], f'{s["serial"]} {s.get("type", "")}'.strip(), s.get("lat"), s.get("lon"),
+                 s.get("pos_time") or s.get("last"), None if s.get("alt") is None else round(s["alt"]),
+                 [[p[0], p[1], p[3]] for p in s.get("pts", [])], burst=bool(s.get("burst")),
+                 sonde={**{k: v for k, v in s.items() if k != "pts" and not k.startswith("_")},
+                        # the points of the flight [lat, lon, alt, t] (at most ~600): the landing predictor on the map
+                        "pts": _sonde_pts(s.get("pts") or [])})
+    if hfdl.enabled:
+        srcs.append("hfdl")
+        acs = {}
+        for m in hfdl.messages():
+            if m.get("lat") is None:
+                continue
+            key = (m.get("icao") or "").upper() or m.get("reg") or m.get("flight")
+            if not key:
+                continue
+            a = acs.setdefault(key, {"label": "", "trail": [], "air": None})
+            a["label"] = m.get("flight") or m.get("reg") or a["label"] or key
+            a["trail"].append([m["lat"], m["lon"], m.get("time") or now] + _emerg_sq((m.get("ac") or {}).get("squawk") if isinstance(m.get("ac"), dict) else ""))
+            a["air"] = air(a["air"], m.get("icao"), m.get("reg"), m.get("flight"), m.get("ac"), gs=m.get("gs"))
+        for key, a in acs.items():
+            tr = sorted(a["trail"], key=lambda p: p[2])[-200:]
+            item("hfdl", key, a["label"], tr[-1][0], tr[-1][1], tr[-1][2], trail=tr, air=a["air"])
+        for s in hfdl_mod.STATIONS:
+            if s["lat"] is not None:
+                gs.append({"src": "hfdl", "id": str(s["id"]), "label": s["name"], "lat": s["lat"], "lon": s["lon"], "t": None})
+    if acars.enabled or vdl2.enabled:
+        src = "vdl2" if vdl2.enabled else "acars"
+        srcs.append(src)
+        a_info = acars.info()
+        acs = {}
+
+        def add(key, label, lat, lon, t, sq=""):
+            if not key or lat is None or lon is None:
+                return
+            a = acs.setdefault(key, {"label": key, "trail": [], "air": None})
+            if label:
+                a["label"] = label
+            a["trail"].append([lat, lon, t] + _emerg_sq(sq))
+
+        for p in a_info["positions"]:
+            add(p["addr"], None, p["lat"], p["lon"], p["t"])
+            if p["addr"] in acs:
+                acs[p["addr"]]["air"] = air(acs[p["addr"]]["air"], p["addr"], gs=p.get("gs_loc") if p.get("gs_loc") != "-" else "")
+        for m in a_info["messages"]:
+            ac = m.get("ac") if isinstance(m.get("ac"), dict) and m["ac"].get("found") else None
+            pos = (m.get("cpdlc") or {}).get("pos") if isinstance(m.get("cpdlc"), dict) else None
+            hx = vdl2_hex(m)
+            reg = "" if m.get("atn") else (m.get("reg") or "")
+            key = hx or reg or m.get("flight")
+            gsl = ((m.get("vdl2") or {}).get("gs_loc") or "").replace("-", "")
+            if key in acs:   # an aircraft with a position: its details also from the messages without one
+                acs[key]["air"] = air(acs[key]["air"], hx, reg, m.get("flight"), ac, gs=gsl)
+            if not ac and not pos:
+                continue
+            label = m.get("flight") or (ac or {}).get("callsign") or reg
+            try:
+                t = calendar.timegm(time.strptime(f'{m["date"]} {m["time"]}', "%Y-%m-%d %H:%M:%S"))
+            except (KeyError, TypeError, ValueError):
+                t = now
+            if pos:
+                add(key, label, pos.get("lat"), pos.get("lon"), t)
+            if ac:
+                add(key, label, ac.get("lat"), ac.get("lon"), t, ac.get("squawk"))
+            if key in acs and not acs[key]["air"]:
+                acs[key]["air"] = air(None, hx, reg, m.get("flight"), ac, gs=gsl)
+        for key, a in acs.items():
+            tr = sorted(a["trail"], key=lambda p: p[2])[-200:]
+            item(src, key, a["label"], tr[-1][0], tr[-1][1], tr[-1][2], trail=tr, air=a["air"] or air(None, key if re.fullmatch(r"[0-9A-F]{6}", key) else ""))
+        for g in a_info["gs_pos"]:
+            gs.append({"src": src, "id": g["addr"], "label": g.get("gs_loc") or g["addr"], "lat": g["lat"], "lon": g["lon"], "t": g.get("t")})
+    return {"t": round(now, 1), "sources": srcs, "items": items, "gs": gs}
+
+
+# ----- COMPOSITE history: what the decoders of this VFO saw in the last COM_KEEP_S, kept over a server restart -----
+COM_KEEP_S = 6 * 3600       # an object not seen for longer drops out of the history
+COM_TRAIL = 500             # trail points kept per object
+COM_EVERY_S = 30            # the history takes the live positions this often (also while the COMPOSITE tab is closed)
+COM_SAVE_S = 120            # and is written to data\composite_<VFO>.json this often
+COM_FILE = data(f"composite_{_tag or 'main'}.json")
+_com_lock = threading.Lock()
+_com_items, _com_gs, _com_srcs = {}, {}, {}   # "src:id" -> item / ground station; source -> last time it ran
+
+
+def _com_load():
+    try:
+        with open(COM_FILE, encoding="utf-8") as f:
+            d = json.load(f)
+    except (OSError, ValueError):
+        return
+    now = time.time()
+    with _com_lock:
+        for it in d.get("items", []):
+            if isinstance(it, dict) and now - (it.get("t") or 0) < COM_KEEP_S:
+                _com_items[f'{it["src"]}:{it["id"]}'] = it
+        for g in d.get("gs", []):
+            if isinstance(g, dict):
+                _com_gs[f'{g["src"]}:{g["id"]}'] = g
+        _com_srcs.update({k: v for k, v in d.get("sources", {}).items() if now - v < COM_KEEP_S})
+
+
+def _com_update(live):
+    """Live positions into the history: the newest record of each object, its trail joined with the stored one."""
+    now = time.time()
+    with _com_lock:
+        for src in live["sources"]:
+            _com_srcs[src] = now
+        for it in live["items"]:
+            k = f'{it["src"]}:{it["id"]}'
+            old = _com_items.get(k)
+            if old and old.get("trail"):
+                tr = {round(p[2], 1): p for p in old["trail"]}
+                tr.update({round(p[2], 1): p for p in it["trail"]})
+                it = dict(it, trail=[tr[t] for t in sorted(tr)][-COM_TRAIL:])
+            _com_items[k] = it
+        for g in live["gs"]:
+            _com_gs[f'{g["src"]}:{g["id"]}'] = g
+        for k in [k for k, it in _com_items.items() if now - (it.get("t") or 0) > COM_KEEP_S]:
+            del _com_items[k]
+        for k in [k for k, t in _com_srcs.items() if now - t > COM_KEEP_S]:
+            del _com_srcs[k]
+        for k in [k for k, g in _com_gs.items() if g["src"] not in _com_srcs]:
+            del _com_gs[k]
+
+
+def _com_save():
+    with _com_lock:
+        d = {"t": round(time.time(), 1), "sources": dict(_com_srcs), "items": list(_com_items.values()), "gs": list(_com_gs.values())}
+    tmp = COM_FILE + ".tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(d, f, separators=(",", ":"))
+        os.replace(tmp, COM_FILE)
+    except OSError:
+        pass
+
+
+def _com_loop():
+    last_save = time.time()
+    while True:
+        time.sleep(COM_EVERY_S)
+        try:
+            _com_update(_positions_live())
+        except Exception as e:      # a decoder changing its data meanwhile: try again next time
+            print(f"composite history: {e}", file=sys.stderr)
+        if time.time() - last_save >= COM_SAVE_S:
+            last_save = time.time()
+            _com_save()
+
+
+_com_load()
+threading.Thread(target=_com_loop, name="composite-history", daemon=True).start()
+atexit.register(_com_save)   # a normal stop also keeps the last minutes
+atexit.register(meteors.save)   # and the meteor counts of the current minute
+
+
+@app.route("/api/positions", methods=["GET"])
+def api_positions():
+    """COMPOSITE map: the live positions of this VFO joined with its history (COM_KEEP_S, kept over a restart).
+    Items only in the history have "hist": true; "sources" = running now, "hist_sources" = only in the history."""
+    live = _positions_live()
+    _com_update(live)
+    keys = {f'{it["src"]}:{it["id"]}' for it in live["items"]}
+    with _com_lock:
+        items = [it if k in keys else dict(it, hist=True) for k, it in _com_items.items()]
+        gs = list(_com_gs.values())
+        hist_srcs = [x for x in _com_srcs if x not in live["sources"]]
+    return jsonify({"t": live["t"], "sources": live["sources"], "hist_sources": hist_srcs, "items": items, "gs": gs})
+
+
+# ----- COMPOSITE sharing: aircraft around the station from adsb.fi (open data, 1 request per second at most) -----
+_share_afi = {"t": 0.0, "key": None, "data": None}
+_share_lock = threading.Lock()
+SHARE_AFI_KEEP = ("hex", "flight", "r", "t", "desc", "alt_baro", "gs", "track", "lat", "lon", "squawk", "seen_pos", "category")
+
+
+@app.route("/api/share/adsbfi", methods=["GET"])
+def api_share_adsbfi():
+    """The aircraft adsb.fi sees within ?dist= NM (10–250) of the station: {"t", "aircraft": [adsb.fi records, the
+    fields of SHARE_AFI_KEEP]}. Asked from adsb.fi at most every 4 s; the windows filter what they show."""
+    import urllib.request
+    try:
+        dist = max(10, min(250, int(request.args.get("dist", 100))))
+    except ValueError:
+        dist = 100
+    loc = location.load()
+    lat, lon = loc.get("lat"), loc.get("lon")
+    if lat is None or lon is None or (not lat and not lon):
+        return jsonify(error="the station location is not set (MENU › SETUP › LOCATION)"), 400
+    key = (round(lat, 3), round(lon, 3), dist)
+    with _share_lock:
+        if _share_afi["key"] == key and time.time() - _share_afi["t"] < 4:
+            return jsonify(_share_afi["data"])
+        url = f"https://opendata.adsb.fi/api/v2/lat/{lat:.4f}/lon/{lon:.4f}/dist/{dist}"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "RADIMCOM"})
+            with urllib.request.urlopen(req, timeout=8) as r:
+                d = json.load(r)
+        except Exception as e:      # no internet, adsb.fi down or rate limited
+            return jsonify(error=f"adsb.fi: {e}"), 502
+        ac = d.get("aircraft") or d.get("ac") or []
+        out = {"t": round(time.time(), 1), "aircraft": [{k: a[k] for k in SHARE_AFI_KEEP if k in a} for a in ac if a.get("lat") is not None]}
+        _share_afi.update(t=time.time(), key=key, data=out)
+    return jsonify(out)
+
+
+# ----- COMPOSITE sharing: radiosondes around the station from SondeHub (open API, no key) -----
+_share_sh = {"t": 0.0, "key": None, "data": None, "trails": {}}
+_share_sh_lock = threading.Lock()
+SHARE_SH_KEEP = ("serial", "type", "subtype", "manufacturer", "lat", "lon", "alt", "vel_v", "vel_h", "heading", "datetime",
+                 "frequency", "temp", "humidity", "uploader_callsign", "frame")
+
+
+@app.route("/api/share/sondehub", methods=["GET"])
+def api_share_sondehub():
+    """The radiosondes SondeHub heard within ?dist= km (10–800) of the station in the last ?last= s (600–86400):
+    {"t", "sondes": [the newest record of each (fields of SHARE_SH_KEEP), "t" = its time, "trail": [[lat, lon, alt, t]…]]}.
+    Asked from SondeHub at most every 15 s; the trails are made here from the records asked (the last 6 h)."""
+    import calendar, gzip, urllib.request
+    try:
+        dist = max(10, min(800, int(request.args.get("dist", 300))))
+        last = max(600, min(86400, int(request.args.get("last", 10800))))
+    except ValueError:
+        dist, last = 300, 10800
+    loc = location.load()
+    lat, lon = loc.get("lat"), loc.get("lon")
+    if lat is None or lon is None or (not lat and not lon):
+        return jsonify(error="the station location is not set (MENU › SETUP › LOCATION)"), 400
+    key = (round(lat, 3), round(lon, 3), dist, last)
+    with _share_sh_lock:
+        if _share_sh["key"] == key and time.time() - _share_sh["t"] < 15:
+            return jsonify(_share_sh["data"])
+        url = f"https://api.v2.sondehub.org/sondes?lat={lat:.4f}&lon={lon:.4f}&distance={dist * 1000}&last={last}"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "RADIMCOM", "Accept-Encoding": "gzip"})
+            with urllib.request.urlopen(req, timeout=15) as r:
+                raw = r.read()
+                if r.headers.get("Content-Encoding") == "gzip" or raw[:2] == b"\x1f\x8b":
+                    raw = gzip.decompress(raw)
+                d = json.loads(raw)
+        except Exception as e:      # no internet or SondeHub busy
+            return jsonify(error=f"SondeHub: {e}"), 502
+        now, out, trails = time.time(), [], _share_sh["trails"]
+        for serial, rec in (d.items() if isinstance(d, dict) else []):
+            if not isinstance(rec, dict) or rec.get("lat") is None or rec.get("lon") is None:
+                continue
+            try:
+                t = calendar.timegm(time.strptime(str(rec.get("datetime", ""))[:19], "%Y-%m-%dT%H:%M:%S"))
+            except ValueError:
+                t = now
+            item = {k: rec[k] for k in SHARE_SH_KEEP if k in rec}
+            item["t"] = t
+            tr = trails.setdefault(serial, [])
+            if not tr or tr[-1][3] < t:
+                tr.append([round(rec["lat"], 5), round(rec["lon"], 5), round(rec.get("alt") or 0), t])
+            while tr and now - tr[0][3] > 6 * 3600:
+                tr.pop(0)
+            item["trail"] = tr[-400:]
+            out.append(item)
+        for serial in [k for k, tr in trails.items() if not tr or now - tr[-1][3] > 6 * 3600]:
+            del trails[serial]
+        data = {"t": round(now, 1), "sondes": out}
+        _share_sh.update(t=now, key=key, data=data)
+    return jsonify(data)
+
+
+# ----- COMPOSITE sharing: ships around the station from aisstream.io (WebSocket, free API key in data\mapkeys.json) -----
+class ShareAis:
+    """One WebSocket to aisstream.io while windows ask (stops 5 min after the last request): the position reports and
+    static data of the ships in a box around the station, kept 30 min. A plain stdlib WebSocket client (no extra package)."""
+    HOST, PATH, KEEP_S, IDLE_S = "stream.aisstream.io", "/v0/stream", 1800, 300
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.ships = {}            # mmsi -> record (+ "trail": [[lat, lon, t]…])
+        self.box = None            # (lat, lon, dist NM) subscribed
+        self.want = None
+        self.asked = 0.0
+        self.status = "off"
+        self.thread = None
+
+    def get(self, lat, lon, dist):
+        with self.lock:
+            self.asked = time.time()
+            self.want = (round(lat, 3), round(lon, 3), dist)
+            if not self.thread or not self.thread.is_alive():
+                self.thread = threading.Thread(target=self._run, daemon=True, name="aisstream")
+                self.thread.start()
+            now = time.time()
+            for m in [m for m, r in self.ships.items() if now - r["t"] > self.KEEP_S]:
+                del self.ships[m]
+            return {"t": round(now, 1), "status": self.status, "ships": list(self.ships.values())}
+
+    # --- the WebSocket ---
+    def _connect(self):
+        import base64, socket, ssl
+        sock = socket.create_connection((self.HOST, 443), timeout=60)   # the handshake can take many seconds
+        sock = ssl.create_default_context().wrap_socket(sock, server_hostname=self.HOST)
+        key = base64.b64encode(os.urandom(16)).decode()
+        sock.sendall((f"GET {self.PATH} HTTP/1.1\r\nHost: {self.HOST}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+                      f"Sec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\nUser-Agent: RADIMCOM\r\n\r\n").encode())
+        buf = b""
+        while b"\r\n\r\n" not in buf:
+            c = sock.recv(4096)
+            if not c:
+                raise OSError("closed during the handshake")
+            buf += c
+        head, rest = buf.split(b"\r\n\r\n", 1)
+        if b" 101 " not in head.split(b"\r\n")[0]:
+            raise OSError(head.split(b"\r\n")[0].decode(errors="replace"))
+        return sock, rest
+
+    @staticmethod
+    def _send(sock, data, op=1):
+        import struct
+        p = data.encode() if isinstance(data, str) else data
+        n = len(p)
+        h = bytes([0x80 | op]) + (bytes([0x80 | n]) if n < 126 else bytes([0xFE]) + struct.pack(">H", n) if n < 65536
+                                  else bytes([0xFF]) + struct.pack(">Q", n))
+        m = os.urandom(4)
+        sock.sendall(h + m + bytes(b ^ m[i % 4] for i, b in enumerate(p)))
+
+    def _frames(self, sock, buf):
+        import struct
+
+        def need(n):
+            nonlocal buf
+            while len(buf) < n:
+                c = sock.recv(65536)
+                if not c:
+                    raise OSError("closed")
+                buf += c
+            out, buf = buf[:n], buf[n:]
+            return out
+        msg = b""
+        while True:
+            b0, b1 = need(2)
+            op, n = b0 & 15, b1 & 127
+            if n == 126:
+                n = struct.unpack(">H", need(2))[0]
+            elif n == 127:
+                n = struct.unpack(">Q", need(8))[0]
+            mask = need(4) if b1 & 0x80 else None
+            p = need(n)
+            if mask:
+                p = bytes(b ^ mask[i % 4] for i, b in enumerate(p))
+            if op == 9:
+                self._send(sock, p, 10)      # ping -> pong
+            elif op == 8:
+                raise OSError("closed by aisstream " + p[2:].decode(errors="replace"))
+            elif op in (0, 1, 2):
+                msg += p
+                if b0 & 0x80:
+                    yield msg
+                    msg = b""
+
+    def _run(self):
+        import math
+        while time.time() - self.asked < self.IDLE_S:
+            try:
+                with open(MAPKEYS_PATH, encoding="utf-8") as f:
+                    key = (json.load(f) or {}).get("aisstream", "")
+            except (OSError, ValueError):
+                key = ""
+            if not key:
+                self.status = "no API key"
+                time.sleep(10)
+                continue
+            box = self.want
+            lat, lon, dist = box
+            dlat = dist / 60.0
+            dlon = dlat / max(0.2, math.cos(math.radians(lat)))
+            sock = None
+            try:
+                self.status = "connecting"
+                sock, rest = self._connect()
+                self._send(sock, json.dumps({"APIKey": key, "BoundingBoxes": [[[lat - dlat, lon - dlon], [lat + dlat, lon + dlon]]],
+                                             "FilterMessageTypes": ["PositionReport", "StandardClassBPositionReport",
+                                                                    "ExtendedClassBPositionReport", "ShipStaticData"]}))
+                sock.settimeout(90)
+                self.box, self.status = box, "connected"
+                for raw in self._frames(sock, rest):
+                    if self.want != self.box or time.time() - self.asked > self.IDLE_S:
+                        break                 # another box wanted / nobody asks: close, maybe open again
+                    self._take(json.loads(raw))
+            except Exception as e:           # no internet, aisstream busy or a bad key
+                self.status = f"error: {e}"
+                time.sleep(15)
+            finally:
+                if sock is not None:         # also after an error: the socket is not left open
+                    try:
+                        sock.close()
+                    except OSError:
+                        pass
+        self.status = "off"
+
+    def _take(self, d):
+        if "error" in d:
+            raise OSError(str(d["error"]))
+        md, kind = d.get("MetaData") or {}, d.get("MessageType")
+        mmsi = md.get("MMSI")
+        if not mmsi or kind == "SubscriptionConfirmation":
+            return
+        msg = (d.get("Message") or {}).get(kind) or {}
+        now = time.time()
+        with self.lock:
+            r = self.ships.get(mmsi)
+            if r is None:
+                cc, country, station = ais_mod.mmsi_info(int(mmsi))   # the flag from the MID of the MMSI, as the AIS decoder
+                r = self.ships[mmsi] = {"mmsi": mmsi, "name": "", "callsign": "", "shiptype_n": None, "destination": "",
+                                        "lat": None, "lon": None, "sog": None, "cog": None, "hdg": None, "status_n": None,
+                                        "t": now, "trail": [], "cc": cc, "country": country, "station": station}
+            name = (md.get("ShipName") or "").strip()
+            if name:
+                r["name"] = name
+            if kind == "ShipStaticData":
+                r["callsign"] = (msg.get("CallSign") or "").strip() or r["callsign"]
+                r["shiptype_n"] = msg.get("Type", r["shiptype_n"])
+                r["destination"] = (msg.get("Destination") or "").strip() or r["destination"]
+                return
+            lat, lon = msg.get("Latitude", md.get("latitude")), msg.get("Longitude", md.get("longitude"))
+            if lat is None or lon is None or abs(lat) > 90 or abs(lon) > 180:
+                return
+            sog, cog, hdg = msg.get("Sog"), msg.get("Cog"), msg.get("TrueHeading")
+            r.update(lat=round(lat, 5), lon=round(lon, 5), t=now, sog=sog if sog is not None and sog < 102.2 else None,
+                     cog=cog if cog is not None and cog < 360 else None, hdg=hdg if hdg is not None and hdg < 360 else None,
+                     status_n=msg.get("NavigationalStatus", r["status_n"]))
+            tr = r["trail"]
+            if not tr or tr[-1][0] != r["lat"] or tr[-1][1] != r["lon"]:
+                tr.append([r["lat"], r["lon"], round(now, 1)])
+            while tr and now - tr[0][2] > 900:
+                tr.pop(0)
+
+
+share_ais = ShareAis()
+
+
+@app.route("/api/share/aisstream", methods=["GET"])
+def api_share_aisstream():
+    """The ships aisstream.io reported within ?dist= NM (10–250) of the station in the last 30 min:
+    {"t", "status", "ships": [{"mmsi", "name", "callsign", "shiptype_n", "destination", "lat", "lon", "sog", "cog", "hdg",
+    "status_n", "t", "trail"}]}. The WebSocket runs while windows ask (it closes 5 min after the last request)."""
+    try:
+        dist = max(10, min(250, int(request.args.get("dist", 50))))
+    except ValueError:
+        dist = 50
+    loc = location.load()
+    lat, lon = loc.get("lat"), loc.get("lon")
+    if lat is None or lon is None or (not lat and not lon):
+        return jsonify(error="the station location is not set (MENU › SETUP › LOCATION)"), 400
+    return jsonify(share_ais.get(lat, lon, dist))
+
+
+# ----- keys of map services (OpenAIP), one file for the station: every window and computer has them -----
+MAPKEYS_PATH = data("mapkeys.json")
+
+
+@app.route("/api/mapkeys", methods=["GET", "POST"])
+def api_mapkeys():
+    """GET: {"openaip": key or ""}. POST {"openaip": key}: stores it ("" removes it)."""
+    try:
+        with open(MAPKEYS_PATH, encoding="utf-8") as f:
+            keys = json.load(f)
+        if not isinstance(keys, dict):
+            keys = {}
+    except (OSError, ValueError):
+        keys = {}
+    if request.method == "POST":
+        d = request.get_json(silent=True) or {}
+        for name in ("openaip", "aisstream"):
+            if name in d:
+                k = str(d.get(name) or "").strip()
+                if k and not re.fullmatch(r"[A-Za-z0-9_-]{8,128}", k):
+                    return jsonify(error="the key has letters, digits, - and _ only"), 400
+                keys[name] = k
+        with open(MAPKEYS_PATH, "w", encoding="utf-8") as f:
+            json.dump(keys, f)
+    return jsonify(openaip=keys.get("openaip", ""), aisstream=keys.get("aisstream", ""))
+
+
+# ----- own map layers (GeoJSON; KML / GPX are turned into GeoJSON in the browser): one folder for all VFOs -----
+MAPLAYER_DIR = data("maplayers")
+MAPLAYER_MAX = 20 * 1024 * 1024     # bytes of one layer
+
+
+def _maplayer_path(lid):
+    return os.path.join(MAPLAYER_DIR, lid + ".json") if re.fullmatch(r"[A-Za-z0-9_-]{1,64}", lid or "") else None
+
+
+@app.route("/api/maplayers", methods=["GET", "POST"])
+def api_maplayers():
+    """GET: the layers [{id, name, t, n, size}]. POST {"name", "geojson"}: stores a new layer, answers its id."""
+    os.makedirs(MAPLAYER_DIR, exist_ok=True)
+    if request.method == "POST":
+        d = request.get_json(silent=True) or {}
+        name = str(d.get("name") or "").strip()[:80]
+        gj = d.get("geojson")
+        if not name or not isinstance(gj, dict) or gj.get("type") not in ("FeatureCollection", "Feature"):
+            return jsonify(error="a name and GeoJSON (FeatureCollection) are needed"), 400
+        raw = json.dumps({"name": name, "t": round(time.time()), "geojson": gj}, separators=(",", ":"))
+        if len(raw) > MAPLAYER_MAX:
+            return jsonify(error=f"the layer is too big (over {MAPLAYER_MAX // 1048576} MB)"), 413
+        lid = (re.sub(r"[^A-Za-z0-9_-]+", "_", name).strip("_")[:40] or "layer") + "_" + format(int(time.time() * 1000), "x")
+        with open(_maplayer_path(lid), "w", encoding="utf-8") as f:
+            f.write(raw)
+        return jsonify(id=lid)
+    out = []
+    for fn in sorted(os.listdir(MAPLAYER_DIR)):
+        if not fn.endswith(".json"):
+            continue
+        path = os.path.join(MAPLAYER_DIR, fn)
+        try:
+            with open(path, encoding="utf-8") as f:
+                d = json.load(f)
+            gj = d.get("geojson") or {}
+            n = len(gj.get("features") or []) if gj.get("type") == "FeatureCollection" else 1
+            out.append({"id": fn[:-5], "name": d.get("name") or fn[:-5], "t": d.get("t"), "n": n, "size": os.path.getsize(path)})
+        except (OSError, ValueError, AttributeError):
+            continue
+    return jsonify(layers=out)
+
+
+@app.route("/api/maplayers/<lid>", methods=["GET", "DELETE"])
+def api_maplayer(lid):
+    """GET: the GeoJSON of a layer. DELETE: removes it."""
+    path = _maplayer_path(lid)
+    if not path or not os.path.exists(path):
+        return jsonify(error="no such layer"), 404
+    if request.method == "DELETE":
+        os.remove(path)
+        return jsonify(ok=True)
+    with open(path, encoding="utf-8") as f:
+        return jsonify(json.load(f).get("geojson") or {})
+
+
 @app.route("/api/adsb_range", methods=["GET"])
 def api_adsb_range():
     if adsb.enabled:
@@ -1261,6 +2017,200 @@ def api_adsb_range():
     else:
         adsb.range.reload()               # the VFO that runs ADS-B writes the file: show what it has saved
     return jsonify(adsb.range.info())
+
+
+# ---------- SETTINGS › LOGS: the file tree of the logs and data (datafiles.py), the histories of the maps ----------
+
+@app.route("/api/data/roots")
+def api_data_roots():
+    """The folders of SETTINGS › LOGS › FILES with their size."""
+    return jsonify(datafiles.roots())
+
+
+@app.route("/api/data/list")
+def api_data_list():
+    """One folder: ?root=logs&dir=hfdl/2026/11 → its subfolders and files."""
+    try:
+        return jsonify(datafiles.list_dir(request.args.get("root", ""), request.args.get("dir", "")))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.route("/api/data/text")
+def api_data_text():
+    """The end of a text file for the viewer (?root, ?path)."""
+    try:
+        return jsonify(datafiles.read_text(request.args.get("root", ""), request.args.get("path", "")))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except OSError as e:
+        return jsonify({"error": e.strerror or str(e)}), 500
+
+
+@app.route("/api/data/file")
+def api_data_file():
+    """One file (?root, ?path); ?dl=1 downloads it. Text as text/plain (UTF-8), images as images."""
+    try:
+        _, path = datafiles.resolve(request.args.get("root", ""), request.args.get("path", ""))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    if not os.path.isfile(path):
+        return jsonify({"error": "no such file"}), 404
+    low = path.lower()
+    mime = "text/plain; charset=utf-8" if low.endswith(datafiles.TEXT_EXT) else None
+    return send_from_directory(os.path.dirname(path), os.path.basename(path), mimetype=mime, conditional=True,
+                               as_attachment=request.args.get("dl") == "1")
+
+
+@app.route("/api/data/zip")
+def api_data_zip():
+    """A folder as a ZIP (?root, ?dir): the export of logs, sonde flights, images … to another PC."""
+    import tempfile
+    import zipfile
+    try:
+        root, folder = datafiles.resolve(request.args.get("root", ""), request.args.get("dir", ""))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    if not os.path.isdir(folder):
+        return jsonify({"error": "no such folder"}), 404
+    tmp = tempfile.SpooledTemporaryFile(max_size=64 << 20)
+    with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as z:
+        for top, _, names in os.walk(folder):
+            for n in names:
+                if not n.startswith("."):
+                    p = os.path.join(top, n)
+                    try:
+                        z.write(p, os.path.relpath(p, os.path.dirname(folder)))
+                    except OSError:
+                        pass                   # a file being written by another VFO: left out
+    tmp.seek(0)
+    rel = os.path.relpath(folder, os.path.dirname(root)).replace(os.sep, "_").replace("/", "_")
+    return send_file(tmp, mimetype="application/zip", as_attachment=True,
+                     download_name=f"RADIMCOM_{rel}_{time.strftime('%Y%m%d')}.zip")
+
+
+@app.route("/api/data/delete", methods=["POST"])
+def api_data_delete():
+    """{"root": key, "paths": [files and folders]} → deleted (a folder with all in it)."""
+    body = request.get_json(force=True, silent=True) or {}
+    paths = body.get("paths")
+    if not isinstance(paths, list) or not paths or not all(isinstance(p, str) and p for p in paths):
+        return jsonify({"error": "paths must be a list of paths"}), 400
+    try:
+        return jsonify(datafiles.delete_paths(str(body.get("root", "")), paths))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.route("/api/data/upload", methods=["POST"])
+def api_data_upload():
+    """Files into a folder (form: root, dir, file …): the import of logs, sonde flights … from another PC. A sonde
+    flight (<YYYY-MM-DD>_<serial>.jsonl) uploaded anywhere under logs/radiosonde goes to its day folder."""
+    key, rel = request.form.get("root", ""), request.form.get("dir", "")
+    out, errors = [], []
+    for f in request.files.getlist("file"):
+        name = os.path.basename((f.filename or "").replace("\\", "/"))
+        r = rel
+        m = datafiles.SONDE_RE.match(name)
+        if key == "logs" and m and (rel == "radiosonde" or rel.startswith("radiosonde/")):
+            r = os.path.relpath(datafiles.date_dir("radiosonde", m.group("d"), "."), ".").replace(os.sep, "/")
+        try:
+            out.append(datafiles.save_upload(key, r, name, f.stream)["saved"])
+        except (ValueError, OSError) as e:
+            errors.append(f"{name}: {e}")
+    return jsonify({"saved": out, "errors": errors}), (200 if out or not errors else 400)
+
+
+@app.route("/api/history")
+def api_history():
+    """The histories this VFO keeps (SETTINGS › LOGS › HISTORY): the COMPOSITE map (its own, data/composite_<VFO>.json)
+    and the ADS-B range (one for the station)."""
+    with _com_lock:
+        by_src = {}
+        for it in _com_items.values():
+            by_src[it.get("src", "?")] = by_src.get(it.get("src", "?"), 0) + 1
+    try:
+        size = os.path.getsize(COM_FILE)
+    except OSError:
+        size = 0
+    rng = adsb.range.info()
+    try:
+        rsize = os.path.getsize(data("adsb_range.json"))
+    except OSError:
+        rsize = 0
+    return jsonify({"vfo": _tag, "composite": {"file": COM_FILE, "size": size, "items": sum(by_src.values()),
+                                               "by_src": by_src, "keep_h": COM_KEEP_S // 3600},
+                    "adsb_range": {"file": data("adsb_range.json"), "size": rsize, "since": rng["since"],
+                                   "sectors": len(rng["bands"].get("all", {})), "max_km": rng["max_km"].get("all")}})
+
+
+@app.route("/api/history/<store>", methods=["GET"])
+def api_history_export(store):
+    """Export: the history as JSON to download (composite = the map of this VFO, adsb_range = the range)."""
+    if store == "composite":
+        with _com_lock:
+            d = {"radimcom": "composite", "vfo": _tag, "t": round(time.time(), 1), "sources": dict(_com_srcs),
+                 "items": list(_com_items.values()), "gs": list(_com_gs.values())}
+    elif store == "adsb_range":
+        d = dict(adsb.range.info(), radimcom="adsb_range")
+        d.pop("max_km", None)
+    else:
+        return jsonify({"error": "unknown history"}), 404
+    resp = jsonify(d)
+    resp.headers["Content-Disposition"] = (f'attachment; filename="RADIMCOM_{store}{"_" + _tag if store == "composite" and _tag else ""}'
+                                           f'_{time.strftime("%Y%m%d_%H%M")}.json"')
+    return resp
+
+
+@app.route("/api/history/<store>", methods=["POST"])
+def api_history_cmd(store):
+    """{"action": "clear"} or {"action": "import", "data": <an exported JSON>} (merged: the newer record of an object,
+    the farther point of a range sector; the composite keeps only what is younger than its 6 h)."""
+    body = request.get_json(force=True, silent=True) or {}
+    action, d = body.get("action"), body.get("data")
+    if store == "composite":
+        if action == "clear":
+            with _com_lock:
+                _com_items.clear()
+                _com_gs.clear()
+                _com_srcs.clear()
+            _com_save()
+            return jsonify({"ok": True})
+        if action == "import" and isinstance(d, dict) and isinstance(d.get("items"), list):
+            now, n = time.time(), 0
+            with _com_lock:
+                for it in d["items"]:
+                    if not (isinstance(it, dict) and it.get("src") and it.get("id") is not None):
+                        continue
+                    if now - (it.get("t") or 0) >= COM_KEEP_S:
+                        continue
+                    k = f'{it["src"]}:{it["id"]}'
+                    old = _com_items.get(k)
+                    if old is None or (it.get("t") or 0) > (old.get("t") or 0):
+                        _com_items[k] = it
+                        n += 1
+                for g in d.get("gs") or []:
+                    if isinstance(g, dict) and g.get("src") and g.get("id") is not None:
+                        _com_gs.setdefault(f'{g["src"]}:{g["id"]}', g)
+                for s, t in (d.get("sources") or {}).items():
+                    if isinstance(t, (int, float)) and now - t < COM_KEEP_S:
+                        _com_srcs[s] = max(_com_srcs.get(s, 0), t)
+            _com_save()
+            return jsonify({"ok": True, "imported": n,
+                            "old": len(d["items"]) - n})
+    elif store == "adsb_range":
+        if action == "clear":
+            adsb.range.clear()
+            return jsonify({"ok": True})
+        if action == "import" and isinstance(d, dict):
+            try:
+                n = adsb.range.merge(d)
+            except ValueError as e:
+                return jsonify({"error": str(e)}), 400
+            return jsonify({"ok": True, "imported": n})
+    else:
+        return jsonify({"error": "unknown history"}), 404
+    return jsonify({"error": "bad action or data"}), 400
 
 
 def set_adsb(on, changes):
@@ -1357,7 +2307,7 @@ def api_dab_audio(sid):
 
 @app.route("/api/sysload")
 def api_sysload():
-    """CPU load and memory use of the PC (indicator under the S-meter)."""
+    """CPU and memory of RADIMCOM and of the whole PC (indicator under the S-meter; the launcher also splits it by VFO)."""
     return jsonify(sysload.load())
 
 
@@ -1371,7 +2321,7 @@ def api_devices():
 
 @app.route("/api/dongles")
 def api_dongles():
-    """SETTINGS › SDR DONGLE › ADVANCED: the dongles in vfos.json with their VFOs and the connected RTL dongles."""
+    """SETTINGS › RX CHAIN › ADVANCED: the dongles in vfos.json with their VFOs and the connected RTL dongles."""
     try:
         with open(VFOS_PATH, encoding="utf-8") as f:
             vfos = json.load(f).get("vfos", [])
@@ -1384,6 +2334,72 @@ def api_dongles():
     except OSError as e:  # librtlsdr.dll missing etc.
         out["error"] = str(e)
     return jsonify(out)
+
+
+def _vfos_cfg():
+    try:
+        with open(VFOS_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+@app.route("/api/rtltcp/servers")
+def api_rtltcp_servers():
+    """SETTINGS › RTL_TCP: state of the rtl_tcp servers (saved ones and those the VFOs use), asked in parallel."""
+    import rtltcp
+    from concurrent.futures import ThreadPoolExecutor
+    vc = _vfos_cfg()
+    servers = rtltcp.servers_in_use(vc)
+    with ThreadPoolExecutor(max_workers=max(1, min(8, len(servers)))) as ex:
+        out = list(ex.map(lambda s: rtltcp.server_status(s, vc), servers))
+    return jsonify({"servers": out, "latest_manager": rtltcp.latest_manager()[0]})
+
+
+def _rtltcp_post(action):
+    """Common part of the RTL_TCP SERVER keys: only this RADIMCOM's pages, only servers of vfos.json."""
+    import rtltcp
+    if not same_host(request):
+        return None, None, (jsonify({"error": "not allowed"}), 403)
+    body = request.get_json(force=True, silent=True) or {}
+    server = str(body.get("server", ""))
+    if server not in rtltcp.servers_in_use(_vfos_cfg()):
+        return None, None, (jsonify({"error": "unknown server"}), 400)
+    return rtltcp, (server, body), None
+
+
+@app.route("/api/rtltcp/restart", methods=["POST"])
+def api_rtltcp_restart():
+    """{"server": …, "serial": "SDR1_060"}: restarts the rtl_tcp of one dongle."""
+    rtltcp, args, err = _rtltcp_post("restart")
+    if err:
+        return err
+    res = rtltcp.server_restart_dongle(args[0], str(args[1].get("serial", "")))
+    return jsonify(res), (200 if res.get("ok") else 502)
+
+
+@app.route("/api/rtltcp/update", methods=["POST"])
+def api_rtltcp_update():
+    """{"server": …}: installs rpi/rtltcp_manager.py of this RADIMCOM on the server."""
+    rtltcp, args, err = _rtltcp_post("update")
+    if err:
+        return err
+    res = rtltcp.server_update(args[0])
+    return jsonify(res), (200 if res.get("ok") else 502)
+
+
+@app.route("/api/rtltcp/power", methods=["POST"])
+def api_rtltcp_power():
+    """{"server": "192.168.1.50", "action": "reboot" | "poweroff"}: only for a server in vfos.json."""
+    import rtltcp
+    if not same_host(request):
+        return jsonify({"error": "not allowed"}), 403
+    body = request.get_json(force=True, silent=True) or {}
+    server = str(body.get("server", ""))
+    if server not in rtltcp.servers_in_use(_vfos_cfg()):
+        return jsonify({"error": "unknown server"}), 400
+    res = rtltcp.server_power(server, str(body.get("action", "")))
+    return jsonify(res), (200 if res.get("ok") else 502)
 
 
 @app.route("/api/satellites", methods=["GET", "POST"])
@@ -1609,7 +2625,12 @@ def scan_session(opts=None, new=False):
 def scan_prune():
     """Activities and WAV recordings of the scan older than keep_days (⚙ of the SCAN tab) are deleted."""
     days = scanner_mod.norm_opts(None, cfg.get("scan"))["keep_days"]
-    threading.Thread(target=scanner_mod.prune, args=(days,), name="scan-prune", daemon=True).start()
+
+    def run():
+        datafiles.migrate()             # flat logs before 1.1 → logs/<source>/YYYY/MM/DD (once)
+        recorder_mod.migrate()          # recordings of the flat folders before 1.1 → YYYY/MM/DD (once; then nothing to do)
+        scanner_mod.prune(days)
+    threading.Thread(target=run, name="scan-prune", daemon=True).start()
 
 
 scan_prune()
@@ -1652,12 +2673,12 @@ def api_scan_heatmap():
 
 @app.route("/api/scan/rec/<name>")
 def api_scan_rec(name):
-    """A recording of the scan (MP3, older ones WAV; subfolder "scan" of the recordings folder)."""
-    low = name.lower()
-    if not low.endswith((".wav", ".mp3")) or "/" in name or "\\" in name:
-        return jsonify({"error": "bad name"}), 400
-    return send_from_directory(scanner_mod.rec_folder(), name, mimetype="audio/mpeg" if low.endswith(".mp3") else "audio/wav",
-                               conditional=True)
+    """A recording of the scan by its name in the log: found in its day folder (recorder.find; older ones moved there)."""
+    path = recorder.find(name) if name.lower().endswith((".wav", ".mp3")) else None
+    if not path:
+        return jsonify({"error": "No such recording (deleted?)"}), 404
+    return send_from_directory(os.path.dirname(path), os.path.basename(path), conditional=True,
+                               mimetype="audio/mpeg" if path.lower().endswith(".mp3") else "audio/wav")
 
 
 @app.route("/api/scan", methods=["POST"])
@@ -1705,28 +2726,62 @@ def api_scan_cmd():
     return jsonify({"ok": True})
 
 
-def _recs_kind():
-    """?kind= of the RECORDINGS tab: "rec" (MP3 of REC / REC SQ, default) or "scan" (WAV of the scanner)."""
-    kind = request.args.get("kind", "rec")
-    if kind not in ("rec", "scan"):
-        raise ValueError("kind must be rec or scan")
-    return kind
-
-
-def _scan_writing():
-    """The WAV file the scan of this VFO writes now (it may not be deleted)."""
-    f = getattr(receiver.scan, "rec_file", "") if getattr(receiver.scan, "rec_wav", None) is not None else ""
-    return {f} if f else set()
+def _others_writing():
+    """Full paths the scan and REC IQ of this VFO write now (REC / REC SQ: recorder.writing); never deleted."""
+    out = set()
+    if getattr(receiver.scan, "rec_wav", None) is not None and getattr(receiver.scan, "rec_path", ""):
+        out.add(receiver.scan.rec_path)
+    if iq_recorder.out is not None and iq_recorder.path:
+        out.add(iq_recorder.path)
+    return out
 
 
 @app.route("/api/recordings", methods=["GET"])
 def api_recordings():
-    """The recordings (RECORDINGS tab), newest first: ?kind=rec the MP3 of REC / REC SQ, ?kind=scan the WAV of the scan."""
+    """One folder of the recordings tree (RECORDINGS tab): ?dir=YYYY/MM/DD[/iq] ("" = the root) → its subfolders
+    (count and size of the recordings in them) and its recordings (REC, REC SQ, SCAN, DAB, IQ)."""
     try:
-        kind = _recs_kind()
+        return jsonify(recorder.list_dir(request.args.get("dir", ""), _others_writing()))
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
-    return jsonify(recorder.files(kind, _scan_writing()))
+
+
+@app.route("/api/recordings/file", methods=["GET"])
+def api_recording_file():
+    """One recording, ?path=YYYY/MM/DD/<name>; Range requests work, so the browser can seek while playing."""
+    try:
+        path = recorder.resolve(request.args.get("path", ""))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    if not os.path.isfile(path) or not path.lower().endswith(recorder_mod.AUDIO_EXT):
+        return jsonify({"error": "No such recording"}), 404
+    return send_from_directory(os.path.dirname(path), os.path.basename(path), conditional=True,
+                               mimetype="audio/wav" if path.lower().endswith(".wav") else "audio/mpeg",
+                               as_attachment=request.args.get("dl") == "1")
+
+
+@app.route("/api/recordings/delete", methods=["POST"])
+def api_recordings_delete():
+    """{"paths": [relative paths of files and folders]} → deleted (folders with all inside; files being written stay)."""
+    body = request.get_json(force=True, silent=True) or {}
+    paths = body.get("paths")
+    if not isinstance(paths, list) or not paths or not all(isinstance(p, str) and p for p in paths):
+        return jsonify({"error": "paths must be a list of paths"}), 400
+    try:
+        return jsonify(recorder.delete_paths(paths, _others_writing()))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.route("/api/recordings/star", methods=["POST"])
+def api_recordings_star():
+    """{"path": relative path of a recording, "on": true / false} → stars it (★ in RECORDINGS) or not."""
+    body = request.get_json(force=True, silent=True) or {}
+    try:
+        recorder.set_star(str(body.get("path", "")), bool(body.get("on")))
+    except (ValueError, OSError) as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify({"ok": True})
 
 
 @app.route("/api/recording_folder", methods=["GET", "POST"])
@@ -1747,26 +2802,6 @@ def api_recording_folder():
         except OSError as e:
             return jsonify({"error": f"cannot save: {e}"}), 500
     return jsonify(recorder_mod.settings())
-
-
-@app.route("/api/recordings/<name>", methods=["GET"])
-def api_recording_file(name):
-    """One recording (?kind=rec / scan); Range requests work, so the browser can seek while playing."""
-    try:
-        kind = _recs_kind()
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 400
-    return send_from_directory(recorder.kind_folder(kind), name, mimetype="audio/wav" if kind == "scan" else "audio/mpeg",
-                               conditional=True)
-
-
-@app.route("/api/recordings/<name>", methods=["DELETE"])
-def api_recording_delete(name):
-    try:
-        recorder.delete(name, _recs_kind(), _scan_writing())
-    except (ValueError, OSError) as e:
-        return jsonify({"error": str(e)}), 400
-    return jsonify({"deleted": name})
 
 
 @app.route("/api/memory_groups", methods=["GET"])
@@ -1908,10 +2943,25 @@ def forward_to_owner(changes):
         return f"VFO {OWNER['name']} (owner of the shared dongle) is not reachable"
 
 
+# the decoders of the DECODERS tab: at most one runs on a VFO (switching one on switches the others off)
+ONE_DECODER = ("cw", "ft8", "packet", "pocsag", "rtty", "sstv", "wefax", "wspr", "msk144", "meteor", "q65", "bpsk", "acars", "adsb", "hfdl", "vdl2", "ais",
+               "sonde", "ism")
+
+
 @app.route("/api/set", methods=["POST"])
 def api_set():
     body = request.get_json(force=True)
     changes = {}
+    turned_on = {k for k in ONE_DECODER if body.get(k) is True}
+    if body.get("hfdl_band") is not None:
+        turned_on.add("hfdl")                 # a band of HFDL switches HFDL on
+    if body.get("ais_center"):
+        turned_on.add("ais")
+    if turned_on:
+        now = state()
+        for k in ONE_DECODER:
+            if k not in turned_on and now.get(k):
+                body[k] = False               # only one decoder: the one running goes off
     try:
         for k in ("tune_hz", "center_hz", "lo_offset_hz", "view_hz"):
             if k in body:
@@ -1960,9 +3010,22 @@ def api_set():
             changes["notch"] = bool(body["notch"])
         if "audio_agc" in body:
             changes["audio_agc"] = bool(body["audio_agc"])
-        for k in ("dyn", "dyn_lim", "dyn_exp", "dyn_exp_auto", "agc_smooth", "dnr", "nb", "sam", "hum"):
+        for k in ("dyn", "dyn_lim", "dyn_exp", "dyn_exp_auto", "dyn_exp_fast", "alc_fast", "agc_smooth", "dnr", "nb", "sam", "hum",
+                  "tnf", "tnf_clear", "apf", "bin"):
             if k in body:
                 changes[k] = bool(body[k])
+        if "dnr_algo" in body:
+            if body["dnr_algo"] not in nrx.ALGOS:
+                return jsonify({"error": "dnr_algo must be " + ", ".join(nrx.ALGOS)}), 400
+            changes["dnr_algo"] = body["dnr_algo"]
+        if "tnf_click" in body:                    # TNF: Shift+click in the spectrum (Hz)
+            changes["tnf_click"] = float(body["tnf_click"])
+        if "tnf_width" in body:
+            changes["tnf_width"] = min(max(float(body["tnf_width"]), audiofx.TNF_WIDTH_MIN_HZ), audiofx.TNF_WIDTH_MAX_HZ)
+        if "apf_width" in body:
+            if int(body["apf_width"]) not in audiofx.APF_WIDTHS:
+                return jsonify({"error": "apf_width must be " + ", ".join(map(str, audiofx.APF_WIDTHS))}), 400
+            changes["apf_width"] = int(body["apf_width"])
         if "hum_base" in body:
             if body["hum_base"] not in HUM_BASES:
                 return jsonify({"error": "hum_base must be 50 or 60"}), 400
@@ -1983,6 +3046,10 @@ def api_set():
             changes["dyn_exp_db"] = min(max(float(body["dyn_exp_db"]), EXP_DEPTH_MIN_DB), EXP_DEPTH_MAX_DB)
         if "dyn_exp_sens" in body:
             changes["dyn_exp_sens"] = min(max(float(body["dyn_exp_sens"]), EXP_SENS_MIN), EXP_SENS_MAX)
+        for key, lo, hi in (("alc_hang_ms", ALC_HANG_MIN_MS, ALC_HANG_MAX_MS), ("alc_fast_hang_ms", ALC_HANG_MIN_MS, ALC_HANG_MAX_MS),
+                            ("alc_decay_ms", ALC_DECAY_MIN_MS, ALC_DECAY_MAX_MS), ("alc_fast_decay_ms", ALC_DECAY_MIN_MS, ALC_DECAY_MAX_MS)):
+            if key in body:
+                changes[key] = min(max(float(body[key]), lo), hi)
         if "dyn_exp_hold_ms" in body:
             changes["dyn_exp_hold_ms"] = min(max(float(body["dyn_exp_hold_ms"]), EXP_HOLD_MIN_MS), EXP_HOLD_MAX_MS)
         if "afi" in body:
@@ -2032,6 +3099,8 @@ def api_set():
             changes["sagc"] = new
         if "dc_remove" in body:
             changes["dc_remove"] = bool(body["dc_remove"])
+        if "wf_comp" in body:                      # WF GAIN COMP (wfcomp.py)
+            changes["wf_comp"] = bool(body["wf_comp"])
         if "dc_hz" in body:
             hz = int(body["dc_hz"])
             if not 0 <= hz <= 1000:
@@ -2074,6 +3143,8 @@ def api_set():
             if z not in ZOOMS:
                 raise ValueError("unsupported zoom")
             changes["zoom"] = z
+        if "net_pause" in body:
+            changes["net_pause"] = bool(body["net_pause"])   # SpyServer: disconnect / connect (network icon)
         if "bias_tee" in body:
             changes["bias_tee"] = bool(body["bias_tee"])
         if "squelch" in body:
@@ -2099,6 +3170,27 @@ def api_set():
     if "ft8" in body:
         cfg["ft8"] = bool(body["ft8"])
         ft8.set_enabled(cfg["ft8"])
+        save_config_later()
+        hub.event("status", state())
+    if "wspr" in body:
+        wspr_dec.set_enabled(bool(body["wspr"]))
+        cfg["wspr"] = wspr_dec.enabled
+        save_config_later()
+        hub.event("status", state())
+    if q65_dec.apply(body, cfg):
+        save_config_later()
+        hub.event("status", state())
+    if bpsk_dec.apply(body, cfg):
+        save_config_later()
+        hub.event("status", state())
+    if "msk144" in body:
+        msk_dec.set_enabled(bool(body["msk144"]))
+        cfg["msk144"] = msk_dec.enabled
+        save_config_later()
+        hub.event("status", state())
+    if "meteor" in body:
+        meteors.set_enabled(bool(body["meteor"]))
+        cfg["meteor"] = meteors.enabled
         save_config_later()
         hub.event("status", state())
     if "wefax" in body:
@@ -2293,6 +3385,12 @@ def api_set():
         return jsonify({"error": str(e)}), 400
     if "rec_iq" in body:
         iq_recorder.set(bool(body["rec_iq"]))
+    if "retro" in body or "retro_s" in body:
+        retro.set(on=bool(body["retro"]) if "retro" in body else None,
+                  seconds=body.get("retro_s"))
+        cfg["retro"], cfg["retro_s"] = retro.on, retro.seconds
+        save_config_later()
+        hub.event("status", state())
     if "rec" in body or "rec_sq" in body or "rec_iq" in body:
         hub.event("status", state())
     if "tune_hz" in changes and changes["tune_hz"] != cfg.get("tune_hz"):
@@ -2389,6 +3487,7 @@ def start_rotor():
     r = rotor_cfg
     cal = r.get("az_cal") or [0.0, rotor_module.K3NG_SPAN]
     rotor_link.rotor.set_cal(*cal)
+    rotor_link.rotor.set_el_off(r.get("el_off") or 0.0)
     if rotor_link.rotor.raw is None and r.get("k3ng_az") is not None:
         rotor_link.rotor.raw_hint = float(r["k3ng_az"])
     return rotor_link.start(r.get("port", ""), r.get("usb_serial", ""))
@@ -2448,6 +3547,16 @@ def api_rotor_cmd():
         rotor_cfg["az_cal"] = [az0, az450]
         save_rotor_later()
         rotor.set_cal(az0, az450)
+    if "el_off" in body:
+        try:
+            el_off = float(body["el_off"])
+        except (TypeError, ValueError):
+            return jsonify({"error": "elevation offset: a number of degrees"}), 400
+        if not -30 <= el_off <= 30:
+            return jsonify({"error": "elevation offset: from -30 to 30 degrees"}), 400
+        rotor_cfg["el_off"] = el_off
+        save_rotor_later()
+        rotor.set_el_off(el_off)
     if body.get("start") and not rotor.running:
         body["enabled"] = True     # rotor control also turns the link on, with the port saved in SET
     if "enabled" in body:
@@ -2498,9 +3607,28 @@ def api_mpx():
     return jsonify({"hz_per_bin": r[0], "db": r[1]} if r else {"hz_per_bin": 0, "db": []})
 
 
+@app.route("/api/events/pause", methods=["POST"])
+def api_events_pause():
+    """{"cid": tab id, "paused": bool}: PAUSE / RUN of the spectrum and waterfall of one browser tab – while paused
+    the server sends it no "wf" rows (they are most of the data of the event stream)."""
+    body = request.get_json(force=True, silent=True) or {}
+    cid, paused = str(body.get("cid", ""))[:40], bool(body.get("paused"))
+    if not cid:
+        return jsonify({"error": "cid missing"}), 400
+    with hub.lock:
+        (hub.paused.add if paused else hub.paused.discard)(cid)
+        for q in hub.events:
+            if getattr(q, "cid", None) == cid:
+                q.skip = {"wf"} if paused else set()
+    return jsonify({"paused": paused})
+
+
 @app.route("/api/events")
 def api_events():
     q = hub._add(hub.events, 60)
+    q.cid = request.args.get("cid", "")[:40]
+    # paused tab, or a map tab (?nowf=1) that draws no waterfall
+    q.skip = {"wf"} if (q.cid and q.cid in hub.paused) or request.args.get("nowf") else set()
 
     def gen():
         try:

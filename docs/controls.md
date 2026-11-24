@@ -20,7 +20,9 @@
 | Band | buttons in the groups HF HAM, HF BROADCAST, VHF / UHF HAM, OTHER (FM BCAST tunes the last FM station listened to, DAB turns on DAB radio) |
 
 Hovering over the spectrum or waterfall shows the frequency under the mouse.
-The label above the passband shows the tuned frequency, and under it the demodulation and bandwidth.
+The label above the passband shows the tuned frequency, under it the demodulation and bandwidth, and at the bottom the
+current **SNR** of the channel: the mean power in the passband over the noise beside it on both sides (measured 5× a
+second from the full-resolution spectrum, the same value as SNR in the AGC+ card, smoothed over about a second).
 Hovering over that label opens a small audio spectrum of the active VFO, up to the end of the passband (it does not depend on
 the volume or MUTE). In WFM it shows the demodulated MPX signal up to 20 kHz instead, with the 19 kHz stereo pilot.
 In CW mode the bubble also shows the decoded text (the last two lines), from the CW decoder if it is on, otherwise from a separate
@@ -41,7 +43,8 @@ browser – and the **CUE** key of that VFO (orange LED): that VFO stays audible
 
 - **Top row:** VFO-x (boxed and yellow on the active VFO, green on an inactive one with an open squelch), the name of the
   memory / band plan / satellite transponder (lit on the active VFO; a memory with its own tag colour shows its name in that colour), a red struck-through speaker
-  when a decoder (ACARS, VDL2, HFDL, AIS or ISM) has muted the audio of this VFO, and the connection state as a USB icon: green = SDR running,
+  when a decoder (ACARS, VDL2, HFDL, AIS or ISM) has muted the audio of this VFO, and the connection state as a USB icon (a network icon for rtl_tcp
+  and SpyServer; on a SpyServer VFO a click on it pauses / connects, amber with ⏸ while paused): green = SDR running,
   blinking orange = connecting (waiting, opening the dongle, LimeSDR calibration), grey = disconnected or error
   (hover for details). A chained VFO shows CHAIN, one out of the range of its dongle owner OOR.
 - **Frequency** in the middle.
@@ -60,7 +63,9 @@ browser – and the **CUE** key of that VFO (orange LED): that VFO stays audible
 - **ADC** bar between them (read only): the A/D converter level in dBFS, −40 … 0 dBFS (the 99.9 % peak of the samples that
   AGC+ measures, else the block peak). The scale has the colours of the AGC+ meter: **green** around the AGC+ headroom target
   for the signal kind and band (target ± dead band under full scale), **blue** too quiet, **amber** too hot, **red** the last dB
-  and clipping; the value is coloured by the zone it is in. The tooltip shows both peaks, the clipping share and the target.
+  and clipping; the value is coloured by the zone it is in. **Red** only when the A/D clipped more than the AGC+ limit in the
+  last 2 s (*Overload: clipping above*, BOLD 0.03 %; that cuts the gain); a few clipped samples under it (an impulse, a
+  spike, harmless) only **amber**, with their share in the tooltip. The tooltip shows both peaks, the clipping share and the target.
 
 ## Frequency display
 
@@ -71,11 +76,16 @@ browser – and the **CUE** key of that VFO (orange LED): that VFO stays audible
 ## Function keys
 
 - **MODE**: demodulation. In the 5th column **SAM** (synchronous AM, an option of AM: a click switches to AM with SAM, another click back to the plain envelope detector) and under it its sideband **DSB / SB-L / SB-U** (click: next): DSB both sidebands, SB-L / SB-U only the lower / upper one, so an interfering station on the other side stays out. SAM recovers the carrier (a narrow 30 Hz filter behind a frequency loop that follows a carrier up to ±400 Hz off) and demodulates coherently: in a selective fade, when the carrier gets weaker than its sidebands, AM does not distort. The VFO window shows SAM, SAM-L or SAM-U as the mode. SAM works with **AGC+** (a gain step costs it less than the envelope detector: back in 150–180 ms, AM 270–390 ms); on shortwave AGC+ learns the real size of each gain step, so it does not hunt. **With a manual RF GAIN watch it:** shortwave in the evening is full of strong broadcast stations; with the gain too high the A/D clips: the **RF bar of the VFO window and its dB value turn red** (held 1 s; also whistles, splatter and false signals all over the spectrum), with it too low weak stations sink into the noise. Set it as high as it goes without turning red, and lower it again when the band gets busier. **FILTER**: bandwidth for the current mode (WFM: 50, 75, 150 or 200 kHz, default 200 kHz = the full broadcast signal with the best stereo and RDS; 150 kHz is a compromise, 50–75 kHz help with a weak station next to a strong one but distort and usually lose stereo and RDS; any width up to 250 kHz by dragging the filter edge).
-- **GAIN**: AGC switches automatic tuner gain on/off (manual gain with the RF GAIN slider or in SET). **AGC+** (AUTO) sets the tuner gain from the A/D converter and the spectrum of the band: it keeps the A/D headroom of the signal kind and band, cuts at once on clipping and climbs back, and does not climb when more gain buys nothing (the tuner AGC of the R820T watches only its LNA and mixer, not the A/D). Its settings and meters are in SETTINGS › VFO › ADVANCED › AGC+. The gain flag under the display shows `+` and the gain; the AGC+ key gets a red underline while the A/D clips. With the squelch set, AGC+ makes it work as auto squelch (ASQ lights up), because a fixed level would not fit the changing gain; the slider then only turns it on / off, and ASQ pressed in this state turns the squelch off.
-- **TUNE**: **ATU** (autotune) in USB, LSB and AM. With ATU on, a click on a signal in the spectrum or waterfall tunes to the clicked point (without the step grid), listens for a moment and moves the tuning onto the carrier; the key blinks while listening and the passband label shows the shift (e.g. *ATU +130 Hz*) or *no signal*. Tuning by the wheel, the arrow keys, dragging or the VFO display digits starts it too, 0.7 s after the tuning rests, when it moved by at least 150 Hz. Switching ATU on autotunes the frequency tuned now at once. AM: the carrier is found within a few Hz in under 1 s. SSB: the suppressed carrier goes onto the red line (the tuned frequency), snapped onto a whole kHz when it is within 300 Hz of one (SSB stations sit on whole kHz, e.g. 14.265 MHz), otherwise rounded to 100 Hz: the edge of the voice band on the carrier side (the lower one in USB, the upper one in LSB) is found in a held spectrum of the channel (a max-hold over 0.5 s windows, so the pauses of speech do not matter, smoothed over 250 Hz, the edge where the band falls to 40 % of its peak height in dB, walking down from its peak) and the carrier lies 120 Hz beyond it – after ~2 s of speech (up to 6.5 s while nobody speaks); on real 40 m / 20 m / 17 m stations about 60 Hz from the tuning by ear (median). The last 8 analysed blocks are kept in `data/logs/atu`. Tuning elsewhere while listening cancels it.
-- **STEP**: tuning step: 10 Hz, 100 Hz, 1 kHz, 10 kHz in every mode, WFM included. WFM remembers its own chosen step, the other modes share one (in the browser). **Zoom** (1×–64×; at 64× the section is 24 kHz wide at 1.536 MS/s, each point 23 Hz from its own finer FFT) is the bar in the top right corner of the frequency scale: − / +, a click on a cell, or the mouse wheel over it. **Waterfall speed** (WF, 1/8 – 4×) is the same bar in the top right corner of the waterfall: below 1× several rows are averaged into one line (slower, longer history), above 1× each row is drawn taller (faster); the setting is kept in the browser. **Waterfall settings**: the gear in a square above the speed bar; with the mouse over it a half transparent window opens with the **colour scheme** (Classic, Inferno, Viridis, Turbo, Ice, Matrix; only new rows take the new colours), **colour range** and **colour offset**. Kept in the browser. **Spectrum settings**: the same gear and bar in the top right corner of the spectrum; the bar (dB) moves the **zero** (bottom edge of the spectrum) against the noise floor, −20 … +20 dB in 5 dB steps, the gear opens the **colour schemes** of the spectrum (background gradient / curve: Graphite, Waterfall, Night blue, Phosphor, Amber, Dusk, Ember, Steel). Kept in the browser.
+- **GAIN**: AGC switches automatic tuner gain on/off (manual gain with the RF GAIN slider or in SET). **AGC+** (AUTO) sets the tuner gain from the A/D converter and the spectrum of the band: with **smart clipping** it drives the A/D to its top, judged by the mean clipping of the last second, probes the next tuner step and returns when it clips too much, and does not climb when more gain buys nothing (the tuner AGC of the R820T watches only its LNA and mixer, not the A/D). Its settings and meters are in SETTINGS › VFO › ADVANCED › AGC+. The gain flag under the display shows `+` and the gain; the AGC+ key gets a red underline while the A/D clips over the AGC+ limit. With the squelch set, AGC+ makes it work as auto squelch (ASQ lights up), because a fixed level would not fit the changing gain; the slider then only turns it on / off, and ASQ pressed in this state turns the squelch off.
+- **TUNE**: **ATU** (autotune) in USB, LSB, AM and CW (CW: the strongest tone within ±400 Hz of the pitch is moved onto the 700 Hz pitch, a max-hold of 0.2 s frames over 1–3 s with parabolic interpolation). With ATU on, a click on a signal in the spectrum or waterfall tunes to the clicked point (without the step grid), listens for a moment and moves the tuning onto the carrier; the key blinks while listening and the passband label shows the shift (e.g. *ATU +130 Hz*) or *no signal*. Tuning by the wheel, the arrow keys, dragging or the VFO display digits starts it too, 0.7 s after the tuning rests, when it moved by at least 150 Hz. Switching ATU on autotunes the frequency tuned now at once. AM: the carrier is found within a few Hz in under 1 s. SSB: the suppressed carrier goes onto the red line (the tuned frequency), snapped onto a whole kHz when it is within 300 Hz of one (SSB stations sit on whole kHz, e.g. 14.265 MHz), otherwise rounded to 100 Hz: the edge of the voice band on the carrier side (the lower one in USB, the upper one in LSB) is found in a held spectrum of the channel (a max-hold over 0.5 s windows, so the pauses of speech do not matter, smoothed over 250 Hz, the edge where the band falls to 40 % of its peak height in dB, walking down from its peak) and the carrier lies 120 Hz beyond it – after ~2 s of speech (up to 6.5 s while nobody speaks); on real 40 m / 20 m / 17 m stations about 60 Hz from the tuning by ear (median). The last 8 analysed blocks are kept in `data/logs/atu`. Tuning elsewhere while listening cancels it.
+- **STEP**: tuning step: 10 Hz, 100 Hz, 1 kHz, 10 kHz in every mode, WFM included. WFM remembers its own chosen step, the other modes share one (in the browser). **Zoom** (1×–64×; at 64× the section is 24 kHz wide at 1.536 MS/s, each point 23 Hz from its own finer FFT) is the bar in the top right corner of the frequency scale: − / +, a click on a cell, or the mouse wheel over it. **Waterfall speed** (WF, 1/8 – 4×) is the same bar in the top right corner of the waterfall: below 1× several rows are averaged into one line (slower, longer history), above 1× each row is drawn taller (faster); the setting is kept in the browser. **Waterfall settings**: the gear in a square above the speed bar; with the mouse over it a half transparent window opens with the **colour scheme** (Classic, Inferno, Viridis, Turbo, Ice, Matrix; only new rows take the new colours), **colour range** and **colour offset**, and **GAIN COMP** (WF GAIN COMP, `wfcomp.py`, on by default): the RF gain of the tuner is taken off the waterfall and the spectrum, so their colours do not jump when AGC+ or you change the gain (each row keeps the correction of its time; each real step measured on the noise floor of the band; not with the tuner AGC; the S-meter and squelch stay in dBFS). Kept in the browser. **Spectrum settings**: the same gear and bar in the top right corner of the spectrum; the bar (dB) moves the **zero** (bottom edge of the spectrum) against the noise floor, −20 … +20 dB in 5 dB steps, the gear opens the **colour schemes** of the spectrum (background gradient / curve: Graphite, Waterfall, Night blue, Phosphor, Amber, Dusk, Ember, Steel). Kept in the browser.
 - **DEC** (group DECODE): turns on the CW, FT8, PACKET, RTTY, SSTV, WEFAX, ACARS, ADS-B, HFDL, VDL2, AIS or ISM decoder (DAB and DSD are keys in MODE with their own tabs). The panels are in the
   **DECODERS** tab next to SPECTRUM; turning a decoder on opens it, a green dot signals a new message/image.
+  **One decoder at a time** on a VFO: switching one on (its ON key, a band key, a memory, the ISM key) switches the running
+  one off. The tab names the running decoder in green (*DECODERS FT8*), its key has a lit green bar on top also while another
+  page is open, and the tab opens on the page of the running decoder (with none, on the page last chosen on this VFO).
+- **COM** (group DECODE, under DEC): shows / hides the **COMPOSITE** tab – one map with the positions from the decoders of all
+  VFOs (ADS-B, ACARS / VDL2, HFDL, AIS, SONDE), the same aircraft joined, details on the right. See [COMPOSITE map](composite.md).
   Every panel has a LOG checkbox for the daily log:
   - FT8: band buttons (160 m – 10 m) and CLR. The station map has a faint WW locator (Maidenhead) grid: fields
     (JN) always, squares (JN88) from zoom 5, subsquares (JN88wq) from zoom 10.
@@ -177,7 +187,12 @@ browser – and the **CUE** key of that VFO (orange LED): that VFO stays audible
     (300 Hz high-pass). Tone / code: mouse wheel over the key, or SETTINGS › VFO › AUDIO (the DCS polarity only there).
     As in every radio, a DCS code is the same as its cyclic shifts, so e.g. 023N also opens on 047I.
   - ALC: automatic audio level in AM/LSB/USB/CW; off = fixed gain. Its gain rises smoothly (a ramp, no clicks); the switch
-    *Smooth ALC gain* by AGC+ in SETTINGS › SDR DONGLE › ADVANCED turns that off.
+    *Smooth ALC gain* by AGC+ in SETTINGS › VFO › RX CHAIN › ADVANCED turns that off.
+    **SETTINGS › AUDIO › ALC** (per VFO): on a louder signal the gain falls at once, then it *holds* and comes back up with
+    the *rise* time constant (−10 dB back in about hold + 1.15 × rise). **FAST** (default: hold 400 ms, rise 100 ms) or
+    **SLOW** (hold 600 ms, rise 1000 ms), each with its own times (hold 0–2000 ms, rise 100–5000 ms, DEFAULT). While NTH ›
+    EXP › FAST is on, FAST is used even with SLOW chosen. The value beside the title and the tooltip of the ALC key say
+    which one runs now (*SLOW*, *FAST*, *FAST (NTH EXP FAST)*).
   - NTH – Noise Threshold (beside ALC; called DNR before 1.0beta1, config key `dyn`): weak voices out of the noise in AM/LSB/USB/CW – the noise between words is turned down, the speech
     stays at full level. Switches on the parts ticked in SETTINGS › AUDIO (both by default):
     **EXP** – expander (soft noise gate) with a voice detector: between words the audio is turned down by the depth
@@ -187,6 +202,11 @@ browser – and the **CUE** key of that VFO (orange LED): that VFO stays audible
     **EXP AUTO** (default on): sensitivity, hold and depth set themselves – a noise blip lowers the sensitivity, missed weak
     speech raises it, a chop (reopening soon after closing) makes the hold longer, the depth follows the measured SNR
     (8–18 dB); *Now* shows the values in use and the measured SNR (also with AUTO off). It settles in about 2–3 s, after a retune it starts again fast.
+    **EXP FAST** (default on, with AUTO) for weak signals: the voice detector smooths less (a syllable is caught one step sooner), the
+    audio goes out ~8 ms later so the opening comes before the syllable (look-ahead), it stays open down to 1/3 of the
+    threshold (normally 1/2), holds at least 250 ms and closes in 150 ms (normally 80). On simulated weak speech (−3 dB
+    over 6 kHz) the share of speech turned down fell from 100 % to 9 %; more of the noise between words stays open. It also
+    switches the ALC to FAST.
     The VFO window shows **NTH** (green, in the annunciator row after ALC) while it is on.
     **LIM** – soft limiter instead of the hard clipping, the peaks are rounded; with ALC +4 dB louder.
   - DNR – Digital Noise Reduction (under NTH): in AM/LSB/USB/CW the noise is taken out all the time, also under speech
@@ -196,6 +216,10 @@ browser – and the **CUE** key of that VFO (orange LED): that VFO stays audible
     before the ALC. **Level** 1–10 in SETTINGS › AUDIO (default 5): the noise lowered by at most 6–24 dB (5: 14 dB);
     *Now* shows the reduction. On synthetic speech in SSB noise (level 5): the SNR under speech +3.4 dB at 15 dB SNR,
     +4.6 dB at 6 and 0 dB, the noise in pauses −12 to −14 dB. The VFO window shows **DNR** after NTH. ~2 % of a CPU core.
+    **Algorithm** (SETTINGS › AUDIO › DNR): **WIENER** (the above), **NR4** – spectral bleaching after libspecbleach: the
+    noise follows a speech presence probability (not the minimum of 1.5 s, so it adapts at once), the gains are smoothed
+    over time and frequency, less "music noise" and about 3 dB less speech lost than WIENER at the same noise reduction.
+    The tooltip of the DNR key shows the algorithm and the level; it stays up while the mouse wheel changes the level.
   - NB – Noise Blanker (right of NTH; all modes except WFM and DAB): pulses of ignition, electric fences, switching
     supplies or radar are blanked in the wideband samples of the dongle, before the channel filter, where they are still
     a few µs long. A pulse is a short jump (≤ 100 µs) of the magnitude out of the envelope of the band (13 µs moving
@@ -206,12 +230,28 @@ browser – and the **CUE** key of that VFO (orange LED): that VFO stays audible
     pulses a second): pulses 10× the noise in the channel 6 dB lower, 30× 15 dB lower, under a station 40 dB stronger
     than the wanted one 6.5 dB lower. 6–10 % of a CPU core while on. The VFO window shows **NB** before NTH.
   - HUM – mains hum filter (under NB; AM/LSB/USB): takes out the hum a station carries from the mains of its
-    transmitter or studio. A comb of narrow notches at the mains frequency and every multiple of it (50, 100, 150,
-    200 … Hz; a rectifier hums at 100 Hz and its harmonics), so all of the hum goes while speech and music lose only a
-    few Hz every 50 Hz (about 0.5 dB at the default width 4 Hz). The mains of a transmitter is not exactly 50 Hz (49.96 Hz
+    transmitter or studio. Narrow notches at the mains frequency and its multiples (50, 100, 150, 200 … Hz up to 3 kHz;
+    a rectifier hums at 100 Hz and its harmonics), but **only on the harmonics where the hum is**: each one is followed
+    separately and notched while it is a steady tone over 1 s standing 6 dB over the other harmonics (typically 2–8
+    notches; they come and go smoothly). It takes ~1–1.5 s to catch the hum. Speech and music without hum stay untouched,
+    and there is no echo (the former comb of all ~60 notches rang every 20 ms in the speech it took out, −12 dB; now
+    −28 dB); the hum goes down by 20–28 dB under speech. The mains of a transmitter is not exactly 50 Hz (49.96 Hz
     measured on 6050 kHz): the filter follows it within ±1 Hz, from the phase of the harmonics. SETTINGS › VFO › AUDIO:
     **Mains** 50 / 60 Hz (the Americas), **Width** 1–8 Hz (wider takes more of a hum that fades with the station),
     *Now* the mains found and how much is taken out. First in the audio chain, before NF, DNR and the ALC.
+  - TNF – tracking notch filters (after HUM; all modes but WFM, DAB and the raw-IQ decoders): **Shift+click** on the
+    spectrum or waterfall sets a notch on a carrier there, a Shift+click within 150 Hz of one removes it (up to 16). The
+    notches sit on the RF frequency in the complex baseband, before the demodulator, so they stay on the carriers when
+    the VFO is retuned or the mode changes, and they are drawn as faint red bands in the spectrum and waterfall. SETTINGS › VFO › AUDIO:
+    **Width** 10–500 Hz (default 50), **CLEAR** removes all, the list of the notches. Pressing TNF with no notch set yet
+    only switches it on; NF still takes out tones it finds by itself.
+  - APF – audio peak filter (CW): two band-pass sections at the 700 Hz pitch, **50 / 100 / 200 Hz** wide (SETTINGS › VFO ›
+    AUDIO), after DNR; for digging a weak CW signal out of the noise. The filter rings a little at 50 Hz.
+  - BIN – binaural (CW, USB, LSB, AM; headphones): the audio goes through a Hilbert filter so the left and right ear get
+    it 90° apart in phase; the signal seems to sit inside the head and the noise around it, which the brain separates
+    better. Mono loudspeakers hear it unchanged.
+  - In SETTINGS › VFO › AUDIO each of these keys has its block (TNF, APF, BIN, NB, HUM, DNR, …); the block of a key that
+    is off is greyed, but can still be set.
   - RECS: the **RECORDINGS** tab in the bottom part (beside SPECTRUM, DECODERS, SATELLITES), see [Recordings](#recordings) below. Like MEM, the key
     shows or hides the tab for all VFOs and is remembered in the browser.
 - **TRACKING** group:
@@ -229,6 +269,15 @@ browser – and the **CUE** key of that VFO (orange LED): that VFO stays audible
   Below them the speaker key is MUTE (green LED = sound on, red = muted). Under it are three recording keys for the active VFO, which work independently of each other and go on with the page closed:
   - **REC** records everything until switched off, also the silence of a closed squelch. After 15 minutes it continues in a new file.
   - **REC SQ** records only while there is audio (open squelch), each session in its own file. A session ends when the squelch stays closed for 1 s; that silence is not saved, and a burst shorter than 0.3 s is dropped. In modes without a squelch, or with the squelch off, one session runs until the key is switched off, with no length limit.
+  - <a id="retro"></a>**PRE-REC** (under REC IQ, its dark blue LED lit while it keeps the IQ): **tuning back in time.** On the waterfall a dark blue bar at the left edge marks the rows still held, a dashed line with *PRE-REC 60 s* where the buffer ends. While it is on, the raw IQ of the dongle of
+    the last seconds stays in RAM (the key shows how many). **Alt+click on the waterfall** at a row and frequency plays
+    that moment: up to 20 s from that time, at that frequency (a click inside the passband of the VFO plays its own tuning; elsewhere the clicked signal goes to the middle of the passband, so in USB / LSB click on the voice, not on the dial), demodulated with the mode, filter and all the AUDIO keys of the VFO as they are
+    set now – NB, NF, DNR, HUM, TNF, APF, SAM, NTH, ALC, AFI, LPF / HPF, BIN – but no squelch (AM, FM, LSB, USB, CW) and played in the browser while the live audio is turned down to 10 %; a bar at the bottom
+    shows the time, the progress and **STOP**. SETTINGS › GENERAL › RECORDINGS: **Keep** 10 / 30 / 60 / 120 / 300 s
+    (default 60) and **SAVE IQ**, which writes the whole buffer as an IQ WAV like REC IQ (`…_IQ_PREREC.wav`, in the `iq`
+    folder of today), so the last minute can be recorded after the fact. RAM: RTL at 2.4 MS/s 4.8 MB a second (60 s =
+    290 MB), LimeSDR / Airspy twice that; nothing while PRE-REC is off. The buffer starts again when the sample rate
+    changes; a replay ends where the centre frequency of the dongle moved. Per VFO, remembered.
   - **REC IQ** (dark blue LED) records the whole IQ of the dongle – the full band at its sample rate, before any filter or demodulator – as SDR# does: a WAV file with I in the left and Q in the right channel, 8 bit unsigned from an RTL-SDR (its bytes as they come, lossless), 16 bit from LimeSDR and Airspy, in the subfolder `iq` of the recordings folder (default `data\recordings\iq`). The name gives the UTC start and the centre frequency the way SDR# writes it, `RADIMCOM_A_20261117_101500Z_145500000Hz_IQ.wav`, and an `auxi` chunk (SpectraVue / HDSDR) holds the start, stop and centre too, so SDR#, SDR++ and HDSDR play it at the right frequency. A new file starts when the centre or the sample rate changes (tuning inside the band does not) and before a file reaches 2 GB; the header is updated every 5 s, so a file cut off by a crash still opens. It is big: RTL at 2.4 MS/s writes 4.8 MB/s (about 290 MB a minute), 16 bit twice that. The tooltip shows the size and the blocks lost if the disk does not keep up. A chained VFO records the IQ of the dongle it shares.
 
   Files go to the recordings folder (default `data\recordings`, can be changed in **SETTINGS › GENERAL › RECORDINGS**: a full path, created if missing, one folder for all VFOs; a running recording finishes its file in the old folder) as MP3, 128 kbps, named by the frequency and mode at the start of the file and its start time: `145.500000MHz_FM_20261105_155300.mp3`. If that frequency is in the memories, the name of the memory comes first, with `_` instead of spaces: `Piestany_TWR_118.575000MHz_AM_20261105_155300.mp3`. Retuning during a recording does not start a new file; a change of the sample rate does. A key shows the time of the current file while writing, and it is lit without a time while waiting for audio. **REC** beside the frequency of each VFO window (above CUE) shows the same: red, blinking while audio goes into the file (REC always, REC SQ while the squelch is open), steady while REC SQ waits for the squelch. They blink slowly, all at the same rate (1 s on, 1 s off). Like the audio of the VFO, recording pauses while ACARS, VDL2 or ISM runs. **DAB** is recorded too: the MP3 of the station playing (160 kbit/s from welle-cli, saved as it comes, no re-encoding), the file named by the station (`Radio_FM_187.072000MHz_DAB_20261115_191200.mp3`), a new file when the station changes; REC SQ records DAB the same as REC (DAB has no squelch).
@@ -245,7 +294,9 @@ browser – and the **CUE** key of that VFO (orange LED): that VFO stays audible
 
 - **MENU → SET (gear)**: settings. While the gear key is lit, the bottom part has a **SETTINGS** tab
   (beside SPECTRUM, DECODERS and SATELLITES); the open pages are remembered in the browser.
-  The gear is one switch for all VFOs; switching it off hides the tab. Three pages:
+  The gear is one switch for all VFOs; switching it off hides the tab. Pages GENERAL, STATION, SDR SOURCES (which source each
+  VFO receives from, see [SDR SOURCES](configuration.md#sdr-sources-assigning-sources-to-vfos)), VFO, RTL_TCP SERVER,
+  DATA/LOG (the logs and data files) and DEBUG (where RADIMCOM spends its time):
   - **GENERAL**: settings of the whole station, the same on every VFO.
     - **SKINS**: finish of the panel – dark brushed aluminium (default), black (darker) brushed aluminium, light brushed aluminium, mahogany or paint. A click on a colour of the RAL chart
       (36 common RAL Classic shades, screen approximations) or an own colour sprays the panel with it; on a light colour the print and the logo turn dark.
@@ -260,9 +311,35 @@ browser – and the **CUE** key of that VFO (orange LED): that VFO stays audible
       dipole, yagi, longwire, loop, mag loop, QFH, active whip …), its **bands in MHz** (one or several, e.g. `144-146, 430-440` for a dual-band vertical or the bands of a multiband dipole), polarization, gain, height, outdoor / indoor, on the rotor,
       the **chain** between the antenna and the dongle (LNA, filters, switch) and a note; the **VFO** keys of a row choose which VFOs receive on that antenna
       (one antenna per VFO: lighting a VFO in one row clears it in the others; a VFO that is not running is grey). **+ ADD**, ✕ deletes a row,
-      **SAVE** saves the whole list and the choice of the VFOs. One VFO can also choose its antenna in **SETTINGS › VFO › SDR DONGLE › ANTENNA** (block 0 of the block diagram).
+      **SAVE** saves the whole list and the choice of the VFOs. One VFO can also choose its antenna in **SETTINGS › VFO › RX CHAIN › ANTENNA** (block 0 of the block diagram).
       **ANT** in the VFO window (row with CTCSS / DCS / ATU): green while the VFO is tuned within one of the bands of its antenna, **amber** outside them (wrong antenna
       or a switch to turn), grey for an antenna without bands, dark without an antenna; its tooltip names the antenna.
+    - **RECORDINGS**: the folder of the recordings of all VFOs (see [REC](#recordings)).
+    - <a id="spots"></a>**SPOTS** (`spotting.py`, `data\spotting.json`, the same on all VFOs): a **callsign** and an
+      **antenna** text, and two switches: **PSK Reporter** (every VFO with FT8 on reports the stations it hears to
+      pskreporter.info, collected and sent once per five minutes, each station once per hour and band) and **WSPRnet**
+      (every VFO with WSPR on reports its spots to wsprnet.org after each 2-minute cycle). Without a callsign nothing is
+      sent; the receiver locator is the station location, and nothing is sent while it is not set. The counts sent by
+      this VFO are shown here and beside the **PSK REPORTER** / **WSPRNET** switches of the decoders; spots that could not
+      be sent go to the daily log `logs\spots`. Receive only: RADIMCOM never transmits.
+    - <a id="backup"></a>**BACKUP** (`backup.py` in the launcher, for the whole station):
+      - **Backup**: tick what goes into the ZIP – **VFO settings** (`config_A…D.json` and the template `config.json`: frequency,
+        mode, filters, AGC+, audio, decoders), **VFO sources** (`vfos.json`: which dongle, rtl_tcp or SpyServer each VFO uses),
+        **memories** and their groups, **station** (location, antennas, rotor, recordings folder), **satellites** (chosen ones
+        and groups), **ISM devices** (names, pins, devices heard), **map API keys** (`mapkeys.json`, marked *secret* and not
+        ticked by default: the file then holds the keys) and the **page settings** of this browser (its localStorage: layout,
+        open tabs and pages, filters, map settings). **DOWNLOAD BACKUP** saves `RADIMCOM_backup_<date>_<time>.zip`. Logs,
+        recordings and decoder pictures are not settings (SETTINGS › DATA/LOG exports them).
+      - **Restore**: **CHOOSE FILE…** or **RESTORE…** at a backup of `RADIMCOM\backup\`; the items the backup holds are listed
+        to tick, **RESTORE** stops the VFOs, writes the files, starts the VFOs again and reloads the page (the page settings are
+        written into the browser). **VFO sources** from another PC: a VFO whose USB dongle is not on this PC stays without a
+        source, with a warning – on a new PC set up the dongles first in SETTINGS › SDR SOURCES, then restore the VFO
+        settings; network sources (rtl_tcp, SpyServer) are taken over.
+      - **Factory reset** in two steps: **FACTORY RESET…**, then type `RESET` and **ERASE EVERYTHING**. A full backup (every
+        item, the keys and the page settings too) goes to `RADIMCOM\backup\RADIMCOM_before_reset_<date>_<time>.zip` first,
+        then all the files of the items are deleted (the template `config.json` stays), the browser forgets the page settings
+        and RADIMCOM restarts like a new installation: RADIMCOM.exe opens the SDR setup (see
+        [Installation](installation.md#sdr-setup-in-the-window)). Logs, recordings, decoder pictures and histories stay.
 
     ![SETTINGS › GENERAL › SKINS: the finishes of the panel (dark, black and light brushed aluminium, mahogany, RAL paint) and the RAL colour chart](images/settings_skins.png)
 
@@ -271,15 +348,19 @@ browser – and the **CUE** key of that VFO (orange LED): that VFO stays audible
   - **VFO**: settings of one VFO. On the left the keys **VFO-A … VFO-D** (like the VFO keys under the VFO windows; one without an SDR is grey);
     the lit one is the active VFO and is joined to the card on the right, which holds its settings. A press on another key switches the
     active VFO (as the keys under the VFO windows) and SETTINGS stays open. The card has the pages:
-    - **SDR DONGLE**
+    - **RX CHAIN** (SDR DONGLE until 1.1beta1)
       - **Block diagram** at the top: the path of the signal antenna → upconverter → bias-tee → tuner → A/D (RTL2832) → USB → DC removal → SP spurs removal → spectrum / VFOs,
         with the crystal (ppm) clocking the tuner and the A/D, and AGC+, which reads the A/D level and sets the tuner gain (green dashed loop).
         Each block has a number, and the card of its setting has the same number (SP = 10 and AGC+ = 11 on the ADVANCED page);
         a click on a block highlights its card, switching to ADVANCED for SP and AGC+. A grey block has no setting for this dongle or VFO (a VFO with a fixed dongle). Shown for RTL-SDR dongles only, not for LimeSDR or Airspy.
       - **Antenna** (block 0): the antenna this VFO receives on, from SETTINGS › GENERAL › ANTENNAS, with its range and whether the tuned frequency is in it.
+      - **Source** (after the bias-tee): the local device (kind and serial), the VFO it is chained to, or the network source (rtl_tcp /
+        SpyServer, address, device, real band and upsampling, control). With a network source the antenna, upconverter LO and bias-tee are greyed
+        with the reason in their tooltip, with a shared SpyServer also the tuner gain.
       - Without `vfos.json` (single receiver) the dongle selection and the upconverter mode (auto / on / off).
       - **Bandwidth**: the width of the band the dongle receives (sample rate) = the width of the spectrum and waterfall.
-      - **Correction (ppm)** and **Upconverter LO (MHz)**.
+      - **Correction (ppm)** and **Upconverter LO (MHz)**. Each dongle keeps its own values by its serial number
+        (`data\dongle_cal.json`), so they come back when it is put on another VFO or two VFOs swap their dongles.
       - Tuner gain (manual or automatic) and **RTL2832 digital gain** (its digital AGC, RTL-SDR only).
       - **Remove DC peak** (on by default): removes the peak of the dongle in the centre of the band, from the waterfall and from the received signal. **Width** (up to 1000 Hz) also
         takes out its wide skirts, which LimeSDR needs, but weakens signals that close to the centre. **Suppression** (0–60 dB) sets how deep the removal goes.
@@ -293,28 +374,41 @@ browser – and the **CUE** key of that VFO (orange LED): that VFO stays audible
         A signal on a spur is removed with it.
       - **AGC+** (inspired by the auto gain of OnAir, adswill/OnAir; `gainctl.py`):
         - **Meter strip**: the A/D level bar (the 99.9 % peak of the samples from −40 dBFS to full scale, a tick at the headroom
-          target; green at the target, amber too hot, red clipping, blue too quiet) and the **CLIP** lamp (held 2 s); under it the
+          target; green at the target, amber too hot or a few clipped samples, red clipping over the AGC+ limit, blue too quiet) and the **CLIP** lamp (held 2 s); under it the
           headroom, the noise floor over the A/D's own noise (with its goal and the *gain wasted* line), the channel SNR, the signal
           kind and band; the first **warning** in plain words (clipping, a strong signal nearby with its frequency and level, gain
           too low, antenna noise far over the A/D's) and with AUTO **why** the gain is where it is and its last decision.
-        - **AUTO** (the AGC+ key): keeps the **A/D headroom** (full scale over the 99.9 % peak) at a target by the signal kind –
-          narrow channel 14 dB, FM broadcast 9, DAB 7.5, ADS-B 3 (from the 2 s peak-hold) – and band: HF +3, the FM band (not WFM) +3,
-          VHF +1, above 1 GHz −2, a band much wider than the channel +2, plus **Headroom: target ±**. An overload (clipping above
-          *Overload: clipping above*) cuts at once by at least *cut*, 6 / 9 / 14 / 30 dB at 0.1 / 1 / 5 / 20 % clipped, and leaves a
-          ceiling 3 dB under that gain for 20 s (90 s after three in a minute); then it climbs back to the gain before (4 dB per 1.2 s).
-          Headroom under target − *dead band*: down by the error (every 0.8 s). Room: up by at most *up* every *between steps* – not
-          while the noise floor is more than *gain wasted* over its goal (narrow 10 dB, FM 5, DAB 8, ADS-B 12; HF −2), 3 dB more
-          takes a step down; inside the dead band a floor under its goal raises the gain 3 dB. After a step down a step up needs
-          1.5× the dead band for 8 s; the first 8 s after a start or a retune climb faster. *Settle*: blocks ignored after a change.
-          **Real steps:** AGC+ measures how far each gain step really moved the headroom (the low steps of an R820T are much bigger
-          than the table says: on HF 0 → 3.7 dB moved the A/D by ~15 dB) and steps up only when the measured step (or a chain of
-          measured ones) does not take it under the dead band. A step down within 10 s of a step up holds the gain there for 30 s
-          (*right after a step up: held here 30 s*), so it does not hunt up and down while it learns.
-        - **Defaults** = the former preset BOLD (−4 dB headroom, clipping up to 0.03 %, faster steps up). The presets CONSERV.,
-          CAREFUL and MODERATE were dropped after the release 1.0 (they set too little gain on HF); a VFO saved with one of them gets the defaults.
+        - **AUTO** (the AGC+ key) = **smart clipping** (1.1beta2, the result of hours of testing and tuning on real signals of
+          the short-wave bands; better also on FM broadcast, DAB and airband AM): no headroom target – the tuner gain drives the
+          A/D to its top. It is judged by the **mean clipping of the last second** at the gain (*Overload: clipping above*,
+          0.1 % by default), not by single blocks: on HF a block now and then clips 0.5 % while the mean stays at 0.04 % and the
+          reception is best there. Down: the mean over the limit (by *cut*), or one block over 10× the limit (at least 1 %) at
+          once (6 / 9 / 14 / 30 dB at 0.1 / 1 / 5 / 20 % clipped). No clipping: up by at most *up* every *between steps*. Some
+          clipping under the limit: it **probes the next tuner step** (whatever its size – the R828D / R820T steps are
+          0.5–4 dB); a probe that goes over returns at once to the step before and leaves a ceiling under it for 20 s, doubled
+          each time the same step fails again (up to 5 min), so on a steady band it settles and probes rarely. A quieter band
+          (headroom 3 dB more and 4× less clipping for 10 s) clears the ceiling and it climbs again at once; a louder one cuts at
+          once. No step up while the noise floor is more than *gain wasted* over its goal (narrow 10 dB, FM 5, DAB 8; HF +2).
+          *Settle*: blocks ignored after a change. *Headroom: target ±* and *dead band* are used only for **ADS-B**, which keeps
+          the headroom of its pulses (3 dB from the 2 s peak-hold, as before 1.1beta2).
+          **What it gives:** the most out of the RF signal while keeping the quality – on 40 m LSB about 30 dB of gain with the
+          band's noise 22–28 dB over the A/D's (before: 3.7 dB and 6–10 dB, the weak stations drowned in the A/D), at the cost
+          of less reserve for very strong signals, which AGC+ guards by the clipping. Together with the audio **NTH** and, where
+          needed, **DNR**, weak signals get much more readable. If a crowded band shows false signals (intermodulation), a
+          lower *gain wasted* stops the climb sooner.
+        - **Defaults:** clipping limit 0.1 % (mean of 1 s), cut 2 dB, up 6 dB, between steps 1.5 s, gain wasted 18 dB, settle 2;
+          a VFO saved with the former defaults (BOLD, clipping 0.03 %) gets the new ones. The presets CONSERV., CAREFUL and
+          MODERATE were dropped in 1.1beta1. The A/D level and clipping of the AGC+ card are the same as those of the VFO
+          window (the 99.9 % peak; the clipping of the worst block of 2 s, red only over the limit).
           The warning and the *why* line keep their place (one and two lines, the whole text in the tooltip), so nothing below jumps.
           A legend under the sliders explains headroom, floor, % and the times. With WFM the blocks around a gain step are played in
           mono, so the stereo does not turn to noise. Settings of AGC+ from before 1.0beta2 are not taken over.
+        - **LINEARITY** (`imd.py`, part of AUTO): the tuner can make intermodulation (phantom stations) before the A/D without
+          one sample clipping. The spectra of the whole band at two neighbouring gains are compared line by line (only
+          steady lines, the band edges left out): a real signal moves with the gain one to one, a third-order product about
+          three times as much, one from a front end in compression hardly at all. A probe up that shows intermodulation goes
+          back down and holds a ceiling under it (2 min, doubled each time on the band, at most 15 min, lifted at once when
+          the strongest stations fade); at the top a step down is tried now and then.
       - **Where AGC+ and ALC work** (beside AGC+): a diagram of the signal path – tuner, A/D, DC · SP, NB, channel filter, demodulator, then the audio NOTCH, DNR, ALC, NTH, AFI,
         HPF · LPF and SQL. AGC+ (green) reads the raw A/D samples before any filter and sets only the tuner gain; a gain step plays that WFM block in mono,
         and with the squelch set AGC+ makes it auto squelch (ASQ). The ALC is the audio gain after the demodulator (AM, SSB, CW; *Smooth ALC gain*).
@@ -331,7 +425,7 @@ browser – and the **CUE** key of that VFO (orange LED): that VFO stays audible
     - **AUDIO**: AFI inversion frequency, the ASQ (auto squelch) margin above the noise (2–30 dB), the CTCSS tone (TSQ-C) and DCS code with polarity (TSQ-D), HPF and LPF frequency. The squelch level itself is set by the SQL bar of the VFO window.
     - **TX** (LimeSDR only): Enable TX, see [Transmitting (LimeSDR)](configuration.md#transmitting-limesdr).
 
-    ![SETTINGS › VFO › SDR DONGLE: keys VFO-A … D, the block diagram of the signal path from the antenna to the screen with numbered blocks, and the cards with correction, bandwidth, tuner gain, bias-tee, DC peak removal and RESET SDR DONGLE](images/settings_vfo.png)
+    ![SETTINGS › VFO › RX CHAIN: keys VFO-A … D, the block diagram of the signal path from the antenna to the screen with numbered blocks, and the cards with correction, bandwidth, tuner gain, bias-tee, DC peak removal and RESET SDR DONGLE](images/settings_vfo.png)
   - **STATION**: a simplified scheme of the whole receiver, live (like the AGC+ diagram). On top the station: **QTH**
     (locator), **ROTOR** (port, azimuth / elevation, target, tracking, errors), **DOPPLER** (the satellite followed and on which
     VFO) and **AUDIO** (the MAIN VFO, the VFOs on CUE and the muted ones), in one compact line. Below one row per VFO (each kind of block in its own colour with
@@ -371,6 +465,14 @@ browser – and the **CUE** key of that VFO (orange LED): that VFO stays audible
     With the **RX Doppler** of a satellite on, its orange chip in DECODERS leads an orange line **DOPPLER → VFO** along the bottom
     of the row back into the VFO block: the correction retunes the VFO frequency. Lit = on, faint = off. It is
     read-only (a click on a row does nothing). The open page is remembered in the browser.
+  - <a id="debug"></a>**DEBUG** (`static/debug.js`, `dbgstats.py`): where RADIMCOM spends its time, as text to copy into a
+    report. **START** / **STOP** / **RESET** / **COPY**; it keeps measuring while other tabs are open.
+    - **Page:** frames (how many came late, the worst), the busy share of the main thread, long tasks, everything that ran
+      with its own and total time (every global function, the events of the servers by kind, clicks, timers, animation
+      frames, each with its place in the code), slow frames as the browser reports them (with forced layout), requests
+      by VFO and path, JS heap and the size of the DOM.
+    - **Servers:** CPU and memory of every process (launcher, each VFO, the window) and of every thread of each VFO, with
+      the lines of Python where it works (sampled 50 times a second, `/api/debug/threads`).
 
 - **MENU → MEM**: frequency memories. While the MEM key is lit, the bottom part has a **MEMORIES** tab (beside DECODERS,
   SATELLITES and SETTINGS) that covers the spectrum and waterfall like the other tabs; the MEM key is one switch for all VFOs,
@@ -443,10 +545,13 @@ browser – and the **CUE** key of that VFO (orange LED): that VFO stays audible
 1. **Error messages** (red), e.g. a refused setting, TX, a recording error, DAB on a dongle that cannot do it. A message stays until it is
    accepted by the small framed **OK**; the frame of the window blinks red (period 0.5 s) meanwhile. More waiting messages show *+n*, the next one comes after OK.
    (Errors used to show for 5 s under the logo.)
-2. **Rotor AZ / EL** while **MONITOR** is on (RCTRL › SETTINGS), with the requested direction while the rotor is on its way (or LINK OFF, NOT CONNECTED, FAULT).
-3. **DAB now on air** while a DAB station plays: the DAB / DAB+ tag, the station name, the SNR of the ensemble (green from 12 dB, yellow from 8 dB, red below)
+2. **Satellite tracking** while the Doppler correction tunes this VFO (`static/satad.js`): a small polar plot of the pass
+   (north up, the satellite now as a yellow dot, the antenna as a red cross) and beside it the satellite, the frequency
+   received now and the state of the rotor tracking.
+3. **Rotor AZ / EL** while **MONITOR** is on (RCTRL › SETTINGS), with the requested direction while the rotor is on its way (or LINK OFF, NOT CONNECTED, FAULT).
+4. **DAB now on air** while a DAB station plays: the DAB / DAB+ tag, the station name, the SNR of the ensemble (green from 12 dB, yellow from 8 dB, red below)
    and the DLS text (artist / song) under them; a text wider than the window runs to its end and back (the whole text is in the tooltip).
-4. **RDS** (station name, RadioText, PI, PTY, TP/TA); empty without RDS.
+5. **RDS** (station name, RadioText, PI, PTY, TP/TA); empty without RDS.
 
 The clock (top right) switches between local time and UTC with a click; the date under it is of the same zone. Small bars under the S-meter show the CPU load and
 memory use of the PC running RADIMCOM (amber over 70 %, red over 90 %). A click on the RADIMCOM logo opens the project on GitHub. When a newer version is released, the logo turns red; hovering shows the new version and a click opens its release page in a new tab.

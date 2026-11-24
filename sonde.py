@@ -17,7 +17,6 @@ polynomial; humidity: the simple empirical formula of rs41mod (a few % accurate)
 """
 import collections
 import datetime
-import glob
 import json
 import math
 import os
@@ -28,6 +27,7 @@ import time
 
 import numpy as np
 
+import datafiles
 import sonde_ext
 from packet import _Clock, _Disc, _Fir
 from paths import data as _data
@@ -1671,6 +1671,14 @@ class SondeDecoder:
         return d
 
     # ---------- radiosonde log ----------
+    # <log_dir>/YYYY/MM/DD/<YYYY-MM-DD>_<serial>.jsonl (the day of the first frame, UTC; datafiles.py)
+
+    def _log_path(self, name):
+        return os.path.join(datafiles.date_dir("", name[:10], self.log_dir), name)
+
+    def _log_files(self):
+        """All flight logs (paths) below log_dir."""
+        return datafiles.walk_files(self.log_dir, LOG_NAME) if self.log_dir else []
 
     def _log(self, serial, d):
         """Every frame of a sonde into its log, whatever the LOG key (to read the flight back after a restart)."""
@@ -1680,16 +1688,17 @@ class SondeDecoder:
             name = self.log_files.get(serial)
             if name is None:
                 safe = re.sub(r"[^\w.-]", "_", serial)
-                old = [f for f in glob.glob(os.path.join(self.log_dir, f"*_{safe}.jsonl"))
-                       if time.time() - os.path.getmtime(f) < LOG_SAME_SEC]
+                old = [f for f in self._log_files() if f.endswith(f"_{safe}.jsonl")
+                       and time.time() - os.path.getmtime(f) < LOG_SAME_SEC]
                 name = os.path.basename(max(old, key=os.path.getmtime)) if old else \
                     f"{time.strftime('%Y-%m-%d', time.gmtime(d['time']))}_{safe}.jsonl"
                 self.log_files[serial] = name
             rec = {k: d[k] for k in LOG_KEYS if d.get(k) is not None}
             rec["time"] = round(rec["time"], 2)
             rec["vfo"] = self.tag
-            os.makedirs(self.log_dir, exist_ok=True)
-            with open(os.path.join(self.log_dir, name), "a", encoding="utf-8") as f:
+            path = self._log_path(name)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(rec, separators=(",", ":")) + "\n")
         except OSError:
             pass                     # a full disk / locked file must not stop the decoder
@@ -1697,8 +1706,7 @@ class SondeDecoder:
     def restore(self):
         """At the start: the sondes of this VFO from the logs of the last RESTORE_SEC, with their flight paths."""
         try:
-            files = [f for f in glob.glob(os.path.join(self.log_dir, "*.jsonl"))
-                     if time.time() - os.path.getmtime(f) < RESTORE_SEC]
+            files = [f for f in self._log_files() if time.time() - os.path.getmtime(f) < RESTORE_SEC]
         except OSError:
             return
         for path in sorted(files, key=os.path.getmtime)[-MAX_SONDES:]:
@@ -1713,7 +1721,7 @@ class SondeDecoder:
         """Logged flights, newest first: file, serial, type, first / last time, frames, highest altitude."""
         out = []
         try:
-            files = sorted(glob.glob(os.path.join(self.log_dir or "", "*.jsonl")), key=os.path.getmtime, reverse=True)
+            files = sorted(self._log_files(), key=os.path.getmtime, reverse=True)
         except OSError:
             return out
         for path in files[:LOG_LIST]:
@@ -1736,8 +1744,7 @@ class SondeDecoder:
             return out
         since = time.time() - max(1, min(7, int(days))) * 86400
         try:
-            files = [f for f in glob.glob(os.path.join(self.log_dir, "*.jsonl"))
-                     if os.path.getmtime(f) >= since and LOG_NAME.match(os.path.basename(f))]
+            files = [f for f in self._log_files() if os.path.getmtime(f) >= since]
         except OSError:
             return out
         for path in sorted(files, key=os.path.getmtime):
@@ -1763,7 +1770,7 @@ class SondeDecoder:
         """One logged flight as a sonde (as in info()["sondes"]), or None."""
         if not self.log_dir or not LOG_NAME.match(name or ""):
             return None
-        path = os.path.join(self.log_dir, name)
+        path = self._log_path(name)
         if not os.path.isfile(path):
             return None
         tmp = {}

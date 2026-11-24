@@ -1,7 +1,8 @@
 """AGC+ (gainctl.py) on a simulated front end: an R820T gain table, antenna noise and the radio's own noise (rising
 slower than the gain), a strong neighbour, its third-order product (3 dB per dB of gain), an 8-bit A/D that clips and
-quantises. Checks AUTO (convergence to the headroom target without hunting, "gain wasted" on a noisy HF band,
-recovery after an overload burst, the presets). The page's presets (SAGC_PRESETS in app.js) are parsed, so the test follows them.
+quantises. Checks AUTO with smart clipping (1.1beta2: up while the mean clipping over 1 s stays under the limit, no
+hunting, "gain wasted" on a noisy HF band, a strong station held at the clipping limit, recovery after an overload burst,
+the presets). The page's presets (SAGC_PRESETS in app.js) are parsed, so the test follows them.
 
 Run: python -m unittest tests.test_sagc   (from the RADIMCOM folder)
 """
@@ -78,6 +79,12 @@ def ctx(front, mode="FM", bw=12500):
     return (FS, front.center, front.center + 300e3, mode, bw, 8)
 
 
+def mean_ppm(log, after):
+    """Mean clipping at the gain held at the end (the blocks of a probe that clipped and went back left out)."""
+    held = log[-1][1]
+    return 1e6 * float(np.mean([c for t, g, h, m, c in log if t > after and g == held]))
+
+
 def run_auto(front, p, tgt, seconds=400, g0=20.7, burst=None):
     agc, g, log = gainctl.SmartAgc(), g0, []
     agc.reset(0)
@@ -99,15 +106,16 @@ def changes(log, after):
 
 
 class Auto(unittest.TestCase):
-    def test_converges_to_the_headroom_target(self):
+    def test_climbs_while_nothing_clips(self):
+        # smart clipping: no headroom target, the gain goes up while the A/D does not clip (here not at all)
         p = gainctl.sagc_params({})
         tgt = gainctl.Target("narrow", CENTER + 300e3, True, 0)
         for g0 in (0.0, 20.7, 49.6):
             log = run_auto(Front(), p, tgt, g0=g0)
-            heads = [h for t, g, h, m, c in log if t > 200]
-            print(f"\nAUTO from {g0}: gain {log[-1][1]} dB, headroom median {np.median(heads):.1f} (target {tgt.head}), "
+            print(f"\nAUTO from {g0}: gain {log[-1][1]} dB, clipping {mean_ppm(log, 200):.0f} ppm, "
                   f"changes after 200 s: {changes(log, 200)}")
-            self.assertLess(abs(np.median(heads) - tgt.head), p["window_db"] + 3)
+            self.assertGreaterEqual(log[-1][1], 44)
+            self.assertLessEqual(mean_ppm(log, 200), p["clip_ppm"])
             self.assertLessEqual(changes(log, 200), 4)              # no hunting
 
     def test_gain_wasted_on_a_noisy_band(self):
@@ -117,24 +125,39 @@ class Auto(unittest.TestCase):
         log = run_auto(front, p, tgt, g0=0.0)
         margin, g = log[-1][3], log[-1][1]
         print(f"\nHF noisy band: gain {g} dB, floor {margin:.1f} dB over the A/D (wasted over {tgt.goal + p['wasted_db']})")
-        self.assertLess(g, 40)                                      # the headroom alone would take it to the top
+        self.assertLess(g, GAINS[-3])                               # no clipping alone would take it to the top
         self.assertLessEqual(margin, tgt.goal + p["wasted_db"] + 3)
         self.assertGreater(margin, tgt.goal)
 
     def test_no_hunting_on_a_step_bigger_than_it_says(self):
-        # 40 m, a strong station: the table step 0 -> 3.7 dB moves the A/D by ~15 dB (seen on an R820T), the target
-        # lies between the two; AGC+ went up and down every 2.5 s (a line across the waterfall each time)
+        # 40 m, a strong station that clips: the table step 0 -> 3.7 dB moves the A/D by ~15 dB (seen on an R820T); a
+        # probe that clips goes back and leaves a ceiling held longer after every failure (20, 40, 80 ... s), so the
+        # tries get rarer instead of a line across the waterfall every few seconds
         p = gainctl.sagc_params({})
         front = Front(ant=-100.0, strong=-31.0, center=7.1e6, real=lambda g: g * 4.0 if g < 4 else g + 11.1)
         tgt = gainctl.Target("narrow", 7.1e6 + 300e3, True, 0)
         log = run_auto(front, p, tgt, seconds=300, g0=0.0)
         n, early = changes(log, 90), changes(log, 0)
-        heads = [h for t, g, h, m, c in log if t > 90]
-        print(f"\nbig step: gain {log[-1][1]} dB, headroom median {np.median(heads):.1f} (target {tgt.head}), "
+        print(f"\nbig step: gain {log[-1][1]} dB, clipping {mean_ppm(log, 90):.0f} ppm, "
               f"changes {early} in all, {n} after 90 s")
-        self.assertEqual(n, 0)                                              # it learnt the real steps: no hunting
-        self.assertLessEqual(early, 8)                                      # learning costs a few steps, 30 s apart
-        self.assertGreater(min(heads), tgt.head - p["window_db"])
+        self.assertLessEqual(n, 4)                                          # rare probes, no hunting
+        self.assertLessEqual(early, 20)
+        self.assertLessEqual(mean_ppm(log, 90), p["clip_ppm"])             # the mean clipping held under the limit
+
+    def test_hf_sensitivity_wins_over_the_headroom(self):
+        # 31 m in the evening (SNR SWEEP of 2026-11-17): the band's floor near the A/D's noise; AGC+ held a low gain for
+        # the headroom target, the S/N was 5-10 dB better with ~7 dB of headroom. On HF it now climbs to the floor's
+        # goal as long as the headroom stays over head_min (4 dB) and nothing clips.
+        p = gainctl.sagc_params({})
+        front = Front(ant=-125.0, rx0=-140.0, strong=-45.0, center=9.6e6)
+        tgt = gainctl.Target("narrow", 9.6e6 + 300e3, True, p["headroom_adj"])
+        log = run_auto(front, p, tgt, seconds=300, g0=3.7)
+        late = [(g, h, m, c) for t, g, h, m, c in log if t > 120]
+        print(f"\nHF sensitivity: gain {log[-1][1]} dB, clipping {mean_ppm(log, 120):.0f} ppm, "
+              f"floor {np.median([x[2] for x in late]):.1f} dB over the A/D (goal {tgt.goal})")
+        self.assertGreater(log[-1][1], 20)
+        self.assertLessEqual(mean_ppm(log, 120), p["clip_ppm"])           # smart clipping: rare peaks over, the mean under
+        self.assertLessEqual(changes(log, 120), 4)
 
     def test_recovers_after_an_overload_burst(self):
         p = gainctl.sagc_params({})
@@ -157,14 +180,6 @@ class Auto(unittest.TestCase):
             self.assertEqual(pre["bold"][k], d, k)                       # BOLD = the server's defaults
         for name in ("conservative", "careful", "moderate"):                # a config saved with an old preset: BOLD
             self.assertEqual(gainctl.sagc_params({"sagc": pre[name]}), gainctl.sagc_params({}), name)
-        heads = {}
-        for name in ("conservative", "bold"):
-            p = {**gainctl.sagc_params({}), **pre[name]}
-            tgt = gainctl.Target("narrow", CENTER + 300e3, True, p["headroom_adj"])
-            log = run_auto(Front(), p, tgt, seconds=300)
-            heads[name] = float(np.median([h for t, g, h, m, c in log if t > 150]))
-        print(f"\npresets: headroom conservative {heads['conservative']:.1f}, bold {heads['bold']:.1f} dB")
-        self.assertGreater(heads["conservative"], heads["bold"] + 6)
 
 
 if __name__ == "__main__":

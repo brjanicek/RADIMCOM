@@ -44,6 +44,7 @@ dist/
 
 # RADIMCOM.exe built for this development copy (python installer/make_installer.py --exe)
 /RADIMCOM.exe
+/RADIMCOM.exe.old
 /Microsoft.Web.WebView2.Core.dll
 /Microsoft.Web.WebView2.WinForms.dll
 /WebView2Loader.dll
@@ -51,3 +52,4 @@ dist/
 # bundled Python of an installed copy; NuGet downloads and the prepared Python of the setup build
 /python/
 installer/cache/
+/backup/

@@ -1,0 +1,27 @@
+WSPR decoder (lib\wspr)
+=======================
+
+RADIMCOM decodes WSPR (Weak Signal Propagation Reporter, 2-minute cycles) with wsprd, which runs as a separate
+program. RADIMCOM records 114 s of the USB audio of the VFO from each even UTC minute, writes it as a WAV file
+(12 kHz, 16 bit, mono) into data\wspr, runs wsprd on it there and reads the decodes from its output. The WAV file
+is deleted after the decoding.
+
+Program in this folder:
+
+- wsprd.exe from WSJT-X 2.7.0 - Copyright (C) 2001-2024 Joseph H Taylor, Jr, K1JT, and the WSJT Development Group;
+  wsprd: Copyright (C) 2008-2016 Joseph Taylor, K1JT, and Steven Franke, K9AN. GNU General Public License v3.
+  Source: https://sourceforge.net/projects/wsjt/ (git https://git.code.sf.net/p/wsjt/wsjtx, tag wsjtx-2.7.0,
+  folder lib/wsprd and lib/indexx.f90), built without changes.
+  Linked statically with:
+  - FFTW 3.3.11 (single precision) - Copyright (c) Matteo Frigo and MIT, GNU GPL v2 or later.
+    Source: https://www.fftw.org (MSYS2 package mingw-w64-ucrt-x86_64-fftw 3.3.11-2).
+  - GCC 16.2 runtime libraries (libgfortran, libquadmath, libgcc) - GPL v3 with the GCC Runtime Library Exception
+    (libquadmath: LGPL v2.1 or later). Source: https://gcc.gnu.org (MSYS2 packages).
+  - mingw-w64 runtime (UCRT) - ZPL / public domain, https://www.mingw-w64.org
+
+How it was built (MSYS2, "UCRT64" environment, gcc and gfortran 16.2): installer\build_wspr.sh
+  The script checks out only lib/wsprd of the WSJT-X tag, compiles wsprd.c and its helpers with gcc and
+  indexx.f90 + osdwspr.f90 with gfortran, and links them with -static (one exe, no DLLs).
+
+The source code of wsprd and of the libraries, in the exact versions used, is available on request (see NOTICE.md
+of RADIMCOM).

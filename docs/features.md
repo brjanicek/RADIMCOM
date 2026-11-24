@@ -6,6 +6,19 @@
 
 - **Up to four VFOs, A–D.** Each VFO has its own SDR (RTL-SDR, LimeSDR Mini or Airspy R2, selected by serial number)
   and its own settings.
+- **Network sources:** an RTL-SDR dongle of an rtl_tcp server or an **Airspy SpyServer** (own client; a narrow band such as
+  the 228 kHz of an HF+ upsampled), the public SpyServers to pick from the Airspy directory, a SpyServer VFO paused
+  (disconnected) by a click on its network icon. See [Network sources](configuration.md#network-sources-rtl_tcp-and-spyserver).
+- **SETTINGS › GENERAL › BACKUP:** back up the settings (VFO settings and sources, memories, station, satellites, ISM
+  devices, map API keys, page settings) to a ZIP and restore them, e.g. on a new PC; a factory reset keeps a full backup in
+  `RADIMCOM\backup\` first. See [BACKUP](controls.md#backup).
+- **SETTINGS › SDR SOURCES:** the sources dragged onto VFO A–D in the running RADIMCOM; APPLY restarts only the VFOs that
+  change, a VFO keeps its settings with its source. See [SDR SOURCES](configuration.md#sdr-sources-assigning-sources-to-vfos).
+- **PROPAGATION tab (PROP key):** space weather (NOAA SWPC), the HF bands at the station for the next 24 h corrected by the
+  GIRO ionosondes and by what FT8 / WSPR hear, the Kiruna magnetogram, FT8 BAND TEST. See [Propagation](propagation.md).
+- **DX CLUSTER tab (DX key, group PROP):** the DX cluster spots of the last 30 minutes (HamQTH, no login) split into HF / VHF /
+  UHF, with a filter; a click on a spot tunes the active VFO there with its mode, and the spots are marked in the spectrum.
+  See [DX CLUSTER](propagation.md#dx-cluster).
 - **VFO chaining:** one dongle can serve several VFOs, e.g. one dongle for VFO A–D, or two dongles with two VFOs
   each. A chained VFO listens anywhere inside the band its dongle receives and shows a green CHAIN flag
   (see [VFO chaining](configuration.md#vfo-chaining-one-dongle-for-several-vfos)).
@@ -19,22 +32,27 @@
   - **Tone squelch TSQ-C (CTCSS) and TSQ-D (DCS)** in FM, in addition to the squelch level or ASQ: the audio passes only while the set
     sub-audio tone (50 standard tones 67.0–254.1 Hz) or DCS code (104 standard codes, N / I) is received; the tone is filtered out of what you hear.
     Shown in the VFO window under the frequency. See [Function keys → AUDIO](controls.md#function-keys).
-- **AGC+ (smart gain, inspired by the auto gain of OnAir):** sets the tuner gain from the A/D converter and the spectrum of the band: AUTO keeps an
-  A/D headroom target by the signal kind and band (also with strong signals outside the channel), cuts at once on an overload and climbs back,
-  stops climbing when more gain buys nothing (the noise floor far over the A/D's own); a meter strip with a clip lamp, warnings and
-  *why this gain*; defaults = the former preset BOLD (the others dropped after the release 1.0). With the squelch set, AGC+ switches it to auto squelch. A diagram beside its settings (SETTINGS › VFO › ADVANCED) shows where AGC+, each of its settings and the audio ALC work. See [Function keys → GAIN](controls.md#function-keys).
-- **ATU (autotune), experimental,** in USB, LSB and AM: a click on a signal moves the tuning onto its carrier (AM within a few Hz in under 1 s);
+- **AGC+ (smart gain, inspired by the auto gain of OnAir):** sets the tuner gain from the A/D converter and the spectrum of the band: AUTO with
+  **smart clipping** (1.1beta2, tuned for hours on real short-wave signals, better also on FM broadcast, DAB and airband AM) drives the A/D
+  to its top, judged by the mean clipping of the last second (0.1 %), probes the next tuner step and returns at once when it clips too much,
+  climbs again when the band gets quieter, and stops climbing when more gain buys nothing (the noise floor far over the A/D's own); the most
+  out of the RF signal while keeping the quality, together with NTH and DNR much more readable weak signals; a meter strip with a clip lamp,
+  warnings and *why this gain*. With the squelch set, AGC+ switches it to auto squelch. A diagram beside its settings (SETTINGS › VFO › ADVANCED) shows where AGC+, each of its settings and the audio ALC work. See [Function keys → GAIN](controls.md#function-keys).
+- **ATU (autotune), experimental,** in USB, LSB, AM and CW (zero beat onto the 700 Hz pitch): a click on a signal moves the tuning onto its carrier (AM within a few Hz in under 1 s);
   in SSB the suppressed carrier goes onto the red line, snapped to a whole kHz or rounded to 100 Hz (from the carrier-side edge of the voice band, ~2 s). See [Function keys → TUNE](controls.md#function-keys).
-- **Audio processing:** automatic notch filter (NF), audio low-pass and high-pass filters (LPF / HPF; the LPF as steep as the channel filter), automatic audio level (ALC) with smooth gain, **DNR** – digital noise reduction (spectral, Wiener gain from minimum-statistics noise: the noise lowered also under speech, level 1–10), **HUM** – mains hum filter (comb notch at 50 / 60 Hz and all multiples, following the mains of the transmitter), **NB** – noise blanker (pulses blanked in the wideband samples before the channel filter, stations never), and **NTH** – noise threshold: an expander with a voice detector turns the noise between words down while the speech stays at full level (AUTO sets it by itself), plus a soft limiter.
+- **Audio processing:** automatic notch filter (NF), audio low-pass and high-pass filters (LPF / HPF; the LPF as steep as the channel filter), automatic audio level (ALC) with smooth gain and SLOW / FAST times (FAST by default), **DNR** – digital noise reduction (spectral, Wiener gain from minimum-statistics noise: the noise lowered also under speech, level 1–10), **HUM** – mains hum filter (narrow notches at 50 / 60 Hz and its multiples, only where the hum is, following the mains of the transmitter; no echo), **NB** – noise blanker (pulses blanked in the wideband samples before the channel filter, stations never), and **NTH** – noise threshold: an expander with a voice detector turns the noise between words down while the speech stays at full level (AUTO and FAST by default: it sets itself, opens sooner and does not drop in a word on weak signals), plus a soft limiter. DNR has two algorithms: **WIENER** and **NR4** (spectral bleaching, less music noise). **TNF** – tracking notch filters set by Shift+click on carriers in the spectrum, staying on them when the VFO is retuned; **APF** – CW audio peak filter (50 / 100 / 200 Hz at the 700 Hz pitch); **BIN** – binaural audio for headphones (CW, SSB, AM).
 - **AFI (audio frequency inversion):** voice inversion scrambler / descrambler, inversion frequency 500–4000 Hz; REC and the decoders get the descrambled audio.
   See [Function keys → AUDIO](controls.md#function-keys).
 - **Remove DC peak** and **remove spurs** from local sources, in the waterfall and in the received signal.
 - **Upconverter:** HF is tuned via the LO (e.g. 100 MHz), see [Shortwave (HF) reception](hf-upconverter.md). For a VFO with a manual converter switch, crossing
   30 MHz shows a warning whether the converter must be switched on (CONV) or set to BYPASS.
-- **Decoders:** 11 decoders, see [Decoders](#decoders) below.
-- **Satellite tracking:** pass prediction, world map, Doppler correction of the VFO and a K3NG antenna rotor over USB, planned for passes across the north; no other program needed. See [Satellite tracking](satellites.md).
-- **ROTOR CONTROL tab (RCTRL key):** a map where a click (or a click on a channel of MEMORIES with a location) turns the rotor to that azimuth from the QTH, with the wanted azimuth (dashed line) and the antenna now (beam sector turning with the rotor), from any VFO; recalling a channel with a location opens the tab and turns the rotor to it; the channels are shown by their groups (a checkbox per group beside the map); page **SETTINGS** connects / disconnects the four sources of the wanted AZ / EL (SAT TRACKER, MEMORY RECALL, RCTRL MAP, SONDE TRACKER – the rotor follows the chosen radiosonde, AZ / EL from its GPS position and altitude) from the rotor in a block diagram (rotor block green = at least one connected) and holds the rotor controller itself (one rotor for the whole station, settings in `data\rotor.json`: ON / OFF, serial port, polar plot and elevation column with the antenna and its target, a click moves the antenna; STOP, RESET, MONITOR, azimuth calibration). See [Rotor control map](satellites.md#rotor-control-map).
+- **Decoders:** 12 decoders, see [Decoders](#decoders) below.
+- **Satellite tracking:** pass prediction, world map, Doppler correction of the VFO and a K3NG antenna rotor over USB, planned for passes across the north; no other program needed. The Moon for EME is one more "satellite" (own echo Doppler, path loss, rotor), see [The Moon (EME)](satellites.md#the-moon-eme). **SUN NOISE** measures the G/T of the station on the Sun with the rotor, see [Sun noise](satellites.md#sun-noise-gt). See [Satellite tracking](satellites.md).
+- **ROTOR CONTROL tab (RCTRL key):** a map where a click (or a click on a channel of MEMORIES with a location) turns the rotor to that azimuth from the QTH, with the wanted azimuth (dashed line) and the antenna now (beam sector turning with the rotor), from any VFO; recalling a channel with a location opens the tab and turns the rotor to it; the channels are shown by their groups (a checkbox per group beside the map); page **SETTINGS** connects / disconnects the five sources of the wanted AZ / EL (SAT TRACKER, MEMORY RECALL, RCTRL MAP, SONDE TRACKER – the rotor follows the chosen radiosonde, AZ / EL from its GPS position and altitude, GRAVES – POINT on DECODERS › GRAVES) from the rotor in a block diagram (rotor block green = at least one connected) and holds the rotor controller itself (one rotor for the whole station, settings in `data\rotor.json`: ON / OFF, serial port, polar plot and elevation column with the antenna and its target, a click moves the antenna; STOP, RESET, MONITOR, azimuth calibration). See [Rotor control map](satellites.md#rotor-control-map).
 - **REC and REC SQ:** record the audio of the selected VFO to MP3 files in `data\recordings` or an own folder (SETTINGS › GENERAL › RECORDINGS): everything, or only while the squelch is open; with DAB the MP3 of the station as it comes. The keys and REC in the VFO window blink while audio goes into the file.
+- **PRE-REC:** the IQ of the dongle of the last 10–300 s (60 s default) kept in RAM; **Alt+click on the waterfall** plays
+  that moment at that frequency (up to 20 s, with the mode, filter and all the AUDIO keys of the VFO, no squelch), **SAVE IQ** writes the whole
+  buffer as an IQ WAV. See [PRE-REC](controls.md#retro).
 - **REC IQ:** the whole IQ of the dongle (the full band at its sample rate) to WAV files as SDR# records them (I / Q stereo, 8 bit RTL-SDR / 16 bit LimeSDR and Airspy, centre frequency in the name and in an `auxi` chunk), subfolder `iq` of the recordings folder; opens in SDR#, SDR++, HDSDR. See [Volume](controls.md#function-keys).
 - **SCAN tab (SCAN key, MENU group): scanner** on one VFO. Every ~85 ms it measures all channels in the band of the dongle at once
   from the spectrum, the tuner moves only between windows; memories (ALL / FAVOURITES / group), a RANGE (FROM / TO / STEP / MODE / BW, presets
@@ -45,7 +63,7 @@
 - **Daily logs:** the LOG checkbox in each decoder card writes to `data\logs\<decoder>_YYYY-MM-DD.txt` (UTC, one line per message; WEFAX/SSTV log the names of saved images), classic ACARS to `data\acars\acars_YYYY-MM-DD.txt` and VDL2 to `data\acars\vdl2_YYYY-MM-DD.txt`.
 - **TX with LimeSDR** (optional, off by default), see [Transmitting (LimeSDR)](configuration.md#transmitting-limesdr).
 - **HTTP API:** everything the page does can be done from scripts, see [API/API.md](../API/API.md).
-- **Windows setup and app:** `RADIMCOM_Setup_v<version>.exe` installs RADIMCOM with its own Python (no admin rights, no internet), the USB drivers and DSD-FME as options, and upgrades an installation in place (`data\` stays). **RADIMCOM.exe** shows the page in its own window with the RADIMCOM icon (pinnable to the taskbar) and keeps the server in the tray when the window closes; full screen (F11) and MAIN power switch in the green LED of the logo; the SDR setup (dongles → VFO A–D, IDENTIFY by unplugging, any RTL-SDR dongle renamed in its EEPROM) in the same window. See [Installation](installation.md).
+- **Windows setup and app:** `RADIMCOM_Setup_v<version>.exe` installs RADIMCOM with its own Python (no admin rights, no internet), the USB drivers and DSD-FME as options, and upgrades an installation in place (`data\` stays). **RADIMCOM.exe** shows the page in its own window with the RADIMCOM icon (pinnable to the taskbar) and keeps the server in the tray when the window closes; full screen (F11) and MAIN power switch in the green LED of the logo; the SDR setup is SETTINGS › SDR SOURCES (for a first start without a setup still in the same window: dongles → VFO A–D, IDENTIFY by unplugging, any RTL-SDR dongle renamed in its EEPROM). See [Installation](installation.md).
 - **New version notice:** after each start RADIMCOM checks GitHub for a newer version and shows it with a link to its setup; run the setup into the same folder, `data\` and the settings stay. A red RADIMCOM logo shows that a newer version is available; a click on it opens the release page.
   See [Data folder](development.md#data-folder-data).
 
@@ -53,7 +71,12 @@
 
 | Decoder | What it decodes | Details | SDR | More |
 |---|---|---|---|---|
-| **FT8** | FT8 on the HF ham bands (160–10 m); next to the table a **station map** (▲ by the locator in the messages, last 10 min … 24 h, list of stations with distance, our report as a coloured chip, faint WW locator grid, also in a new tab) | band buttons; the PC clock must be accurate (±1 s) | all | [DECODE](controls.md#function-keys) |
+| **FT8** | FT8 on the HF ham bands (160–10 m); next to the table a **station map** (▲ by the locator in the messages, last 10 min … 24 h, list of stations with distance, our report as a coloured chip, faint WW locator grid, also in a new tab) | band buttons; the PC clock must be accurate (±1 s): its offset against NTP is shown with a SYNC key | all | [DECODE](controls.md#function-keys) |
+| **MSK144** | Meteor scatter (WSJT-X MSK144) on 6 m, 2 m, 1.25 m and 70 cm: each ping decoded at once, no time slots, no PC clock | own decoder (LDPC + CRC-13), band keys, log, the same message in 10 s one row | all | [MSK144](decoders/msk144.md) |
+| **GRAVES** | Echoes of the GRAVES radar (143.050 MHz): meteors counted per hour and day, head echoes, satellites identified from their orbital elements, aircraft looked up on adsb.fi | fine waterfall 1 Hz × 16 ms (±250 Hz … ±8 kHz, 10 s … 1 h), AFC, detail and sound of each echo (a satellite as a tone following its Doppler), marked echoes, weak echoes (FAST, SAT·TLE, SAT·LINES), 48 h and yearly charts with the showers, TUNE and rotor POINT to GRAVES, log | all (2 m) | [GRAVES](decoders/meteors.md) |
+| **Q65 / JT65** | The slow weak-signal modes of WSJT-X: JT65 on HF and EME, Q65 for scatter and EME on 6 m and above | jt9 of WSJT-X 2.7.0, whole T/R periods from their UTC start (Q65 15–300 s, A–E; JT65 60 s, A–C), band keys, progress bar, PC clock with SYNC, log | all | [Q65 / JT65](decoders/q65.md) |
+| **BPSK** | Telemetry of BPSK satellites at 1200–9600 Bd: AO-40 FEC of the FUNcube family (with the FUNcube-1 telemetry) and AX.25 (plain or G3RUH) | own decoder, finds the carrier within ±3 / 6 / 12 kHz and follows its Doppler, satellite keys, bytes of each frame, log | all | [BPSK](decoders/bpsk.md) |
+| **WSPR** | WSPR beacons on 160 m – 6 m (2-minute cycles, down to about −28 dB); next to the table a **station map** like FT8 | via wsprd of WSJT-X 2.7.0; band keys, recording progress, PC clock offset with SYNC; stations also in PROPAGATION | all | [WSPR](decoders/wspr.md) |
 | **WEFAX** | radio fax (DWD, Northwood…) | automatic format detection (LPM / IOC), slant correction (SLANT, ALIGN), AFC that retunes the VFO onto the signal, gallery of saved images | all | [DECODE](controls.md#function-keys) |
 | **CW** | Morse skimmer: up to 16 stations in the passband (or ±3.4 kHz) decoded at once | soft decoder: matched filter, Kalman fading tracker, Viterbi keying, beam search over the readings; learns the operator's timing (paddle / bug / straight key, Farnsworth); table of the stations with calls and their text (a click opens the whole text and the operator profile), text coloured by confidence, stations in the spectrum; text also in the audio spectrum bubble | all | [CW](decoders/cw.md) |
 | **RTTY** | Baudot | automatic shift 90–1000 Hz, speed 45.45 / 50 / 75 / 100 Bd and polarity; teletype-style terminal, tuning indicators CROSS / WF (click = tune) / BARS / EYE, known stations | all | [DECODE](controls.md#function-keys) |
@@ -72,6 +95,28 @@
 
 ACARS and VDL2 messages show the aircraft type, flight level, speed and squawk from adsb.fi / adsb.lol (emergency squawks 7500, 7600, 7700 framed in red)
 and the country flag from the ICAO address; a click on a message pauses the list. Every decoder card has a LOG checkbox for a daily log.
+
+### Decoder maps
+
+The maps of FT8, WSPR, PACKET, ACARS / VDL2, HFDL, ADS-B, AIS and SONDE keep their **view** (centre and zoom, per map, in the
+browser): it comes back after a switch of the VFO or tab and after a reload, and new data no longer fits the map to the
+marks again. A click on a mark, or on its label (call, flight, serial), opens its **bubble** (dark, in the style of the page) and draws a **red dotted line from
+the QTH** to it: on FT8, WSPR and SONDE to the selected station / sonde (the distance and azimuth in its bubble), on
+PACKET, ACARS / VDL2, HFDL, AIS and ADS-B to the mark whose bubble is open, with the distance and azimuth in the middle
+of the line, following a moving plane or ship until the bubble closes. The VDL2, HFDL, ADS-B and SONDE maps have switches in the top right corner (the COMPOSITE map has its own
+[map settings](composite.md#map-settings)):
+
+- **Precipitation:** the RainViewer radar (no position sent, only the map tiles), the last 30 minutes as an animation
+  (frames every 10 minutes, the newest held a moment; its time in the bottom left corner with an opacity slider,
+  10–100 %, 60 % by default, remembered per map), refreshed every 5 minutes; sharp up to zoom 7. Off by default.
+- **Trails** (aircraft maps): the tracks of the aircraft on / off. On by default.
+
+### COMPOSITE
+
+**COM** key (group DECODE): one map with the positions from the decoders of **all VFOs** (ADS-B, ACARS / VDL2, HFDL, AIS,
+SONDE), sources to pick, the same aircraft from more VFOs / decoders joined into one (ICAO, registration, flight number in
+IATA / ICAO form, uncommon squawk), details of the selected aircraft, ship or sonde on the right with all its sources,
+6 hours of history kept over a server restart, also in a new tab, the merged feed as JSON. See [COMPOSITE map](composite.md).
 
 ## UI features
 
@@ -102,7 +147,7 @@ and the country flag from the ICAO address; a click on a message pauses the list
 - **DECODERS tab** with a page for each decoder, and the **SATELLITES** tab (also the **SAT** key), which shows the active linear, FM, image and other satellites from AMSAT, with clickable links.
 - **AD (additional display)** under the S-meter: error messages (red, accepted by OK, the frame blinks), the rotor AZ / EL (MONITOR), DAB now on air (station, SNR, running DLS text) or RDS, by this priority.
 - **DEFAULT keys** by each group of adjustable values (AGC+, DC peak, SP, S9, HPF / LPF, AFI, DNR, ASQ margin, wheel speed, waterfall colours, scan options) set them back to their defaults.
-- **SETTINGS tab** (gear key) split into **GENERAL** (the whole station: SKINS, S-METER, TUNING (touchpad speed, automatic LSB / USB on ham bands, AM on shortwave broadcast bands), LOCATION – station locator or latitude / longitude, also chosen on a map, used by the satellites, packet, HFDL and AIS; ANTENNAS – the antennas of the station with their frequency range, each VFO picks its antenna and ANT in the VFO window turns amber outside its range) and **VFO** (keys VFO-A … VFO-D on the left, the lit one joined to its card: SDR DONGLE with a block diagram of the receive chain, ADVANCED with the list of dongles and their VFOs, SP, AGC+ and the S9 calibration, AUDIO, TX) and **STATION** (a live scheme of the whole receiver: QTH, rotor, Doppler, audio, and one row per VFO from the antenna through the dongle, gain with the AGC+ loop, filter, demodulator and audio blocks to the output and the decoders); **MEMORIES tab** (MEM key) with the pages CHANNELS (also the list to recall from), GROUPS, IMPORT, EXPORT.
+- **SETTINGS tab** (gear key) split into **GENERAL** (the whole station: SKINS, S-METER, TUNING (touchpad speed, automatic LSB / USB on ham bands, AM on shortwave broadcast bands), LOCATION – station locator or latitude / longitude, also chosen on a map, used by the satellites, packet, HFDL and AIS; ANTENNAS – the antennas of the station with their frequency range, each VFO picks its antenna and ANT in the VFO window turns amber outside its range; RECORDINGS – the folder; SPOTS – FT8 to PSK Reporter and WSPR to WSPRnet; BACKUP – the settings of the station to a ZIP and back, factory reset), **SDR SOURCES** (the sources dragged onto VFO A–D), **VFO** (keys VFO-A … VFO-D on the left, the lit one joined to its card: RX CHAIN with a block diagram of the receive chain and the source, ADVANCED with SP, AGC+ (smart clipping and LINEARITY) and the S9 calibration, AUDIO, TX), **RTL_TCP SERVER**, **DATA/LOG** (logs and data files), **DEBUG** (where RADIMCOM spends its time, as text to copy; see [DEBUG](controls.md#debug)) and **STATION** (a live scheme of the whole receiver: QTH, rotor, Doppler, audio, and one row per VFO from the antenna through the dongle, gain with the AGC+ loop, filter, demodulator and audio blocks to the output and the decoders); **MEMORIES tab** (MEM key) with the pages CHANNELS (also the list to recall from), GROUPS, IMPORT, EXPORT.
 - **Clock** in local time or UTC (a click switches), with the date under it.
 - **The page scales with the browser window** (laid out for at least 1920 × 820 px), so the layout does not reflow in small windows.
 

@@ -101,9 +101,11 @@ def make_upgrade(full_zip):
     print(f"{out}: {n + 2} files, {os.path.getsize(out) / 1e6:.1f} MB")
 
 
-CODE = ["app.py", "launcher.py", "paths.py", "serverlog.py", "sdr.py", "gainctl.py", "autotune.py", "lime.py", "airspy.py", "rds.py", "cw.py", "rtty.py", "packet.py", "pocsag.py", "sonde.py", "sonde_ext.py", "sonde_sites.py", "wind.py", "aprs.py", "daylog.py", "ft8.py", "wefax.py", "sstv.py", "acars.py", "cpdlc.py", "cpdlc_schema.py", "adsc.py", "vdl2.py", "hfdl.py", "ais.py", "adsb.py", "tonesq.py", "scanner.py", "airports.py", "dab.py", "ism.py", "dsd.py", "recorder.py", "iqrec.py", "install_dsd.py", "install_dsd.bat",
-        "memories.py", "satellites.py", "update_check.py", "sattrack.py", "satplan.py", "location.py", "antennas.py", "sysload.py", "rotor.py", "iqshare.py", "eeprom_tool.py", "setup_sdr.py", "setup_web.py", "start.bat", "setup.bat", "README.md", "CHANGELOG.md",
-        "LICENSE", "NOTICE.md", "API/API.md"]
+CODE = ["app.py", "launcher.py", "paths.py", "serverlog.py", "sdr.py", "gainctl.py", "autotune.py", "lime.py", "airspy.py", "rds.py", "cw.py", "rtty.py", "packet.py", "pocsag.py", "sonde.py", "sonde_ext.py", "sonde_sites.py", "wind.py", "aprs.py", "daylog.py", "ft8.py", "wspr.py", "clocksync.py", "spyserver.py", "sources.py", "backup.py", "countries.json", "wefax.py", "sstv.py", "acars.py", "cpdlc.py", "cpdlc_schema.py", "adsc.py", "vdl2.py", "hfdl.py", "ais.py", "adsb.py", "tonesq.py", "scanner.py", "airports.py", "dab.py", "ism.py", "dsd.py", "recorder.py", "iqrec.py", "install_dsd.py", "install_dsd.bat",
+        "memories.py", "datafiles.py", "satellites.py", "update_check.py", "sattrack.py", "moon.py", "satplan.py", "audiofx.py", "nrx.py", "wfcomp.py", "imd.py", "msk144.py", "msk144_ldpc.py", "q65.py", "bpsk.py", "funcube.py", "vectormaps.py", "spotting.py", "meteor.py", "meteor_sat.py", "meteor_air.py", "meteor_store.py", "meteor_audio.py", "meteor_fine.py", "meteor_weak.py", "dbgstats.py", "retro.py", "sunnoise.py", "location.py", "antennas.py", "sysload.py", "rotor.py", "iqshare.py", "eeprom_tool.py", "setup_sdr.py", "setup_web.py", "rtltcp.py", "spacewx.py", "dxcluster.py", "start.bat", "setup.bat", "README.md", "CHANGELOG.md",
+        "LICENSE", "NOTICE.md", "API/API.md",
+        # rtl_tcp server for a Raspberry Pi (brjanicek): install script + manager, also pushed by the UPDATE key (rtltcp.latest_manager)
+        "rpi/install_rtltcp.sh", "rpi/rtltcp_manager.py"]
 LIBS = ["lib/librtlsdr.dll", "lib/libusb-1.0.dll"]
 # VDL2: dumpvdl2 built with MSYS2 (see installer/VDL2.txt), with its MSYS2 runtime DLLs
 LIBS += ["lib/vdl2/" + f for f in ("dumpvdl2.exe", "msys-2.0.dll", "msys-acars-2-2.dll", "msys-gcc_s-seh-1.dll",
@@ -114,6 +116,10 @@ LIBS += sorted("lib/dab/" + f for f in os.listdir(os.path.join(ROOT, "lib", "dab
                if f.lower().endswith((".exe", ".dll"))) if os.path.isdir(os.path.join(ROOT, "lib", "dab")) else []
 # ISM: the static rtl_433 of its release (see installer/ISM.txt), no DLLs needed
 LIBS += ["lib/ism/rtl_433.exe"]
+# WSPR: wsprd of WSJT-X 2.7.0 built with MSYS2 UCRT64, static (installer/build_wspr.sh, see installer/WSPR.txt)
+LIBS += ["lib/wspr/wsprd.exe"] if os.path.isfile(os.path.join(ROOT, "lib", "wspr", "wsprd.exe")) else []
+# Q65 / JT65: jt9 of WSJT-X 2.7.0 built with MSYS2 UCRT64, static (installer/build_jt9.sh, see installer/JT9.txt)
+LIBS += ["lib/jt9/jt9.exe"] if os.path.isfile(os.path.join(ROOT, "lib", "jt9", "jt9.exe")) else []
 # HFDL: dumphfdl built with MSYS2 (installer/build_hfdl.sh, see installer/HFDL.txt) with its DLLs and ground station table
 LIBS += sorted("lib/hfdl/" + f for f in os.listdir(os.path.join(ROOT, "lib", "hfdl"))
                if f.lower().endswith((".exe", ".dll", ".conf"))) if os.path.isdir(os.path.join(ROOT, "lib", "hfdl")) else []
@@ -192,14 +198,30 @@ def build_shell(out_dir):
         sys.exit(f"missing {CSC} (.NET Framework 4.x)")
     with zipfile.ZipFile(nuget("microsoft.web.webview2", WEBVIEW2_VERSION)) as z:
         for name, member in WEBVIEW2_FILES.items():
-            with z.open(member) as s, open(os.path.join(out_dir, name), "wb") as d:
-                shutil.copyfileobj(s, d)
+            dst = os.path.join(out_dir, name)
+            new = z.read(member)
+            # the same DLL is kept: a running RADIMCOM.exe holds it (--exe while RADIMCOM runs)
+            if os.path.exists(dst):
+                with open(dst, "rb") as f:
+                    if f.read() == new:
+                        continue
+            with open(dst, "wb") as d:
+                d.write(new)
         with z.open("LICENSE.txt") as s, open(os.path.join(out_dir, "WebView2_LICENSE.txt"), "wb") as d:
             shutil.copyfileobj(s, d)
     refs = ["System.dll", "System.Drawing.dll", "System.Windows.Forms.dll", "System.Web.Extensions.dll",
             os.path.join(out_dir, "Microsoft.Web.WebView2.Core.dll"), os.path.join(out_dir, "Microsoft.Web.WebView2.WinForms.dll")]
     cmd = [CSC, "-nologo", "-target:winexe", "-platform:x64", "-optimize+", "-out:" + os.path.join(out_dir, "RADIMCOM.exe"),
            "-win32icon:" + ICON, "-resource:" + ICON + ",radimcom.ico"] + ["-r:" + r for r in refs] + [os.path.join(HERE, "shell", "RADIMCOM.cs")]
+    exe = os.path.join(out_dir, "RADIMCOM.exe")
+    if os.path.exists(exe):
+        # a running RADIMCOM.exe cannot be overwritten, but renamed: the new one is used at its next start
+        try:
+            if os.path.exists(exe + ".old"):
+                os.remove(exe + ".old")
+            os.replace(exe, exe + ".old")
+        except OSError:
+            pass
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode:
         sys.exit("csc failed:\n" + r.stdout + r.stderr)
@@ -303,6 +325,8 @@ def stage(build):
     copy(os.path.join(HERE, "DAB.txt"), "lib/dab/README.txt", build)     # licences and sources of welle-cli
     copy(os.path.join(HERE, "ISM.txt"), "lib/ism/README.txt", build)     # licences and sources of rtl_433
     copy(os.path.join(HERE, "HFDL.txt"), "lib/hfdl/README.txt", build)   # licences and sources of dumphfdl
+    copy(os.path.join(HERE, "WSPR.txt"), "lib/wspr/README.txt", build)   # licence and sources of wsprd
+    copy(os.path.join(HERE, "JT9.txt"), "lib/jt9/README.txt", build)     # licence and sources of jt9
     shutil.copytree(os.path.join(ROOT, "static"), os.path.join(build, "static"))
     for dst, src in EXTERNAL.items():
         copy(src, dst, build)

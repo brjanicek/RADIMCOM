@@ -1,6 +1,6 @@
 """Antennas of the station (SETTINGS › GENERAL › ANTENNAS), shared by all VFOs: file data\\antennas.json.
 
-Each VFO says which antenna it uses (cfg["antenna"] = the id of an antenna here, "" = not set; SETTINGS › VFO › SDR DONGLE).
+Each VFO says which antenna it uses (cfg["antenna"] = the id of an antenna here, "" = not set; SETTINGS › VFO › RX CHAIN).
 The page lights ANT in the VFO window while the tuned frequency is within the range of that antenna and shows it amber
 outside of it. Later the community (MQTT) sends the antenna with the VFO settings, so others know what it was received on.
 

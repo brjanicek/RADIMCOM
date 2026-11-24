@@ -49,6 +49,7 @@ namespace Radimcom
             Id = id;
             bool tray = Array.IndexOf(args, "--tray") >= 0;
             Shell.StartFullArg = Array.IndexOf(args, "--fullscreen") >= 0;
+            Shell.StartWindowArg = Array.IndexOf(args, "--window") >= 0;
             Shell.StartSetupArg = Array.IndexOf(args, "--setup") >= 0;
             bool created;
             if (Array.IndexOf(args, "--exit") >= 0)
@@ -269,6 +270,7 @@ namespace Radimcom
             MinimumSize = new Size(640, 120);       // low: the head alone (lower part hidden) is wide and low
             StartPosition = FormStartPosition.Manual;
             LoadPlacement();
+            if (!hidden) BeginSplash();             // small while the server starts, full size when it is ready
 
             tray = new NotifyIcon();
             tray.Icon = Icon;
@@ -281,7 +283,7 @@ namespace Radimcom
             menu.Items.Add("Data folder", null, (s, e) => OpenPath(Path.Combine(Program.Base, "data")));
             menu.Items.Add("Server log", null, (s, e) => OpenLog());
             menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add("SDR setup…", null, (s, e) => EnterSetup());
+            // 1.1beta2: no "SDR setup…" here any more, it is SETTINGS › SDR SOURCES of the page (RADIMCOM.exe --setup stays)
             var miStart = menu.Items.Add("Start server", null, (s, e) => StartServer());
             var miStop = menu.Items.Add("Stop server", null, (s, e) => StopServer());
             var miRestart = menu.Items.Add("Restart server", null, (s, e) => RestartServer());
@@ -355,7 +357,11 @@ namespace Radimcom
             BeginInvoke(new Action(async () =>
             {
                 var w = InitWeb();         // finishes only when the window is shown (the control needs its handle)
-                if (StartSetupArg) EnterSetup();
+                // --setup, or no configuration yet (no data\vfos.json: a new installation, a factory reset): the SDR setup
+                // first; a server already answering elsewhere (start.bat) is attached to as before
+                bool noSetup = !File.Exists(Path.Combine(Program.Base, "data", "vfos.json"))
+                               && !await Task.Run(() => Answers(port, 800));
+                if (StartSetupArg || noSetup) EnterSetup();
                 else await StartOrAttach();
                 await w;
             }));
@@ -376,6 +382,7 @@ namespace Radimcom
             {
                 // no WebView2 runtime (very old Windows 10 without updates): the page opens in the browser instead
                 webOk = false;
+                EndSplash(false);
                 Controls.Remove(web);
                 var l = new Label();
                 l.Dock = DockStyle.Fill;
@@ -408,6 +415,14 @@ namespace Radimcom
         {
             if (exiting) return;
             if (setupMode) { ShowWindow(); return; }
+            // 1.1beta2: with RADIMCOM running, the SDR setup is SETTINGS › SDR SOURCES of the page (sources.py: only the
+            // changed VFOs restart); this window with setup_web.py stays for a start without a working setup
+            if (ready && webOk && web.CoreWebView2 != null)
+            {
+                ShowWindow();
+                web.CoreWebView2.Navigate(Url + "?settings=src");
+                return;
+            }
             int p = port;
             if (!ownServer && (ready || await Task.Run(() => Answers(p, 800))))
             {
@@ -446,16 +461,29 @@ namespace Radimcom
             if (!setupServer.Running || !setupMode) return;
             setupReady = true;
             tray.Text = "RADIMCOM: SDR setup";
+            // the SDR setup in a window in the middle of the screen, not full screen; afterwards the receiver comes
+            // back as the window was before (full screen unless --window)
+            setupFromFull = fullScreen || (splash ? splashToFull : false);
+            EndSplash(false);
+            if (fullScreen) SetFullScreen(false);
+            WindowState = FormWindowState.Normal;
+            var wa = Screen.FromControl(this).WorkingArea;
+            var sz = new Size(Math.Min(1280, wa.Width - 80), Math.Min(900, wa.Height - 60));
+            Bounds = new Rectangle(wa.X + (wa.Width - sz.Width) / 2, wa.Y + (wa.Height - sz.Height) / 2, sz.Width, sz.Height);
             Home();
         }
 
         /// <summary>The wizard saved (or was cancelled / closed): it ends and the receiver starts with the new vfos.json.</summary>
+        bool setupFromFull = true;     // the window was full screen before the SDR setup (it comes back so after it)
+
         async void LeaveSetup()
         {
             if (!setupMode) return;
             setupMode = false;
             setupReady = false;
-            Page(Html("Starting RADIMCOM…", "The receivers open their SDR dongles.", true));
+            SplashAgain();                  // the small splash while the receiver starts, then the window as before the setup
+            splashToFull = setupFromFull;
+            Page(StartingHtml());
             await Task.Run(() => setupServer.Stop(3000));
             if (exiting) return;
             ReadPort();
@@ -499,7 +527,7 @@ namespace Radimcom
                 else if (m == "power-off") ExitAll();
                 else if (m == "setup-done") LeaveSetup();
                 else if (m == "start-server") StartServer();
-                else if (m == "hello") TellFullScreen();
+                else if (m == "hello") { SplashPageReady(); TellFullScreen(); }
                 else if (m.StartsWith("aspect:")) SetAspect(m.Substring(7));
             };
         }
@@ -520,16 +548,102 @@ namespace Radimcom
             return (u.Port == port || u.Port == SetupPort) && (u.Host == "localhost" || u.Host == "127.0.0.1");
         }
 
-        // full screen: no frame, over the taskbar, on the monitor the window is on; remembered in window.txt
+        // full screen: no frame, over the taskbar, on the monitor the window is on. RADIMCOM always starts in full screen
+        // (1.1beta1); F11 / the key beside the logo goes to the window (its place and size remembered in window.txt).
         bool fullScreen;
-        bool startFull;                       // full screen at the last exit (window.txt)
-        public static bool StartFullArg;      // RADIMCOM.exe --fullscreen
+        bool startFull;                       // full screen at the last exit (window.txt) – no longer decides the start
+        public static bool StartFullArg;      // RADIMCOM.exe --fullscreen (the default now, kept for old shortcuts)
+        public static bool StartWindowArg;    // RADIMCOM.exe --window: start in the window instead
         FormWindowState savedState = FormWindowState.Normal;
 
         protected override void OnShown(EventArgs e)
         {
             base.OnShown(e);
-            if (startFull || StartFullArg) SetFullScreen(true);
+            if (!splash && !StartWindowArg) SetFullScreen(true);   // during the splash: EndSplash does it
+        }
+
+        // ---- start-up splash (1.1beta1): while the server starts ("The receivers open their SDR dongles"), a small
+        // window without a frame in the middle of the screen; when the page is ready (or the SDR setup), it grows to
+        // full screen (--window: to the remembered window). An error page shows in the remembered window.
+        bool splash;
+        Label splashLabel;                  // in place of the hidden web view while the page loads behind the splash
+        System.Windows.Forms.Timer splashTimer;
+
+        void SplashWaitPage()
+        {
+            splashLabel = new Label();
+            splashLabel.Dock = DockStyle.Fill;
+            splashLabel.BackColor = BackColor;
+            splashLabel.ForeColor = Color.FromArgb(255, 216, 74);
+            splashLabel.Font = new Font("Segoe UI", 16f, FontStyle.Regular);
+            splashLabel.TextAlign = ContentAlignment.MiddleCenter;
+            splashLabel.Text = "Starting RADIMCOM…";
+            Controls.Add(splashLabel);
+            splashLabel.BringToFront();         // covers the web view, which keeps loading and laying out the page
+            // the page does not say "hello" (an old page, a script error): full screen after a while anyway
+            splashTimer = new System.Windows.Forms.Timer();
+            splashTimer.Interval = 10000;
+            splashTimer.Tick += (s, e) => SplashPageReady();
+            splashTimer.Start();
+        }
+
+        void SplashPageReady()
+        {
+            if (splashLabel == null) return;
+            splashTimer.Stop();
+            splashTimer.Dispose();
+            splashTimer = null;
+            EndSplash(true);
+            Controls.Remove(splashLabel);
+            splashLabel.Dispose();
+            splashLabel = null;
+        }
+        FormWindowState splashState = FormWindowState.Normal;   // the remembered state (maximized) for after the splash
+        static readonly Size SplashSize = new Size(520, 230);
+
+        bool splashToFull = true;   // after the splash: full screen (start: unless --window; restart: as it was before)
+
+        void BeginSplash()
+        {
+            splash = true;
+            splashToFull = !StartWindowArg;
+            splashState = WindowState;
+            WindowState = FormWindowState.Normal;
+            MinimumSize = Size.Empty;
+            FormBorderStyle = FormBorderStyle.None;
+            var wa = Screen.FromRectangle(lastBounds).WorkingArea;
+            Bounds = new Rectangle(wa.X + (wa.Width - SplashSize.Width) / 2, wa.Y + (wa.Height - SplashSize.Height) / 2,
+                                   SplashSize.Width, SplashSize.Height);
+        }
+
+        void EndSplash(bool full)
+        {
+            if (!splash) return;
+            splash = false;
+            FormBorderStyle = FormBorderStyle.Sizable;
+            MinimumSize = new Size(640, 120);
+            Bounds = lastBounds;
+            WindowState = splashState;
+            SetWindowIcons();
+            if (full && splashToFull && Visible) SetFullScreen(true);
+        }
+
+        /// <summary>Restart / start of the server from the tray or the page: the small splash again, like at the start;
+        /// afterwards the window comes back as it was (full screen or the window).</summary>
+        void SplashAgain()
+        {
+            if (splash || !Visible || !webOk || WindowState == FormWindowState.Minimized) return;
+            bool wasFull = fullScreen;
+            FormWindowState before = WindowState;
+            if (fullScreen)
+            {
+                fullScreen = false;
+                before = savedState;
+                WindowState = FormWindowState.Normal;
+            }
+            BeginSplash();
+            splashState = before;
+            splashToFull = wasFull;
         }
         void SetFullScreen(bool on)
         {
@@ -620,7 +734,7 @@ namespace Radimcom
         async Task StartOrAttach()
         {
             ready = false;
-            Page(Html("Starting RADIMCOM…", "The receivers open their SDR dongles.", true));
+            Page(StartingHtml());
             int p = port;
             if (await Task.Run(() => Answers(p, 800)))
             {
@@ -652,6 +766,15 @@ namespace Radimcom
                 tray.Text = "RADIMCOM";
             }
             ready = true;
+            if (splash && webOk && Visible)
+            {
+                // the page loads behind the splash (a label covers the web view); the window grows to full
+                // screen only when the page says "hello" – no splash text and no half-built page in full screen
+                SplashWaitPage();
+                Home();
+                return;
+            }
+            EndSplash(true);
             if (webOk) { if (Visible) Home(); }
             else if (initDoneWeb && !startHidden) OpenUrl(Url);
         }
@@ -661,6 +784,22 @@ namespace Radimcom
         void ServerExited(int code)
         {
             if (server.Stopping || exiting) return;
+            if (code == 75)
+            {
+                // the server asked for a restart (backup.py: factory reset, RESTART_CODE): it starts again like at the start;
+                // without data\vfos.json (no dongles assigned) the SDR setup comes first, as at the end of an installation
+                if (!File.Exists(Path.Combine(Program.Base, "data", "vfos.json")))
+                {
+                    ready = false;
+                    EnterSetup();
+                    return;
+                }
+                SplashAgain();
+                Page(StartingHtml("Restarting RADIMCOM…"));
+                busy = true;
+                BeginInvokeSafe(async () => { try { await StartOrAttach(); } finally { busy = false; } });
+                return;
+            }
             Page(Html("The RADIMCOM server has ended", "Exit code " + code + ". Its output (also in data\\server_logs):\n\n"
                       + server.Tail(), false));
             ShowWindow();
@@ -669,13 +808,34 @@ namespace Radimcom
         void Page(string html)
         {
             status = html;
-            if (html.Contains("<pre>")) ready = false;
+            if (html.Contains("<pre>")) { ready = false; EndSplash(false); }   // an error: its text needs room
             if (webOk && web != null && web.CoreWebView2 != null) web.CoreWebView2.NavigateToString(html);
         }
 
         static string Esc(string s)
         {
             return (s ?? "").Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
+        }
+
+        /// <summary>The start-up splash: "Starting RADIMCOM…" with the animated RADIMCOM icon after it, nothing more.</summary>
+        string StartingHtml(string title = "Starting RADIMCOM…")
+        {
+            string img = "";
+            try
+            {
+                img = "data:image/png;base64," + Convert.ToBase64String(File.ReadAllBytes(Path.Combine(Program.Base, "static", "favicon.png")));
+            }
+            catch (Exception) { }
+            return "<!doctype html><html><head><meta charset='utf-8'><style>"
+                + "html,body{margin:0;height:100%;background:#0a1422;color:#dfe8f3;font:15px system-ui,Segoe UI,sans-serif}"
+                + "main{height:100%;display:flex;align-items:center;justify-content:center;gap:16px}"
+                + "h1{margin:0;font-weight:600;font-size:22px;color:#ffd84a}"
+                + "img{width:44px;height:44px;animation:p 1.6s ease-in-out infinite}"
+                + "@keyframes p{0%,100%{transform:scale(.88);filter:drop-shadow(0 0 2px rgba(255,216,74,.2)) brightness(.85)}"
+                + "50%{transform:scale(1.06);filter:drop-shadow(0 0 12px rgba(255,216,74,.75)) brightness(1.25)}}"
+                + "</style></head><body><main><h1>" + Esc(title) + "</h1>"
+                + (img != "" ? "<img src='" + img + "' alt=''>" : "")
+                + "</main></body></html>";
         }
 
         string Html(string title, string text, bool busy)
@@ -728,7 +888,7 @@ namespace Radimcom
         bool fitting;
         void FitAspect()        // height to the width (or narrower when too high for the screen)
         {
-            if (aspect <= 0 || fitting || WindowState != FormWindowState.Normal || fullScreen || !Visible) return;
+            if (aspect <= 0 || fitting || WindowState != FormWindowState.Normal || fullScreen || splash || !Visible) return;
             if (ClientSize.Height > 0 && Math.Abs((double)ClientSize.Width / ClientSize.Height - aspect) / aspect < 0.01) return;
             fitting = true;
             try { FitAspectNow(); } finally { fitting = false; }
@@ -749,7 +909,7 @@ namespace Radimcom
 
         protected override void WndProc(ref Message m)
         {
-            if (m.Msg == 0x0214 && aspect > 0 && !fullScreen && WindowState == FormWindowState.Normal)    // WM_SIZING
+            if (m.Msg == 0x0214 && aspect > 0 && !fullScreen && !splash && WindowState == FormWindowState.Normal)    // WM_SIZING
             {
                 var r = (RECT)Marshal.PtrToStructure(m.LParam, typeof(RECT));
                 int ncW = Width - ClientSize.Width, ncH = Height - ClientSize.Height;
@@ -769,6 +929,7 @@ namespace Radimcom
         protected override void OnResize(EventArgs e)
         {
             base.OnResize(e);
+            if (splash) return;   // the splash size is not the window's
             if (WindowState != FormWindowState.Minimized) lastState = WindowState;
             if (WindowState == FormWindowState.Normal && Visible && !fullScreen) lastBounds = Bounds;
             // restored from maximized / full screen, Aero snap...: back to the ratio of the page (not during a drag,
@@ -780,7 +941,7 @@ namespace Radimcom
         protected override void OnMove(EventArgs e)
         {
             base.OnMove(e);
-            if (WindowState == FormWindowState.Normal && Visible && !fullScreen) lastBounds = Bounds;
+            if (WindowState == FormWindowState.Normal && Visible && !fullScreen && !splash) lastBounds = Bounds;
         }
 
         protected override void OnFormClosing(FormClosingEventArgs e)
@@ -841,6 +1002,7 @@ namespace Radimcom
         {
             if (setupMode || busy || exiting || (ownServer && server.Running)) { ShowWindow(); return; }
             ShowWindow();
+            SplashAgain();
             busy = true;
             BeginInvokeSafe(async () => { try { await StartOrAttach(); } finally { busy = false; } });
         }
@@ -885,7 +1047,8 @@ namespace Radimcom
                 MessageBox.Show(this, "The server was started elsewhere (start.bat?); restart it there.", "RADIMCOM");
                 return;
             }
-            Page(Html("Restarting RADIMCOM…", "Stopping the server.", true));
+            SplashAgain();
+            Page(StartingHtml("Restarting RADIMCOM…"));
             var t = new Thread(() =>
             {
                 server.Stop(20000);
@@ -946,7 +1109,7 @@ namespace Radimcom
                 if (lastBounds.Width < 100) return;
                 Directory.CreateDirectory(Path.GetDirectoryName(PlacementFile));
                 File.WriteAllText(PlacementFile, lastBounds.X + " " + lastBounds.Y + " " + lastBounds.Width + " " + lastBounds.Height
-                                  + ((fullScreen ? savedState : WindowState) == FormWindowState.Maximized || (!fullScreen && lastState == FormWindowState.Maximized) ? " max" : "")
+                                  + ((fullScreen ? savedState : splash ? splashState : WindowState) == FormWindowState.Maximized || (!fullScreen && !splash && lastState == FormWindowState.Maximized) ? " max" : "")
                                   + (fullScreen ? " full" : ""));
             }
             catch (Exception) { }

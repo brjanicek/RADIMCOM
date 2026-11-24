@@ -174,18 +174,61 @@ def fix_serials(rtl):
     return True
 
 
-DEVICE_NAMES = {"rtl": "RTL-SDR", "lime": "LimeSDR", "airspy": "Airspy"}
+DEVICE_NAMES = {"rtl": "RTL-SDR", "rtltcp": "rtl_tcp", "lime": "LimeSDR", "airspy": "Airspy", "spyserver": "SpyServer"}
+
+
+def rtltcp_servers():
+    """rtl_tcp servers saved in vfos.json ("rtltcp_servers": ["192.168.1.50", "10.0.0.7:1234"])."""
+    try:
+        with open(VFOS_PATH, encoding="utf-8") as f:
+            return [s for s in json.load(f).get("rtltcp_servers", []) if str(s).strip()]
+    except (OSError, ValueError):
+        return []
+
+
+def normalize_servers(servers):
+    """The network servers with sdr:// added to the SpyServers typed as host:port (told by the protocol, rtltcp.server_kind)."""
+    import rtltcp
+    from concurrent.futures import ThreadPoolExecutor
+    servers = [str(s).strip() for s in servers or [] if str(s).strip()]
+    if not servers:
+        return []
+    with ThreadPoolExecutor(len(servers)) as ex:
+        kinds = list(ex.map(rtltcp.server_kind, servers))
+    return [("sdr://" + s if k == "spyserver" and not s.lower().startswith(rtltcp.SPYSERVER) else s)
+            for s, k in zip(servers, kinds)]
+
+
+def net_devices(servers):
+    """Dongles on rtl_tcp servers and SpyServers (sdr://host:port): ([{driver, serial (= network address), name}], [errors])."""
+    import rtltcp
+    import spyserver
+    devs, errors = [], []
+    servers = normalize_servers(servers)
+    spy = [s for s in servers if str(s).strip().lower().startswith(rtltcp.SPYSERVER)]
+    rtl = [s for s in servers if s not in spy]
+    for driver, found in (("rtltcp", rtltcp.list_devices(rtl)), ("spyserver", spyserver.list_devices(spy))):
+        for d in found:
+            if d.get("error"):
+                errors.append(f"{d['server']}: {d['error']}")
+            else:
+                devs.append({"driver": driver, "serial": d["serial"], "name": d["name"]})
+    return devs, errors
 
 
 def label(d):
     return f"{DEVICE_NAMES[d['driver']]} '{d['serial']}'"
 
 
-def devices():
-    """All connected SDRs: [{driver, serial, name, index (RTL-SDR)}]."""
+def devices(servers=None):
+    """All connected SDRs: [{driver, serial, name, index (RTL-SDR)}], with the dongles of the rtl_tcp servers
+    (servers None = the saved ones)."""
     devs = [dict(d, driver="rtl", name=f"{d.get('vendor', '')} {d.get('product', '')}".strip()) for d in rtl_devices()]
     devs += [dict(d, driver="lime") for d in lime_devices()]
     devs += [dict(d, driver="airspy", name=d.get("name", "Airspy")) for d in airspy_devices()]
+    servers = rtltcp_servers() if servers is None else servers
+    if servers:
+        devs += net_devices(servers)[0]
     return devs
 
 
@@ -289,6 +332,8 @@ def lo_mhz(lo):
 def default_note(driver, upconverter):
     if upconverter:
         return "HF via upconverter"
+    if driver == "spyserver":
+        return "SpyServer"
     return ("" if driver == "rtl" else f"{DEVICE_NAMES[driver]}, ") + "VHF/UHF direct"
 
 
@@ -308,6 +353,10 @@ def make_entry(dev, name, port, ppm=0, lo=None, note=None):
         init.update(gain=35, bias_tee=False, rtl_agc=False)
     elif driver == "airspy":
         init.update(gain=12, bias_tee=False, rtl_agc=False)
+    elif driver == "spyserver":
+        # the band of a shared SpyServer can be narrow (228 kHz): the centre close to the tuned frequency; its gain stays
+        init.update(gain="auto", bias_tee=False, rtl_agc=False, tune_hz=7074000, mode="USB", upconv="off")
+        init["center_hz"] = init["tune_hz"] + 40000
     entry["note"] = default_note(driver, bool(lo)) if note is None else note
     entry["init"] = init
     return entry
@@ -323,9 +372,11 @@ def make_chained(owner, name, port, note=None):
     return entry
 
 
-def save(vfos):
+def save(vfos, servers=None):
     """Writes vfos.json; old VFO settings belong to other dongles: they are moved to data/config_backup/<time>/
     (new ones are created from "init" at the next start). -> the backup folder or None."""
+    if servers is None:
+        servers = rtltcp_servers()
     stamp = time.strftime("%Y%m%d_%H%M%S")
     old = [f for f in os.listdir(DATA) if f == "vfos.json" or (f.startswith("config_") and f.endswith(".json"))]
     bdir = None
@@ -335,7 +386,10 @@ def save(vfos):
         for f in old:
             shutil.move(data(f), os.path.join(bdir, f))
     with open(VFOS_PATH, "w", encoding="utf-8") as f:
-        json.dump({"port": 8434, "vfos": vfos}, f, indent=2, ensure_ascii=False)
+        out = {"port": 8434, "vfos": vfos}
+        if servers:
+            out["rtltcp_servers"] = list(servers)
+        json.dump(out, f, indent=2, ensure_ascii=False)
     return bdir
 
 

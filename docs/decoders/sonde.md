@@ -31,7 +31,7 @@ horizontal speed, direction and climb of the sonde, its flight path on a map, th
    azimuth / elevation from the station, RS41 temperature and humidity, GPS satellites, battery, state: rising, falling after the burst, landed, lost).
    A click on the serial or position opens the **MAP**: a light blue balloon while it rises, a parachute after the burst (yellow ring
    at the highest point), the flight path in green, the station as a red dot; the □ key opens the map in a new tab
-   (`?map=sonde`). **HISTORY OFF / 1D / 7D** in the header of the page, beside SONDES / MAP / FRAMES (one choice for the table and the map): the flights of all VFOs from the
+   (`?map=sonde`); **Precipitation** (animated radar) and **Launch sites** switches in the top right corner, the map keeps its view. **HISTORY OFF / 1D / 7D** in the header of the page, beside SONDES / MAP / FRAMES (one choice for the table and the map): the flights of all VFOs from the
    radiosonde log of the last day / week as thin blue paths with their last point (tooltip: serial, type, frequency, time,
    highest altitude); a click opens the flight like a logged one. A sonde heard now is drawn only once, as itself.
    The choice is remembered in the browser, the list is read again every 5 minutes (`/api/sonde/history?days=1..7`).
@@ -112,6 +112,9 @@ kept in `sonde.py`).
   battery, frequency, VFO). After a server restart the sondes of the last 24 h of that VFO are read back with their
   flight paths (*from log* in SONDES); the list above the profile also offers older logged flights, drawn in the profile and on
   the map.
+- **Selected sonde** in MAP (a click on it, or in the list): orange, a **red dotted line** from the QTH to it and a dark
+  bubble with its altitude, climb, speed, temperature, distance, azimuth and elevation from the QTH; the bubbles of the
+  launch sites are dark too.
 - **Flight prediction** in MAP (red dashed line from the last decoded point, every sonde in the air, also one no longer
   heard): +1 h, +2 h, +3 h after the launch, burst (yellow ring) and landing (✕, time UTC). Wind from the sonde's own flight path in 500 m layers (above the highest one heard the top
   layer is kept, below the lowest one its speed falls off to a half at the ground; a layer heard during the fall

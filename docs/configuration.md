@@ -20,9 +20,51 @@
 ```
 
 - `serial` is the dongle's serial number in EEPROM (for a LimeSDR its serial number, `driver: "lime"`; for an Airspy its 64-bit serial number as 16 hex digits, `driver: "airspy"`).
+  Network sources: `driver: "rtltcp"` with `serial` = `host:port` or `SERIAL@host` (a dongle of an rtl_tcp server), and
+  `driver: "spyserver"` with `serial` = `host:port` (an Airspy SpyServer). The servers to look at are in
+  `"rtltcp_servers"` (SpyServers as `sdr://host:port`).
 - `port` is the port of that VFO's receiver. The page talks to it directly.
 - `config` is the VFO settings file. On first start it is created from `config.json` plus the values from `init`.
   After that each VFO remembers its own tuning, mode, filters, squelch, gain and ppm.
+
+## SDR SOURCES: assigning sources to VFOs
+
+**SETTINGS › SDR SOURCES** writes `vfos.json` from the running RADIMCOM (the former SDR setup window):
+
+- **Sources:** the local devices (RTL-SDR, LimeSDR, Airspy on USB) and the network ones as cards. A USB dongle open in a running
+  VFO is shown with its USB name, index, tuner and *in use by VFO X* (the VFO reports it; a busy dongle cannot be read over USB).
+  ⟳ looks again.
+- **Network servers:** type their addresses (commas between them) and FIND. A host alone is an rtltcp-manager (all its
+  dongles), `host:port` is asked by its protocol – an rtl_tcp server sends its `RTL0` header at once, a SpyServer waits for the
+  client – so a SpyServer on any port is found and saved as `sdr://host:port`.
+- **DIRECTORY:** the public SpyServers of the Airspy directory (<https://airspy.com/directory/>), sorted by the distance from
+  the QTH, with device, range, IQ rate, clients, full control and antenna; filters for text, device, band, a free slot and full
+  control. A click on a row adds it to the servers and FINDs it.
+- **VFO A–D:** drag a source onto a VFO (or click it, then the VFO); onto a VFO that has one, the two swap; ✕ takes it off.
+  An empty VFO can *share* the dongle of an earlier VFO (chaining) or IDENTIFY a USB dongle by unplugging it. Per VFO:
+  ppm, HF upconverter with its LO (not for a network source) and the name on the VFO key. Each VFO shows RUNNING, STOPPED or
+  CHANGED.
+- **APPLY** writes `vfos.json` and restarts **only the VFOs that change** (a bubble in the middle of the screen shows them
+  starting, then the page reloads); the others keep running. A VFO that keeps its source keeps its settings – frequency,
+  mode, AGC and the rest of `config_X.json` – also when it moves to another letter (two VFOs that swap dongles swap their
+  settings with them); a new ppm or LO restarts only that VFO; a new name restarts nothing. A new source starts from the
+  defaults; the old settings of a changed VFO go to `data\config_backup\<time>\`. **REVERT** goes back to what runs.
+- **SERIAL NUMBERS:** the EEPROM serials of the RTL-SDR dongles (as in the window below); a dongle open in a VFO cannot be
+  written, **STOP USB VFOs** frees them first (APPLY starts them again).
+
+## Network sources: rtl_tcp and SpyServer
+
+- **rtl_tcp** (`driver: "rtltcp"`): an RTL-SDR dongle on another computer, with all its settings over the network; see
+  SETTINGS › RTL_TCP SERVER for the server.
+- **SpyServer** (`driver: "spyserver"`, spyserver.py, own client of the SpyServer protocol): an Airspy SpyServer (Airspy
+  R2 / Mini / HF+ or an RTL-SDR behind it). The VFO uses the rates the server offers; a server with a narrow band (e.g. an
+  HF+ with 228 kHz) is upsampled to at least 0.5 MS/s, and the VFO keeps its tuning inside the real band. On a shared server
+  (no full control) the gain is set by the server and the frequency only inside the band of its owner.
+- In SETTINGS › VFO › RX CHAIN the **Source** card (after the bias-tee) shows the kind, address and device; with a network
+  source the antenna, upconverter LO and bias-tee are greyed (they are at the server), with a shared SpyServer the gain too.
+- **VFO window:** a network icon instead of the USB one. On a SpyServer VFO a **click on the icon pauses** it: RADIMCOM
+  disconnects from the server (no data, the client slot is free for others), the icon turns amber with ⏸; another click
+  connects again with the same settings. The pause is kept over a restart. The tooltip shows the data rate.
 
 ## VFO chaining: one dongle for several VFOs
 
@@ -57,7 +99,7 @@ the device for a VFO is chosen by number or by unplugging it for a moment (the w
 missing). Typing the letter of an earlier VFO (e.g. `A`) chains the new VFO to that VFO's dongle, so one dongle
 can serve several VFOs. Then it asks about the upconverter and ppm and writes `vfos.json`. If the dongles share the same serial
 number (commonly `00000001`), it offers to write a unique number to the EEPROM. Old `vfos.json` and `config_X.json`
-are moved to `data\config_backup\`. The receiver must be stopped during setup.
+are moved to `data\config_backup\`. The receiver must be stopped during setup. With RADIMCOM running, use SETTINGS › SDR SOURCES.
 
 ppm correction can also be set later in the SET menu of each VFO.
 

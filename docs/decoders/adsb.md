@@ -62,7 +62,7 @@ address belongs to an aircraft heard within the last minute (in DF11 or DF17).
 - **MAP**: dark OpenStreetMap, the aircraft turned to their track (yellow; ground = dark yellow; emergency = magenta;
   selected = red; grey after a minute) with flight and altitude, their decoded positions as a white trail, the QTH with
   rings at 50, 100, 200 and 300 km, and the list beside it (a click centres the aircraft and opens its details). The
-  □ key opens the map alone in a new browser tab (`?map=adsb`).
+  □ key opens the map alone in a new browser tab (`?map=adsb`). **Precipitation** (animated radar, last 30 min) and **Trails** switches in the top right corner; the map keeps its view ([Decoder maps](../features.md#decoder-maps)).
 - **RANGE** (a checkbox shown with the MAP): the long-term coverage of the station. Each decoded position is put in a 2°
   sector around the station location; the farthest one in each sector is kept for aircraft up to **10 000 ft** (green),
   **20 000 ft** (yellow), **30 000 ft** (orange) and at any altitude (**max**, violet), and drawn as an outline; a dot marks

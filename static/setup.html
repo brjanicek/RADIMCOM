@@ -58,6 +58,11 @@ label.chk { display: inline-flex; align-items: center; gap: 6px; cursor: pointer
 .tag.rtl { color: var(--green); border-color: rgba(60,240,124,.4); }
 .tag.lime { color: var(--blue); border-color: rgba(111,183,255,.4); }
 .tag.airspy { color: var(--amber); border-color: rgba(255,181,71,.4); }
+.tag.rtltcp { color: var(--green); border-color: rgba(60,240,124,.4); border-style: dashed; }
+.tag.spyserver { color: var(--blue); border-color: rgba(111,183,255,.4); border-style: dashed; }
+.net-line select { background: var(--bg2, #111); color: inherit; border: 1px solid var(--line2); border-radius: 4px; padding: 4px 6px; }
+.net-line { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+.net-line input { flex: 1; min-width: 220px; }
 .footer { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .footer .grow { flex: 1; }
 .spin { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--line2); border-top-color: var(--yellow); border-radius: 50%; animation: r 1s linear infinite; vertical-align: -2px; }
@@ -136,6 +141,13 @@ label.chk { display: inline-flex; align-items: center; gap: 6px; cursor: pointer
       <span class="grow"></span><button class="key" id="refresh">REFRESH</button></h2>
     <div class="pool" id="pool"><span class="spin"></span>&nbsp;<span class="muted">looking for the SDRs…</span></div>
     <div id="devMsg"></div>
+    <div class="net-line"><span class="muted">Network dongles</span>
+      <select id="netKind" title="What the address you add is: an rtl_tcp server (or rtltcp-manager) or an Airspy SpyServer">
+        <option value="rtltcp">rtl_tcp</option><option value="spyserver">SpyServer</option></select>
+      <input type="text" class="mono" id="servers" spellcheck="false" placeholder="e.g. 192.168.1.50, 10.0.0.7:1234"
+        title="rtl_tcp: a host alone = its rtltcp-manager list (all its dongles, rpi/install_rtltcp.sh), host:port = one plain rtl_tcp server. SpyServer: sdr://host:port (port 5555 if left out). Separate several with commas; both kinds can be in the list.">
+      <button class="key" id="addServers">FIND</button></div>
+    <div id="netMsg"></div>
   </section>
 
   <section>
@@ -166,8 +178,8 @@ label.chk { display: inline-flex; align-items: center; gap: 6px; cursor: pointer
 const $ = (id) => document.getElementById(id);
 const wv = window.chrome && window.chrome.webview;      // in RADIMCOM.exe
 const NAMES = "ABCD";
-const TYPE = { rtl: "RTL-SDR", lime: "LimeSDR", airspy: "Airspy" };
-let devs = [], maxVfos = 4, slots = [], picked = "", found = "";
+const TYPE = { rtl: "RTL-SDR", rtltcp: "rtl_tcp", lime: "LimeSDR", airspy: "Airspy", spyserver: "SpyServer" };
+let devs = [], maxVfos = 4, slots = [], picked = "", found = "", serversEdited = false, knownServers = new Set();
 
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const devKey = (d) => d.driver + "|" + d.serial;
@@ -187,8 +199,12 @@ async function api(path, body) {
 async function load(keep) {
   $("pool").innerHTML = '<span class="spin"></span>&nbsp;<span class="muted">looking for the SDRs…</span>';
   let j;
-  try { j = await api("/api/devices"); } catch (e) { box("devMsg", "err", esc(e.message)); return; }
+  const q = serversEdited ? "?servers=" + encodeURIComponent($("servers").value) : "";
+  try { j = await api("/api/devices" + q); } catch (e) { box("devMsg", "err", esc(e.message)); return; }
   devs = j.devices; maxVfos = j.max_vfos;
+  if (!serversEdited) $("servers").value = (j.servers || []).join(", ");
+  knownServers = new Set(j.servers || []);     // the saved ones keep their kind; new ones get the kind chosen
+  box("netMsg", "warn", (j.server_errors || []).map(esc).join("<br>"));
   box("devMsg", devs.length && !j.no_serials ? "" : "warn", !devs.length
     ? `No SDR found. Check the USB connection and the driver (RTL-SDR and Airspy: WinUSB with Zadig, LimeSDR: FTDI D3XX;
        see DRIVERS.txt), then REFRESH.`
@@ -367,8 +383,8 @@ $("slots").addEventListener("click", async (e) => {
   if (!b) return;
   const i = +b.dataset.ident, name = NAMES[i];
   const used = slots.filter((x, k) => k !== i).map((x) => x.dev).filter(isDev);
-  const free = devs.filter((d) => !used.includes(devKey(d)));
-  if (!free.length) { box("identMsg", "warn", "All dongles are on other VFOs. Take one off first (✕)."); return; }
+  const free = devs.filter((d) => !used.includes(devKey(d)) && d.driver !== "rtltcp" && d.driver !== "spyserver");   // network dongles cannot be unplugged here
+  if (!free.length) { box("identMsg", "warn", "All USB dongles are on other VFOs. Take one off first (✕)."); return; }
   document.querySelectorAll("[data-ident]").forEach((x) => { x.disabled = true; });
   b.classList.add("on");
   box("identMsg", "info", `<span class="spin"></span> <b>Unplug the dongle for VFO ${name} now</b> (up to 30 s)…`);
@@ -392,6 +408,18 @@ $("slots").addEventListener("click", async (e) => {
 });
 
 $("refresh").onclick = () => load(true);
+$("servers").addEventListener("input", () => { serversEdited = true; });
+$("servers").addEventListener("keydown", (e) => { if (e.key === "Enter") { netKindApply(); load(true); } });
+$("addServers").onclick = () => { serversEdited = true; netKindApply(); load(true); };
+// rtl_tcp / SpyServer: with SpyServer chosen, the addresses typed without a scheme get sdr:// (the saved list keeps both kinds)
+function netKindApply() {
+  if ($("netKind").value !== "spyserver") return;
+  $("servers").value = $("servers").value.split(/[,;\s]+/).filter(Boolean)
+    .map((a) => (/^[a-z_]+:\/\//i.test(a) || knownServers.has(a) ? a : "sdr://" + a)).join(", ");
+}
+$("netKind").addEventListener("change", () => {
+  $("servers").placeholder = $("netKind").value === "spyserver" ? "e.g. sdr://151.16.226.234:5555 (or host:port)" : "e.g. 192.168.1.50, 10.0.0.7:1234";
+});
 
 $("writeSerials").onclick = async () => {
   const inputs = [...$("serialRows").querySelectorAll("input")];
@@ -447,7 +475,7 @@ $("save").onclick = async () => {
   $("save").disabled = true;
   box("saveMsg", "info", '<span class="spin"></span> saving…');
   try {
-    const j = await api("/api/save", { vfos: list });
+    const j = await api("/api/save", { vfos: list, servers: $("servers").value });
     box("saveMsg", "ok", `Saved: ${j.vfos.map((v) => `VFO ${v.name} = ${esc(v.chain ? "VFO " + v.chain : v.serial)}`).join(", ")}.`
       + (j.backup ? ` Previous settings: <span class="mono">${esc(j.backup)}</span>.` : "")
       + (wv ? " Starting RADIMCOM…" : " Start RADIMCOM now; this page can be closed."));

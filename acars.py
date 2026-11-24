@@ -26,6 +26,7 @@ import urllib.request
 import numpy as np
 
 import cpdlc
+import datafiles
 from paths import data
 from sdr import lowpass
 
@@ -42,7 +43,7 @@ LOOKUP_URLS = ("https://opendata.adsb.fi/api/v2/registration/{}", "https://api.a
 LOOKUP_HEX_URLS = ("https://opendata.adsb.fi/api/v2/hex/{}", "https://api.adsb.lol/v2/hex/{}")
 LOOKUP_CACHE_S = 60          # the position changes: the same registration again after a minute at the earliest
 LOOKUP_GAP_S = 1.1           # adsb.fi allows 1 request per second
-LOG_DIR = data("acars")   # daily logs acars_YYYY-MM-DD.txt and vdl2_YYYY-MM-DD.txt (UTC)
+LOG_DIR = data("logs")    # daily logs acars/YYYY/MM/DD/acars_YYYY-MM-DD.txt, the same for vdl2 (UTC, datafiles.py)
 
 SYNC = 0x011616             # SYN SYN SOH (with parity), received left to right = lower byte first
 SOH, STX, ETX, ETB, DEL = 0x01, 0x82, 0x83, 0x97, 0x7F   # with odd parity
@@ -534,11 +535,12 @@ class AcarsDecoder:
         return [h for h in head if h]
 
     def _write_log(self, m, line):
-        """Classic ACARS decoder -> acars_YYYY-MM-DD.txt, VDL2 decoder -> vdl2_YYYY-MM-DD.txt."""
+        """Classic ACARS decoder -> acars/…/acars_YYYY-MM-DD.txt, VDL2 decoder -> vdl2/…/vdl2_YYYY-MM-DD.txt."""
         name = "vdl2" if m.get("link") == "VDL2" else "acars"
         try:
-            os.makedirs(self.log_dir, exist_ok=True)
-            with self._log_lock, open(os.path.join(self.log_dir, f"{name}_{m['date']}.txt"), "a", encoding="utf-8") as f:
+            folder = datafiles.date_dir(name, m["date"], self.log_dir)
+            os.makedirs(folder, exist_ok=True)
+            with self._log_lock, open(os.path.join(folder, f"{name}_{m['date']}.txt"), "a", encoding="utf-8") as f:
                 f.write(line + "\n")
         except OSError:
             pass

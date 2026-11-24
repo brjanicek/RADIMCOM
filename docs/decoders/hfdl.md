@@ -68,7 +68,7 @@ Best by day on 8–22 MHz, at night on 3–11 MHz (like the HF ham bands).
   last two positions; pointing north while the heading is not known yet), in yellow, labelled with flight and type, with a white trail through the positions it sent over HFDL;
   the selected aircraft and its trail are red, an aircraft without a message for an hour grey; ▲ HFDL ground stations (green = heard) and your QTH (MENU › SETUP › LOCATION). The list beside the map
   selects an aircraft (red, centred, popup with details and adsb.fi / adsb.lol links). The □ key in the top right corner of the
-  map opens the map with its list alone in a new browser tab (live; no audio there).
+  map opens the map with its list alone in a new browser tab (live; no audio there). **Precipitation** (animated radar, last 30 min) and **Trails** switches in the top right corner; the map keeps its view ([Decoder maps](../features.md#decoder-maps)).
 - **LOG** writes `data\logs\hfdl_YYYY-MM-DD.txt` (UTC, one line per message, no squitters).
 
 ## Hardware

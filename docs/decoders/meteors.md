@@ -1,0 +1,179 @@
+[← README](../../README.md) · [Documentation](../README.md)
+
+# GRAVES (meteors, satellites, aircraft)
+
+Echoes of the French space surveillance radar **GRAVES**. Its transmitter near Dijon sends a continuous carrier on
+**143.050 MHz**. From Central Europe (about 900 km away) the transmitter is below the horizon, so it is heard only when
+something reflects the carrier:
+
+- a **meteor trail** about 100 km high: a short echo a few tens of Hz off the carrier (the Doppler); RADIMCOM counts
+  them per hour and per day and marks the meteor showers on a yearly chart;
+- the **meteoroid itself** (a *head echo*): a streak sweeping onto the trail's Doppler just before the trail echo;
+- a **satellite**: a long streak sweeping over hundreds of Hz to kHz, identified from public orbital elements;
+- an **aircraft**: a long echo within ±250 Hz, looked up on adsb.fi.
+
+Modules: `meteor.py` (the detector, classification, detail), `meteor_fine.py` (the fine waterfall), `meteor_sat.py`
+(the wide spectrum, satellite tracks and their identification), `meteor_air.py` (aircraft), `meteor_weak.py` (FAST,
+SAT·TLE, SAT·LINES), `meteor_audio.py` (the sound of the echoes), `meteor_store.py` (the daily log and the marked
+echoes).
+
+## DECODERS › GRAVES
+
+The head of the page: **ON** switches the counter on, **LOG** writes every echo to a daily log
+(`data\logs\meteor\YYYY\MM\DD\meteor_YYYY-MM-DD.txt`, UTC, with the satellite or aircraft found and H for a head echo),
+**i** opens a short guide. The counts are shown on every page next to the tabs: **HOUR**, **PREV** (the previous UTC
+hour), **60 MIN**, **TODAY**, **PLANES** and **SATS** (since the start, not counted as meteors).
+
+### LIVE
+
+- **Waterfall** (fills the height of the block), with the chart under it.
+  - Width: **±250 Hz** and **±500 Hz** are the meteor band in the fine cells of **1 Hz × 16 ms** (below); **±1 kHz** is a
+    part of the wide spectrum (aircraft and slow satellites larger); **±8 kHz** is the wide spectrum where the satellites
+    are looked for (~16 Hz bins).
+  - Time: **10 S**, **30 S**, **1 M**, **2 M**, **10 M**, **1 H**. One column per screen pixel; every 16 ms cell is kept
+    for 3 minutes, longer views take the strongest value of each column. It scrolls smoothly.
+  - ⚙: colour schemes and levels like the main waterfall (*Dark under*, *Full colour at*). A new installation starts
+    with ±500 Hz, 1 minute, Classic, 10 dB and 25 dB.
+  - The ±250 / ±500 Hz views are about **1.3 s behind the sound**: a 1 s frame needs half a second of signal after each
+    moment before its cell is final. The ±1 kHz and ±8 kHz views are about 1.2 s behind (the chart's answers come once a
+    second).
+- **Chart:** the strongest bin over its floor, the threshold **THR** dashed (its value in a frame); the mouse wheel over the
+  chart moves THR by 0.5 dB. Echoes are marked; satellites at the same time each in a lane of their own.
+- **ECHOES**: **NOW** (the last 500 since the start), **DAY…** (an earlier UTC day from the daily log; no detail unless
+  marked) or **★ MARKED** (☆ on a row keeps the echo with its detail and sound for good in `data\meteor_marks\<VFO>`).
+  Filters **ALL**, **METEORS**, **SAT**, **PLANE**, **H** (with a head echo), a minimum SNR, and **CLR** (clears NOW;
+  statistics, log and marks stay). The *Type* column says UNDERDENSE, OVERDENSE, PLANE (flight / registration, a click on
+  it opens the aircraft on adsb.fi), SAT (the satellite found, *?* when none), and how it was found: **HEAD ECHO**,
+  **FAST BURST**, **KNOWN (TLE)**, **UNKNOWN LINE** / **LINE**.
+- **Detail** (a click on a row):
+  - a meteor: the fine cells (1 Hz × 16 ms) around its Doppler from 1 s before to 1 s after, dashed lines at its start
+    and end; with **HEAD ECHO** on also the ±5 kHz head echo spectrum on the same time axis under it. All parts get the
+    colour levels of the fine cells, so they look alike;
+  - a satellite: its own band (its track ±400 Hz) over the whole track, enhanced by itself (each frame averaged with the
+    8 before it along the drift of the track, its own colour levels), so a weak streak shows without touching the levels
+    of the waterfall;
+  - a head echo, a satellite's calculated Doppler or an aircraft's Doppler from adsb.fi: two bright green dashed lines
+    just over and under the track, which stays clear between them.
+  - **▶ PLAY** / **WAV**: the echo as on 143.049 MHz USB (the carrier = a 1 kHz tone). A satellite is followed along its
+    Doppler track: only ±60 Hz around it is kept (a weak one is heard over the noise), and it sounds as a tone that
+    follows its Doppler; a sweep wider than 2 kHz is squeezed into the audio band.
+
+### STATS
+
+- **LAST 48 HOURS:** the echoes per UTC hour, underdense in green, overdense in amber; the thin bar underneath shows how
+  much of the hour was monitored.
+- **YEAR:** the echoes per hour of monitoring for each day, so a day with only a short watch compares fairly. The peaks
+  of the main showers are marked (QUA, LYR, ETA, ARI, ZPE, PER, DRA, ORI, LEO, GEM, URS); radio also hears the daytime
+  showers. Even without a shower the rate changes every day, with the most echoes around 6 h local time and the fewest
+  around 18 h.
+
+Counts per UTC hour (underdense, overdense, seconds monitored) are kept for 400 days in `data\meteors_<VFO>.json`.
+
+### SETTINGS
+
+Blocks in the style of STATION (lit when in use, amber when something needs attention):
+
+- **ROTOR · AZ / EL** (optional): the rotor dial with the bearing to GRAVES from the QTH (about 265° from Slovakia) and
+  the elevation of the meteor zone over the middle of the path (about 10°). **GRAVES → ROTOR** shows the path in
+  RCTRL › SETTINGS (linked or open); **POINT** turns the rotor to GRAVES through it; **RCTRL** opens the rotor settings.
+- **RECEIVER:** the dial and the mode; **TUNE 143.049 USB**. The counter reads the baseband of the VFO, not the audio,
+  so any mode works with the dial within about ±10 kHz of the carrier.
+- **DETECTOR:**
+  - **THR**: the threshold in dB above the noise floor (default 10 dB; noise alone stays under about 8.5 dB).
+  - **RESET STATS** deletes the hourly and daily statistics of this VFO.
+  - **AFC** (on by default): the meteor trails are at ~0 Hz, so they show where the carrier really is when the receiver
+    is a few ppm off. The first strong meteor moves the carrier of all the detectors there, then the median of the last
+    meteors trims it; with no meteor for 10 minutes it is looked for in the ±8 kHz spectrum (short flashes without
+    drift at one place). The VFO is not retuned. More than a few hundred Hz off: set the PPM of the dongle.
+  - **HEAD ECHO**: the ±5 kHz spectrum with ~15 ms frames for fast head echoes (kHz per second).
+  - **ADS-B**: aircraft echoes looked up on adsb.fi (else adsb.lol) around the middle of the path (only that point is
+    sent).
+  - **Weak echoes**, each off by default:
+    - **FAST**: pings of a few tens of ms in the time signal (the carrier ±150 Hz in 32 ms spectra every 8 ms, as in the
+      BRAMS network), which the meteor detector's ~0.25 s dilutes; a reference band rejects impulse noise, a burst that
+      sweeps is left out. Counted as underdense (**FAST BURST**, F in the log).
+    - **SAT·TLE**: the ±8 kHz spectrum summed along the bistatic Doppler of every satellite GRAVES lights over the
+      station (every 15 s, the last 40 s): streaks too weak for the tracker, with the satellite already known
+      (**KNOWN (TLE)**). Needs the station location.
+    - **SAT·LINES**: weak straight streaks (80–600 Hz/s) by a Hough transform over 6 s windows, joined to tracks and
+      identified like the tracker's (**UNKNOWN LINE** / **LINE**). A track within ±350 Hz (the Doppler an aircraft can
+      have) is an aircraft; slow lines (under 80 Hz/s) are looked for there too, so a weak aircraft without drift is
+      found.
+    - What the tracker or the meteor detector already has is not reported twice.
+
+## How it works
+
+### The meteor detector
+
+1. The baseband of the VFO goes through a spectrum of N samples (N a power of two near fs/8, about 4–8 Hz per bin),
+   every N/4 samples (about 30 ms). Only ±500 Hz around the carrier is used.
+2. Each frame is divided by its median over that band: a gain step (AGC+) or broadband impulse noise lifts all bins
+   together and so changes nothing.
+3. The power of each bin is averaged over 4 frames and compared with the noise floor of that bin, a slow average: 10 s
+   while the bin is quiet and 120 s while it is up. A steady carrier (the direct GRAVES signal on a tropo opening,
+   birdies) is learned into the floor and does not trigger. The first 4 s only learn the floor.
+4. An echo starts when the strongest bin is THR above its floor. It lasts while its own bins (±2) stay within 3 dB below
+   that, and ends after 0.3 s below. A much stronger bin within 150 Hz (a head echo coming onto its trail) takes the echo
+   over. Frames where more than 30 % of the band is up at once are left out as broadband.
+5. The times of all spectra and of the sound come from the samples counted (the wall clock only anchors them), so blocks
+   that arrive late and then all at once do not shift one spectrum against another.
+
+### Classification
+
+- **PLANE** (listed, not counted): longer than 20 s; or longer than 2 s drifting over 5 Hz/s by at least 3 bins; or the
+  next piece of an aircraft just heard at its Doppler; or already there weakly at its Doppler before its strong part (a
+  meteor starts at once, an aircraft near the middle of the path has ~0 Hz and no drift). A meteor just before at the
+  same Doppler does not make the next one an aircraft.
+- **SAT**: a part of a satellite track of the wide spectrum, or a short echo sweeping through the band all along.
+- **UNDERDENSE** (shorter than 1 s) and **OVERDENSE** otherwise.
+
+### Satellites
+
+A ±8 kHz spectrum (~64 ms frames) always runs beside the meteor detector. Its peaks are joined into tracks; a long,
+smooth track that drifts faster than an aircraft or runs further from the carrier than an aircraft can is a satellite,
+one row per pass (its pieces, as the beam of GRAVES moves on, are not counted as meteors). A short track that comes onto
+one Doppler and stays there is a head echo braking onto its trail, not a satellite. Meteor echoes are reported a few
+seconds later, when that is decided.
+
+**Which satellite:** its bistatic Doppler GRAVES → satellite → station is compared with every satellite with public
+orbital elements (CelesTrak *active*, *visual*, *stations* in `data\graves_tle.txt`, downloaded once a day, plus the
+elements of SATELLITES), with the receiver offset fitted. Name, NORAD, AZ / EL / distance and the fit are shown. Debris
+and objects without public elements stay *?*. Needs the station location.
+
+### Aircraft
+
+A PLANE echo is compared with the aircraft adsb.fi sees within 250 NM of the middle of the path, moved to the time of
+the echo: flight, registration, type, FL and distance. An aircraft gives only ±250 Hz, so the receiver offset matters:
+it is measured on the satellites identified surely (else 0). Near the middle of the path every aircraft is close to
+0 Hz, so several may fit (shown as *others*).
+
+### The fine waterfall and head echoes
+
+The meteor band is also kept as a **reassigned spectrogram** (Auger & Flandrin) of 64 ms and 1 s frames: the power of
+each bin is moved to the time and frequency where it really is, and in each cell of 1 Hz × 16 ms the smaller of the two
+counts, so it is sharp in time and in frequency at once.
+
+A **head echo** is looked for three ways:
+
+- in the ±5 kHz spectrum (HEAD ECHO key): a straight steep streak (at least 2 kHz/s over 300 Hz) going one way onto the
+  trail, away from the carrier and from the echo's own Doppler (a strong echo spreads over the short frames);
+- in the fine cells: a path of strong cells from where the trail really starts back in time, coming onto the trail in a
+  parabola or an exponential (it brakes), at least 150 Hz/s over 40 Hz, nearer to the trail from cell to cell;
+- in the detector's own track: a short steep head echo the detector started on, coming onto the trail point by point.
+
+### Simulated results (`tests/test_meteor.py`)
+
+- a 0.3 s ping 20 dB above the noise in one bin is one underdense echo, a 3 s echo overdense;
+- a steady carrier, a 10 dB broadband step and minutes of noise give no echo;
+- a drifting echo, an aircraft without drift and a weak aircraft line are PLANE; meteors in a burst at one Doppler stay
+  meteors;
+- a satellite cut into pieces by the beam is one SAT echo; its sound follows its Doppler, also 15 dB under the noise of
+  the audio band;
+- a straight, a curved and a slow (1 s) head echo are found, the spread of a strong echo is not one.
+
+## Tips
+
+- A 2 m Yagi pointed west at low elevation gives the most echoes; a vertical or a turnstile also works.
+- Keep the gain fixed, or AGC+ on. The counter ignores the steps.
+- Hourly counts from different stations or antennas cannot be compared directly. Compare the shape over the day and the
+  rise during a shower.

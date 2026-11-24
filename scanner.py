@@ -19,7 +19,9 @@ margin of the scan with AUTO SQUELCH), or else the squelch level of its mode (wh
 + margin again, so a channel never stays open for good). Noise floor: a low percentile of its
 own last measurements once there are FLOOR_MIN_N of them (it knows spurs, the DC spike and local noise; it learns only
 while the channel is quiet), before that the noise density of the spectrum (as the auto squelch of sdr.py). All in the
-units of the squelch slider (channel power, dBFS).
+units of the squelch slider (channel power, dBFS). The own floor is never taken below the noise of the band in the
+current block (a rise of the whole band does not open its channels), and a channel opens only after OPEN_BLOCKS
+blocks in a row over its level (one block of noise does not stop the scan; the window is looked at once more).
 
 Also: priority channels (in the band: at once; in another window: a look every prio_s), SKIP / LOCKOUT, carrier
 lockout (a channel open longer than carrier_min), activity log (data/logs/scan_YYYY-MM-DD.csv), recording of each
@@ -36,10 +38,10 @@ import os
 import re
 import threading
 import time
-import wave
 
 import numpy as np
 
+import datafiles
 from paths import data
 
 SCAN_SPAN = 0.75        # part of the dongle band (around its centre) used for one tuner window (edges roll off)
@@ -52,17 +54,20 @@ FLOOR_MIN_N = 8         # before this many, the floor is taken from the spectrum
 FLOOR_PCT = 20          # percentile of the own measurements = noise floor
 RELEARN_S = 30.0        # without carrier lockout: a channel open this long without a break learns it as its floor
 HYST_DB = 2.0           # an active channel stays active down to its level − HYST_DB
+OPEN_BLOCKS = 2         # a channel opens only after this many blocks in a row over its level (~170 ms): a single
+                        # block of noise (a burst, a click, the variance of one 85 ms measurement) does not stop the scan
 SKIP_S = 300.0          # SKIP leaves the channel out for 5 min
 CARRIER_HANG_S = 0.3    # resume "carrier": continue this soon after the signal drops
 MAX_CHANNELS = 20000    # a range with more grid channels is refused
 EXCLUDED_MAX = 200      # channels left out: at most this many are listed
+SPEC_LEVELS_MAX = 600   # channels of the band measured now sent for the threshold line in the spectrum
 LIST_MAX = 400          # range: channels listed for the page (heard, active, locked)
 LOG_MAX = 1000          # activities kept in memory
 STORE_MIN_S = 1.0       # search & store: a shorter activity is not stored
 REC_PRE_S = 0.5         # recording: audio from before the signal came back (in the hang)
 REC_TAIL_S = 0.5        # recording: audio after the signal dropped
 REC_MAX_S = 300.0       # recording: one activity at most this long
-REC_KBPS = 64           # recording: MP3 mono (speech of a scanned channel); WAV only without lameenc
+REC_KBPS = 64           # recording: MP3 mono (speech of a scanned channel)
 
 
 class Mp3Writer:
@@ -89,15 +94,11 @@ class Mp3Writer:
 
 
 def _rec_open(path_stem, rate):
-    """(writer, file name): MP3, or WAV when lameenc is missing."""
+    """(writer, file name): always MP3 (all recordings are MP3); no lameenc = the recording cannot start."""
     try:
         import lameenc  # noqa: F401
     except ImportError:
-        w = wave.open(path_stem + ".wav", "wb")
-        w.setnchannels(1)
-        w.setsampwidth(2)
-        w.setframerate(int(round(rate)))
-        return w, os.path.basename(path_stem) + ".wav"
+        raise OSError("MP3 encoder is missing: run upgrade.bat") from None
     return Mp3Writer(path_stem + ".mp3", rate), os.path.basename(path_stem) + ".mp3"
 BLOCK_S = 0.085         # about one block (for the time away during a priority look)
 LOG_DIR = data("logs")
@@ -195,14 +196,21 @@ def safe_name(name):
     return re.sub(r'[\s\\/:*?"<>|\x00-\x1f]+', "_", str(name or "")).strip("_.")[:40]
 
 
-def rec_folder():
-    """Recordings of the scan (MP3, older ones WAV): the subfolder "scan" of the recordings folder (SETTINGS › GENERAL › RECORDINGS)."""
+def rec_root():
+    """The recordings folder (SETTINGS › GENERAL › RECORDINGS)."""
     from recorder import current_folder
-    return os.path.join(current_folder(), "scan")
+    return current_folder()
+
+
+def rec_folder(t=None):
+    """Recordings of the scan (MP3): the day folder YYYY/MM/DD of the recordings folder like REC / REC SQ; the files
+    carry the _SCAN tag."""
+    from recorder import day_folder
+    return day_folder(rec_root(), t)
 
 
 def log_path(t=None):
-    return os.path.join(LOG_DIR, f"scan_{time.strftime('%Y-%m-%d', time.gmtime(t))}.csv")
+    return datafiles.day_file("scan", t, "csv", LOG_DIR)      # logs/scan/YYYY/MM/DD/scan_YYYY-MM-DD.csv
 
 
 def read_log(days=1, limit=None, now=None, session=None):
@@ -225,34 +233,25 @@ def read_log(days=1, limit=None, now=None, session=None):
 
 
 def prune(keep_days, now=None):
-    """History kept keep_days days: older scan_*.csv logs and recordings (MP3, older WAV) of the scan are deleted.
+    """History kept keep_days days: older scan_*.csv logs and recordings (MP3, *_SCAN) of the scan are deleted.
     Returns the number of files deleted."""
     now = now or time.time()
     keep = time.strftime("%Y-%m-%d", time.gmtime(now - (int(keep_days) - 1) * 86400))
-    gone = 0
-    try:
-        for fn in os.listdir(LOG_DIR):
-            m = re.fullmatch(r"scan_(\d{4}-\d{2}-\d{2})\.csv", fn)
-            if m and m.group(1) < keep:
-                try:
-                    os.remove(os.path.join(LOG_DIR, fn))
-                    gone += 1
-                except OSError:
-                    pass
-    except OSError:
-        pass
-    try:
-        folder = rec_folder()
-        for fn in os.listdir(folder):
-            path = os.path.join(folder, fn)
-            if fn.lower().endswith((".wav", ".mp3")) and os.path.getmtime(path) < now - int(keep_days) * 86400:
-                try:
+    gone = datafiles.prune_days("scan", keep_days, now, LOG_DIR)
+    # the recordings of the scan (the _SCAN tag) in the day folders of the recordings folder; emptied folders go
+    from recorder import NAME_RE, prune_empty
+    root = rec_root()
+    for top, _, names in os.walk(root):
+        for fn in names:
+            m = NAME_RE.match(fn)
+            path = os.path.join(top, fn)
+            try:
+                if m and m.group("tag") == "SCAN" and os.path.getmtime(path) < now - int(keep_days) * 86400:
                     os.remove(path)
                     gone += 1
-                except OSError:
-                    pass
-    except OSError:
-        pass
+                    prune_empty(top, root)
+            except OSError:
+                pass
     return gone
 
 
@@ -343,8 +342,11 @@ class Scanner:
         self.rec_pre_s = 0.0
         self.rec_wav = None
         self.rec_file = ""
+        self.rec_path = ""     # full path of rec_file (RECORDINGS: not deleted while written)
         self.rec_s = 0.0
         self.rec_error = ""
+        self.stay = 0                 # extra blocks spent in this window for a channel not confirmed yet
+        self.lvl_k = None             # (cal, K / fs): the level of a channel → the scale of the spectrum points
         self._arrays(0)
 
     def _arrays(self, n):
@@ -366,6 +368,7 @@ class Scanner:
         self.floor = np.full(n, np.nan)
         self.level = np.full(n, np.nan)
         self.active = np.zeros(n, bool)
+        self.over = np.zeros(n, np.int16)  # blocks in a row over the level while not active yet (OPEN_BLOCKS)
         self.vis = np.zeros(n, bool)
         self.since = np.zeros(n)
         self.hits = np.zeros(n, int)
@@ -550,6 +553,9 @@ class Scanner:
             self._listen(rx, i, now)
             return
         self.audio_open = False
+        if self.stay < OPEN_BLOCKS - 1 and self._pending(idx):
+            self.stay += 1                          # one more block here: is it a signal or one block of noise?
+            return
         if len(self.windows) > 1:
             self._goto(rx, (self.win + 1) % len(self.windows), backlog)
 
@@ -577,6 +583,9 @@ class Scanner:
             i = min(ahead)
             js = np.arange(max(i - FMBC_NEAR, 0), min(i + FMBC_NEAR, self.n - 1) + 1)
             self.fm_chk = {"i": i, "js": js, "acc": np.zeros(len(js)), "n": 0}
+            return
+        if self.stay < OPEN_BLOCKS - 1 and self._pending(self._fm_idx()):
+            self.stay += 1                          # a station over its level for one block: look once more
             return
         if len(self.windows) > 1:
             k = (self.win + 1) % len(self.windows)
@@ -670,6 +679,9 @@ class Scanner:
         if p:
             self.peek = None
             self._listen(rx, p[0], now)
+            return
+        if self.stay < OPEN_BLOCKS - 1 and self._pending(idx, prio_only=True):
+            self.stay += 1
             return
         pk["k"] += 1
         if pk["k"] < len(pk["wins"]):
@@ -843,8 +855,12 @@ class Scanner:
         floor = 10 * np.log10(noise_bin * (i1 - i0) + 1e-20) + ASQ_PCT_BIAS_DB + cal
         own = self.hn[idx] >= FLOOR_MIN_N
         if own.any():
-            floor[own] = np.nanpercentile(self.hist[idx[own]], FLOOR_PCT, axis=1)
+            # the own floor (knows spurs and local noise), but never below the noise of the band in this block: when
+            # the whole band rises (a burst of interference, a click, the gain of the tuner) its channels must not
+            # all open at once with a floor learned before
+            floor[own] = np.maximum(np.nanpercentile(self.hist[idx[own]], FLOOR_PCT, axis=1), floor[own])
         self.floor[idx] = floor
+        self.lvl_k = (cal, ASQ_WIN_K / fs)
         asq = self.asq[idx]
         auto = floor + np.where(np.isnan(asq), self.opts["margin"], asq)
         if not self.opts["asq"]:
@@ -852,10 +868,24 @@ class Scanner:
             auto = np.where(np.isnan(asq) & (man > SQUELCH_OFF), man, auto)
         level = np.where(np.isnan(self.sq[idx]), auto, self.sq[idx])
         self.level[idx] = level
-        new = db > np.where(act, level - HYST_DB, level)
+        over = db > level
+        self.over[idx] = np.where(over & ~act, np.minimum(self.over[idx] + 1, OPEN_BLOCKS), 0)
+        new = np.where(act, db > level - HYST_DB, self.over[idx] >= OPEN_BLOCKS)
         self.since[idx[new & ~act]] = now
         self.active[idx] = new
         return idx
+
+    def _fm_idx(self):
+        """FM BCAST: the channels of this window still ahead in the sweep (above the station heard)."""
+        idx = np.nonzero(self.vis)[0]
+        return idx[idx > self.pos + (1 if self.pos >= 0 else 0)]
+
+    def _pending(self, idx, prio_only=False):
+        """A channel over its level but not confirmed yet (OPEN_BLOCKS): the window is looked at once more."""
+        p = idx[(self.over[idx] > 0) & ~self.active[idx]]
+        if prio_only:
+            p = p[self.prio[p]]
+        return len(p) > 0
 
     def _locked(self, i, now):
         until = self.locked.get(i)
@@ -896,6 +926,8 @@ class Scanner:
 
     def _goto(self, rx, k, backlog):
         self.win = k
+        self.stay = 0
+        self.over[:] = 0                            # another window: a half confirmation does not carry over
         w = self.windows[k]
         rx.scan_center(w["center"], w["tune"])
         self.settle = SETTLE_BLOCKS + backlog
@@ -916,8 +948,8 @@ class Scanner:
                  "session": self.session}
         self.log.appendleft(entry)
         try:                                        # always written: ACTIVITY and HEATMAP read it
-            os.makedirs(LOG_DIR, exist_ok=True)
             path = log_path(a["t0"])
+            os.makedirs(os.path.dirname(path), exist_ok=True)
             buf = io.StringIO()
             w = csv.DictWriter(buf, LOG_FIELDS, lineterminator="\n")
             if not os.path.exists(path):
@@ -957,14 +989,14 @@ class Scanner:
             if a["file"]:
                 return                              # REC_MAX_S reached: the rest is not recorded
             try:
-                folder = rec_folder()
+                folder = rec_folder(a["t0"])
                 os.makedirs(folder, exist_ok=True)
                 m = self.meta[a["i"]]
                 name = safe_name(m["name"])
                 stem = (f"{name + '_' if name else ''}{m['freq'] / 1e6:.6f}MHz_{m['mode']}_"
-                        f"{time.strftime('%Y%m%d_%H%M%S', time.localtime(a['t0']))}")
+                        f"{time.strftime('%Y%m%d_%H%M%S', time.localtime(a['t0']))}_SCAN")
                 self.rec_wav, fn = _rec_open(os.path.join(folder, stem), fs)
-                a["file"], self.rec_file, self.rec_s = fn, fn, 0.0
+                a["file"], self.rec_file, self.rec_path, self.rec_s = fn, fn, os.path.join(folder, fn), 0.0
             except OSError as e:
                 self.rec_error, self.rec_wav = f"scan recording off: {e}", None
                 self.opts["rec"] = False
@@ -995,6 +1027,18 @@ class Scanner:
 
     # ---------- for the web page ----------
 
+    def _spec_levels(self):
+        """Squelch level of the channels measured now for the threshold line in the spectrum: [[from Hz, to Hz, dB,
+        active], …]. The level is the power of the whole channel; the spectrum shows the power of one point, so it is
+        given as the point level of a noise that would reach it: level − cal − 10·log10(bw · K / fs)."""
+        if self.lvl_k is None:
+            return []
+        cal, k = self.lvl_k
+        idx = np.nonzero(self.vis & ~np.isnan(self.level))[0][:SPEC_LEVELS_MAX]
+        db = self.level[idx] - cal - 10 * np.log10(np.maximum(self.b[idx] - self.a[idx], 1.0) * k)
+        return [[round(float(self.a[i])), round(float(self.b[i])), round(float(d), 1), bool(self.active[i])]
+                for i, d in zip(idx, db)]
+
     def info(self, full=False):
         cur = self.cur if self.on else None
         now = time.monotonic()
@@ -1012,6 +1056,7 @@ class Scanner:
                "locked": len(self.locked), "session": self.session, "message": self.message or self.rec_error, "stored": self.stored,
                "range": rng if self.on else None, "rec_file": self.rec_file if self.rec_wav is not None else "",
                "locked_f": [float(self.f[i]) for i in list(self.locked)[:200]] if self.on else [],
+               "levels": self._spec_levels() if self.on else [],
                "cur": {"id": self.meta[cur]["id"], "name": self.meta[cur]["name"], "freq_hz": float(self.f[cur]),
                        "mode": self.meta[cur]["mode"], "power": num(self.power[cur]), "level": num(self.level[cur]),
                        "prio": bool(self.prio[cur])} if cur is not None else None}

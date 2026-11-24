@@ -125,6 +125,8 @@ class WefaxDecoder:
                 # Click in the image: the chosen spot becomes the left edge of the following lines.
                 x = float(b.get("x", 0)) % 1.0
                 self.pos += (x - 1 if x > 0.5 else x) * self._line_len()
+            if b.get("action") == "shift":
+                self._shift(float(b.get("dx", 0)))
         if "delete" in b:
             self._delete(b["delete"])
         self._emit_state()
@@ -169,7 +171,36 @@ class WefaxDecoder:
         d = delta * 1e-6 * W
         self.rows = [np.roll(np.frombuffer(r, np.uint8), int(round(d * (last - k)))).tobytes()
                      for k, r in enumerate(self.rows)]
+        self._resave()
         self.on_event("wefaxreload", {"id": self.image_id})
+
+    def _shift(self, dx):
+        """The image dragged sideways by dx of its width (+ = to the right), wrapping round: the lines received so far
+        are rolled, the following ones start that much earlier, so the whole image keeps the new alignment. An image
+        already saved is saved again."""
+        if not math.isfinite(dx):
+            raise ValueError("wrong shift")
+        dx = (dx + 0.5) % 1.0 - 0.5                 # -0.5 … 0.5 of the width
+        if not self.rows or not dx:
+            return
+        W = len(self.rows[0])
+        px = int(round(dx * W))
+        if not px:
+            return
+        self.rows = [np.roll(np.frombuffer(r, np.uint8), px).tobytes() for r in self.rows]
+        if self._fs and self.state != "idle":
+            self.pos -= px / W * self._line_len()
+        self._resave()
+        self.on_event("wefaxreload", {"id": self.image_id})
+
+    def _resave(self):
+        """The image changed after it was saved (shift, slant): its file is written again."""
+        if self._saved_id == self.image_id and self.saved and self.rows:
+            try:
+                with open(os.path.join(self.save_dir, self.saved), "wb") as f:
+                    f.write(png_gray(self.rows, len(self.rows[0])))
+            except OSError:
+                pass
 
     def info(self):
         return {

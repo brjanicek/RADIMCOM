@@ -20,6 +20,9 @@ does not contain the binaries; the release packages do, except where noted.
 | dumpvdl2 2.7.0 | VDL2 decoder (separate program) | GPL v3 | <https://github.com/szpajder/dumpvdl2> |
 | libacars 2.2.1 | used by dumpvdl2 and dumphfdl | MIT | <https://github.com/szpajder/libacars> |
 | dumphfdl 1.7.0 (with its ground station table `systable.conf`) | HFDL decoder (separate program) | GPL v3 | <https://github.com/szpajder/dumphfdl> |
+| wsprd from WSJT-X 2.7.0 (K1JT, K9AN and the WSJT Development Group), not changed, built statically by `installer/build_wspr.sh` with FFTW 3.3.11 and the GCC runtime | WSPR decoder in `lib\wspr` (separate program, reads a WAV file of each 2-minute cycle) | GPL v3 (FFTW: GPL v2 or later; GCC runtime: GPL with GCC Runtime Library Exception) | <https://sourceforge.net/projects/wsjt/> |
+| jt9 from WSJT-X 2.7.0 (K1JT and the WSJT Development Group), sources not changed (the Qt shared memory replaced by a stub), built statically by `installer/build_jt9.sh` with FFTW 3.3.11, Boost.CRC and the GCC runtime | Q65 / JT65 decoder in `lib\jt9` (separate program, reads a WAV file of each T/R period) | GPL v3 (FFTW: GPL v2 or later; Boost: BSL 1.0; GCC runtime: GPL with GCC Runtime Library Exception) | <https://sourceforge.net/projects/wsjt/> |
+| LDPC (128,90) code tables of WSJT-X (`ldpc_128_90_reordered_parity.f90`, `ldpc_128_90_generator.f90`; K1JT and the WSJT Development Group), converted to Python in `msk144_ldpc.py` | MSK144 decoder (`msk144.py`, own code) | GPL v3 (that file) | <https://sourceforge.net/projects/wsjt/> |
 | liquid-dsp 1.8.3 | used by dumphfdl | MIT | <https://github.com/jgaeddert/liquid-dsp> |
 | rs1729 radiosonde decoders (RS, commit ce44855, `demod/mod`: rs41mod, dfm09mod, m10m20mod, lms6Xmod, imet54mod, mp3h1mod, meisei100mod, mts01mod, cf06ht03mod), not changed, built by `installer/build_sonde.sh` | radiosonde decoders in `lib\sonde` (separate programs, fed through a pipe) | GPL v3 | <https://github.com/rs1729/RS> |
 | FFTW 3.3.10 | used by dumphfdl | GPL v2 or later | <https://www.fftw.org> |
@@ -49,6 +52,7 @@ does not contain the binaries; the release packages do, except where noted.
 | uPlot 1.6.31 | charts of the ISM device tab; in `static/uplot` | MIT (`static/uplot/LICENSE`) | <https://github.com/leeoniya/uPlot> |
 | Leaflet 1.9.4 | map for choosing the station place (SATELLITES tab, SETUP); in `static/leaflet` | BSD 2-Clause (`static/leaflet/LICENSE`) | <https://leafletjs.com> |
 | Natural Earth 1:50m land and country borders | world map (SATELLITES tab, MAP); simplified in `static/world.js` by `installer/make_world.py` | public domain | <https://www.naturalearthdata.com/> |
+| Natural Earth 1:50m admin 0 countries | the country of a SpyServer in SETTINGS › SDR SOURCES › DIRECTORY; outer borders simplified in `countries.json` by `installer/make_countries.py` | public domain | <https://www.naturalearthdata.com/> |
 | sgp4 | satellite positions (SATELLITES tab, PASSES); in the Python of the setup (`python\`), `install.bat` installs it from PyPI | MIT | <https://github.com/brandon-rhodes/python-sgp4> |
 | lameenc (with the LAME MP3 encoder) | MP3 recording; in the Python of the setup (`python\`), `install.bat` installs it from PyPI | LGPL v3 or later (LAME: LGPL) | <https://github.com/chrisstaite/lameenc> |
 
@@ -76,7 +80,25 @@ that release, for at least three years after it was published. The source packag
 - The VDL2 ground station list (`VDL2_Ground_Stations.txt`) comes from <https://acars-vdl2.groups.io/>, redistributed
   with approval.
 - The airport tables in `airports.py` come from OurAirports (public domain).
+- DNR NR4 (`nrx.py`) is own code after the ideas of libspecbleach (L. Romero, LGPL v2.1, <https://github.com/lucianodato/libspecbleach>); no code of it is used.
 - The SATELLITES tab shows pages of AMSAT (<https://www.amsat.org/>), downloaded by the running program. They belong to AMSAT and are not in the repository or the release packages.
 - The orbital elements for pass prediction (TLE, amateur group) come from CelesTrak (<https://celestrak.org/>), downloaded by the running program once a day into `data\sat_tle.txt`; they are not in the repository or the release packages.
 - The list of satellite transmitters (SATELLITES tab, TRACK) comes from SatNOGS DB (<https://db.satnogs.org/>, Libre Space Foundation; data under CC BY-SA 4.0), downloaded by the running program once a week into `data\sat_transmitters.json`; it is not in the repository or the release packages.
+- The PROPAGATION tab (PROP key) shows space weather from the NOAA Space Weather Prediction Center
+  (<https://www.swpc.noaa.gov>, public domain), downloaded by the running program into `data\spacewx`.
+- The same tab shows the newest values of the ionosondes near the station from GIRO, the Global Ionospheric Radio
+  Observatory (Lowell DIDBase, <https://giro.uml.edu>, CC BY-NC-SA 4.0; B. W. Reinisch and I. A. Galkin, Global Ionospheric
+  Radio Observatory (GIRO), Earth, Planets and Space 63, 377–381, 2011, doi:10.5047/eps.2011.03.001), as collected by KC2G
+  (<https://prop.kc2g.com>), downloaded by the running program for its own use only. None of these data are in the repository
+  or the release packages.
+- The DX CLUSTER tab (DX key) shows the spots of the public DX cluster feed of HamQTH (<https://www.hamqth.com>), read by the
+  running program at most once a minute and kept in memory for 30 minutes; nothing about the station is sent and the spots are
+  not in the repository or the release packages.
+- The magnetogram in the same tab shows the 1-minute values of the magnetometer of the Kiruna geophysical observatory of the
+  Swedish Institute of Space Physics (IRF, <https://www2.irf.se/maggraphs/>), downloaded by the running program into
+  `data\spacewx` for its own use only; they are not in the repository or the release packages.
+- The DIRECTORY list in SETTINGS › SDR SOURCES shows the public SpyServers of the Airspy receiver directory
+  (<https://airspy.com/directory/>), downloaded by the running program only while that list is used (at most every 5 minutes)
+  and kept in memory only; the owners' e-mail addresses are not shown. Nothing of it is in the repository or the release packages.
 - The map for choosing the station place (SATELLITES tab, SETUP, CHOOSE ON MAP) shows tiles of OpenStreetMap (<https://www.openstreetmap.org/copyright>), © OpenStreetMap contributors, loaded by the browser from tile.openstreetmap.org only while that map is open; nothing of it is in the package.
+- The vector maps of the decoder maps (Map settings › Vector maps, `vectormaps.py`) are downloaded by the running program only when the person presses Update, into `data\vectormaps`; none of them are in the repository or the release packages, and each is credited on the map while it is shown: openAIP (<https://www.openaip.net>, CC BY-NC 4.0, with the person's own API key), OurAirports (<https://ourairports.com>, public domain), OpenStreetMap through the Overpass API (<https://www.openstreetmap.org/copyright>, © OpenStreetMap contributors, ODbL), FUA areas and IFR waypoints of LPS SR, š. p. (<https://gis.lps.sk>, information only), IFR waypoints of DFS Deutsche Flugsicherung GmbH (CC BY 4.0), Austro Control (INSPIRE, no conditions) and Traficom (CC BY 4.0), and the Free Route Airspace points list of EUROCONTROL (<https://www.eurocontrol.int>, not for operational use).

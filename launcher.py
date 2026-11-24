@@ -16,8 +16,11 @@ import time
 
 from flask import Flask, jsonify, request, send_from_directory
 
+import backup
+import dxcluster
 import rotor
 import serverlog
+import sources
 import sysload
 import update_check
 from paths import BASE, data
@@ -60,8 +63,13 @@ def ensure_configs(vfos):
 
 
 def main():
-    with open(VFOS_PATH, encoding="utf-8") as f:
-        setup = json.load(f)
+    if os.path.exists(VFOS_PATH):
+        with open(VFOS_PATH, encoding="utf-8") as f:
+            setup = json.load(f)
+    else:
+        from paths import no_source_setup
+        setup = no_source_setup()           # no dongles assigned yet: VFO A without a source, nothing written
+        print("No vfos.json: VFO A without a source (assign the dongles in SETTINGS › SDR SOURCES)")
     vfos = setup["vfos"]
     ensure_configs(vfos)
     # one rotor for the station: its settings move from the VFO configs (up to 0.114beta1) to rotor.json
@@ -69,15 +77,15 @@ def main():
     if src:
         print(f"Rotor: settings moved from {src} to rotor.json (the rotor is now run by VFO {vfos[0]['name']})")
 
-    procs = []
-    # VFOs with their own dongle first, chained VFOs (sharing a dongle, "chain": "A") after them.
-    for v in sorted(vfos, key=lambda v: bool(v.get("chain"))):
-        procs.append(serverlog.spawn([sys.executable, os.path.join(BASE, "app.py"), "--vfo", v["name"]], v["name"],
-                                     stdin=subprocess.PIPE, cwd=BASE))
-        # Dongles are opened one after another; opening them at the same time through libusb is unreliable.
-        time.sleep(0.5 if v.get("chain") else 1.5)
+    labels = {}                 # pid of a VFO server → its name (the CPU / MEM indicator shows each VFO)
+    # the VFO processes (sources.py): SETTINGS › SDR SOURCES restarts single VFOs
+    procs = sources.Procs(labels)
+    procs.start_all(vfos)
 
     app = Flask(__name__, static_folder="static")
+    src_state = {"setup": setup, "vfos": vfos, "path": VFOS_PATH}   # shared by SDR SOURCES and BACKUP
+    sources.register(app, procs, src_state, ensure_configs)
+    dxcluster.register(app)                 # /api/dxcluster: DX cluster spots for the DX tab
 
     @app.route("/")
     def index():
@@ -85,8 +93,27 @@ def main():
 
     @app.route("/api/sysload")
     def api_sysload():
-        """CPU load and memory use of the PC (indicator under the S-meter)."""
-        return jsonify(sysload.load())
+        """CPU and memory of RADIMCOM (server by VFO, the window) and of the whole PC (indicator under the S-meter)."""
+        return jsonify(sysload.load(labels))
+
+    @app.route("/api/spacewx")
+    def api_spacewx():
+        """Space weather and the HF bands at the station for the PROP tab and the chip under the S-meter (spacewx.py);
+        here once for the whole station, the page asks the launcher like /api/sysload."""
+        import location
+        import spacewx
+        q = location.load()
+        return jsonify(spacewx.summary(q.get("lat"), q.get("lon")))
+
+    @app.route("/api/clock", methods=["GET", "POST"])
+    def api_clock():
+        """PC clock against NTP for FT8 / WSPR (clocksync.py): GET = the offset (cached 10 min, ?force=1 measures now),
+        POST = sync the clock by it (an administrator consent of Windows when not elevated)."""
+        import clocksync
+        from flask import request as rq
+        if rq.method == "POST":
+            return jsonify(clocksync.sync())
+        return jsonify(clocksync.offset(force=rq.args.get("force") == "1"))
 
     @app.route("/api/vfos")
     def api_vfos():
@@ -97,18 +124,21 @@ def main():
     def shutdown(code=0):
         """The VFO receivers end as with the launcher closed (their input closes), then the launcher
         (when RADIMCOM.exe closes our input)."""
-        for p in procs:
+        for p in procs.all():
             try:
                 p.stdin.close()
             except OSError:
                 pass
-        for p in procs:
+        for p in procs.all():
             try:
                 p.wait(10)
             except subprocess.TimeoutExpired:
                 p.terminate()
         serverlog.close()
         os._exit(code)
+
+    # SETTINGS › GENERAL › BACKUP: export / restore of the settings, factory reset (backup.py)
+    backup.register(app, procs, src_state, ensure_configs, shutdown)
 
     if os.environ.get("RADIMCOM_SHELL"):
         # started by RADIMCOM.exe: it stops the server by closing our input (Exit in its tray menu)
@@ -135,5 +165,5 @@ def main():
     try:
         app.run(host=setup.get("host", "0.0.0.0"), port=port, threaded=True, use_reloader=False)
     finally:
-        for p in procs:
+        for p in procs.all():
             p.terminate()

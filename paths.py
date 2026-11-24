@@ -17,6 +17,21 @@ def data(*parts):
     return os.path.join(DATA, *parts)
 
 
+def no_source_setup():
+    """No data\\vfos.json yet (a new installation, a factory reset, the SDR setup cancelled): the launcher runs as with
+    one VFO A without a source (driver "none": dark, silent, no waterfall), nothing is written, so RADIMCOM.exe offers
+    the SDR setup again at the next start; SETTINGS › SDR SOURCES assigns the dongles (and writes vfos.json)."""
+    import json
+    port = 8434
+    try:
+        with open(data("config.json"), encoding="utf-8") as f:
+            port = int(json.load(f).get("port") or 8434)
+    except (OSError, ValueError):
+        pass
+    return {"port": port, "vfos": [{"name": "A", "serial": "", "driver": "none", "port": port + 7,
+                                    "config": "config_A.json", "note": "", "init": {}}]}
+
+
 def _migrate():
     os.makedirs(DATA, exist_ok=True)
     names = list(LEGACY_FILES) + list(LEGACY_DIRS)

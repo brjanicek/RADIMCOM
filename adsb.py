@@ -355,6 +355,33 @@ class RangeMap:
             self.bands, self.since, self.changed = self._empty(), round(time.time()), False
         self._write(merge=False)
 
+    def merge(self, d):
+        """Import of an exported range (another PC, a backup): the farther point of each sector wins. Only for the same
+        station (within RANGE_QTH_KM; an empty range takes its place). Returns the sectors taken; ValueError if bad."""
+        try:
+            qth = tuple(float(x) for x in d["qth"])
+            bands = {name: {int(k): list(v) for k, v in (d["bands"].get(name) or {}).items()} for name, _ in RANGE_BANDS}
+        except (KeyError, TypeError, ValueError, AttributeError):
+            raise ValueError("not an ADS-B range of RADIMCOM") from None
+        n = 0
+        with self.lock:
+            if self.qth is None or not any(self.bands.values()):
+                self.qth, self.bands = (round(qth[0], 5), round(qth[1], 5)), self._empty()
+            elif distance_km(self.qth[0], self.qth[1], *qth) > RANGE_QTH_KM:
+                raise ValueError("this range was measured at another place (over 2 km away)")
+            for name, _ in RANGE_BANDS:
+                for b, v in bands[name].items():
+                    cur = self.bands[name].get(b)
+                    if len(v) >= 5 and (cur is None or v[0] > cur[0]):
+                        self.bands[name][b] = v
+                        n += 1
+            since = d.get("since")
+            if isinstance(since, (int, float)) and (self.since is None or since < self.since):
+                self.since = since
+            self.changed = True
+        self.save(force=True)
+        return n
+
     def save(self, force=False):
         if not self.changed or not self.path or (not force and time.time() - self.saved < RANGE_SAVE_S):
             return
@@ -1041,7 +1068,7 @@ class AdsbDecoder:
             if a["_trail"] and now - a["_trail"][-1][2] < 120:
                 # range map: only a position confirmed by an earlier one of the same aircraft (a single bad decode cannot stretch it)
                 self.range.add(qth, pos[0], pos[1], a["alt"] if a["alt"] is not None else a["alt_geo"], now)
-        a["_trail"].append((a["lat"], a["lon"], round(now, 1), a["alt"]))
+        a["_trail"].append((a["lat"], a["lon"], round(now, 1), a["alt"], a["squawk"]))   # squawk: an emergency one makes the trail red
         return pos
 
     # ---------- adsb.fi / adsb.lol: aircraft without a position of their own ----------

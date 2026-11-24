@@ -425,11 +425,13 @@ class Log(unittest.TestCase):
             for i in range(5):
                 f = dict(FIELDS, frame=i, alt=1000.0 + 50 * i)
                 d._frame(frame_bytes(sonde.rs41_build(f)), False, 1000.0 + 3 * i)
-            with open(os.path.join(tmp, os.listdir(tmp)[0]), "a") as fh:
+            log = d._log_files()[0]                       # tmp/YYYY/MM/DD/<date>_<serial>.jsonl
+            self.assertEqual(os.path.relpath(log, tmp).count(os.sep), 3)
+            with open(log, "a") as fh:
                 fh.write("broken line\n")
             # other VFO: nothing of D; same VFO: the sonde with its path
             self.assertEqual(sonde.SondeDecoder(lambda k, m: None, log_dir=tmp, tag="A").sondes, {})
-            os.utime(os.path.join(tmp, os.listdir(tmp)[0]))
+            os.utime(log)
             r = sonde.SondeDecoder(lambda k, m: None, log_dir=tmp, tag="D")
             s = r.sondes["W1234567"]
             self.assertEqual(s["n"], 5)

@@ -36,7 +36,7 @@ Backup, upgrade and reinstall (the `data\` folder): see [Data folder](developmen
   When a server already answers on the port (e.g. started by `start.bat`), the window only shows it.
 - **Closing the window** leaves the server running in the **tray** (decoders, logs and recordings go on; the page in
   the window stops, so no sound). Tray icon: left click opens the window; right click: *Open RADIMCOM*, *Open in the
-  web browser*, *Data folder*, *Server log*, *SDR setup…*, *Start server*, *Stop server* (the receivers close and the
+  web browser*, *Data folder*, *Server log*, *Start server*, *Stop server* (the receivers close and the
   dongles are free, e.g. for another program; RADIMCOM.exe stays in the tray and its window offers START SERVER),
   *Restart server*, *Exit RADIMCOM* (stops the receivers gracefully, after 20 s by force).
 - **Full screen:** F11 or the small ⛶ icon in the corner beside the RADIMCOM logo (orange while on): no frame, over the taskbar of its monitor.
@@ -44,11 +44,24 @@ Backup, upgrade and reinstall (the `data\` folder): see [Data folder](developmen
 - **MAIN** is the green LED above the I of the logo: under the mouse it turns red and shows *MAIN OFF*; a click is the power switch, after a confirmation it switches RADIMCOM off (as *Exit RADIMCOM*).
   Both work only in the app window; in a browser the logo stays a plain link to GitHub.
 - A second start only brings the window up.
+- **Start:** a small window in the middle of the screen with *Starting RADIMCOM…* and the pulsing RADIMCOM icon while the
+  receivers start; the page loads behind it, and the window goes to full screen (or to its remembered size) only when the
+  page is ready.
+
+### SDR setup: SETTINGS › SDR SOURCES
+
+Since 1.1beta2 the SDR setup is a page of the running RADIMCOM: **SETTINGS › SDR SOURCES** (see
+[Configuration](configuration.md#sdr-sources-assigning-sources-to-vfos)). It restarts only the VFOs that change; the others
+keep running. The Start menu *RADIMCOM SDR setup* and `RADIMCOM.exe --setup` open that page when RADIMCOM runs.
 
 ### SDR setup in the window
 
-Tray menu *SDR setup…*, Start menu *RADIMCOM SDR setup* or `RADIMCOM.exe --setup` (a running RADIMCOM switches to it).
-It stops the receiver (the dongles must be free), runs `setup_web.py` (port 8433, only from this PC) and shows one page:
+When RADIMCOM does not run yet and no dongles are assigned (the end of a new installation, any start without
+`data\vfos.json`, e.g. after a factory reset, or `RADIMCOM.exe --setup`), RADIMCOM.exe runs `setup_web.py` (port 8433,
+only from this PC) and shows one page, in a window in the middle of the screen (not full screen; afterwards RADIMCOM comes
+back in full screen). **Cancelled without saving**, RADIMCOM starts in its normal layout with the four VFO windows: VFO A
+without a source (**NO SDR**, dark and silent, an empty waterfall), B–D free; nothing is written, so the next start offers
+the SDR setup again, and SETTINGS › SDR SOURCES assigns the dongles at any time. The page:
 
 - **Connected SDR dongles:** every connected RTL-SDR, LimeSDR and Airspy as a card with its serial number; REFRESH after replugging.
 - **Serial numbers:** every connected RTL-SDR dongle with its serial number; type a new one (up to the length of the old one, letters,

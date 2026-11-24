@@ -1,0 +1,33 @@
+Q65 / JT65 decoder (lib\jt9)
+============================
+
+RADIMCOM decodes Q65 and JT65 with jt9, the slow-mode decoder of WSJT-X, which runs as a separate program. RADIMCOM
+records the USB audio of the VFO for a whole T/R period (15 to 300 s) from its UTC start, writes it as a WAV file
+(12 kHz, 16 bit, mono) into data\q65, runs jt9 on it there and reads the decodes from its output. The WAV file is
+deleted after the decoding; jt9 keeps its own small files there (decoded.txt, jt9_wisdom.dat, ...).
+
+Program in this folder:
+
+- jt9.exe from WSJT-X 2.7.0 - Copyright (C) 2001-2025 Joseph H Taylor, Jr, K1JT, and the WSJT Development Group.
+  GNU General Public License v3.
+  Source: https://sourceforge.net/projects/wsjt/ (git https://git.code.sf.net/p/wsjt/wsjtx, tag wsjtx-2.7.0,
+  folder lib), built without changes to the sources. Not built: the Qt shared memory of lib/shmem.cpp (only used when
+  jt9 runs under WSJT-X); it is replaced by a stub of eight functions that always fail (in installer/build_jt9.sh).
+  Linked statically with:
+  - FFTW 3.3.11 (single precision, with threads) - Copyright (c) Matteo Frigo and MIT, GNU GPL v2 or later.
+    Source: https://www.fftw.org (MSYS2 package mingw-w64-ucrt-x86_64-fftw 3.3.11-2).
+  - Boost 1.92 (only the header-only Boost.CRC) - Boost Software License 1.0. Source: https://www.boost.org
+    (MSYS2 package mingw-w64-ucrt-x86_64-boost).
+  - GCC 16.2 runtime libraries (libgfortran, libquadmath, libstdc++, libgcc, winpthreads) - GPL v3 with the GCC
+    Runtime Library Exception (libquadmath: LGPL v2.1 or later; winpthreads: MIT / BSD). Source: https://gcc.gnu.org
+    (MSYS2 packages).
+  - mingw-w64 runtime (UCRT) - ZPL / public domain, https://www.mingw-w64.org
+
+How it was built (MSYS2, "UCRT64" environment, gcc and gfortran 16.2): installer\build_jt9.sh
+  The script checks out the folder lib of the WSJT-X tag, compiles the source lists of the CMakeLists.txt of WSJT-X
+  (wsjt_FSRCS, wsjt_CSRCS and the CRC files of wsjt_CXXSRCS) into a static library and links jt9.f90 / jt9a.f90 with
+  it, -static (one exe, no DLLs). lib/jplsubs.f is compiled with -std=f2018, so that gfortran 16 does not take its own
+  subroutine SPLIT for the Fortran 2023 intrinsic of that name.
+
+The source code of jt9 and of the libraries, in the exact versions used, is available on request (see NOTICE.md
+of RADIMCOM).
