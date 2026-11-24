@@ -2,6 +2,7 @@
 import os
 import sys
 import tempfile
+import time
 import unittest
 
 import numpy as np
@@ -169,10 +170,10 @@ class MeteorTest(unittest.TestCase):
         self.assertEqual(len(ev), 2, ev)
         self.assertTrue(all(e["head"] is None for e in ev), ev)
 
-    def _sat_run(self, x, station=None):
+    def _sat_run(self, x, station=None, counter=None):
         import threading
         with tempfile.TemporaryDirectory() as dd:
-            c = meteor.MeteorCounter(path=os.path.join(dd, "m.json"))
+            c = counter or meteor.MeteorCounter(path=os.path.join(dd, "m.json"))
             c.station = station
             ev, c = run(x, c)
             for th in threading.enumerate():        # the satellite echoes are reported from a thread
@@ -199,8 +200,72 @@ class MeteorTest(unittest.TestCase):
         self.assertEqual(c.summary(T0 + 30)["this_hour"], 0)
         d = c.detail(s["ts"])
         self.assertEqual(d["echo"]["kind"], "sat")
-        self.assertGreater(abs(d["hz"][0]), 7000)
+        # the detail only around the track (± SAT_DETAIL_MARGIN_HZ), not the whole ±8 kHz
+        import base64
+        self.assertAlmostEqual(d["hz"][0], -1500 - meteor.SAT_DETAIL_MARGIN_HZ, delta=150)
+        self.assertAlmostEqual(d["hz"][-1], 1500 + meteor.SAT_DETAIL_MARGIN_HZ, delta=150)
+        self.assertEqual(len(base64.b64decode(d["rows"])), d["n"] * len(d["hz"]))
         self.assertGreater(len(d["pts"]), 50)
+        # its sound follows the Doppler: +1500 -> -1500 Hz would be 2500 -> -500 Hz on 143.049 USB, so the tone is moved
+        # by one step (the middle to 1.5 kHz) and the 3 kHz sweep squeezed into TRACK_SPAN_HZ
+        import io
+        import wave
+        import meteor_audio
+        self.assertTrue(d["audio"])
+        wav = c.audio(s["ts"])
+        self.assertGreater(meteor_audio.duration_of(wav), 17)
+        sh, k = c.details[s["ts"]]["wav_shift"], c.details[s["ts"]]["wav_k"]
+        self.assertAlmostEqual(sh, -500, delta=30)
+        self.assertAlmostEqual(k, meteor_audio.TRACK_SPAN_HZ / 3000, delta=0.05)
+        with wave.open(io.BytesIO(wav)) as w:
+            fs, a = w.getframerate(), np.frombuffer(w.readframes(w.getnframes()), "<i2").astype(float)
+        t_wav = c.details[s["ts"]]["wav_t0"]
+
+        def tone(t_from):                   # the strongest tone 1 s from t_from (s after T0)
+            i = int((T0 + t_from - t_wav) * fs)
+            seg = a[i:i + fs] * np.hanning(fs)
+            sp = np.abs(np.fft.rfft(seg))
+            return np.fft.rfftfreq(fs, 1 / fs)[int(np.argmax(sp))]
+        self.assertAlmostEqual(tone(10.0), 1500 + (1500 - 150 * 6.5) * k, delta=60)   # follows its Doppler then
+        self.assertAlmostEqual(tone(16.0), 1500 + (1500 - 150 * 12.5) * k, delta=60)
+
+    def test_sound_of_a_weak_satellite(self):
+        """A satellite 15 dB under the noise of the 2.8 kHz audio band, sweeping 4 kHz: its sound is a tone following
+        its Doppler (squeezed into 200–3000 Hz) clearly over the noise left around it."""
+        import io
+        import wave
+        import meteor_audio
+        fs = meteor_audio.RING_FS
+        n = int(20 * fs)
+        t = np.arange(n) / fs
+        f = 2000.0 - 200.0 * t                                        # +2000 -> -2000 Hz
+        rng = np.random.default_rng(3)
+        noise = (rng.standard_normal(n) + 1j * rng.standard_normal(n)) / np.sqrt(2)
+        amp = np.sqrt(10 ** (-15 / 10) * 2800.0 / (fs / 2) * 2)      # -15 dB in 2.8 kHz of noise
+        iq = (noise + amp * np.exp(2j * np.pi * np.cumsum(f) / fs)).astype(np.complex64)
+        pts = [(tt, 2000.0 - 200.0 * tt + rng.normal(0, 5)) for tt in np.arange(0.0, 20.0, 0.25)]
+        wav, sh, k = meteor_audio.track_wav(100.0, iq, fs, [(100.0 + a, b) for a, b in pts])
+        self.assertAlmostEqual(k, meteor_audio.TRACK_SPAN_HZ / 4000, delta=0.05)
+        with wave.open(io.BytesIO(wav)) as w:
+            ofs, a = w.getframerate(), np.frombuffer(w.readframes(w.getnframes()), "<i2").astype(float)
+        for t_at in (3.0, 10.0, 17.0):
+            i = int(t_at * ofs)
+            seg = a[i:i + ofs] * np.hanning(ofs)
+            sp = np.abs(np.fft.rfft(seg)) ** 2
+            fq = np.fft.rfftfreq(ofs, 1 / ofs)
+            want = 1500 + (2000.0 - 200.0 * (t_at + 0.5)) * k
+            self.assertAlmostEqual(fq[int(np.argmax(sp))], want, delta=40)
+            on = sp[np.abs(fq - want) <= 40].sum()
+            self.assertGreater(on / max(sp[(fq > 200) & (fq < 3000)].sum() - on, 1e-9), 1.0)   # the tone over the rest
+
+    def test_sound_of_a_ping(self):
+        """▶ of a meteor: as on 143.049 USB, the ping at +40 Hz is a tone at 1040 Hz, about as long as the echo."""
+        import meteor_audio
+        ev, c = run(baseband(10, [(5.0, 5.5, 40.0, 0.3, 0.0)]))
+        self.assertTrue(c.detail(ev[0]["ts"])["audio"])
+        wav = c.audio(ev[0]["ts"])
+        self.assertAlmostEqual(meteor_audio.tone_of(wav), 1040, delta=15)
+        self.assertTrue(0.5 < meteor_audio.duration_of(wav) < 3.0)
 
     def test_fast_satellite_not_a_meteor(self):
         """A fast one crosses the ±500 Hz of the meteor detector in under a second: still SAT, not UNDER."""
@@ -320,6 +385,347 @@ class MeteorTest(unittest.TestCase):
             c._dirty = True
             c.save()
             self.assertEqual(meteor.MeteorCounter(path=p).rx_offset(), 26.0)
+
+    def test_afc_first_meteor_then_median(self):
+        """The receiver 200 Hz off: the first strong meteor moves the carrier there, the next ones are at ~0 Hz."""
+        # 5.5 s apart: closer ones at one Doppler would join one track of the wide spectrum (gap SAT_GAP_S)
+        tones = [(5.0 + 5.5 * i, 5.25 + 5.5 * i, 200.0 + (-15, 10, 0, 20, -5, 12, -8)[i], 0.3, 0.0) for i in range(7)]
+        ev, c = run(baseband(45, tones))
+        self.assertGreaterEqual(len(ev), 6, ev)
+        self.assertAlmostEqual(ev[0]["doppler"], 185, delta=10)
+        self.assertTrue(c.afc_locked)
+        self.assertAlmostEqual(c.afc_hz, 200, delta=20)
+        for e in ev[1:]:
+            self.assertLess(abs(e["doppler"]), 40, ev)
+
+    def test_afc_off_keeps_the_dial(self):
+        with tempfile.TemporaryDirectory() as d:
+            c = meteor.MeteorCounter(path=os.path.join(d, "m.json"))
+            c.set_afc(False)
+            ev, c = run(baseband(10, [(5.0, 5.25, 200.0, 0.3, 0.0), (7.0, 7.25, 200.0, 0.3, 0.0)]), c)
+        self.assertEqual(c.afc_hz, 0.0)
+        self.assertEqual([round(e["doppler"] / 10) for e in ev], [20, 20])
+
+    def test_afc_finds_a_far_carrier_in_the_wide_spectrum(self):
+        """3 kHz off (the meteor band ±500 Hz is empty): flashes without drift at one frequency of the wide spectrum."""
+        real = meteor.AFC_DEAF_S
+        meteor.AFC_DEAF_S = 3.0
+        try:
+            tones = [(5.0 + 5 * i, 5.3 + 5 * i, 3000.0 + 10 * i, 0.4, 0.0) for i in range(3)]
+            tones.append((26.0, 26.3, 3005.0, 0.4, 0.0))
+            ev, c = run(baseband(29, tones))
+        finally:
+            meteor.AFC_DEAF_S = real
+        self.assertAlmostEqual(c.afc_hz, 3005, delta=30)
+        self.assertTrue(ev and abs(ev[-1]["doppler"]) < 40, ev)
+
+    def test_wide_waterfall(self):
+        """±8 kHz: a satellite-like tone 4 kHz off is in it, not in the meteor band."""
+        import base64
+        _, c = run(baseband(10, [(4.0, 9.0, 4000.0, 0.3, 0.0)]))
+        meteor.time.time, real = (lambda: T0 + 10), meteor.time.time
+        try:
+            w = c.waterfall(span=30, wide=True)
+        finally:
+            meteor.time.time = real
+        hz = np.array(w["hz"])
+        self.assertLess(hz[0], -7000)
+        self.assertGreater(hz[-1], 7000)
+        self.assertLessEqual(len(hz), meteor.WFW_BINS)
+        cols = [np.frombuffer(base64.b64decode(b), np.uint8) for _, b in w["cols"]]
+        k = int(np.argmin(abs(hz - 4000)))
+        self.assertGreater(max(int(col[k]) for col in cols), 10 * 255 / meteor.WF_DB)
+
+    def test_fine_waterfall(self):
+        """The meteor band in 1 Hz x 16 ms: two tones 6 Hz apart are two lines with a gap between them, a ping starts
+        and ends in the right cells; ±250 Hz is a part of it; the long views get the coarser columns; the detail of
+        the ping gets the fine cells too."""
+        import base64
+        _, c = run(baseband(11, [(5.0, 10.0, 100.0, 0.1, 0.0), (5.0, 10.0, 106.0, 0.1, 0.0),
+                                 (7.0, 7.2, -60.0, 0.3, 0.0)]))
+        meteor.time.time, real = (lambda: T0 + 10.5), meteor.time.time
+        try:
+            w = c.waterfall(span=10, cols=1000)
+            nw = c.waterfall(span=10, wide="narrow", cols=1000)
+            lw = c.waterfall(span=600, cols=1000)
+        finally:
+            meteor.time.time = real
+        cell = meteor.meteor_fine.CELL_S
+        self.assertAlmostEqual(w["bucket_s"], cell)
+        hz = np.array(w["hz"])
+        self.assertEqual(len(hz), 2 * int(meteor.FINE_HZ) + 1)        # 1001 rows of 1 Hz
+        self.assertEqual(nw["hz"][0], -meteor.NARROW_HZ)
+        self.assertEqual(len(nw["hz"]), 2 * int(meteor.NARROW_HZ) + 1)
+        self.assertEqual(len(base64.b64decode(nw["cols"][0][1])), len(nw["hz"]))
+        self.assertAlmostEqual(lw["bucket_s"], 0.6)                    # 600 s in 1000 columns, from the coarse ones
+        ks = np.array([k for k, _ in w["cols"]])
+        self.assertEqual(len(ks), ks[-1] - ks[0] + 1)               # every 16 ms cell, none merged with the next
+        cols = np.array([np.frombuffer(base64.b64decode(b), np.uint8) for _, b in w["cols"]], int)
+        a, b, mid, p = (int(np.argmin(abs(hz - f))) for f in (100, 106, 103, -60))
+        steady = cols[(ks * cell > T0 + 5.5) & (ks * cell < T0 + 6.5)].mean(axis=0)
+        self.assertGreater(steady[a], 6 * 255 / meteor.WF_DB)
+        self.assertGreater(steady[b], 6 * 255 / meteor.WF_DB)
+        self.assertLess(steady[mid], min(steady[a], steady[b]) - 6 * 255 / meteor.WF_DB)
+        hot = ks[cols[:, p] > 10 * 255 / meteor.WF_DB] * cell - T0
+        self.assertAlmostEqual(hot.min(), 7.0, delta=0.03)
+        self.assertAlmostEqual(hot.max(), 7.2, delta=0.03)
+        ev, c = run(baseband(15, [(6.0, 6.2, -60.0, 0.3, 0.0)]))     # alone (the tones above are an echo too)
+        self.assertEqual(len(ev), 1, ev)
+        d = c.detail(ev[0]["ts"])
+        self.assertTrue(d["fine"])
+        self.assertEqual(len(d["hz"]), 2 * int(meteor.DETAIL_FINE_HZ) + 1)     # ±150 Hz around the echo, 1 Hz
+        self.assertAlmostEqual(d["hz"][0], ev[0]["doppler"] - meteor.DETAIL_FINE_HZ, delta=1)
+        self.assertAlmostEqual(d["dt"], cell)
+        self.assertEqual(len(base64.b64decode(d["rows"])), d["n"] * len(d["hz"]))
+
+    def test_slow_head_echo_in_the_fine_cells(self):
+        """As seen on the air: the Doppler comes down +150 -> +16 Hz in 0.25 s just before the trail echo at +16 Hz:
+        too slow for the head echo spectrum, found in the fine cells; the detail is ±DETAIL_FINE_HZ around the echo.
+        A ping alone has none."""
+        x = baseband(15, [(6.0, 6.6, 16.0, 0.3, 0.0)])
+        chirp(x, 5.75, 6.0, 150.0, 16.0, 0.15)
+        ev, c = run(x)
+        self.assertEqual(len(ev), 1, ev)
+        h = ev[0]["head"]
+        self.assertTrue(h and h.get("fine"), ev[0])
+        self.assertAlmostEqual(h["slope"], -536, delta=150)
+        self.assertGreater(h["f0"], 100)
+        self.assertAlmostEqual(h["t"], 0.25, delta=0.1)
+        d = c.detail(ev[0]["ts"])
+        self.assertTrue(d["fine"])
+        self.assertLessEqual(d["hz"][0], h["f1"] - 30)
+        self.assertGreaterEqual(d["hz"][-1], h["f0"] + 29)
+        self.assertLess(len(d["hz"]), 2 * meteor.FINE_HZ)
+        ev2, _ = run(baseband(15, [(6.0, 6.6, 16.0, 0.3, 0.0)], seed=4))
+        self.assertEqual(len(ev2), 1, ev2)
+        self.assertIsNone(ev2[0]["head"])
+
+    def test_curved_head_echo(self):
+        """As seen on the air: the head echo brakes onto the trail (+424 -> +24 Hz, exponentially, in 0.6 s), and the
+        detector starts on its end, before the trail: still found (a curve, not a line)."""
+        x = baseband(12, [(6.0, 7.2, 24.0, 0.3, 0.0)])
+        t = np.arange(len(x)) / FS
+        m = (t >= 5.4) & (t < 6.0)
+        tt = t[m] - 5.4
+        f0 = meteor.GRAVES_HZ - DIAL
+        x[m] += (0.2 * np.exp(2j * np.pi * (f0 * tt + 24.0 * tt + 400 * 0.15 * (1 - np.exp(-tt / 0.15))))).astype(np.complex64)
+        ev, _ = run(x)
+        hs = [e["head"] for e in ev if e["head"]]
+        self.assertEqual(len(hs), 1, ev)
+        self.assertGreater(hs[0]["f0"], 200)
+        self.assertLess(hs[0]["f1"], 60)
+        self.assertGreater(len(hs[0]["pts"]), 5)
+
+    def test_slow_curved_head_echo(self):
+        """A slow head echo (1 s, braking +400 -> +24 Hz) the detector starts on long before the trail: the path is
+        looked for back from where the trail itself starts, so it is found."""
+        x = baseband(12, [(6.0, 7.2, 24.0, 0.3, 0.0)])
+        t = np.arange(len(x)) / FS
+        m = (t >= 5.0) & (t < 6.0)
+        tt = t[m] - 5.0
+        f0 = meteor.GRAVES_HZ - DIAL
+        x[m] += (0.2 * np.exp(2j * np.pi * (f0 * tt + 24.0 * tt + 376 * 0.3 * (1 - np.exp(-tt / 0.3))))).astype(np.complex64)
+        ev, _ = run(x)
+        hs = [e["head"] for e in ev if e["head"]]
+        self.assertEqual(len(hs), 1, ev)
+        self.assertGreater(hs[0]["f0"], 150)
+        self.assertLess(hs[0]["f1"], 60)
+
+    def test_head_find_not_the_echo_itself(self):
+        """The ±5 kHz spectrum: the echo at +148 Hz spreads over its short frames (points next to it, one far point
+        of noise before): no head echo. A steep line coming onto the trail is one."""
+        c = meteor.MeteorCounter(path=os.path.join(tempfile.gettempdir(), "m_hf.json"))
+        c.threshold_db = 6.0
+
+        class Hs:
+            hz = np.arange(-75, 76) * 66.67
+            dt = 0.0075
+            bin = 66.67
+        lim = int(6.0 * 255 / meteor.WF_DB) + 5
+
+        def rows(pts):
+            out = []
+            for t, f in pts:
+                v = np.zeros(len(Hs.hz), np.uint8)
+                v[int(np.argmin(np.abs(Hs.hz - f)))] = lim
+                out.append((t, v.tobytes()))
+            return out
+        leak = [(9.94, -344.0)] + [(9.94 + (i + 1) * Hs.dt, 200.0 + 67 * (i % 2)) for i in range(12)]
+        self.assertIsNone(c._head_find(rows(leak), Hs, 10.0, 148.0))
+        line = [(9.8 + i * Hs.dt, 1800.0 - 8000.0 * i * Hs.dt) for i in range(20)]     # 1800 -> 660 Hz, 8 kHz/s
+        h = c._head_find(rows(line), Hs, 10.0, 148.0)
+        self.assertTrue(h, h)
+        self.assertLess(h["slope"], -5000)
+
+    def test_detail_aligned_when_blocks_come_in_bursts(self):
+        """The blocks come late and then all at once (the receiver busy): the frames get their times from the samples,
+        so the fine cells of the detail start with the echo (not by the lag later or earlier)."""
+        x = baseband(12, [(6.0, 7.5, 40.0, 0.3, 0.0)])
+        events = []
+        with tempfile.TemporaryDirectory() as d:
+            c = meteor.MeteorCounter(on_echo=events.append, path=os.path.join(d, "m.json"))
+            c.set_enabled(True)
+            for i in range(0, len(x), BLOCK):
+                blk = x[i:i + BLOCK]
+                ts = (i + len(blk)) / FS
+                lag = 0.02 + (5.9 - ts if 5.3 <= ts < 5.9 else 0.0) + (7.0 - ts if 6.4 <= ts < 7.0 else 0.0)
+                c.feed(blk, FS, DIAL, now=T0 + ts + lag)
+            c.set_enabled(False)
+            ev = [e for e in events if e["kind"] != "plane"]
+            self.assertEqual(len(ev), 1, events)
+            dd = c.detail(ev[0]["ts"])
+        self.assertTrue(dd.get("fine"), dd.keys())
+        import base64
+        hz = np.array(dd["hz"])
+        a = np.frombuffer(base64.b64decode(dd["rows"]), np.uint8).reshape(dd["n"], len(hz))
+        lit = np.nonzero(a[:, np.abs(hz - 40) <= 3].max(axis=1) >= 10 * 255 / meteor.WF_DB)[0]
+        t_on = dd["t0"] + lit[0] * dd["dt"]
+        self.assertAlmostEqual(t_on - ev[0]["ts"], 0.0, delta=0.15)
+        self.assertAlmostEqual(ev[0]["ts"] - T0, 6.0 + 0.02, delta=0.2)
+
+    def test_weak_line_aircraft(self):
+        """A SAT·LINES track within ±350 Hz is an aircraft: PLANE (not SAT), not when the meteor detector had it."""
+        def line(a, b, f0, f1):
+            return [(T0 + t, f0 + (f1 - f0) * (t - a) / (b - a), 3.0) for t in np.arange(a, b, 0.1)]
+        items = {60: [{"how": "lines", "pts": line(2.0, 6.0, -40.0, 0.0), "z": 9.0}]}
+
+        class Stub:
+            n = 0
+
+            def take(self):
+                self.n += 1
+                return items.get(self.n, [])
+        with tempfile.TemporaryDirectory() as dd:
+            c = meteor.MeteorCounter(path=os.path.join(dd, "m.json"))
+            c.set_weak(sat_lines=True)
+            c._weak = Stub()
+            ev, c = run(baseband(12), c)
+        self.assertEqual([(e["kind"], e.get("how")) for e in ev], [("plane", "lines")], ev)
+
+    def test_meteors_in_a_burst_stay_meteors(self):
+        """Two meteors at almost the same Doppler 0.7 s apart: the second one is not an aircraft (something there
+        before it, but the meteor detector had it)."""
+        ev, _ = run(baseband(12, [(5.0, 5.3, 10.0, 0.3, 0.0), (6.0, 7.5, 12.0, 0.3, 0.0)]))
+        self.assertEqual([e["kind"] for e in ev], ["under", "over"], ev)
+
+    def test_meteor_after_an_aircraft(self):
+        """A meteor 5 s after an aircraft near its Doppler is a meteor (it starts at once)."""
+        ev, _ = run(baseband(16, [(2.0, 8.0, -20.0, 0.3, 8.0), (12.0, 12.3, 10.0, 0.3, 0.0)]))
+        self.assertEqual([e["kind"] for e in ev], ["plane", "under"], ev)
+
+    def test_long_overdense_with_a_jump_is_a_meteor(self):
+        """A 3 s overdense echo whose Doppler jumps one bin (the wind): not an aircraft."""
+        ev, _ = run(baseband(14, [(5.0, 6.5, 20.0, 0.3, 0.0), (6.5, 8.0, 28.0, 0.3, 0.0)]))
+        self.assertEqual([e["kind"] for e in ev], ["over"], ev)
+
+    def test_head_from_the_track(self):
+        """A short steep head echo the detector started on: +70 -> 0 Hz point by point, then the trail: a head echo;
+        another meteor at one Doppler before the trail is not."""
+        c = meteor.MeteorCounter(path=os.path.join(tempfile.gettempdir(), "m_ht.json"))
+        c.bin_hz = np.arange(-64, 65) * 7.8125
+        trail = [(6.1 + i * 0.032, 0.0) for i in range(10)]
+        ev = {"t0": 6.0, "dop": 0.0, "track": [(6.0, 70.0), (6.032, 47.0), (6.064, 23.0)] + trail}
+        h = c._head_track(ev)
+        self.assertTrue(h and h["fine"], h)
+        self.assertEqual(h["f0"], 70)
+        ev2 = {"t0": 6.0, "dop": 0.0, "track": [(6.0, 70.0), (6.032, 70.0), (6.064, 70.0)] + trail}
+        self.assertIsNone(c._head_track(ev2))
+
+    def test_sweep(self):
+        sat = [(i * 0.032, -200.0 + 300.0 * i * 0.032) for i in range(30)]
+        self.assertAlmostEqual(meteor.MeteorCounter._sweep(sat), 300, delta=10)
+        head = [(i * 0.032, 24.0 + 300.0 * np.exp(-i * 0.032 / 0.08)) for i in range(30)]   # braking onto the trail
+        self.assertEqual(meteor.MeteorCounter._sweep(head), 0.0)
+        self.assertEqual(meteor.MeteorCounter._sweep([(i * 0.032, 20.0) for i in range(30)]), 0.0)
+
+    def test_fast_skips_a_sweep(self):
+        """A satellite crossing the carrier fast (2 kHz/s) is not a FAST ping; the same burst at one Doppler is."""
+        import meteor_weak
+        out = {}
+        for name, k in (("sweep", 2000.0), ("ping", 0.0)):
+            x = baseband(10)
+            chirp(x, 6.0, 6.1, -100.0, -100.0 + k * 0.1, 0.5)
+            f = meteor_weak.Fast(FS, meteor.GRAVES_HZ - DIAL)
+            out[name] = []
+            for i in range(0, len(x), BLOCK):
+                out[name] += f.feed(x[i:i + BLOCK], T0 + (i + BLOCK) / FS)
+        self.assertEqual(out["sweep"], [])
+        self.assertEqual(len(out["ping"]), 1, out)
+
+    def test_aircraft_without_drift(self):
+        """An aircraft near the middle of the path: ~0 Hz, no drift, a strong part of 1.5 s; weak for seconds before it
+        (a meteor starts at once): PLANE, not OVER."""
+        ev, _ = run(baseband(14, [(3.0, 9.0, -8.0, 0.06, 0.0), (6.0, 7.5, -8.0, 0.3, 0.0)]))
+        self.assertEqual([e["kind"] for e in ev], ["plane"], ev)
+        ev, _ = run(baseband(14, [(6.0, 7.5, -8.0, 0.3, 0.0)]))             # the same without it: a meteor
+        self.assertEqual([e["kind"] for e in ev], ["over"], ev)
+
+    def test_fast_ping_found(self):
+        """FAST: a 15 ms ping too short for the meteor detector is an UNDER echo of its own (F), a strong one is not
+        counted twice."""
+        x = baseband(10, [(6.0, 6.015, 30.0, 0.45, 0.0)])
+        ev, _ = run(x)
+        self.assertEqual(ev, [])                                   # the meteor detector alone misses it
+        with tempfile.TemporaryDirectory() as dd:
+            c = meteor.MeteorCounter(path=os.path.join(dd, "m.json"))
+            c.set_weak(fast=True)
+            ev, c = run(x, c)
+        self.assertEqual(len(ev), 1, ev)
+        self.assertEqual(ev[0]["kind"], "under")
+        self.assertTrue(ev[0]["fast"])
+        self.assertAlmostEqual(ev[0]["doppler"], 30, delta=12)
+        self.assertAlmostEqual(ev[0]["ts"] - T0, 6.0, delta=0.05)
+        self.assertEqual(c.summary(T0 + 10)["fasts"], 1)
+        self.assertEqual(meteor.log_name(ev[0]), " | F")
+        with tempfile.TemporaryDirectory() as dd:
+            c = meteor.MeteorCounter(path=os.path.join(dd, "m.json"))
+            c.set_weak(fast=True)
+            ev, c = run(baseband(10, [(6.0, 6.3, 30.0, 0.5, 0.0)]), c)
+        self.assertEqual([(e["kind"], e.get("fast")) for e in ev], [("under", None)], ev)
+
+    def test_fast_quiet_on_noise(self):
+        import meteor_weak
+        f = meteor_weak.Fast(FS, meteor.GRAVES_HZ - DIAL)
+        x = baseband(60, seed=7)
+        x[int(20 * FS)] += 300                                     # an impulse: in the reference bands too
+        out = []
+        for i in range(0, len(x), BLOCK):
+            out += f.feed(x[i:i + BLOCK], T0 + (i + BLOCK) / FS)
+        self.assertEqual(out, [])
+
+    def test_weak_satellites_reported_once(self):
+        """What SAT·TLE / SAT·LINES find: reported as SAT (SAT·TLE with its satellite, not identified again), unless a
+        satellite reported already lies on it."""
+        x = baseband(40)
+        x = chirp(x, 4.0, 12.0, 1500.0, -1500.0, 0.15)            # the tracker sees this one
+
+        def line(a, b, f0, f1):
+            return [(T0 + t, f0 + (f1 - f0) * (t - a) / (b - a), 3.0) for t in np.arange(a, b, 0.1)]
+
+        tle = {"how": "tle", "norad": 99999, "name": "TEST SAT", "pts": line(15.0, 25.0, 2000.0, 500.0), "z": 9.0,
+               "offset": 5, "az": 250.0, "el": 30.0, "km": 900}
+        items = {150: [tle, dict(tle),                             # the same twice: once
+                       {"how": "lines", "pts": line(15.0, 25.0, -2000.0, -3000.0), "z": 8.0}],
+                 300: [{"how": "lines", "pts": line(4.5, 11.0, 1500.0 - 375 * 0.5, 1500 - 375 * 7), "z": 8.0}]}  # the tracker's
+
+        class Stub:
+            n = 0
+
+            def take(self):
+                self.n += 1
+                return items.get(self.n, [])
+        with tempfile.TemporaryDirectory() as dd:
+            c = meteor.MeteorCounter(path=os.path.join(dd, "m.json"))
+            c.set_weak(sat_tle=True, sat_lines=True)
+            c._weak = Stub()
+            ev, c = self._sat_run(x, counter=c)
+        sats = sorted((e for e in ev if e["kind"] == "sat"), key=lambda e: e["ts"])
+        self.assertEqual([e.get("how") for e in sats], [None, "tle", "lines"], sats)
+        self.assertEqual(sats[1]["sat"]["norad"], 99999)
+        self.assertEqual(sats[1]["sat"]["name"], "TEST SAT")
+        self.assertAlmostEqual(sats[2]["doppler"], -2000, delta=1000)
+        self.assertNotIn("sat_tle", meteor.log_name(sats[1]))
+        self.assertEqual(c.summary(T0 + 40)["this_hour"], 0)
 
     def test_graves_path(self):
         p = meteor.graves_path(48.7, 17.9)          # western Slovakia

@@ -1,4 +1,4 @@
-"""METEORS on GRAVES: which aircraft an aircraft echo (kind "plane") was, from the public ADS-B network adsb.fi.
+"""GRAVES: which aircraft an aircraft echo (kind "plane") was, from the public ADS-B network adsb.fi.
 
 An aircraft reflects the GRAVES carrier (143.050 MHz) like a satellite does, only slower: its bistatic Doppler
 f = -(F / c) d/dt (|plane - GRAVES| + |plane - station|) is at most ~±250 Hz. The aircraft that can be seen from both

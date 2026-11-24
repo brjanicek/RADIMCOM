@@ -1,4 +1,4 @@
-"""METEORS on GRAVES: the wide spectrum (±8 kHz), satellite echoes in it and which satellite it was.
+"""GRAVES: the wide spectrum (±8 kHz), satellite echoes in it and which satellite it was.
 
 GRAVES (143.050 MHz) is a space surveillance radar: besides the meteor trails, satellites in its beam reflect it too.
 A satellite in a low orbit moves ~7.5 km/s, so its echo is a long streak (seconds to tens of seconds) that sweeps over
@@ -47,7 +47,11 @@ SAT_SPAN_HZ = 250.0             # … and sweeps over at least this (two meteors
 SAT_FAR_HZ = 450.0              # an aircraft is never this far off the carrier at 143 MHz
 SAT_FIT_HZ = 60.0               # a point further than this from the smooth curve of the track is not its own
 SAT_INLIERS = 0.8
-SAT_RING_S = 200.0              # the wide spectrum kept for the detail of a satellite
+HEAD_LIKE_MAX_S = 4.0           # a track this short that ends flat (HEAD_TAIL_S, within HEAD_TAIL_HZ, under …
+HEAD_TAIL_S = 0.4
+HEAD_TAIL_HZ = 15.0
+HEAD_TAIL_SLOPE = 25.0          # … Hz/s) after coming onto it is a head echo on its trail, not a satellite
+SAT_RING_S = 200.0             # the wide spectrum kept for the detail of a satellite
 LINK_DT = 0.12                  # a meteor echo point and a track point closer than this in time …
 LINK_DF = 50.0                  # … and in Hz are the same signal
 LINK_SMEAR_S = 0.3              # the meteor detector (125 ms frames smoothed over 4) smears a fast sweep over this
@@ -84,7 +88,10 @@ class Spec:
     every hop; each frame divided by its median and by the floor of each bin. The frames of the last ring_s seconds
     are kept as uint8 (0..full_db dB): smoothed (ring_smooth) or each frame alone."""
 
-    def __init__(self, fs, f_off, n, hop, band, smooth, ring_s, ring_smooth, full_db):
+    def __init__(self, fs, f_off, n, hop, band, smooth, ring_s, ring_smooth, full_db, raw_s=0.0):
+        """raw_s: also keep the frames of the last raw_s seconds unsmoothed as float16 ratios over the floor
+        (self.raw: (t, array)), for the weak satellite search (meteor_weak.py)."""
+        self.raw = collections.deque(maxlen=int(raw_s * fs / hop) + 1) if raw_s else None
         freqs = np.fft.fftfreq(n, 1.0 / fs)
         idx = np.nonzero(np.abs(freqs - f_off) <= band)[0]
         self.idx = idx[np.argsort(freqs[idx])]
@@ -124,6 +131,8 @@ class Spec:
                 t = now - (len(buf) - i * hop - n) / self.fs
                 self.ring.append((t, db8(ratio if self.ring_smooth else r / fl, self.full_db)))
                 learning = self.learn < LEARN_S
+                if self.raw is not None and not learning:
+                    self.raw.append((t, (r / fl).astype(np.float16)))
                 tau = self.learn if learning else np.where(ratio >= thr_lin, TAU_HOT_S, TAU_S)
                 self.floor += (s - self.floor) * (self.dt / tau)
                 if not learning:
@@ -246,6 +255,8 @@ class SatTracker:
                                  and rms <= max(SAT_FIT_HZ / 2, 2 * bin_hz)
                                  and ((abs(slope) >= SAT_DRIFT and span >= SAT_SPAN_HZ) or far >= SAT_FAR_HZ))
                 tr["t0"], tr["t1"] = pts[0][0], pts[-1][0]
+                if tr["sat"] and self._head_like(tt, ff, bin_hz):
+                    tr["sat"], tr["head"] = False, True     # a meteor: its head echo braking onto its trail
                 if tr["sat"]:                   # a second track along the same streak (side peaks) is not another one
                     for o in self.closed:
                         if o.get("sat") and o["t1"] >= tr["t0"] and o["t0"] <= tr["t1"] and self._hits(o, pts, 0.0, 0.0) >= len(pts) / 2:
@@ -253,6 +264,24 @@ class SatTracker:
                             break
         self.closed.append(tr)
         return tr
+
+    @staticmethod
+    def _head_like(tt, ff, bin_hz):
+        """A short track that comes onto one Doppler and stays there (HEAD_TAIL_S at least, flat): a head echo braking
+        onto its meteor trail, not a satellite (its Doppler never stops moving for that long within a few seconds)."""
+        if len(tt) < 6 or tt[-1] - tt[0] > HEAD_LIKE_MAX_S:
+            return False
+        tail = tt >= tt[-1] - HEAD_TAIL_S
+        if tail.sum() < 3 or tt[-1] - tt[tail][0] < HEAD_TAIL_S * 0.8:
+            return False
+        f_end = float(np.median(ff[tail]))
+        flat = max(HEAD_TAIL_HZ, 1.5 * bin_hz)
+        if np.ptp(ff[tail]) > 2 * flat or abs(float(np.polyfit(tt[tail], ff[tail], 1)[0])) > HEAD_TAIL_SLOPE:
+            return False
+        d = np.abs(ff[~tail] - f_end)
+        if not len(d) or d.max() < 3 * flat:
+            return False
+        return float(np.mean(np.diff(d) <= flat)) >= 0.8 if len(d) > 1 else True    # nearer and nearer
 
     @staticmethod
     def _hits(tr, ev_pts, dt_more, smear_s):
