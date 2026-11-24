@@ -82,6 +82,10 @@ Change log
 
 Ver. 1.2beta1
 (test beta, GitHub branch 1.2beta1; continues the release 1.1)
+GRAVES
+- Slow satellites (drifting straight 25 Hz/s or more) and their next pieces are no longer counted as meteors.
+- SAT-TLE far fewer false satellites (z 10, median level 1.5 dB); weak satellites show their real SNR (was 6.0 dB).
+- SAT-LINES: a line near the carrier drifting 25 Hz/s or more is a satellite, not an aircraft.
 
 Ver. 1.1
 (what is new against 1.0)

@@ -12,7 +12,10 @@ Detection on the complex baseband of the VFO (dial = 0 Hz), only around the carr
   - an echo starts when the strongest bin is THRESHOLD_DB above its floor, lasts while it stays 3 dB lower than that,
     and ends after GAP_S below; frames where more than WIDE_FRAC of the band is up at once (broadband) are left out;
   - echoes of aircraft are long and their Doppler drifts: longer than PLANE_S, or longer than 2 s with a drift over
-    PLANE_DRIFT Hz/s, or at the Doppler of an aircraft echo seen a little earlier, are aircraft and are not counted.
+    PLANE_DRIFT Hz/s, or at the Doppler of an aircraft echo seen a little earlier, are aircraft and are not counted;
+  - a meteor trail drifts only a few Hz/s with the wind: an echo drifting straight at SLOW_SAT_HZ_S or more for
+    SLOW_SAT_S (all its points, a weak one has few over the threshold) is a satellite, and the echoes that start on its
+    line within SWEEP_JOIN_S after it (it fades in and out) are its pieces; none of them is counted.
 
 Counts per UTC hour (underdense, overdense, seconds monitored) are kept in data/meteors_<VFO>.json for LONG_DAYS.
 
@@ -88,6 +91,12 @@ PLANE_MOVE_BINS = 3                     # drifting: its Doppler moves at least t
 SWEEP_PTS = 6                           # a short echo sweeping through (a satellite): at least this many points …
 SWEEP_HZ_S = 150.0                      # … moving at least this fast in both halves, the same way …
 SWEEP_RMS_HZ = 12.0                     # … and straight
+SLOW_SAT_HZ_S = 25.0                    # a trail drifting straight at least this fast (live: meteor trails up to ~17 Hz/s
+SLOW_SAT_S = 0.6                        # … with the wind, satellites -34…-59) for at least this long is a satellite
+SLOW_SAT_RMS_HZ = 25.0                  # … (straight within this)
+SWEEP_JOIN_S = 10.0                     # an echo starting this soon after a satellite piece of the detector …
+SWEEP_JOIN_HZ = 40.0                    # … on its line (within this + SWEEP_JOIN_HZ_S per second after it) is its
+SWEEP_JOIN_HZ_S = 6.0                   # … next piece: not a meteor, not reported again
 LONG_DAYS = 400
 SCOPE_S = 3600                          # the chart and the waterfall keep an hour; the page asks for 30 s … 1 h
 SCOPE_RATE = 4                          # points per second
@@ -391,6 +400,7 @@ class MeteorCounter:
             self.floor, self.t_learn = f, old[2]
         self._ev = None
         self._last_hot = None
+        self._sweep_last = None         # (t, Hz, Hz/s) the end of the last satellite piece of the detector (_on_sweep)
         self._scope_t = 0.0
         self._scope_max = -99.0
         self.wf_sel = np.arange(len(self.idx))          # WF_HZ = BAND_HZ: all of them, always as many
@@ -513,7 +523,7 @@ class MeteorCounter:
         if ev is None:
             if snr >= self.threshold_db:
                 self._ev = {"t0": t, "t1": t, "peak": snr, "dop": float(self.bin_hz[k]), "k": k, "track": [(t, float(self.bin_hz[k]))],
-                            "afc": self.afc_hz}
+                            "trace": [(t, float(self.bin_hz[k]), snr)], "afc": self.afc_hz}
             return
         a = max(0, ev["k"] - TRACK_BINS)
         j = a + int(np.argmax(ratio[a:ev["k"] + TRACK_BINS + 1]))        # the echo's own bins (its Doppler moves)
@@ -524,6 +534,7 @@ class MeteorCounter:
         if snr_j >= self.threshold_db - HYST_DB:
             ev["t1"] = t
             ev["k"] = j
+            ev["trace"].append((t, float(self.bin_hz[j]), snr_j))     # all its points (a weak one: its drift)
             if snr_j >= self.threshold_db:
                 ev["track"].append((t, float(self.bin_hz[j])))
             if snr_j > ev["peak"]:
@@ -545,19 +556,28 @@ class MeteorCounter:
             return
         dur = ev["t1"] - ev["t0"] + self.dt
         tr = ev["track"]
-        drift = 0.0
-        # the drift of the trail itself: without a head echo coming onto it at the start of the track
-        bw0 = abs(float(self.bin_hz[1] - self.bin_hz[0])) if len(self.bin_hz) > 1 else 8.0
-        i0 = next((i for i, p in enumerate(tr) if abs(p[1] - ev["dop"]) <= 2.5 * bw0), 0)
-        trl = tr[i0:]
-        if len(trl) >= 4 and trl[-1][0] - trl[0][0] > 0.5:
-            tt = np.array([x[0] for x in trl]) - trl[0][0]
-            ff = np.array([x[1] for x in trl])
-            drift = float(np.polyfit(tt, ff, 1)[0])
+        trace = ev.get("trace") or [(p[0], p[1], ev["peak"]) for p in tr]
         bw = abs(float(self.bin_hz[1] - self.bin_hz[0])) if len(self.bin_hz) > 1 else 8.0
+        # the drift of the trail itself (without a head echo coming onto it at the start); a weak echo has too few
+        # points over the threshold: then all its points
+        fit = self._drift(tr, ev["dop"], bw) or self._drift(trace, ev["dop"], bw)
+        drift, rms, half = fit if fit else (0.0, 0.0, 0.0)
         pre = self._pre_level(ev)       # an aircraft is there (weak) before its strong part, a meteor starts at once
         sweep = self._sweep(tr)
-        if dur > PLANE_S or (dur > 2.0 and abs(drift) > PLANE_DRIFT and abs(drift) * dur >= PLANE_MOVE_BINS * bw):
+        slow = (fit is not None and dur >= SLOW_SAT_S and abs(drift) >= SLOW_SAT_HZ_S and rms <= SLOW_SAT_RMS_HZ
+                and half >= SLOW_SAT_HZ_S / 2 and abs(drift) * dur >= PLANE_MOVE_BINS * bw)
+        if dur > PLANE_S:
+            kind = "plane"
+        elif self._on_sweep(trace, fit):
+            kind = "sat"                # the next piece of a satellite the detector just had: not a meteor
+            ev["sat_piece"] = True
+        elif slow:
+            kind = "sat"                # drifting straight much faster than a trail in the wind: a satellite
+            if self._ws is not None:
+                ev["sweep"] = drift
+            else:
+                ev["sat_piece"] = True
+        elif dur > 2.0 and abs(drift) > PLANE_DRIFT and abs(drift) * dur >= PLANE_MOVE_BINS * bw:
             kind = "plane"              # long, or drifting by more than a bin or two (a jump of one bin is not drift)
         elif (self._last_hot and ev["t0"] - self._last_hot[0] < PLANE_MEMORY_S and pre >= PLANE_PRE_MEM
               and abs(ev["dop"] - self._last_hot[1]) < PLANE_DOPPLER_HZ + PLANE_DRIFT * (ev["t0"] - self._last_hot[0])):
@@ -569,6 +589,11 @@ class MeteorCounter:
             ev["sweep"] = sweep
         else:
             kind = "under" if dur < UNDER_S else "over"
+        if kind == "sat":               # where its line goes on (the next piece after a fade)
+            s = self._sweep_last
+            slope = drift if fit is not None and abs(drift) >= SLOW_SAT_HZ_S / 2 else (s[2] if s else ev.get("sweep", 0.0))
+            if slope:
+                self._sweep_last = (trace[-1][0], trace[-1][1], slope)
         if kind == "plane":
             self._last_hot = (ev["t1"], ev["dop"])
             self._plane_recent.append({"pts": sorted(tuple(p) for p in tr)})     # SAT·LINES does not report it again
@@ -595,6 +620,40 @@ class MeteorCounter:
         # seconds, one gone leaves it lifted for a while): noise ~1.35, an aircraft much more
         arr = np.stack(rows).astype(np.float32)
         return float(np.median(np.mean(arr[:, max(0, k - 1):k + 2], axis=1)))
+
+    @staticmethod
+    def _drift(pts, dop, bw):
+        """The straight fit of the trail from the first point near its peak Doppler on: (Hz/s, rms Hz, the slower of
+        its two halves in Hz/s, 0 if they go opposite ways), None if too short (fewer than 4 points or 0.5 s). A
+        meteor fading out wanders over the noise at its end: its first half stays flat."""
+        i0 = next((i for i, p in enumerate(pts) if abs(p[1] - dop) <= 2.5 * bw), 0)
+        trl = pts[i0:]
+        if len(trl) < 4 or trl[-1][0] - trl[0][0] <= 0.5:
+            return None
+        tt = np.array([x[0] for x in trl]) - trl[0][0]
+        ff = np.array([x[1] for x in trl])
+        c = np.polyfit(tt, ff, 1)
+        h = len(tt) // 2
+        half = 0.0
+        if h >= 3 and len(tt) - h >= 3 and tt[h - 1] > tt[0] and tt[-1] > tt[h]:
+            s1 = float(np.polyfit(tt[:h], ff[:h], 1)[0])
+            s2 = float(np.polyfit(tt[h:], ff[h:], 1)[0])
+            half = min(abs(s1), abs(s2)) if s1 * c[0] > 0 and s2 * c[0] > 0 else 0.0
+        return float(c[0]), float(np.sqrt(np.mean((ff - np.polyval(c, tt)) ** 2))), half
+
+    def _on_sweep(self, trace, fit):
+        """Does the echo start on the line of the satellite piece just before (SWEEP_JOIN_*) and, if its drift is
+        known, drift the same way?"""
+        s = self._sweep_last
+        if not s:
+            return False
+        t, f = trace[0][0], trace[0][1]
+        dt = t - s[0]
+        if not -0.5 <= dt <= SWEEP_JOIN_S:
+            return False
+        if abs(f - (s[1] + s[2] * dt)) > SWEEP_JOIN_HZ + SWEEP_JOIN_HZ_S * abs(dt):
+            return False
+        return fit is None or (fit[0] * s[2] > 0 and abs(fit[0]) >= abs(s[2]) / 3)
 
     @staticmethod
     def _sweep(tr):
@@ -633,8 +692,11 @@ class MeteorCounter:
         if tr is not None and tr.get("sat"):
             tr["pieces"] = tr.get("pieces", 0) + 1
             return
+        if ev.get("sat_piece"):         # the next piece of the satellite just reported: not a meteor, not again
+            return
         if ev.get("sweep"):             # a satellite the tracker did not report: reported as one (identified)
-            pts = [(p[0], p[1], ev["peak"]) for p in ev["track"]]
+            tp = ev.get("trace") if len(ev.get("trace") or []) > len(ev["track"]) else None
+            pts = [(p[0], p[1], p[2]) for p in tp] if tp else [(p[0], p[1], ev["peak"]) for p in ev["track"]]
             if self._ws is not None and not any(self._on_track(s, pts) for s in self._sat_recent):
                 self._sat_found({"pts": pts, "t0": pts[0][0], "t1": pts[-1][0], "slope": ev["sweep"]}, "sweep")
             return
@@ -832,9 +894,10 @@ class MeteorCounter:
             t_in, it, pts = w
             if any(self._on_track(s, pts) for s in self._sat_recent):
                 continue                # the tracker (or the other search) has it
-            # an aircraft: slow (a satellite crossing 0 Hz near its closest point may stay within ±PLANE_MAX_HZ too)
+            # an aircraft: slow (a satellite crossing 0 Hz near its closest point may stay within ±PLANE_MAX_HZ too;
+            # live, satellites near 0 Hz drift -34…-59 Hz/s, aircraft a few Hz/s: SLOW_SAT_HZ_S tells them apart)
             plane = (it["how"] == "lines" and max(abs(p[1]) for p in pts) <= PLANE_MAX_HZ
-                     and abs((pts[-1][1] - pts[0][1]) / max(pts[-1][0] - pts[0][0], 1e-3)) < meteor_weak.LINE_MIN_SLOPE)
+                     and abs((pts[-1][1] - pts[0][1]) / max(pts[-1][0] - pts[0][0], 1e-3)) < SLOW_SAT_HZ_S)
             if plane and (any(self._on_track(s, pts) for s in self._plane_recent) or self._det_has(pts)):
                 continue                # the meteor detector has this aircraft
             late = now - t_in
@@ -1093,9 +1156,13 @@ class MeteorCounter:
         pts = tr["pts"]
         self._sat_recent.append({"pts": sorted(tuple(p) for p in pts)})
         k = max(range(len(pts)), key=lambda i: pts[i][2])
+        snr = pts[k][2]
+        if how in ("tle", "lines"):     # a weak one: its median level along the track (noise ~ -0.5 dB), at its
+            k = len(pts) // 2           # middle; the strongest point is a meteor it crosses at the carrier or noise
+            snr = meteor_weak.level_db(pts)
         t0, t1 = tr["t0"], tr["t1"]
         e = {"ts": round(t0, 2), "time": time.strftime("%H:%M:%S", time.gmtime(t0)), "dur": round(t1 - t0, 2),
-             "snr": round(pts[k][2], 1), "doppler": round(pts[k][1]), "drift": round(tr["slope"], 1), "kind": "sat",
+             "snr": round(snr, 1), "doppler": round(pts[k][1]), "drift": round(tr["slope"], 1), "kind": "sat",
              "freq_hz": round(GRAVES_HZ + pts[k][1]), "det": False, "head": None,
              "f0": round(pts[0][1]), "f1": round(pts[-1][1]), "sat": None}
         if how:

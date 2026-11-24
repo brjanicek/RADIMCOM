@@ -103,7 +103,7 @@ class MeteorTest(unittest.TestCase):
         self.assertEqual(ev, [])
 
     def test_aircraft_drift(self):
-        ev, c = run(baseband(14, [(4.0, 10.0, -100.0, 0.3, 30.0)]))
+        ev, c = run(baseband(14, [(4.0, 10.0, -100.0, 0.3, 12.0)]))
         self.assertTrue(ev)
         self.assertTrue(all(e["kind"] == "plane" for e in ev), ev)
         self.assertEqual(c.summary(T0 + 14)["this_hour"], 0)
@@ -274,6 +274,34 @@ class MeteorTest(unittest.TestCase):
         self.assertEqual([e["kind"] for e in ev], ["sat"], ev)
         self.assertEqual(c.summary(T0 + 16)["this_hour"], 0)
 
+    def test_slow_weak_satellite_in_pieces(self):
+        """A weak satellite drifting -56 Hz/s (too weak for the wide spectrum) fading in and out: the first piece is a
+        SAT, the next pieces on its line are not meteors (it was OVER, OVER, UNDER)."""
+        def piece(a, b):
+            return (a, b, 250.0 - 56.0 * (a - 4.0), 0.12, -56.0)
+        x = baseband(18, [piece(4.0, 5.6), piece(8.0, 10.4), piece(10.9, 11.2)])
+        ev, c = self._blind_run(x)
+        self.assertEqual([e for e in ev if e["kind"] in ("under", "over")], [], ev)
+        sats = [e for e in ev if e["kind"] == "sat"]
+        self.assertEqual(len(sats), 1, ev)
+        self.assertAlmostEqual(sats[0]["drift"], -56, delta=12)
+        self.assertEqual(c.summary(T0 + 18)["this_hour"], 0)
+
+    def test_meteor_after_a_slow_satellite(self):
+        """A meteor 3 s after a slow satellite piece, but off its line: still a meteor."""
+        x = baseband(14, [(4.0, 5.6, 250.0, 0.12, -56.0), (8.5, 8.8, 150.0, 0.3, 0.0)])
+        ev, _ = self._blind_run(x)
+        self.assertEqual([e["kind"] for e in ev], ["sat", "under"], ev)
+
+    def _blind_run(self, x):
+        """_sat_run with the tracker of the wide spectrum blind (the satellite too weak for its short frames)."""
+        thr = meteor.SAT_THR_DB
+        meteor.SAT_THR_DB = 60.0
+        try:
+            return self._sat_run(x)
+        finally:
+            meteor.SAT_THR_DB = thr
+
     def test_meteor_still_counted(self):
         """The wide spectrum sees a meteor too, but its track does not drift: it stays a meteor."""
         ev, c = self._sat_run(baseband(12, [(5.0, 7.0, -60.0, 0.3, 0.0), (9.0, 9.3, 80.0, 0.3, 0.0)]))
@@ -362,7 +390,7 @@ class MeteorTest(unittest.TestCase):
             with tempfile.TemporaryDirectory() as dd:
                 c = meteor.MeteorCounter(path=os.path.join(dd, "m.json"))
                 c.station = lambda: (48.7, 17.9)
-                ev, c = run(baseband(14, [(4.0, 10.0, -100.0, 0.3, 30.0)]), c)
+                ev, c = run(baseband(14, [(4.0, 10.0, -100.0, 0.3, 12.0)]), c)
                 for th in threading.enumerate():
                     if th.name in ("meteor-air", "meteor-sat"):
                         th.join(10)

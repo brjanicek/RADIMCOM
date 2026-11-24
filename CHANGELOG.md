@@ -4,6 +4,22 @@
 
 Test beta (GitHub branch `1.2beta1`; continues the release 1.1).
 
+### Changes
+
+#### GRAVES
+
+- **Slow satellites are no longer counted as meteors.** An echo drifting straight at 25 Hz/s or more for at least
+  0.6 s, both its halves the same way, is a satellite (a meteor trail drifts only a few Hz/s with the wind). The drift
+  is taken from all points of the echo, so a weak one gets it too. Echoes that start on its line within 10 s are its
+  pieces: not counted, not reported again. Tuned on live echoes (satellites near the carrier −34 to −59 Hz/s, meteors
+  up to ~17 Hz/s).
+- **SAT·TLE far fewer false satellites:** z score 10 (was 7) and a median level of 1.5 dB along the streak; with
+  thousands of lit satellites some curve fitted the noise every few seconds.
+- **SNR of weak satellites:** SAT·TLE / SAT·LINES showed 6.0 dB for every one (taken from the capped spectrum); now the
+  median level along the streak.
+- **SAT·LINES:** a straight line near the carrier drifting 25 Hz/s or more is a satellite, not an aircraft.
+- docs: how the AFC works.
+
 ## Ver. 1.1
 
 What is new against 1.0 (tested in the betas `1.1beta1`, `1.1beta2` and the release candidates `1.1rc1` … `1.1rc4`).

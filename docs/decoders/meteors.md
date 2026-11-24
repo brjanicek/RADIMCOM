@@ -82,9 +82,18 @@ Blocks in the style of STATION (lit when in use, amber when something needs atte
   - **THR**: the threshold in dB above the noise floor (default 10 dB; noise alone stays under about 8.5 dB).
   - **RESET STATS** deletes the hourly and daily statistics of this VFO.
   - **AFC** (on by default): the meteor trails are at ~0 Hz, so they show where the carrier really is when the receiver
-    is a few ppm off. The first strong meteor moves the carrier of all the detectors there, then the median of the last
-    meteors trims it; with no meteor for 10 minutes it is looked for in the ±8 kHz spectrum (short flashes without
-    drift at one place). The VFO is not retuned. More than a few hundred Hz off: set the PPM of the dongle.
+    is a few ppm off. How it works:
+    - The trails drift only a few tens of Hz with the wind, so their Doppler is the receiver's error.
+    - **First lock:** the first meteor of at least 13 dB SNR moves the carrier of all the detectors to its Doppler.
+    - **Trim:** the median Doppler of the last 12 meteors (at least 5) moves it again when it is 8 Hz or more off;
+      smaller corrections are not made, so the noise floor is not learned again for nothing.
+    - **Lost carrier:** with no meteor for 10 minutes, the carrier is looked for in the ±8 kHz spectrum. Three short
+      flashes (under 1.5 s, at most 60 Hz of drift, 12 dB or more) within 40 Hz of each other in 20 minutes are
+      meteors, and the carrier moves to their median. The next strong meteor locks it again.
+    - Only the counter's carrier moves; the VFO is not retuned. The waterfalls, the floor, the fine spectrum and the
+      sound go on around the new carrier without learning again. A meteor found before a move does not trim it.
+    - The correction stays within the wide spectrum and is kept across restarts. Switching AFC off goes back to the
+      dial. More than a few hundred Hz off: set the PPM of the dongle.
   - **HEAD ECHO**: the ±5 kHz spectrum with ~15 ms frames for fast head echoes (kHz per second).
   - **ADS-B**: aircraft echoes looked up on adsb.fi (else adsb.lol) around the middle of the path (only that point is
     sent).
@@ -94,11 +103,14 @@ Blocks in the style of STATION (lit when in use, amber when something needs atte
       sweeps is left out. Counted as underdense (**FAST BURST**, F in the log).
     - **SAT·TLE**: the ±8 kHz spectrum summed along the bistatic Doppler of every satellite GRAVES lights over the
       station (every 15 s, the last 40 s): streaks too weak for the tracker, with the satellite already known
-      (**KNOWN (TLE)**). Needs the station location.
+      (**KNOWN (TLE)**). Needs the station location. With thousands of lit satellites some curve always fits the noise
+      by chance, so a streak needs a z score of 10 and a median level of 1.5 dB along it.
     - **SAT·LINES**: weak straight streaks (80–600 Hz/s) by a Hough transform over 6 s windows, joined to tracks and
       identified like the tracker's (**UNKNOWN LINE** / **LINE**). A track within ±350 Hz (the Doppler an aircraft can
-      have) is an aircraft; slow lines (under 80 Hz/s) are looked for there too, so a weak aircraft without drift is
-      found.
+      have) drifting under 25 Hz/s is an aircraft; slow lines (under 80 Hz/s) are looked for there too, so a weak
+      aircraft without drift is found.
+    - The SNR of a weak satellite is the median level along its streak on its own bin (noise alone about −0.5 dB), not
+      its strongest point (a meteor it crosses at the carrier).
     - What the tracker or the meteor detector already has is not reported twice.
 
 ## How it works
@@ -124,7 +136,12 @@ Blocks in the style of STATION (lit when in use, amber when something needs atte
   next piece of an aircraft just heard at its Doppler; or already there weakly at its Doppler before its strong part (a
   meteor starts at once, an aircraft near the middle of the path has ~0 Hz and no drift). A meteor just before at the
   same Doppler does not make the next one an aircraft.
-- **SAT**: a part of a satellite track of the wide spectrum, or a short echo sweeping through the band all along.
+- **SAT**: a part of a satellite track of the wide spectrum, or a short echo sweeping through the band all along, or
+  an echo drifting straight at 25 Hz/s or more for at least 0.6 s, both its halves the same way (all its points are
+  used, a weak one has few over THR). A meteor trail drifts only a few Hz/s with the wind (live: up to ~17 Hz/s); a
+  meteor fading out wanders over the noise only at its end. Measured on VFO D: satellites near the carrier drift
+  −34 to −59 Hz/s and are too weak for the wide spectrum. Echoes that start on its line within 10 s (it fades in and
+  out with the beam) are its pieces: not counted, not reported again.
 - **UNDERDENSE** (shorter than 1 s) and **OVERDENSE** otherwise.
 
 ### Satellites

@@ -56,7 +56,9 @@ TLE_STEP_S = 15.0               # a search every this …
 TLE_WIN_S = 40.0                # … over the frames of the last this
 TLE_LAG_S = 6.0                 # … ending this long ago (the tracker closes its tracks first)
 TLE_BOX_S = 2.0                 # the sum over the noise along the curve over this
-TLE_Z = 7.0                     # z score (~300 satellites × 11 offsets × 1250 frames per search)
+TLE_Z = 10.0                    # z score (thousands of lit satellites × 11 offsets × 1250 frames per search; live
+                                # at 7: ~5 a minute, nearly all ~1 dB over the noise = chance fits)
+TLE_MIN_DB = 1.5                # and the median level along it (its own bin, _levels; noise alone ~ -0.5 dB)
 TLE_HALF_Z = 3.0                # and each half of the run on its own
 TLE_OFF_HZ = 24.0               # receiver offsets tried: the known one ± this (the AFC keeps the carrier; more
                                 # freedom lets the curve of another satellite fit a streak)
@@ -254,8 +256,30 @@ def _snapshot(raw, a, b):
     nb = len(items[-1][1])
     items = [it for it in items if len(it[1]) == nb]
     t = np.array([it[0] for it in items])
-    x = np.minimum(np.stack([it[1] for it in items]).astype(np.float32), CAP)
-    return t, x
+    raw = np.stack([it[1] for it in items]).astype(np.float32)
+    return t, np.minimum(raw, CAP), raw
+
+
+def level_db(pts):
+    """The level of a weak track: the median of its points' dB (a meteor it crosses does not lift it)."""
+    return float(np.median([p[2] for p in pts])) if pts else -99.0
+
+
+def _levels(pts, t, raw, hz):
+    """The points (t, Hz, dB) of a found track with their real level: the capped frames (CAP) only find it, so their dB
+    were never over 10·log10(CAP) = 6 dB. Its own bin over three frames (noise alone: ~0 dB on average; not the
+    strongest of the bins around, which noise alone lifts to a few dB)."""
+    if not pts:
+        return pts
+    hz = np.asarray(hz, dtype=float)
+    out = []
+    for p in pts:
+        i = int(np.clip(np.searchsorted(t, p[0]), 0, len(t) - 1))
+        k = int(np.argmin(np.abs(hz - p[1])))
+        blk = raw[max(0, i - 1):i + 2, k]
+        v = float(np.mean(blk)) if blk.size else 0.0
+        out.append((p[0], p[1], round(10 * math.log10(max(v, 1e-3)), 1)))
+    return out
 
 
 # ================= SAT·TLE =================
@@ -498,7 +522,10 @@ class WeakWorker:
             b = now - LINE_LAG_S
             snap = _snapshot(ws.raw, b - LINE_WIN_S, b)
             if snap is not None:
-                for tr in self.lines.feed(self.lines.window(snap[0], snap[1], ws.hz, ws.bin), b):
+                lines = self.lines.window(snap[0], snap[1], ws.hz, ws.bin)
+                for ln in lines:
+                    ln["pts"] = _levels(ln["pts"], snap[0], snap[2], ws.hz)
+                for tr in self.lines.feed(lines, b):
                     with self.lock:
                         self.out.append({"how": "lines", "pts": tr["pts"], "z": tr["z"]})
         elif not lines_on:
@@ -509,6 +536,9 @@ class WeakWorker:
             snap = _snapshot(ws.raw, b - TLE_WIN_S, b)
             if snap is not None:
                 for f in self.tle.run(snap[0], snap[1], ws.hz, ws.bin, qth, self.tx, self.f_hz, offset):
+                    f["pts"] = _levels(f["pts"], snap[0], snap[2], ws.hz)
+                    if level_db(f["pts"]) < TLE_MIN_DB:
+                        continue        # a chance fit of its curve to the noise
                     with self.lock:
                         self.out.append(dict(f, how="tle"))
 
