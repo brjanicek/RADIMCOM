@@ -317,7 +317,8 @@ def decoder_event(kind, data):
         elif kind == "msk144" and log_on("msk144"):
             logs["msk144"].write(f"{_mhz(data['freq_hz'])} {data['snr']:+d} dB DF {data['df']} Hz frames {data['nav']} | {data['msg']}")
         elif kind == "meteor" and log_on("meteor"):
-            logs["meteor"].write(f"{_mhz(data['freq_hz'])} {data['doppler']:+d} Hz {data['snr']:.1f} dB {data['dur']:.2f} s {data['kind']}")
+            logs["meteor"].write(f"{_mhz(data['freq_hz'])} {data['doppler']:+d} Hz {data['snr']:.1f} dB {data['dur']:.2f} s {data['kind']}"
+                                 f"{meteor.log_name(data)}", data["ts"])     # the time of the echo; | the satellite / aircraft, H
         elif kind == "dsdcall" and log_on("dsd"):
             slot = f" slot {data['slot']}" if data["slot"] else ""
             alias = f" | {data['alias']}" if data["alias"] else ""
@@ -1118,10 +1119,12 @@ import dxcluster  # noqa: E402
 dxcluster.register(app)     # /api/dxcluster for a receiver without the launcher (the launcher has its own)
 import sunnoise  # noqa: E402
 sunnoise.register(app)      # /api/sunnoise: SATELLITES › SUN NOISE (Sun / Moon position, flux, G/T)
-meteor.register(app, meteors, own_station)    # /api/meteors: DECODERS › METEORS (GRAVES echoes, hourly / daily counts)
+meteor.register(app, meteors, own_station)    # /api/meteors: DECODERS › GRAVES (meteor echoes, hourly / daily counts)
 q65_mod.register(app, q65_dec)      # /api/q65: DECODERS › Q65 / JT65 (jt9 of WSJT-X)
 bpsk_mod.register(app, bpsk_dec)    # /api/bpsk: DECODERS › BPSK (satellite telemetry: FUNcube AO-40 FEC, AX.25)
 spotting.register(app, same_host, _tag)   # /api/spotting: SETTINGS › GENERAL › SPOTS (PSK Reporter from FT8, WSPRnet from WSPR)
+import dbgstats  # noqa: E402
+dbgstats.register(app)      # /api/debug/threads: SETTINGS › DEBUG (CPU of each thread, where they work)
 
 @app.route("/api/sonde", methods=["GET"])
 def api_sonde():

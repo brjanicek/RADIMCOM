@@ -179,7 +179,7 @@
         </a>
         <span class="r-tag">SDR COMMUNICATIONS RECEIVER</span>
         <!-- version under the logo (installer and update_check read it from .r-ver); a newer one blinks beside it, DONATE under it -->
-        <span class="r-vers"><span class="r-ver">Ver. 1.1rc3</span><a class="r-upd" id="updLink" href="https://github.com/om2amr/RADIMCOM/releases" target="_blank" rel="noopener noreferrer" hidden></a></span>
+        <span class="r-vers"><span class="r-ver">Ver. 1.1</span><a class="r-upd" id="updLink" href="https://github.com/om2amr/RADIMCOM/releases" target="_blank" rel="noopener noreferrer" hidden></a></span>
         <button class="r-don" id="donBtn" type="button" title="Support RADIMCOM – buy us a coffee">☕ DONATE</button>
         </div>
         <!-- only in RADIMCOM.exe (app window): FULL SCREEN key in the POWER line, over the faders (amber LED while on) -->
@@ -736,7 +736,7 @@
       </div>
     </section>
 
-    <!-- METEORS (meteor.py: echoes of the GRAVES radar carrier, hourly / daily counts); blocks in the look of STATION -->
+    <!-- GRAVES (meteor.py: echoes of the GRAVES radar carrier, hourly / daily counts); blocks in the look of STATION -->
     <section class="card ft8 meteor" id="meteorCard" data-dec="meteor" hidden>
       <div class="ft8-head">
         <label class="key small toggle" data-dec-on="meteor" title="Meteor counter on/off"><input id="meteorOn" type="checkbox">ON</label>
@@ -751,7 +751,7 @@
             <li>GRAVES, the French space surveillance radar near Dijon, transmits a continuous carrier on <b>143.050 MHz</b>.
               From Slovakia it is below the horizon (about 900 km): each meteor trail ~100 km high reflects it for a moment.</li>
             <li><b>TUNE</b> sets 143.049 MHz USB, so the carrier is a 1 kHz tone (the counter reads the baseband, so any mode within ±10 kHz of the carrier counts too). A 2 m Yagi pointed west (≈ 265°, low
-              elevation) is best; a vertical works too. <b>POINT</b> turns the rotor to GRAVES when the path METEORS → ROTOR
+              elevation) is best; a vertical works too. <b>POINT</b> turns the rotor to GRAVES when the path GRAVES → ROTOR
               is linked in RCTRL › SETTINGS.</li>
             <li>Short pings (&lt; 1 s) are <b>underdense</b> trails, longer echoes <b>overdense</b>. Long echoes with a drifting
               Doppler are aircraft and are not counted. A steady carrier (the direct signal on a tropo opening) is learned
@@ -760,13 +760,26 @@
             <li>The Doppler of a trail echo hardly moves: the reflection comes from one fixed point of the trail, which only
               the wind drifts (tens of Hz). A click on an echo shows it at full resolution. <b>HEAD ECHO</b> adds a ±5 kHz
               spectrum with short frames: the head echo, the reflection from the meteoroid itself, is a fast sloping streak
-              (kHz in a fraction of a second) ending where the trail echo starts. It is rare and weak; <b>H</b> in the table
-              marks one found.</li>
+              (kHz in a fraction of a second) ending where the trail echo starts. It is rare and weak; <b>HEAD ECHO</b> in the table
+              marks one found. A slow head echo (tens to hundreds of Hz, braking onto the trail in a curve) is found in the
+              fine cells of the detail without the key.</li>
             <li><b>SAT</b>: GRAVES is a radar for satellites, and they reflect it too: a long streak (seconds to tens of
               seconds) sweeping over hundreds of Hz to kHz, often in pieces as the beam moves on. A ±8 kHz spectrum always
               runs for them; a satellite is not counted as a meteor. Which one it was: its Doppler between GRAVES and this
               station is compared with every satellite with public orbital elements (CelesTrak, data\graves_tle.txt,
               downloaded once a day; needs the location in SETUP). Debris and secret objects stay unknown (?).</li>
+            <li>Weak ones (SETTINGS › DETECTOR, each off by default): <b>FAST</b> looks for pings of a few tens of ms in
+              the time signal (32 ms spectra every 8 ms, as the BRAMS network does), which the meteor detector dilutes;
+              found ones count as underdense, <b>FAST BURST</b> in the table. <b>SAT·TLE</b> sums the ±8 kHz spectrum along the
+              Doppler every lit satellite's orbital elements predict and finds streaks too weak for the tracker, already
+              named (<b>KNOWN (TLE)</b>). <b>SAT·LINES</b> finds weak straight streaks with a Hough transform and identifies them
+              like the tracker (<b>UNKNOWN LINE</b> / <b>LINE</b>); one within the Doppler an aircraft can have (±350 Hz) is an aircraft (PLANE, looked up on adsb.fi). What the tracker has already is not reported twice.</li>
+            <li><b>AFC</b>: the meteor trails are at ~0 Hz, so they show where the carrier really is when the receiver is
+              off. The first strong meteor moves the carrier of the detectors there, then the median of the last meteors
+              trims it; with no meteor for 10 minutes (the carrier further off than ±500 Hz) it is looked for in the
+              ±8 kHz spectrum. The VFO stays where it is. More than a few hundred Hz: set the PPM of the dongle.</li>
+            <li>The waterfall shows <b>±250 Hz</b> or <b>±500 Hz</b> (the meteors, 1 Hz × 16 ms, ~1.3 s behind the sound),
+              <b>±1 kHz</b> (aircraft, slow satellites) or <b>±8 kHz</b> (the satellites: long streaks over kHz).</li>
             <li><b>ADS-B</b>: an aircraft echo (PLANE) is compared with the aircraft adsb.fi sees around the middle of the
               path to GRAVES (only that point is sent): the Doppler of each, moved to the time of the echo, against the
               measured one. The receiver offset matters (an aircraft gives only ±250 Hz): it is measured on the satellites
@@ -777,17 +790,24 @@
               rate also changes every day: most echoes around 6 h local time, fewest around 18 h.</li>
           </ul>
         </div>
-        <!-- one grid, LOG-like ECHOES as a tall column at the right:
-               ROTOR | RECEIVER  DETECTOR | ECHOES
-               ROTOR | COUNTS             | ECHOES
-               LAST 2 MINUTES (3 columns) | ECHOES
-               48 HOURS | YEAR            | ECHOES -->
-        <div class="mt-grid">
+        <!-- the sub-pages: LIVE (waterfall, echoes) · STATS (48 hours, year) · SETTINGS (rotor, receiver, detector);
+             the counts as a thin strip next to the tabs, on every page -->
+        <div class="mt-top">
+          <div class="set-subtabs mt-tabs" id="mtTabs" role="tablist">
+            <button class="key small on" data-mt-tab="live" role="tab" aria-selected="true" title="The waterfall and the echoes">LIVE</button>
+            <button class="key small" data-mt-tab="stats" role="tab" aria-selected="false" title="Echoes per hour over 48 hours and per day over the year">STATS</button>
+            <button class="key small" data-mt-tab="set" role="tab" aria-selected="false" title="Rotor, receiver and detector (THR, AFC, HEAD ECHO, ADS-B)">SETTINGS</button></div>
+          <div class="mt-cnt" id="mtCntB">
+            <div class="mt-stats" id="mtStats"><div class="mt-stat" title="Meteor echoes in this UTC hour"><span>HOUR</span><b>–</b></div><div class="mt-stat" title="Meteor echoes in the previous UTC hour"><span>PREV</span><b>–</b></div><div class="mt-stat" title="Meteor echoes in the last 60 minutes (rolling)"><span>60 MIN</span><b>–</b></div><div class="mt-stat" title="Meteor echoes since 00:00 UTC"><span>TODAY</span><b>–</b></div><div class="mt-stat" title="Echoes recognised as aircraft since the start (not counted)"><span>PLANES</span><b>–</b></div><div class="mt-stat" title="Echoes recognised as satellites since the start (not counted)"><span>SATS</span><b>–</b></div></div></div>
+        </div>
+        <!-- SETTINGS: ROTOR | RECEIVER | DETECTOR -->
+        <div class="mt-page" data-mt-page="set" hidden>
+        <div class="mt-grid mt-setgrid">
           <div class="sdg-b k-rot" id="mtRotB"><b>ROTOR · AZ / EL</b><i class="sdg-ico"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6"/><path d="M8 8l3.2-3.2M8 1.6v1.8M14.4 8h-1.8M8 14.4v-1.8M1.6 8h1.8"/></svg></i>
             <div id="mtDialBox"></div>
             <!-- moved under the numbers of the dial by rotdial.js -->
             <div class="mt-rotx" id="mtRotExtra">
-              <div class="chips"><span class="sdg-c" id="mtLinkC" title="RCTRL › SETTINGS: the path METEORS → ROTOR. POINT moves the rotor through it">METEORS → ROTOR</span>
+              <div class="chips"><span class="sdg-c" id="mtLinkC" title="RCTRL › SETTINGS: the path GRAVES → ROTOR. POINT moves the rotor through it">GRAVES → ROTOR</span>
                 <button class="key small" id="mtPoint" title="Turn the rotor to GRAVES (azimuth of the transmitter, elevation of the meteor zone over the middle of the path)">POINT</button>
                 <button class="key small" id="mtRotSet" title="Open RCTRL › SETTINGS (the connection of the sources to the rotor)">RCTRL</button></div>
               <small id="mtRotSub"></small></div></div>
@@ -798,39 +818,76 @@
           <div class="sdg-b k-tune" id="mtDetB"><b>DETECTOR</b><i class="sdg-ico"><svg viewBox="0 0 16 16"><path d="M2 12h2l1.5-7 2 9 1.5-5 1 3H14"/></svg></i>
             <span class="v" id="mtDetV">off</span>
             <div class="chips"><label class="mt-thr" title="Detection threshold: how far above its noise floor the strongest bin must be (noise alone stays under ~8.5 dB)">THR <input id="mtThr" type="number" min="3" max="30" step="0.5"> dB</label>
-              <button id="mtClear" class="key small" title="Clear the list of echoes (the hourly statistics stay)">CLR</button>
-              <button id="mtReset" class="key small" title="Delete the hourly and daily statistics of this VFO">RESET</button></div>
-            <small>an echo = the strongest bin THR dB over its floor</small></div>
-          <div class="sdg-b k-res" id="mtCntB"><b>COUNTS</b><i class="sdg-ico"><svg viewBox="0 0 16 16"><path d="M3 13V8M6.5 13V4M10 13V6.5M13.5 13V9.5"/></svg></i>
-            <div class="mt-stats" id="mtStats"><div class="mt-stat" title="Meteor echoes in this UTC hour"><span>HOUR</span><b>–</b></div><div class="mt-stat" title="Meteor echoes in the previous UTC hour"><span>PREV</span><b>–</b></div><div class="mt-stat" title="Meteor echoes in the last 60 minutes (rolling)"><span>60 MIN</span><b>–</b></div><div class="mt-stat" title="Meteor echoes since 00:00 UTC"><span>TODAY</span><b>–</b></div><div class="mt-stat" title="Echoes recognised as aircraft since the start (not counted)"><span>PLANES</span><b>–</b></div><div class="mt-stat" title="Echoes recognised as satellites since the start (not counted)"><span>SATS</span><b>–</b></div></div></div>
-          <div class="sdg-b k-cmt" id="mtScopeB"><div class="mt-scopehead"><b>LAST <span id="mtSpanT">2 MINUTES</span> · waterfall ±500 Hz around GRAVES, under it the strongest bin above its floor, echoes marked</b>
-              <span class="mt-spans" id="mtSpans" role="group" aria-label="Time shown"><button class="key small" data-span="30">30 S</button><button class="key small" data-span="60">1 M</button><button class="key small" data-span="120">2 M</button><button class="key small" data-span="600">10 M</button><button class="key small" data-span="3600">1 H</button></span></div>
-            <!-- the small waterfall: time to the right as in the chart under it, Doppler up; a meteor is a short bright flash -->
-            <div class="mt-wfbox" title="Spectrum ±500 Hz around the GRAVES carrier (143.050 MHz), dB over the noise floor of each bin, over the time chosen above (the strongest value of each column). A meteor = a short flash at its Doppler; an aircraft = a long sloping streak">
-              <canvas id="mtWf" class="mt-wf" width="480" height="128"></canvas>
-              <span class="mt-wfl t">+500 Hz</span><span class="mt-wfl m">0</span><span class="mt-wfl b">−500 Hz</span></div>
-            <svg id="mtScope" class="mt-chart"></svg></div>
-          <div class="sdg-b k-cmt" id="mtHoursB"><b>LAST 48 HOURS · echoes per UTC hour</b><svg id="mtHours" class="mt-chart"></svg></div>
-          <div class="sdg-b k-cmt" id="mtDaysB"><b>YEAR · echoes per hour of monitoring, showers marked</b><svg id="mtDays" class="mt-chart"></svg></div>
-          <div class="sdg-b k-log" id="mtEchoB"><div class="mt-echohead"><b>ECHOES · a click on one shows its detail</b>
+              <button id="mtReset" class="key small" title="Delete the hourly and daily statistics of this VFO">RESET STATS</button></div>
+            <div class="chips">
+              <label class="key small toggle" id="mtAfcK" title="AFC: where the GRAVES carrier really is, found from the meteors"><input id="mtAfc" type="checkbox"><span id="mtAfcT">AFC</span></label>
               <label class="key small toggle" id="mtHeadK" title="HEAD ECHO: a second spectrum ±5 kHz with short frames (~15 ms) for the head echo, the reflection from the meteoroid itself: a fast sloping streak just before the trail echo. Shown in the detail of each echo; H in the table = one found"><input id="mtHead" type="checkbox">HEAD ECHO</label>
               <label class="key small toggle" id="mtAirK" title="ADS-B: aircraft echoes looked up on adsb.fi"><input id="mtAir" type="checkbox">ADS-B</label></div>
+            <div class="chips">
+              <label class="key small toggle" id="mtFastK" title="FAST: short underdense pings (a few tens of ms) in the time signal, which the meteor detector (~0.25 s frames) dilutes: the carrier ±150 Hz in 32 ms spectra every 8 ms, a ping = a bin 11 dB over its floor for at least 3 of them and over a reference band (impulse noise). Counted as UNDER, FAST BURST in the table"><input id="mtFast" type="checkbox"><span id="mtFastT">FAST</span></label>
+              <label class="key small toggle" id="mtTleK" title="SAT·TLE: weak satellites along the Doppler their orbital elements predict (every 15 s, the last 40 s of the ±8 kHz spectrum, only satellites GRAVES lights over the station). Finds streaks too weak for the tracker, with the satellite already known. Needs the station location"><input id="mtTle" type="checkbox">SAT·TLE</label>
+              <label class="key small toggle" id="mtLinesK" title="SAT·LINES: weak straight streaks (80–600 Hz/s) in the ±8 kHz spectrum, a Hough transform over 6 s windows joined to tracks; a track is then identified from the orbital elements like the tracker's"><input id="mtLines" type="checkbox">SAT·LINES</label></div>
+            <small>an echo = the strongest bin THR dB over its floor; FAST, SAT·TLE and SAT·LINES add the weak ones</small></div>
+        </div></div>
+        <!-- LIVE: the waterfall, under it the echoes -->
+        <div class="mt-page mt-live" data-mt-page="live">
+          <div class="sdg-b k-cmt" id="mtScopeB"><i class="sdg-ico"><svg viewBox="0 0 16 16"><rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M4.5 6h3M9 6h2.5M4.5 9h1.5M8 9h4M4.5 11.5h5"/></svg></i><div class="mt-scopehead"><b>LAST <span id="mtSpanT">1 MINUTE</span> · waterfall <span id="mtWideT">±500 Hz</span> around GRAVES, under it the strongest bin above its floor, echoes marked</b>
+              <span class="mt-spans" id="mtWides" role="group" aria-label="Width shown"><button class="key small" data-wide="250" title="±250 Hz around GRAVES in 1 Hz × 16 ms (a part of the ±500 Hz one, larger)">±250 HZ</button><button class="key small" data-wide="0" title="The meteor band ±500 Hz (what the meteor detector watches) in 1 Hz × 16 ms: a reassigned spectrogram of 64 ms and 1 s frames, sharp in time and frequency at once; ~1.3 s behind the sound (a 1 s frame needs half a second after each moment). Views over 3 minutes: columns of at least 0.128 s">±500 HZ</button><button class="key small" data-wide="1000" title="±1 kHz around GRAVES: a part of the wide spectrum (~16 Hz bins), aircraft and slow satellites larger than in ±8 kHz">±1 KHZ</button><button class="key small" data-wide="1" title="The wide spectrum ±8 kHz where the satellites are looked for (their echoes sweep over kHz), in ~16 Hz bins">±8 KHZ</button></span>
+              <span class="mt-spans" id="mtSpans" role="group" aria-label="Time shown"><button class="key small" data-span="10" title="10 seconds: down to one column per 16 ms">10 S</button><button class="key small" data-span="30">30 S</button><button class="key small" data-span="60">1 M</button><button class="key small" data-span="120">2 M</button><button class="key small" data-span="600">10 M</button><button class="key small" data-span="3600">1 H</button></span></div>
+            <!-- the small waterfall: time to the right as in the chart under it, Doppler up; a meteor is a short bright flash -->
+            <div class="mt-wfbox" title="Spectrum around the GRAVES carrier (143.050 MHz), ±500 Hz or ±8 kHz as chosen above, dB over the noise floor of each bin, over the time chosen above (the strongest value of each column). A meteor = a short flash at its Doppler; an aircraft = a long sloping streak; a satellite = a long streak sweeping over kHz (±8 kHz)">
+              <canvas id="mtWf" class="mt-wf" width="480" height="128"></canvas>
+              <!-- its settings: the gear as on the main waterfall, the window opens while the mouse is over it -->
+              <div class="wf-cfg mt-wfcfg" id="mtWfCfg">
+                <button class="wf-cfg-btn" type="button" aria-label="GRAVES waterfall settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.4-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3.3h-4l-.4 2.7a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.4L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.4 2.5-1a7.4 7.4 0 0 0 1.7 1l.4 2.7h4l.4-2.7a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.4zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg></button>
+                <div class="wf-cfg-panel">
+                  <div class="wf-cfg-title">GRAVES WATERFALL</div>
+                  <div class="wf-cfg-lbl">Colours (also of the echo detail)</div>
+                  <div class="wf-schemes" id="mtSchemes"></div>
+                  <div class="wf-cfg-row" title="Dark under this many dB over the noise floor (higher: a calmer background)"><span>Dark under</span><span id="mtWfLoText" class="value"></span></div>
+                  <input id="mtWfLo" data-def="10" type="range" min="0" max="15" step="0.5" value="10">
+                  <div class="wf-cfg-row" title="The brightest colour from this many dB over the noise floor (lower: more contrast)"><span>Full colour at</span><span id="mtWfHiText" class="value"></span></div>
+                  <input id="mtWfHi" data-def="25" type="range" min="6" max="30" step="1" value="25">
+                  <div class="def-row"><button class="key small def-btn" data-def-for="mtWfLo mtWfHi" title="Dark under 10 dB, full colour at 25 dB (default)">DEFAULT</button></div>                </div>
+              </div>
+              <span class="mt-wfl t" id="mtWfT">+500 Hz</span><span class="mt-wfl m">0</span><span class="mt-wfl b" id="mtWfB">−500 Hz</span></div>
+            <svg id="mtScope" class="mt-chart" title="The strongest bin above its floor; dashed: the detection threshold THR. Mouse wheel here: THR up / down by 0.5 dB"></svg></div>
+          <div class="sdg-b k-log" id="mtEchoB"><i class="sdg-ico"><svg viewBox="0 0 16 16"><path d="M5.5 4h8M5.5 8h8M5.5 12h8"/><circle cx="2.8" cy="4" r=".9"/><circle cx="2.8" cy="8" r=".9"/><circle cx="2.8" cy="12" r=".9"/></svg></i><div class="mt-echohead"><b>ECHOES</b>
+              <!-- which echoes: now (the last 500 in memory), one day of the log, the marked ones -->
+              <span class="mt-spans" id="mtSrc" role="group" aria-label="Which echoes">
+                <button class="key small on" data-src="live" title="The echoes since the start (the last 500)">NOW</button>
+                <select id="mtDay" title="An earlier UTC day from the daily log (only with LOG on; no detail unless marked)"><option value="">DAY…</option></select>
+                <button class="key small" data-src="marks" title="The marked echoes (☆ at a row): kept for good with their detail">★ MARKED</button></span>
+              <span class="mt-spans" id="mtFilt" role="group" aria-label="Kinds shown">
+                <button class="key small on" data-kind="all">ALL</button><button class="key small" data-kind="met" title="Meteors: underdense and overdense">METEORS</button><button class="key small" data-kind="sat">SAT</button><button class="key small" data-kind="plane">PLANE</button><button class="key small" data-kind="head" title="With a head echo">H</button></span>
+              <label class="mt-thr" title="Only echoes at least this strong">≥ <input id="mtMinSnr" type="number" min="0" max="60" step="1" value="0"> dB</label>
+              <button id="mtClear" class="key small" title="Clear the list of echoes of NOW (the hourly statistics, the log and the marked ones stay)">CLR</button>
+              <span class="muted" id="mtCountT"></span></div>
             <!-- the detail of one echo (meteor.py _cut): full resolution ±500 Hz, with HEAD ECHO also ±5 kHz before it -->
             <div class="mt-det" id="mtDet" hidden>
-              <div class="mt-dethead"><span id="mtDetT"></span><button type="button" class="key small" id="mtDetX" title="Close the detail">×</button></div>
-              <div class="mt-detbox" title="The echo at full resolution: ~30 ms frames, ±500 Hz around GRAVES, from 1 s before to 1 s after (dashed: its start and end). A satellite: ±8 kHz over its whole track, dotted: the calculated Doppler of the satellite found">
+              <div class="mt-dethead"><span id="mtDetT"></span>
+                <button type="button" class="key small" id="mtDetPlay" hidden title="Play the echo as on 143.049 MHz USB (the carrier = a 1 kHz tone). A satellite: its signal followed along its track (±60 Hz kept, a weak one is heard too) as a tone that follows its Doppler, a sweep over 2 kHz squeezed into the audio band">▶ PLAY</button>
+                <a class="key small" id="mtDetWav" hidden download title="Save the sound of this echo (WAV)">WAV</a>
+                <button type="button" class="key small" id="mtDetX" title="Close the detail">×</button></div>
+              <audio id="mtDetAudio" preload="none"></audio>
+              <div class="mt-detbox" title="The echo at full resolution: ~30 ms frames, ±500 Hz around GRAVES, from 1 s before to 1 s after (dashed: its start and end). A satellite: ±8 kHz over its whole track, the calculated Doppler of the satellite found as two green dashed lines just over and under it (the track itself stays clear between them)">
                 <canvas id="mtDetCv" class="mt-detcv"></canvas></div>
-              <div class="mt-detbox" id="mtDetHB" title="HEAD ECHO: ±5 kHz, ~15 ms frames, from 1.5 s before the echo to 0.5 s after its start. A head echo = a steep streak ending at the trail echo (dotted: the one found)">
+              <div class="mt-detbox" id="mtDetHB" title="HEAD ECHO: ±5 kHz, ~15 ms frames, from 1.5 s before the echo to 0.5 s after its start. A head echo = a steep streak ending at the trail echo (two green dashed lines over and under it: the one found)">
                 <canvas id="mtDetHv" class="mt-detcv"></canvas></div>
               <small id="mtDetSub"></small></div>
             <div class="ft8-table mt-tablebox">
               <table class="ft8-tbl mt-tbl">
-                <thead><tr><th>UTC</th><th class="num" title="Peak: strongest bin above its noise floor, dB">SNR</th><th class="num" title="Duration">s</th>
+                <thead><tr><th class="mt-star" title="Mark: keep the echo and its detail for good">☆</th><th>UTC</th><th class="num" title="Peak: strongest bin above its noise floor, dB">SNR</th><th class="num" title="Duration">s</th>
                   <th class="num" title="Doppler: offset from 143.050 MHz at the peak, Hz">Dopp</th><th class="num" title="Doppler drift, Hz/s">Drift</th><th>Type</th></tr></thead>
                 <tbody id="mtRows"></tbody>
               </table>
               <div id="mtEmpty" class="ft8-empty">No echoes yet.</div>
             </div></div>
+        </div>
+        <!-- STATS: 48 hours | the year -->
+        <div class="mt-page mt-statsp" data-mt-page="stats" hidden>
+          <div class="sdg-b k-cmt" id="mtHoursB"><b>LAST 48 HOURS · echoes per UTC hour</b><i class="sdg-ico"><svg viewBox="0 0 16 16"><path d="M2 14h12M4 14V9M7 14V5M10 14V8M13 14V3"/></svg></i><svg id="mtHours" class="mt-chart"></svg></div>
+          <div class="sdg-b k-cmt" id="mtDaysB"><b>YEAR · echoes per hour of monitoring, showers marked</b><i class="sdg-ico"><svg viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M2 6.5h12M5 1.8v2.4M11 1.8v2.4M5 9.5h1M8 9.5h1M11 9.5h1M5 12h1M8 12h1"/></svg></i><svg id="mtDays" class="mt-chart"></svg></div>
         </div>
       </div>
     </section>
@@ -1373,7 +1430,7 @@
       <div class="amsat-head">
         <div class="amsat-pages" id="rcPages" role="tablist">
           <button class="key small" data-rc-page="map" role="tab" title="The map: a click turns the rotor to that place">MAP</button>
-          <button class="key small" data-rc-page="set" role="tab" title="Which sources move the rotor (SAT TRACKER, MEMORY RECALL, RCTRL MAP, SONDE TRACKER, METEORS: a click connects / disconnects one) and the rotor controller: link on / off, serial port, position, calibration, MONITOR">SETTINGS</button>
+          <button class="key small" data-rc-page="set" role="tab" title="Which sources move the rotor (SAT TRACKER, MEMORY RECALL, RCTRL MAP, SONDE TRACKER, GRAVES: a click connects / disconnects one) and the rotor controller: link on / off, serial port, position, calibration, MONITOR">SETTINGS</button>
         </div>
         <label class="rc-beam rc-map-only" title="Beam width of the antenna (−3 dB), drawn on the map as a sector around the line to the target">BEAM <input id="rcBeam" type="number" min="1" max="360" step="1"> °</label>
         <button id="rcClear" class="key small rc-map-only" title="Remove the target (dashed line of the wanted azimuth) from the map; the rotor stays where it is">CLEAR</button>
@@ -1415,7 +1472,7 @@
           RCTRL tab stay), a click on the map only draws the target. The line into the rotor is green while at least one source is connected.
           The setting belongs to the station (data\rotor.json), for all VFOs and browsers.</p>
         </div>
-        <!-- the position (the rotor dial of rotdial.js, the same block as in SUN NOISE and METEORS) | the azimuth calibration -->
+        <!-- the position (the rotor dial of rotdial.js, the same block as in SUN NOISE and GRAVES) | the azimuth calibration -->
         <div class="rot-on rd-blocks" id="rotorOnBox" hidden>
           <div class="sdg-b k-rot rd-b"><b>ROTOR · AZ / EL</b><i class="sdg-ico"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6"/><path d="M8 8l3.2-3.2M8 1.6v1.8M14.4 8h-1.8M8 14.4v-1.8M1.6 8h1.8"/></svg></i>
             <div id="rdBox"></div></div>
@@ -1792,6 +1849,7 @@
           <button class="key small" data-set-tab="vfo" role="tab" aria-selected="false">VFO</button>
           <button class="key small" data-set-tab="rtl" role="tab" aria-selected="false">RTL_TCP SERVER</button>
           <button class="key small" data-set-tab="logs" role="tab" aria-selected="false" title="Logs and data files: browse, read, delete, export, import; which logs run; the histories of the maps">DATA/LOG</button>
+          <button class="key small" data-set-tab="dbg" role="tab" aria-selected="false" title="Where RADIMCOM spends its time (the page and the servers), to find the slow places">DEBUG</button>
         </div>
       </div>
       <div class="set-body">
@@ -2556,6 +2614,23 @@
               Servers are installed with rpi/install_rtltcp.sh.</p>
           </div>
         </div>
+        <!-- ===== DEBUG: where RADIMCOM spends its time (static/debug.js, dbgstats.py) ===== -->
+        <div class="set-panel dbg-panel" data-set-panel="dbg" role="tabpanel" hidden>
+          <div class="setting">
+            <div class="row"><span>Where RADIMCOM spends its time</span><span class="muted" id="dbgInfo"></span></div>
+            <div class="dbg-keys">
+              <button class="key small" id="dbgRun" title="Start / stop measuring. It keeps measuring on the other tabs too: go where it is slow, come back, COPY">START</button>
+              <button class="key small" id="dbgReset" title="Start the numbers again from now">RESET</button>
+              <button class="key small" id="dbgCopy" title="Copy the whole text">COPY</button>
+              <label title="Measure every global function of the page (own time and with the calls inside). Takes effect at START"><input type="checkbox" id="dbgFns" checked> FUNCTIONS</label>
+              <label title="The servers of the VFOs look 50 times a second where each thread works (file:line)"><input type="checkbox" id="dbgPy" checked> PYTHON LINES</label>
+            </div>
+            <pre class="dbg-out" id="dbgOut"></pre>
+            <p class="note">Page: frames, everything that ran (functions, events of the servers, timers, frames, clicks),
+              requests, what the browser reports as slow. Servers: CPU of each process and of each thread of every VFO,
+              with the lines of code where it works. Measuring costs a little itself; STOP when done.</p>
+          </div>
+        </div>
         <!-- ===== LOGS: one place for the logs and data files (datafiles.py): FILES = the folder tree (browse, read, delete,
              ZIP export, upload import), LOGGING = which decoder logs on which VFO (switch it here), HISTORY = the histories
              of the maps (COMPOSITE, ADS-B range, sonde flights: export / import / clear) ===== -->
@@ -2649,6 +2724,7 @@
 
 </div>
 
+<script src="/static/debug.js"></script><!-- SETTINGS › DEBUG: first, it measures the listeners / timers of all -->
 <script src="/static/icao_countries.js"></script>
 <script src="/static/bandplan.js"></script>
 <script src="/static/com_defaults.js?v=20261120-1814"></script><!-- COMPOSITE map: default settings (first open, Restore default) -->
@@ -2659,7 +2735,7 @@
 <script src="/static/bpsk.js"></script><!-- DECODERS › BPSK (bpsk.py, funcube.py) -->
 <script src="/static/tooltip.js"></script><!-- the dark tooltip of every title="" -->
 <script src="/static/satad.js"></script><!-- AD: satellite tracking of the VFO (polar plot, name, frequency) -->
-<script src="/static/rotdial.js"></script><!-- the rotor dial of RCTRL › SETTINGS, SUN NOISE and METEORS -->
+<script src="/static/rotdial.js"></script><!-- the rotor dial of RCTRL › SETTINGS, SUN NOISE and GRAVES -->
 <script src="/static/snfast.js"></script><!-- SUN NOISE › SUN SCAN · FAST: continuous sweeps there and back -->
 </body>
 </html>

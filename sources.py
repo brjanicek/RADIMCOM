@@ -5,6 +5,7 @@ a SpyServer, or the dongle of another VFO (chained). APPLY writes vfos.json and 
 a VFO that keeps its source keeps its settings (config_X.json: frequency, AGC, memories of the page…), also when it
 moves to another letter; a VFO with a new source starts from the defaults (its old settings go to data/config_backup/).
 PPM and the upconverter LO typed here are written into the settings of the VFO (they are read at its start).
+They are also kept per source in data/dongle_cal.json, so a dongle put on a VFO again gets them back.
 
 The launcher holds the VFO processes in Procs; the routes are /api/sources/*.
 Local dongles opened by a running VFO cannot be listed by USB (they are busy): they are taken from vfos.json.
@@ -100,6 +101,46 @@ def read_cfg(v):
             return json.load(f)
     except (OSError, ValueError, KeyError):
         return {}
+
+
+CAL_FILE = "dongle_cal.json"                 # ppm / upconverter LO of each source ("driver|serial"), kept when it leaves a VFO
+
+
+def load_cal():
+    try:
+        with open(data(CAL_FILE), encoding="utf-8") as f:
+            c = json.load(f)
+        return c if isinstance(c, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def remember_cal(vfos):
+    """Stores the ppm / LO of every VFO with its own source from its settings -> the whole store."""
+    cal = load_cal()
+    changed = False
+    for v in vfos:
+        if v.get("chain") or not v.get("serial"):
+            continue
+        c = read_cfg(v)
+        if "ppm" not in c:
+            continue
+        lo = c.get("lo_offset_hz") or 0
+        e = {"ppm": int(c.get("ppm") or 0),
+             "lo_mhz": lo / 1e6 if lo and c.get("upconv", "off") != "off" else None}
+        k = f"{v.get('driver', 'rtl')}|{v['serial']}"
+        if cal.get(k) != e:
+            cal[k] = e
+            changed = True
+    if changed:
+        try:
+            tmp = data(CAL_FILE + ".tmp")
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(cal, f, indent=2, ensure_ascii=False)
+            os.replace(tmp, data(CAL_FILE))
+        except OSError:
+            pass
+    return cal
 
 
 def current(vfos, procs):
@@ -452,6 +493,9 @@ def _patch(c, init):
         elif not old_up:
             c["upconv"] = "auto"
         changed = True
+    prof = (c.get("dongles") or {}).get(str(c.get("device", 0)))
+    if isinstance(prof, dict):                 # the dongle profile of sdr.py is read when the device switches
+        prof.update({k: c[k] for k in ("ppm", "upconv", "lo_offset_hz") if k in c})
     return changed
 
 
@@ -498,6 +542,7 @@ def apply(new, old, procs, servers, setup_path, setup):
     procs.stop(stop)
 
     # the settings are read only now: a VFO saves its last frequency etc. when it ends
+    remember_cal(old)                          # a source taken off keeps its ppm / LO for the next time
     cfg = {}
     for n in restart:
         o = src[n]
@@ -571,7 +616,7 @@ def register(app, procs, state, ensure_configs):
         devs, errors, no_serials = list_devices(state["vfos"], procs, servers)
         return jsonify({"devices": devs, "servers": servers, "saved_servers": saved_servers(), "server_errors": errors,
                         "no_serials": no_serials, "current": current(state["vfos"], procs),
-                        "max_vfos": setup_sdr.MAX_VFOS})
+                        "cal": remember_cal(state["vfos"]), "max_vfos": setup_sdr.MAX_VFOS})
 
     @app.route("/api/sources/directory")
     def api_sources_directory():

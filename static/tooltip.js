@@ -3,6 +3,8 @@
 // title, the title is taken off it (so the browser shows nothing) and shown in #tipBox after a short delay; a title
 // the code sets meanwhile (a new level, a new state) is taken over at once, so the tooltip stays up and current, also
 // while the wheel turns. When the mouse leaves, the title is put back, so the code reading el.title sees it as before.
+// The titles of the outer elements (a row around a cell with its own title) and the <title> of SVG shapes are taken
+// off as well while the mouse is there: otherwise the browser shows its white tooltip next to ours.
 // Independent of app.js: it only needs the DOM.
 
 (function () {
@@ -15,7 +17,41 @@
   document.body.appendChild(box);
 
   let el = null, text = "", timer = null, x = 0, y = 0;
+  let off = [];                 // what was taken off: [node, title text] or [svg node, its <title> element]
   const watch = new MutationObserver(() => take());
+
+  /** The <title> child of an SVG shape (the browser's tooltip of SVG), or null. */
+  const svgTitle = (n) => (n instanceof SVGElement && !(n instanceof SVGTitleElement)
+    ? Array.prototype.find.call(n.children, (c) => c instanceof SVGTitleElement) || null : null);
+  const hasTip = (n) => n.hasAttribute("title") || !!svgTitle(n);
+  /** The nearest element with a tooltip from n up, or null. */
+  function tipOf(n) {
+    for (let p = n instanceof Element ? n : null; p; p = p.parentElement) if (hasTip(p)) return p;
+    return null;
+  }
+
+  /** Takes the tooltips off el and all elements around it (put back by restore). */
+  function strip() {
+    for (let p = el; p; p = p.parentElement) {
+      const st = svgTitle(p);
+      if (st) {
+        off.push([p, st]);
+        if (p === el) text = st.textContent;
+        st.remove();
+      }
+      if (p !== el && p.hasAttribute("title")) {
+        off.push([p, p.getAttribute("title")]);
+        p.removeAttribute("title");
+      }
+    }
+  }
+  function restore() {
+    for (const [n, v] of off) {
+      if (typeof v === "string") { if (n.getAttribute("title") === null) n.setAttribute("title", v); }
+      else if (!v.parentNode) n.insertBefore(v, n.firstChild);
+    }
+    off = [];
+  }
 
   /** The title of the element under the mouse into the tooltip (and off the element). */
   function take() {
@@ -23,13 +59,12 @@
     const t = el.getAttribute("title");
     if (t === null) return;
     watch.disconnect();
-    if (t !== "") text = t;
+    text = t;                   // "" = no tooltip now (a canvas off its marker): hidden, never the old text again
     el.removeAttribute("title");
     watch.observe(el, { attributes: true, attributeFilter: ["title"] });
-    if (!box.hidden) {
-      if (!text) { box.hidden = true; return; }
-      if (box.textContent !== text) { box.textContent = text; place(); }
-    }
+    if (!text) { box.hidden = true; return; }
+    if (!box.hidden) { if (box.textContent !== text) { box.textContent = text; place(); } }
+    else if (!timer) timer = setTimeout(show, SHOW_MS);   // back on a marker of the same canvas: shown again
   }
 
   function place() {
@@ -53,24 +88,38 @@
     clearTimeout(timer);
     timer = null;
     watch.disconnect();
-    if (el && el.getAttribute("title") === null && text) el.setAttribute("title", text);   // back, for the code
+    if (el && el.getAttribute("title") === null && text && !svgTitle(el) && !off.some(([n, v]) => n === el && typeof v !== "string")) {
+      el.setAttribute("title", text);                    // back, for the code
+    }
+    restore();
     el = null;
     text = "";
     box.hidden = true;
   }
 
   document.addEventListener("mouseover", (e) => {
-    const t = e.target instanceof Element ? e.target.closest("[title]") : null;
-    if (t === el) return;
-    // still inside the element (its title is off it now, so closest() finds an outer one or none), unless an inner
-    // element has a title of its own
+    let t = tipOf(e.target);
+    if (t === el && t) return;
+    // still inside the element (its title is off it now, so the search finds none), unless an inner element has a
+    // tooltip of its own
     if (el && el.contains(e.target) && !(t && el.contains(t))) return;
+    // the element was drawn again (a chart redrawn every second): the new one with the same text keeps the tooltip up
+    const st = t && svgTitle(t);
+    if (t && el && !el.isConnected && (st ? st.textContent : t.getAttribute("title")) === text) {
+      restore();
+      el = t;
+      strip();
+      take();
+      return;
+    }
     leave();
+    t = tipOf(e.target);                                 // the titles are back now: an outer element may have one
     if (!t) return;
     el = t;
     x = e.clientX; y = e.clientY;
+    strip();
     take();
-    timer = setTimeout(show, SHOW_MS);
+    if (!timer) timer = setTimeout(show, SHOW_MS);
   }, true);
   document.addEventListener("mousemove", (e) => {
     if (!el) return;
@@ -80,5 +129,10 @@
   document.addEventListener("mouseleave", leave);
   document.addEventListener("mousedown", () => { if (el) { box.hidden = true; clearTimeout(timer); timer = null; } }, true);
   window.addEventListener("blur", leave);
-  document.addEventListener("scroll", () => { if (!box.hidden) leave(); }, true);
+  // only a scroll that moves the element under the mouse closes it (a list next to it restoring its scroll, e.g. the
+  // echoes of GRAVES redrawn every second, must not make the tooltip blink)
+  document.addEventListener("scroll", (e) => {
+    const s = e.target;
+    if (!box.hidden && el && (s === document || s === document.documentElement || (s instanceof Node && s.contains(el)))) leave();
+  }, true);
 }());
