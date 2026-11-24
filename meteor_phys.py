@@ -36,7 +36,7 @@ closest approach to the bistatic ellipse) the rate is v^2 / lambda * (1/R_T + 1/
 crossing the meteor band therefore always drifts at >= SAT_RATE_MIN; a meteor trail or an aircraft never does.
 
 The drift is measured on a line quantised to the detector's bins and smoothed over a few frames, so its uncertainty is
-known: the standard error of the slope (ordinary least squares) with the residual floored at the quantisation noise
+known: the standard error of the slope (Theil-Sen, robust to odd points) with the residual floored at the quantisation noise
 (bin / sqrt(12)) and the points counted as independent only once per correlation time of the detector. A class is
 given by the drift only when the drift is beyond the bound by two standard errors (~97.5 % one-sided).
 
@@ -89,12 +89,23 @@ KDE_HZ = 15.0                           # the kernel of the learnt distribution 
 SAT_PIECE_RATE = 0.5                    # a satellite fading in and out (the GRAVES beam): pieces a second, expected
 
 
+TS_MAX_PTS = 160                        # Theil-Sen: at most this many points (evenly taken), ~12700 pairs
+TS_EFF = 0.91                           # its efficiency against least squares for Gaussian noise (Sen 1968)
+
+
 def slope(pts, corr_s, bin_hz):
-    """Ordinary least-squares line through the points (t, Hz, …) -> (Hz/s, standard error Hz/s, rms Hz), or None
-    for fewer than 3 points or no time span. The residual is at least the bin quantisation (bin / sqrt(12)) and the
-    points are independent only once per corr_s (the detector's frames overlap and are smoothed)."""
+    """The Theil-Sen line through the points (t, Hz, …): the median of the slopes of the pairs at least half the span
+    apart (Theil 1950, Sen 1968; the near pairs of a Doppler quantised to bins mostly lie on one stair: slope 0),
+    robust to the odd points a least-squares fit follows (the end of a head echo, noise at the end of a fading trail,
+    another signal for a frame or two; breakdown point 29 %) -> (Hz/s, standard error Hz/s, robust spread Hz,
+    rms Hz around the line), or None for fewer than 3 points or no time span.
+    The standard error: the robust spread of the residuals (MAD x 1.4826), at least the bin quantisation
+    (bin / sqrt(12)), over the spread of the times and the points independent only once per corr_s (the detector's
+    frames overlap and are smoothed), divided by the root of the efficiency of the estimator."""
     if len(pts) < 3:
         return None
+    if len(pts) > TS_MAX_PTS:
+        pts = [pts[int(i)] for i in np.linspace(0, len(pts) - 1, TS_MAX_PTS)]
     t = np.array([p[0] for p in pts], float)
     f = np.array([p[1] for p in pts], float)
     t -= t[0]
@@ -102,11 +113,53 @@ def slope(pts, corr_s, bin_hz):
     st = float(np.std(t))
     if span <= 0 or st <= 0:
         return None
-    c = np.polyfit(t, f, 1)
-    rms = float(np.sqrt(np.mean((f - np.polyval(c, t)) ** 2)))
-    sig = max(rms, bin_hz / math.sqrt(12.0))
+    i, j = np.triu_indices(len(t), 1)
+    dt = t[j] - t[i]
+    ok = dt >= span / 2                 # far pairs only: a Doppler quantised to bins is a staircase, and the near pairs
+    if np.count_nonzero(ok) < 3:        # (mostly on one stair) would pull the median to 0 Hz/s
+        ok = dt > 0
+    if not ok.any():
+        return None
+    s = float(np.median((f[j] - f[i])[ok] / dt[ok]))
+    res = f - s * t
+    res -= np.median(res)
+    robust = 1.4826 * float(np.median(np.abs(res)))
+    rms = float(np.sqrt(np.mean(res ** 2)))
+    sig = max(robust, bin_hz / math.sqrt(12.0))
     n_eff = min(len(pts), max(2.0, span / max(corr_s, 1e-6) + 1.0))
-    return float(c[0]), sig / (st * math.sqrt(n_eff)), rms
+    return s, sig / (st * math.sqrt(n_eff * TS_EFF)), robust, rms
+
+
+DECAY_MIN_PTS = 4                       # the decay is fitted on at least this many points after the peak …
+DECAY_MIN_S = 0.15                      # … over at least this long
+DECAY_MIN_SN = 0.5                      # … each with the signal at least this much of the noise (-3 dB)
+
+
+def decay(trace):
+    """The decay of an echo after its peak: an underdense trail's amplitude falls as exp(-t / tau), tau =
+    lambda^2 sec^2(phi) / (32 pi^2 D) (McKinley 1961; D the ambipolar diffusion), so its power in dB falls on a
+    straight line: 10 log10 P = a - (20 / ln 10) t / tau. trace [(t, Hz, dB over the floor)] -> (tau s, r^2 of the line
+    in dB: ~1 exponential, low for an overdense plateau or a fading signal), or None (too few points, or not falling).
+    The detector's frames and smoothing are linear filters: they keep the rate of an exponential, so tau is measured
+    right even when it is shorter than a frame, given points enough over the floor."""
+    if len(trace) < DECAY_MIN_PTS:
+        return None
+    t = np.array([p[0] for p in trace], float)
+    d = np.array([p[2] for p in trace], float)
+    k = int(np.argmax(d))
+    t, d = t[k:] - t[k], d[k:]
+    # the dB are of (signal + noise) / noise: the signal alone is that ratio - 1 (near the floor the dB fall slower)
+    sn = 10.0 ** (d / 10.0) - 1.0
+    keep = sn > DECAY_MIN_SN
+    t, d = t[keep], 10.0 * np.log10(sn[keep])
+    if len(t) < DECAY_MIN_PTS or t[-1] < DECAY_MIN_S:
+        return None
+    b, a = np.polyfit(t, d, 1)
+    if b >= 0:
+        return None
+    var = float(np.var(d))
+    r2 = 1.0 - float(np.mean((d - (a + b * t)) ** 2)) / var if var > 0 else 0.0
+    return -20.0 / (float(b) * math.log(10.0)), r2
 
 
 def faster_than(s, se, bound):

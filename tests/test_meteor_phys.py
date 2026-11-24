@@ -22,16 +22,47 @@ class PhysTest(unittest.TestCase):
         rng = np.random.default_rng(1)
         t = np.arange(0, 2.0, 0.03)
         pts = [(a, 100 - 40 * a + rng.normal(0, 4)) for a in t]
-        s, se, rms = mp.slope(pts, 0.2, 8.0)
+        s, se, *_ = mp.slope(pts, 0.2, 8.0)
         self.assertAlmostEqual(s, -40, delta=3 * se)
         self.assertTrue(0.5 < se < 5, se)
         self.assertTrue(mp.faster_than(s, se, mp.SAT_RATE_MIN))
         # a short flat ping: its slope is uncertain (quantisation, few independent points)
         short = [(a, 0.0) for a in np.arange(0, 0.3, 0.03)]
-        s, se, _ = mp.slope(short, 0.2, 8.0)
+        s, se, *_ = mp.slope(short, 0.2, 8.0)
         self.assertEqual(s, 0.0)
         self.assertGreater(se, 5)
         self.assertIsNone(mp.slope(short[:2], 0.2, 8.0))
+
+    def test_theil_sen_robust(self):
+        """A still trail (0 Hz/s) with the end of a head echo at its start and noise at its end (5 of 30 points):
+        least squares would see a drift, Theil-Sen does not."""
+        t = np.arange(0, 1.0, 0.033)
+        f = np.zeros(len(t))
+        f[:3] = [300.0, 180.0, 90.0]                     # a head echo coming onto the trail
+        f[-2:] = [-150.0, 120.0]                         # noise as the trail fades
+        pts = list(zip(t, f))
+        s, se, robust, rms = mp.slope(pts, 0.2, 8.0)
+        self.assertLess(abs(s), 1.0)
+        self.assertLess(robust, 5.0)                     # the spread of the trail itself
+        self.assertGreater(rms, 40.0)                    # the odd points are still seen as not straight
+        ols = np.polyfit(t, f, 1)[0]
+        self.assertGreater(abs(ols), mp.SAT_RATE_MIN)    # what least squares said: a "satellite"
+        self.assertFalse(mp.faster_than(s, se, mp.SAT_RATE_MIN))
+
+    def test_decay(self):
+        """An underdense trail: power falling exponentially, tau (amplitude) = 0.12 s from its dB line; a plateau is
+        not straight in dB; a rising echo has no decay."""
+        t = np.arange(0, 0.6, 0.031)
+        tau = 0.12
+        # what the detector measures: (signal + noise) / noise in dB, the signal falling 0.6 s from 30 dB to -13 dB
+        tr = [(a, 0.0, 10 * np.log10(1 + 10 ** ((30.0 - 20.0 / np.log(10) * a / tau) / 10))) for a in t]
+        got, r2 = mp.decay(tr)
+        self.assertAlmostEqual(got, tau, delta=0.005)
+        self.assertGreater(r2, 0.99)
+        plateau = [(a, 0.0, 30.0 if a < 0.45 else 30.0 - 200 * (a - 0.45)) for a in t]
+        self.assertLess(mp.decay(plateau)[1], 0.7)
+        self.assertIsNone(mp.decay([(a, 0.0, 10 + 10 * a) for a in t]))
+        self.assertIsNone(mp.decay(tr[:3]))
 
     def test_same_line(self):
         self.assertGreater(mp.same_line(-55, 4, -56), 0)            # drifts with the line

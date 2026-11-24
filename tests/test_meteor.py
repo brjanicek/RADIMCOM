@@ -89,6 +89,32 @@ class MeteorTest(unittest.TestCase):
         self.assertGreater(ping, 10 * 255 / meteor.WF_DB)       # over 10 dB
         self.assertLess(quiet, ping)
 
+    def test_decay_time(self):
+        """An underdense trail decaying exponentially (amplitude tau 0.3 s): tau measured from its decay after the
+        peak (meteor_phys.decay), within 20 %, and straight in dB."""
+        x = baseband(10, seed=3)
+        t = np.arange(len(x)) / FS
+        m = (t >= 5.0) & (t < 7.4)
+        f0 = meteor.GRAVES_HZ - DIAL + 30.0
+        x[m] += (0.6 * np.exp(-(t[m] - 5.0) / 0.3) * np.exp(2j * np.pi * f0 * (t[m] - 5.0))).astype(np.complex64)
+        ev, _ = run(x)
+        self.assertEqual(len(ev), 1, ev)
+        self.assertAlmostEqual(ev[0]["tau"], 0.3, delta=0.06)
+        self.assertGreater(ev[0]["tau_r2"], 0.9)
+
+    def test_strong_echo_not_cut_short(self):
+        """A 40 dB echo decaying (tau 0.4 s) must not lift its own floor: it lasts until it fades into the noise
+        (~1.7 s) and its tau is right (a floor learned under it ended it early, its decay looked faster)."""
+        x = baseband(12, seed=3)
+        t = np.arange(len(x)) / FS
+        m = (t >= 5.0) & (t < 8.5)
+        f0 = meteor.GRAVES_HZ - DIAL + 30.0
+        x[m] += (3.0 * np.exp(-(t[m] - 5.0) / 0.4) * np.exp(2j * np.pi * f0 * (t[m] - 5.0))).astype(np.complex64)
+        ev, _ = run(x)
+        self.assertEqual(len(ev), 1, ev)
+        self.assertGreater(ev[0]["dur"], 1.4)
+        self.assertAlmostEqual(ev[0]["tau"], 0.4, delta=0.06)
+
     def test_overdense_echo(self):
         ev, _ = run(baseband(12, [(5.0, 8.0, -60.0, 0.3, 0.0)]))
         self.assertEqual([e["kind"] for e in ev], ["over"])
@@ -665,8 +691,9 @@ class MeteorTest(unittest.TestCase):
         self.assertEqual([e["kind"] for e in ev], ["under", "over"], ev)
 
     def test_meteor_after_an_aircraft(self):
-        """A meteor 5 s after an aircraft near its Doppler is a meteor (it starts at once)."""
-        ev, _ = run(baseband(16, [(2.0, 8.0, -20.0, 0.3, 8.0), (12.0, 12.3, 10.0, 0.3, 0.0)]))
+        """A meteor 4 s after an aircraft near its Doppler is a meteor (it starts at once). The aircraft starts after
+        the floor is learned (one heard while it is learned leaves its bins high: its first points are a bin off)."""
+        ev, _ = run(baseband(19, [(4.5, 10.5, -20.0, 0.3, 8.0), (14.5, 14.8, 10.0, 0.3, 0.0)]))
         self.assertEqual([e["kind"] for e in ev], ["plane", "under"], ev)
 
     def test_long_overdense_with_a_jump_is_a_meteor(self):

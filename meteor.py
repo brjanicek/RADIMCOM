@@ -83,6 +83,8 @@ SMOOTH = 4                              # frames averaged per bin
 LEARN_S = 4.0                           # the first seconds only learn the floor (a plain average)
 TAU_S = 10.0                            # floor time constant (quiet bin)
 TAU_HOT_S = 120.0                       # floor time constant while the bin is up (a carrier is learned in ~minutes)
+FLOOR_UP_DB_S = 0.2                     # … but the floor rises at most this fast (a 30 dB echo of 10 s lifts it 2 dB;
+                                        # without it a 33 dB echo lifted it ~8 dB in 0.3 s: cut short, decay too fast)
 UNDER_S = 1.0                           # shorter = underdense
 PLANE_S = 20.0
 PLANE_DRIFT = 5.0                       # Hz/s
@@ -398,6 +400,7 @@ class MeteorCounter:
         self.idx = ks % self.n
         self.bin_hz = ks * bw - self.f_off              # Doppler of each watched bin
         self.dt = self.hop / fs
+        self._floor_up = 10 ** (FLOOR_UP_DB_S * self.dt / 10)
         self._hist = collections.deque(maxlen=SMOOTH)
         self.floor = None
         self.t_learn = 0.0
@@ -521,7 +524,12 @@ class MeteorCounter:
             if tr is not None and self._trk.is_open(tr) and t < ev["t1"] + SAT_WAIT_S:
                 break                   # part of a track still going on: a satellite or not is told when it ends
             self._finish(*self._pending.pop(0), tr)
-        self.floor += (s - self.floor) * (self.dt / tau)
+        new = self.floor + (s - self.floor) * (self.dt / tau)
+        if not learning:                # a strong echo must not lift its own floor (it would end early, its decay
+            # would look faster): under an echo the floor rises at most FLOOR_UP_DB_S (a steady carrier is still
+            # learned in minutes); not in the noise, its ups and downs would bias the floor low (false pings)
+            new = np.where(hot, np.minimum(new, self.floor * self._floor_up), new)
+        self.floor = new
         if learning:
             return
         if self.status.startswith("learning"):
@@ -625,6 +633,9 @@ class MeteorCounter:
         e = {"ts": round(ev["t0"], 2), "time": time.strftime("%H:%M:%S", time.gmtime(ev["t0"])), "dur": round(dur, 2),
              "snr": round(ev["peak"], 1), "doppler": round(ev["dop"]), "drift": round(drift, 1), "kind": kind,
              "freq_hz": round(GRAVES_HZ + ev["dop"]), "det": False, "head": None}
+        dec = mp.decay(trace)           # the exponential decay of the trail (meteor_phys.decay): tau, how straight in dB
+        if dec:
+            e["tau"], e["tau_r2"] = round(dec[0], 3), round(dec[1], 2)
         self._recent_ev.append((ev["t0"], ev["t1"]))                   # a FAST ping at that time is this echo
         self._recent_det.append((ev["t0"], ev["t1"], ev["dop"]))       # … and a SAT·LINES aircraft there too
         self._pending.append((ev, e))   # reported when its detail is complete (DETAIL_POST_S later)
@@ -648,25 +659,24 @@ class MeteorCounter:
 
     @staticmethod
     def _drift(pts, dop, bw, corr):
-        """The straight fit of the trail from the first point near its peak Doppler on: (Hz/s, rms Hz, the slower of
-        its two halves in Hz/s, 0 if they go opposite ways, the standard error of the Hz/s (meteor_phys.slope)), None
-        if too short (fewer than 4 points or 0.5 s). A meteor fading out wanders over the noise at its end: its first
-        half stays flat."""
+        """The straight fit (Theil-Sen, meteor_phys.slope: robust to odd points) of the trail from the first point near
+        its peak Doppler on: (Hz/s, rms Hz around it, the slower of its two halves in Hz/s, 0 if they go opposite ways,
+        the standard error of the Hz/s), None if too short (fewer than 4 points or 0.5 s). A meteor fading out wanders
+        over the noise at its end: its first half stays flat."""
         i0 = next((i for i, p in enumerate(pts) if abs(p[1] - dop) <= 2.5 * bw), 0)
         trl = pts[i0:]
         if len(trl) < 4 or trl[-1][0] - trl[0][0] <= 0.5:
             return None
-        tt = np.array([x[0] for x in trl]) - trl[0][0]
-        ff = np.array([x[1] for x in trl])
-        c = np.polyfit(tt, ff, 1)
-        h = len(tt) // 2
+        r = mp.slope(trl, corr, bw)
+        if r is None:
+            return None
+        s, se, _, rms = r
+        h = len(trl) // 2
         half = 0.0
-        if h >= 3 and len(tt) - h >= 3 and tt[h - 1] > tt[0] and tt[-1] > tt[h]:
-            s1 = float(np.polyfit(tt[:h], ff[:h], 1)[0])
-            s2 = float(np.polyfit(tt[h:], ff[h:], 1)[0])
-            half = min(abs(s1), abs(s2)) if s1 * c[0] > 0 and s2 * c[0] > 0 else 0.0
-        se = mp.slope(trl, corr, bw)[1]
-        return float(c[0]), float(np.sqrt(np.mean((ff - np.polyval(c, tt)) ** 2))), half, se
+        a, b = (mp.slope(trl[:h], corr, bw), mp.slope(trl[h:], corr, bw)) if h >= 3 and len(trl) - h >= 3 else (None, None)
+        if a and b:
+            half = min(abs(a[0]), abs(b[0])) if a[0] * s > 0 and b[0] * s > 0 else 0.0
+        return s, rms, half, se
 
     @staticmethod
     def _trail(pts, dop, bw):

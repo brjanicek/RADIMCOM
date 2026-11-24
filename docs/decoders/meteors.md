@@ -133,7 +133,9 @@ Blocks in the style of STATION (lit when in use, amber when something needs atte
    together and so changes nothing.
 3. The power of each bin is averaged over 4 frames and compared with the noise floor of that bin, a slow average: 10 s
    while the bin is quiet and 120 s while it is up. A steady carrier (the direct GRAVES signal on a tropo opening,
-   birdies) is learned into the floor and does not trigger. The first 4 s only learn the floor.
+   birdies) is learned into the floor and does not trigger. The first 4 s only learn the floor. Under an echo the floor
+   rises at most 0.2 dB/s, so a strong echo does not lift its own floor (it would end early and its decay would look
+   too fast).
 4. An echo starts when the strongest bin is THR above its floor. It lasts while its own bins (±2) stay within 3 dB below
    that, and ends after 0.3 s below. A much stronger bin within 150 Hz (a head echo coming onto its trail) takes the echo
    over. Frames where more than 30 % of the band is up at once are left out as broadband.
@@ -155,8 +157,17 @@ Tuning this is demanding: it builds on scientific work on meteor radar, bistatic
 | LEO satellite (7.5 km/s) | up to kHz | near the carrier ≥ ~18 Hz/s, at most ~121 Hz/s | long, fades in and out with the GRAVES beam |
 | head echo (the meteoroid) | kHz | ≥ ~0.5 kHz/s, onto the trail's Doppler | tens to hundreds of ms just before the trail |
 
-A drift is measured with its standard error (the bin quantisation, the frames of the detector are not independent)
-and decides a class only when it is beyond the bound by **two standard errors**.
+A drift is measured robustly (**Theil-Sen**: the median of the slopes of the pairs of points at least half its length apart, as the
+Doppler is quantised to bins, so the end of a head
+echo or noise as the trail fades does not tilt it) with its standard error (the robust spread of the points, the bin
+quantisation, the frames of the detector are not independent) and decides a class only when it is beyond the bound by
+**two standard errors**.
+
+**Decay time τ:** an underdense trail's amplitude falls as exp(−t/τ), τ = λ² sec²φ / (32π²D) with D the ambipolar
+diffusion (McKinley). τ is fitted on the power after the peak with the noise taken out (the detector's frames and
+smoothing keep the rate of an exponential); the detail shows it and whether the decay is exponential (r² ≥ 0.9:
+underdense) or not (an overdense plateau, a fading signal). Measurable from about 0.15 s; shorter pings are not
+measured.
 
 - **Head echo → meteor:** an echo with a head echo is always a meteor (UNDERDENSE / OVERDENSE), whatever else it looks
   like; nothing else sweeps onto the trail at kHz per second.

@@ -62,6 +62,16 @@ Test beta (GitHub branch `1.2beta2`; continues 1.2beta1).
   PRE-REC; **SAVE** in the detail saves one echo.
 - **Waterfall grid:** faint lines at the carrier and at steps of the Doppler shift, under the signal, from the start.
 - The GRAVES page stays on the VFO where GRAVES runs (its history no longer disappears after switching the VFO).
+- **Robust drift (Theil-Sen):** the drift of every echo, piece and track is the median of the slopes of pairs of its
+  points (those at least half its length apart, as the Doppler is quantised to bins), not least squares, so the end of
+  a head echo at the start of a trail or noise as it fades no longer makes a still trail look drifting (a
+  "satellite"). Its standard error from the robust spread of the points (MAD).
+- **Decay time τ of the trail:** fitted on the fall of its power after the peak (an underdense trail decays
+  exponentially, τ = λ² sec²φ / 32π²D), with the noise taken out; the detail shows it and whether the decay is
+  exponential (underdense) or not (overdense, fading). Measurable from about 0.15 s (the detector's resolution).
+  Both ideas taken after a comparison with the open-source detector dhruva-meteor-detector.
+- **Strong echoes no longer cut short:** a strong echo lifted the noise floor under itself (~8 dB in 0.3 s for a
+  33 dB echo), so it ended early and its decay looked too fast. Under an echo the floor now rises at most 0.2 dB/s.
 
 #### RECORDINGS
 

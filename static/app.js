@@ -23937,7 +23937,9 @@ function mtDetShow() {
     : h ? `Head echo${h.fine ? " (slow, green lines)" : ""}${h.weak ? ` (faint: found along its line, ${h.z} σ over the noise)` : ""}: ${h.f0 > 0 ? "+" : ""}${h.f0} → ${h.f1 > 0 ? "+" : ""}${h.f1} Hz, ` +
       `${Math.abs(h.slope) < 1000 ? `${h.slope} Hz/s` : `${(h.slope / 1000).toFixed(1)} kHz/s`}, ` +
       (h.t >= 0.005 ? `starts ${h.t} s before the echo` : h.t <= -0.005 ? `starts ${-h.t} s after the echo start` : "starts with the echo")
-    : d && d.head ? "No head echo found in the ±5 kHz spectrum (a steep streak before the echo)" : "HEAD ECHO is off: only the trail echo (±500 Hz)");
+    : d && d.head ? "No head echo found in the ±5 kHz spectrum (a steep streak before the echo)" : "HEAD ECHO is off: only the trail echo (±500 Hz)")
+    + (e && e.tau && !sat && e.kind !== "plane" ? ` · decay τ ${Math.round(e.tau * 1000)} ms` +
+      (e.tau_r2 >= 0.9 ? " (exponential: an underdense trail)" : ` (not exponential, r² ${e.tau_r2}: overdense or fading)`) : "");
   if (d) mtDetDraw();
 }
 /** Draws the echo (and the head echo spectrum) into their canvases at the real size. */

@@ -108,6 +108,9 @@ GRAVES
   sensitive, under ~1 false head in 1000 echoes.
 - REC: echoes of chosen kinds to RECORDINGS as MP3, optionally IQ of the echo and of the band (PRE-REC); SAVE in the detail.
 - Waterfall grid under the signal; the page stays on the VFO where GRAVES runs.
+- Robust drift (Theil-Sen): a head echo or noise at the ends no longer makes a still trail look drifting.
+- Decay time tau of the trail measured (exponential = underdense), shown in the detail of the echo.
+- Strong echoes no longer cut short (they lifted their own noise floor; their decay looked too fast).
 RECORDINGS
 - GRAVES and PRE-REC files recognised.
 
