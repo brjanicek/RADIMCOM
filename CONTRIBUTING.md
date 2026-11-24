@@ -42,7 +42,7 @@ The third-party binaries in `lib\` and `drivers\` are not in git. Take them from
 The maintainer commits directly to the current version branch while contributors send pull requests to it. These rules
 keep the two from conflicting. AI assistants find the same rules in [CLAUDE.md](CLAUDE.md).
 
-- Work happens on the current **version branch** (for example `1.1rc4`), not on `main`, which holds only releases.
+- Work happens on the current **version branch** (for example `1.2beta1`), not on `main`, which holds only releases.
   Pull requests go to the version branch.
 - In your fork, add the original repository as `upstream`:
   `git remote add upstream https://github.com/om2amr/RADIMCOM.git`
