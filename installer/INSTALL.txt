@@ -80,6 +80,9 @@ Change log
 ----------
 (also in CHANGELOG.md)
 
+Ver. 1.2beta3
+(test beta, GitHub branch 1.2beta3; continues 1.2beta2)
+
 Ver. 1.2beta2
 (test beta, GitHub branch 1.2beta2; continues 1.2beta1)
 Main
