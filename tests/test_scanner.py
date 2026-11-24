@@ -24,6 +24,7 @@ class FakeSdr:
 
 class FakeRx:
     chained = False
+    follows = False          # neither chained nor playing an IQ file (IQ PLAYER)
     scan_tune = sdr.Receiver.scan_tune
     scan_center = sdr.Receiver.scan_center
     _recenter = sdr.Receiver._recenter

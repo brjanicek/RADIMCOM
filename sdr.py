@@ -1768,6 +1768,10 @@ class Receiver:
         self.iq_server = None
         self.shared_lo = None
         self.out_of_band = False
+        # IQ PLAYER (iqplay.py): a file played instead of the dongle; set by app.py, the VFO's own settings kept aside
+        self.player = None
+        self.iq_saved = None
+        self.iq_snapshot = None     # the whole setting before the file: BACK TO VFO puts it back (iqplay.py)
         self.atune = AutoTune(self._autotune_done)   # ATU: click -> exact carrier (autotune.py)
         self.scan = Scanner()                        # SCAN tab: memory scanner (scanner.py), runs in _loop
 
@@ -1779,6 +1783,11 @@ class Receiver:
     @property
     def chained(self):
         return bool(self.cfg.get("chain"))
+
+    @property
+    def follows(self):
+        """The centre and the sample rate come from elsewhere: the owner VFO (chained) or an IQ file (IQ PLAYER)."""
+        return self.chained or self.player is not None
 
     # --- control from the web page (applied in the receiver thread between reads) ---
 
@@ -1807,6 +1816,12 @@ class Receiver:
                 for k in ("lo_offset_hz", "upconv", "ppm"):
                     if k in changes:
                         self.cfg[k] = changes[k]
+                if self.pending.pop("iq_stop", None) and self.player is not None:
+                    # IQ PLAYER, BACK TO VFO while in error: no loop to take it, so at once
+                    self.player = None
+                    self.cfg.update(self.iq_saved or {})
+                    self.iq_saved = None
+                    self._wake.set()
 
     @property
     def fs(self):
@@ -1822,6 +1837,8 @@ class Receiver:
 
     @property
     def lo(self):
+        if self.player is not None:
+            return 0.0                              # IQ file: its centre is the real frequency
         if self.chained and self.shared_lo is not None:
             return self.shared_lo                   # the owner VFO decides the upconverter LO
         return self.lo_for(self.cfg["tune_hz"])
@@ -1892,7 +1909,7 @@ class Receiver:
         elif n % USB_RESET_EVERY == 0:
             self._log(f"error: {err} (still failing, attempt {n})")
         self.fail_last = err
-        if self.cfg.get("driver", "rtl") == "rtl" and not self.chained and (
+        if self.cfg.get("driver", "rtl") == "rtl" and not self.chained and self.player is None and (
                 n == USB_RESET_AFTER or (n > USB_RESET_AFTER and (n - USB_RESET_AFTER) % USB_RESET_EVERY == 0)):
             ok, how = reset_usb(self.cfg.get("serial"))
             self._log(f"USB reset {'done' if ok else 'failed'}: {how}")
@@ -1902,18 +1919,17 @@ class Receiver:
 
     def _run(self):
         self.fail_streak, self.fail_last, self.fail_hint = 0, None, False
-        if self.cfg.get("driver") == "none" and not self.chained:
-            # no SDR assigned (paths.no_source_setup): no device, no samples – silent, an empty waterfall
-            self.sdr = None
-            self.error = None
-            self.status = "no source"
-            self.on_status()
-            while not self._stop.is_set():
+        while not self._stop.is_set():
+            if self.player is None and self.cfg.get("driver") == "none" and not self.chained:
+                # no SDR assigned (paths.no_source_setup): no device, no samples – silent, an empty waterfall
+                # (an IQ file can still be played: IQ PLAYER)
+                if self.status != "no source":
+                    self.sdr, self.error, self.status = None, None, "no source"
+                    self.on_status()
                 self._wake.wait(1)
                 self._wake.clear()
-            return
-        while not self._stop.is_set():
-            if self.cfg.get("net_pause") and self.net_pausable():
+                continue
+            if self.cfg.get("net_pause") and self.net_pausable() and self.player is None:
                 # SpyServer paused: no connection until the network icon is clicked again
                 with self.lock:
                     self.pending.pop("reset", None)
@@ -1921,7 +1937,7 @@ class Receiver:
                 self.error = None
                 self.status = "paused"
                 self.on_status()
-                while self.cfg.get("net_pause") and not self._stop.is_set():
+                while self.cfg.get("net_pause") and not self._stop.is_set() and self.player is None:
                     self._wake.wait(1)
                     self._wake.clear()
                 continue
@@ -1930,7 +1946,7 @@ class Receiver:
             failed = None
             try:
                 self.status = "opening dongle"
-                sdr = open_device(self.cfg)
+                sdr = self.player or open_device(self.cfg)   # IQ PLAYER: the file is the dongle
                 self.sdr = sdr
                 self.opened += 1
                 self.gains = sdr.gains
@@ -2019,8 +2035,15 @@ class Receiver:
         if not changes:
             return
         c = self.cfg
-        if self.chained:
-            # the dongle belongs to the owner VFO: centre, sample rate and device are not ours to change
+        if "iq_stop" in changes:
+            # IQ PLAYER, BACK TO VFO: the own settings back, the dongle opened again (in this thread: no block of the
+            # file overwrites them any more)
+            self.player = None
+            c.update(self.iq_saved or {})
+            self.iq_saved = None
+            raise ResetRequested()
+        if self.follows:
+            # the dongle belongs to the owner VFO (or an IQ file plays): centre, sample rate and device are not ours to change
             for k in ("center_hz", "sample_rate", "device"):
                 changes.pop(k, None)
         if "sample_rate" in changes and changes["sample_rate"] != c["sample_rate"]:
@@ -2162,7 +2185,7 @@ class Receiver:
 
     def scan_center(self, center, tune):
         """Scanner (receiver thread): the tuner to the next window; the VFO waits on its first channel (muted)."""
-        if self.chained:
+        if self.follows:
             return
         c = self.cfg
         c["center_hz"], c["tune_hz"] = float(center), float(tune)
@@ -2178,8 +2201,8 @@ class Receiver:
     def _recenter(self, tune, only_if_outside=False):
         """Tuned frequency outside the displayed band -> move the centre (away from the DC spike)."""
         c = self.cfg
-        if self.chained:
-            return                                  # the centre follows the owner VFO
+        if self.follows:
+            return                                  # the centre follows the owner VFO (or the IQ file)
         use = self._usable()
         half = use / 2 * 0.9
         if only_if_outside and abs(tune - c["center_hz"]) < half:
@@ -2192,8 +2215,8 @@ class Receiver:
         c = self.cfg
         span = self.fs / int(c.get("zoom", 1))
         self.view_req = view_hz
-        if self.chained:
-            return                                  # dragging stays inside the band of the shared dongle
+        if self.follows:
+            return                                  # dragging stays inside the band of the shared dongle (IQ file)
         if abs(view_hz - c["center_hz"]) + min(span, self._usable()) / 2 > self._usable() / 2 * 0.98:
             c["center_hz"] = max(view_hz, self.fs / 2)
 
@@ -2350,15 +2373,19 @@ class Receiver:
         while not self._stop.is_set():
             self._apply_pending(sdr)
             try:
-                raw = blocks.get(timeout=2)
+                raw = blocks.get(timeout=0.25 if self.player is not None else 2)
             except queue.Empty:
+                if self.player is not None and reader.is_alive():
+                    continue                        # IQ PLAYER paused or at the end: no blocks, not an error
                 raise RuntimeError("dongle is not sending data" if reader.is_alive() else "dongle reading stopped")
             if self.fail_streak:
                 self._log(f"sending data again (after {self.fail_streak} failed attempts)")
                 self.fail_streak, self.fail_last = 0, None
-            if isinstance(raw, tuple):              # chained VFO: (owner's metadata, samples)
+            if isinstance(raw, tuple):              # chained VFO: (owner's metadata, samples); IQ PLAYER the same
                 meta, raw = raw
                 self._follow(meta, sdr)
+                if self.player is not None and self.iq_server:
+                    self.iq_server.publish(raw, self._share_meta())   # the chained VFOs hear the file too
             elif self.iq_server:
                 self.iq_server.publish(raw, self._share_meta())
             blk_s = len(raw) / (2 if raw.dtype == np.uint8 else 1) / self.fs
@@ -2396,7 +2423,7 @@ class Receiver:
             c = self.cfg
             offset = c["tune_hz"] - c["center_hz"]
             n = len(iq)
-            self.out_of_band = self.chained and abs(offset) > self.fs / 2 * BAND_EDGE
+            self.out_of_band = self.follows and abs(offset) > self.fs / 2 * BAND_EDGE
             if self.out_of_band:
                 # the owner VFO moved the dongle away: this VFO is silent until it is tuned into the band again
                 self.smeter = -150.0
@@ -2650,8 +2677,8 @@ class Receiver:
     def tune_range(self):
         """(from, to) Hz that can be tuned: by the converter and the optional limit max_hz (HF VFO)."""
         c = self.cfg
-        if self.chained:
-            # only the band the shared dongle receives right now
+        if self.follows:
+            # only the band the shared dongle (or the IQ file) receives right now
             half = self.fs / 2 * BAND_EDGE
             return c["center_hz"] - half, c["center_hz"] + half
         mode, lo = c.get("upconv", "auto"), float(c.get("lo_offset_hz", 0))
@@ -2843,6 +2870,7 @@ class Receiver:
             "vfo": c.get("vfo"),
             "serial": c.get("serial"),
             "chain_owner": (c.get("chain") or {}).get("owner"),   # chained VFO: name of the VFO with the dongle
+            "iq_play": self.player.state() if self.player is not None else None,   # IQ PLAYER (iqplay.py)
             "out_of_band": self.out_of_band,
             "chained_vfos": self.iq_server.count if self.iq_server else 0,
             "driver": c.get("driver", "rtl"),
