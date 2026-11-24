@@ -23,12 +23,12 @@ tests and the checks before a build.
 
 ## 2. Branches and versions
 
-- `main` holds only releases. Work goes to the **current version branch**, now **`1.2beta1`**. Check
+- `main` holds only releases. Work goes to the **current version branch**, now **`1.2beta2`**. Check
   `git branch -r` for the newest one.
 - The order of versions: `1.2beta1` → `1.2beta2` → … → `1.2rc1` → … → `1.2`. rc sorts between beta and release
   (`update_check._key`: `1.1rc1` → `(1, 1, 0, 101)`; the setup's file version is then `1.1.0.101`).
   Never use a version number that compares lower than the last release (that is why 0.115 was followed by 1.0, not 0.2).
-- The version is the `.r-ver` text in `static/index.html` (`Ver. 1.2beta1`). The installer, the update check and the
+- The version is the `.r-ver` text in `static/index.html` (`Ver. 1.2beta2`). The installer, the update check and the
   *What's new* window all read it from there.
 - Only om2amr decides when the version goes up. Do not ask about it or bump it on your own.
 
@@ -66,9 +66,9 @@ tests and the checks before a build.
 
 ### Brano (pull requests from the fork)
 
-1. Start each topic on a new branch: `git fetch upstream && git switch -c <topic> upstream/1.2beta1`.
+1. Start each topic on a new branch: `git fetch upstream && git switch -c <topic> upstream/1.2beta2`.
 2. One topic per branch and per PR. Keep it short: days, not weeks.
-3. Before the PR, and whenever the maintainer asks: `git fetch upstream && git rebase upstream/1.2beta1`, then
+3. Before the PR, and whenever the maintainer asks: `git fetch upstream && git rebase upstream/1.2beta2`, then
    `git push --force-with-lease` (to your own topic branch only). Never merge the version branch into the topic.
 4. Open the PR against the version branch, not `main`.
 5. Write the changelog text in the PR description under `## Changelog`. **Do not edit** `CHANGELOG.md`,

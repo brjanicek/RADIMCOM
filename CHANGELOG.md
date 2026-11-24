@@ -1,5 +1,9 @@
 # Changelog
 
+## Ver. 1.2beta2
+
+Test beta (GitHub branch `1.2beta2`; continues 1.2beta1).
+
 ## Ver. 1.2beta1
 
 Test beta (GitHub branch `1.2beta1`; continues the release 1.1).
