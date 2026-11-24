@@ -1,472 +1,399 @@
 # Changelog
 
-## Ver. 1.1rc3
+## Ver. 1.1
 
-Third release candidate (GitHub branch `1.1rc3`; continues `1.1rc2`, whose changes are below).
+What is new against 1.0 (tested in the betas `1.1beta1`, `1.1beta2` and the release candidates `1.1rc1` … `1.1rc4`).
 
-## Ver. 1.1rc2
+### Main Features
 
-Second release candidate (GitHub branch `1.1rc2`; continues `1.1rc1`, whose changes are below).
+- **RADIMCOM much faster:** each VFO server needs about half the CPU, the page no longer stutters, switching the VFO
+  takes ~0.15 s instead of ~1.9 s (details under *Speed*).
+- **AGC+ much better: smart clipping and LINEARITY.** The result of hours of testing and tuning on real signals of the
+  short-wave bands: it drives the A/D to its top, judged by the mean clipping of the last second, and checks the tuner
+  for intermodulation across its gain steps. A clearly better sensitivity for weak stations on short waves (on 40 m LSB
+  about 30 dB of gain instead of 3.7 dB), better also on FM broadcast, DAB and airband AM. On by default.
+- **DECODERS › GRAVES:** echoes of the GRAVES radar (143.050 MHz): meteors counted per hour and day with a yearly chart
+  of the showers, head echoes, satellites identified from their orbital elements, aircraft looked up on adsb.fi, a fine
+  waterfall of 1 Hz × 16 ms, the detail and sound of each echo, weak echoes (FAST, SAT·TLE, SAT·LINES).
+- **Remote dongles over the network (rtl_tcp)** *(by Brano, [brjanicek](https://github.com/brjanicek))* with a
+  Raspberry Pi server and its own SETTINGS page, and **SpyServer** as a source; **SETTINGS › SDR SOURCES** assigns the
+  sources inside the running RADIMCOM and restarts only the VFOs that change.
+- **COMPOSITE map** (COM key): everything with a position from the decoders of all VFOs on one map, the same aircraft
+  joined; settings, lists, sharing (adsb.fi, aisstream.io, SondeHub), tracks and offline **vector maps** *(by Brano)*.
+- **PROPAGATION** (PROP key): space weather and the HF bands at the station for the next 24 h, corrected by the
+  ionosondes and by what FT8 and WSPR hear; **DX CLUSTER** (DX key).
+- **New decoders:** **WSPR** (with a station map), **Q65 / JT65**, **BPSK** satellite telemetry (FUNcube family, AX.25),
+  **MSK144** meteor scatter; **spots** of FT8 to PSK Reporter and of WSPR to WSPRnet.
+- **SETTINGS › GENERAL › BACKUP:** the settings of the whole station to a ZIP and back, factory reset.
+- **Audio:** **TNF** tracking notches, **APF** CW peak filter, **BIN** binaural, **DNR NR4**, **NTH › EXP › FAST** and
+  the **ALC** card for weak speech, **HUM** without the echo.
+- **PRE-REC:** the last minute of IQ in RAM; Alt+click on the waterfall plays what was there.
+- **SATELLITES › SUN NOISE** (G/T on the Sun, SUN SCAN of the rotor pointing) and the **Moon for EME**.
+- **SETTINGS › DEBUG:** where RADIMCOM spends its time, as text to copy.
 
-- **Vector maps on the COMPOSITE map** *(by Brano, [brjanicek](https://github.com/brjanicek), PR #24)* (and the other
-  decoder maps), offline:
-  - Sources: openAIP airspaces, airports, navaids, reporting points and obstacles; OurAirports airports, runways and
-    frequencies; OpenStreetMap transmitter sites; FUA activated areas of Slovakia; IFR waypoints (EUROCONTROL FRA points
-    for Europe plus the INSPIRE points of SK / DE / AT / FI); MEMORIES channels with a location; own GeoJSON / KML / GPX
-    files.
-  - Each country is downloaded with Update and kept in `data\vectormaps`.
-  - In the map settings: a tree to show parts and objects, zoom bars per layer (symbol and name, dragged with the mouse),
-    a style editor with ICAO chart symbols, an FL filter, and own names and notes per object.
-  - The Maps bar has Map memory (10 setups, export / import), Map info and Map edit.
-  - What is shown is stored on the server for all browsers.
-  - It replaces the raster OpenAIP layer.
-  - New default COMPOSITE map settings.
-- **BPSK decoder for satellites** (DECODERS › BPSK, `bpsk.py`, `funcube.py`): telemetry of BPSK satellites at
-  **1200, 2400, 4800 or 9600 Bd** from the baseband of the VFO, in any mode. It finds the carrier by itself within
-  **SEARCH** ±3 / ±6 / ±12 kHz of the tuned frequency (the line of the squared signal) and follows its Doppler, so it
-  works with or without the Doppler correction of the satellite tracking. Differential detection decodes DBPSK and NRZI
-  alike, and every framing is tried on the same signal:
-  - **AO-40 FEC** of the FUNcube family (FUNcube-1 AO-73, Nayif-1 EO-88, JY1Sat JO-97): 5200-symbol frames with
-    convolutional code, interleaver, scrambling and two Reed-Solomon codewords, all decoded by RADIMCOM's own code. The
-    realtime telemetry of FUNcube-1 is shown above the table: battery voltage and temperature, currents, solar panels,
-    RF and PA, reboots, eclipse / safe mode; fitter messages as text.
-  - **AX.25** (HDLC with NRZI), plain or with the G3RUH scrambler, as used by BPSK CubeSats.
-  Satellite keys tune 1.5 kHz below the downlink in USB. A row of the table opens the bytes of the frame. Daily log with
-  **LOG**. Checked on a recording of FUNcube-1 (every frame decoded, about 5 bit errors per frame corrected); AX.25 only
-  on generated signals so far. 9600 Bd needs a sample rate of the SDR of about 2 MS/s.
-- **Q65 / JT65 decoder** (DECODERS › Q65/JT65, `q65.py`): the slow weak-signal modes of HF, 6 m scatter and EME, decoded
-  by jt9 of WSJT-X 2.7.0 (`lib\jt9`, built by `installer/build_jt9.sh`, its licences in `installer/JT9.txt`). The USB
-  passband is recorded for the whole T/R period from its UTC start (Q65 15–300 s with submodes A–E, JT65 60 s A–C) and
-  decoded at its end. Band keys with the usual dial frequencies and modes, a progress bar of the period, PC clock check
-  with SYNC, table and daily log.
-- **Spots to the networks** (SETTINGS › GENERAL › SPOTS, `spotting.py`): FT8 decodes to PSK Reporter, WSPR decodes to
-  WSPRnet. Off until a callsign is entered and a network switched on; nothing is sent while the station location is
-  still 0 / 0. Spots that could not be sent go to the daily log `logs\spots`.
-- **SUN NOISE:**
-  - It measures the **noise floor of the whole band** the SDR receives (the median of the spectrum without the edges and
-    the centre, about 12 a second), not the S-meter: carriers are left out and it is much smoother.
-  - **SUN SCAN** sweeps across the Sun without stopping, there and back (**Scan ±°**, **Sweeps ×**), in about a minute.
-    The beam is fitted for each direction, so a lag of the readings cancels and is shown in seconds. In elevation it sets
-    the new **EL offset** of RCTRL › SETTINGS (true elevation = K3NG elevation + offset, used by the readings, targets
-    and satellite tracking); the elevation is scanned only with the Sun high enough.
-- **Rotor dial** (`static/rotdial.js`): one block with the polar plot and the elevation column for RCTRL › SETTINGS,
-  SUN NOISE and METEORS; a click in a plot turns the rotor.
-- **METEORS:** the chart and a small waterfall of the watched band for 30 s … 1 h, the detail of an echo, and the head
-  echo spectrum before an echo (a fast, straight Doppler streak).
-- **METEORS: satellites and aircraft** (`meteor_sat.py`, `meteor_air.py`):
-  - A ±8 kHz spectrum always runs beside the meteor detector. A long, smooth streak that drifts faster than an aircraft
-    or runs further from the carrier than an aircraft can is a **SAT** echo: one row per pass, the pieces of it are not
-    counted as meteors, **SATS** in COUNTS. Meteor echoes are reported about 5 s later (they wait for that decision).
-  - **Which satellite:** its bistatic Doppler GRAVES → satellite → station is compared with every satellite with public
-    orbital elements (CelesTrak *active*, *visual*, *stations*, `data\graves_tle.txt`, downloaded once a day, plus the
-    elements of SATELLITES), with the receiver offset fitted. Name, NORAD, AZ / EL / distance and the fit in the table
-    and the detail (its calculated Doppler dotted over the spectrum). Debris and objects without public elements stay
-    *?*. Needs the station location.
-  - **Which aircraft (ADS-B key):** a PLANE echo is compared with the aircraft adsb.fi (else adsb.lol) sees within
-    250 NM of the middle of the path (only that point is sent), moved to the time of the echo; flight, registration,
-    type, FL and distance shown. The receiver offset is learned from the satellites identified surely (else 0).
-  - **HEAD ECHO** key: the head echo spectrum (±5 kHz, ~15 ms frames) is optional now; *H* in the table marks one found.
+### Changes
+
+#### Speed
+
+- **Each VFO server needs about half the CPU** (38–49 % → 15–26 % of one core): the channel mixer is ~100× faster,
+  the waterfall FFT 3.5× faster.
+- **The page no longer stutters:** drawing the status of the VFOs took ~47 % of the browser's time, now ~3 %.
+- **Switching the VFO ~1.9 s → ~0.15 s**; a row of the main waterfall 1.44 → 0.16 ms.
+- **SETTINGS › DEBUG** (`static/debug.js`, `dbgstats.py`): where RADIMCOM spends its time – in the page (frames,
+  functions, requests) and in the servers (CPU of every process and thread, with its lines of Python) – as text to copy.
+
+#### Gain: AGC+, WF GAIN COMP, A/D
+
+- **AGC+ smart clipping.** AGC+ no longer keeps an A/D headroom target (about 15 dB on HF, which left the A/D mostly
+  unused: 2.7–3.7 dB of gain on 80 m / 40 m, the band's noise only 6–10 dB over the A/D's own noise). It drives the A/D
+  to its top: the gain climbs until samples hit full scale now and then, and it is judged by the **mean clipping of the
+  last second** (limit 0.1 %), not by single blocks – a block clipping 0.5 % now and then does not cut it; only one block
+  over 10× the limit (at least 1 %) does. With the clipping under the limit it **probes the next tuner step**; a probe
+  that goes over returns at once to the step before, and the same step is tried again after 20, 40, 80 … s (at most
+  every 5 min), so on a steady band it settles. When the band gets quieter (headroom 3 dB more and 4× less clipping for
+  10 s) it climbs again at once. On 40 m LSB it now sits at about 30 dB of gain with the band's noise 22–28 dB over the
+  A/D's – the weak stations clearly better. Together with the audio **NTH** expander and, where needed, **DNR**, such
+  weak signals get much more readable. Listening tests show it better also on FM broadcast, DAB and airband AM.
+  "Gain wasted" still stops the climb; ADS-B keeps the headroom of its pulses.
+- **AGC+ is on by default** for every VFO with its own dongle except SpyServer and rtl_tcp sources (a VFO where it was
+  switched off keeps it off). The presets CONSERV., CAREFUL, MODERATE and BOLD are gone (they set too little gain); a
+  VFO saved with one of them gets the new defaults.
 - **AGC+ LINEARITY** (`imd.py`): intermodulation of the tuner that does not clip the A/D (phantom stations) is found by
   comparing the spectra at two neighbouring gains, line by line: a real signal moves with the gain one to one, a
   product about three times as much. A probe up with intermodulation goes back down and holds a ceiling under it (2 min,
   doubled each time on the band, 15 min max, lifted at once when the strongest stations fade); at the top a step down
   is tried now and then.
-- **WF GAIN COMP** (`wfcomp.py`): the waterfall and spectrum rows corrected for the tuner gain, so the colours do not
-  jump when AGC+ or a hand changes the RF gain (each real step measured on the noise floor; none with tuner AGC).
-- **DNR RNN removed:** the RNNoise algorithm did not give good results on the air; DNR has WIENER and NR4
-  (`installer/get_rnnoise.py` and `lib\rnnoise` are no longer used). The tooltip of the DNR key shows the algorithm and
-  the level and stays up while the wheel changes it.
-- **Tooltips:** one dark tooltip of RADIMCOM for every title of the page (`static/tooltip.js`), kept current while the
-  mouse wheel changes a value.
-- **AD satellite tracking** (`static/satad.js`): while the Doppler correction tunes the VFO, the AD under the clock shows
-  a small polar plot of the pass, the satellite, the frequency received and the rotor tracking.
-- **WEFAX:** the image can be dragged sideways (wrapping round), the following lines keep the alignment; a saved image is
-  saved again after a shift or a slant fix.
-- **RETRO renamed PRE-REC:** the key under REC IQ, its tooltips, the waterfall mark (*PRE-REC 60 s*), the replay bar and
-  the docs now say PRE-REC (it records what came before you pressed anything). The key shows only PRE-REC; the seconds
-  held are in its tooltip and on the waterfall mark. SAVE IQ now names the file `…_IQ_PREREC.wav`. Settings and the API
-  are unchanged.
+- **WF GAIN COMP** (`wfcomp.py`, GAIN COMP in the waterfall settings, on by default): the waterfall and spectrum rows
+  corrected for the tuner gain, so the colours do not jump when AGC+ or a hand changes the RF gain (each real step
+  measured on the noise floor; none with tuner AGC).
+- **AGC+ card:** the numbers stand in fixed cells refreshed twice a second, the warning (one line) and the *why* line
+  (two lines) keep their place, the whole text in the tooltip, so nothing below jumps; a warning is one short line,
+  "more gain buys nothing" is grey information, only the warnings to act on are amber. The A/D values of the VFO window
+  and of the AGC+ card are the same (99.9 % peak, clipping of the worst block of 2 s).
+- **A/D value not red for a few clipped samples:** the dBFS value of the VFO window and the AGC+ bar turned red when a
+  single sample hit full scale in the last 2 s (an impulse). Red now only over the AGC+ clipping limit; a few clipped
+  samples under it are amber, with their share in the tooltip.
+- **RF gain under the waterfall speed bar:** under the WF label the tuner gain of the active VFO (*RF*, the number in dB,
+  AUTO, green with AGC+; the full text in the tooltip).
 
-## Ver. 1.1rc1
+#### Audio
 
-Release candidate (GitHub branch `1.1rc1`; continues the test betas `1.1beta1` and `1.1beta2`).
-
-### Main Features
-
-- **AGC+ much better: smart clipping.** The present algorithm is the result of hours of testing and tuning on real
-  signals of the short-wave bands (80 m, 40 m, 20 m, SSB). The aim was to get the most out of the RF signal while keeping
-  the quality: a clearly better sensitivity for weak stations on short waves, at the cost of less reserve for very strong
-  signals, which AGC+ guards by the clipping. Together with the audio **NTH** expander and, where needed, **DNR**, it makes
-  such weak signals much more readable. AGC+ no longer keeps an A/D headroom target (about 15 dB on HF,
-  which left the A/D mostly unused: 2.7–3.7 dB of gain on 80 m / 40 m, the band's noise only 6–10 dB over the A/D's own
-  noise). It drives the A/D to its top: the gain climbs until samples hit full scale now and then, and it is judged by the
-  **mean clipping of the last second** (limit 0.1 %), not by single blocks – a block clipping 0.5 % now and then does not
-  cut it; only one block over 10× the limit (at least 1 %) does. With the clipping under the limit it **probes the next
-  tuner step**; a probe that goes over returns at once to the step before, and the same step is tried again after 20, 40,
-  80 … s (at most every 5 min), so on a steady band it settles. When the band gets quieter (headroom 3 dB more and 4× less
-  clipping for 10 s) it climbs again at once. On 40 m LSB it now sits at about 30 dB of gain with the band's noise 22–28 dB
-  over the A/D's – the weak stations clearly better. Listening tests show it better also on FM broadcast, DAB and
-  airband AM. "Gain wasted" still stops the climb; ADS-B keeps the headroom of its
-  pulses. The defaults change (clipping limit 0.1 % instead of 0.03 %); a VFO with the former defaults gets the new ones.
-  **AGC+ is on by default** for every VFO with its own dongle except SpyServer and rtl_tcp sources (a VFO where it was
-  switched off keeps it off).
-  The A/D values of the VFO window and of the AGC+ card are now the same (99.9 % peak, clipping of the worst block of 2 s).
-- **SETTINGS › GENERAL › BACKUP:** the settings of the whole station to a ZIP file and back, e.g. to move RADIMCOM to
-  another PC. Chosen by ticks: VFO settings, VFO sources, memories, station (location, antennas, rotor, recordings folder),
-  satellites, ISM devices, map API keys (secret, not ticked by default) and the page settings of the browser. **Restore**
-  from a file or from `RADIMCOM\backup\`: the VFOs restart with the settings and the page reloads; a VFO whose dongle is not
-  on this PC stays without a source, with a warning to set up the dongles first. **Factory reset** in two steps (type
-  RESET): a full backup goes to `RADIMCOM\backup\` first, then all the settings are deleted and RADIMCOM restarts like a
-  new installation (logs, recordings and decoder pictures stay). See docs/controls.md.
-- **No dongles assigned yet** (new installation, factory reset): RADIMCOM.exe opens the **SDR setup** by itself, in a
-  window in the middle of the screen (no longer full screen). Cancelled without saving, RADIMCOM starts in its normal
-  layout with the four VFO windows, VFO A dark and silent (NO SDR), the waterfall empty; SETTINGS › SDR SOURCES assigns
-  the dongles later.
-- **PROPAGATION tab (PROP key):** space weather from NOAA SWPC (solar flux, X-ray, solar wind, Kp and A, R / S / G scales,
-  alerts) as blocks in the STATION style, charts of Kp (3 days with the forecast), X-ray (6 h) and the **magnetogram of
-  Kiruna** (IRF, X / Y / Z, ΔX over 3 h). **HF BANDS · ESTIMATE NEXT 24 H:** the bands 160–6 m against the next 24 hours
-  (UTC) from an own model (foF2 from the solar flux and the sun, absorption, storms), corrected by the **GIRO ionosondes**
-  up to 1000 km (via KC2G, every 15 min; sporadic E from foEs) and by what **FT8 and WSPR** of all VFOs hear (FT8 + WSPR ·
-  LAST 30′ block with the farthest station per band and Es). **FT8 BAND TEST** listens on each band for 15–60 s when FT8 heard
-  nothing and returns the VFO to its frequency, mode and decoder afterwards (also after the page was closed during the test).
-  A chip under the S-meter shows SFI · Kp · A · R S G in the colour of the worst value. See docs/propagation.md.
-- **WSPR decoder** (DECODERS › WSPR): WSPR beacons on 160 m – 6 m by wsprd of WSJT-X 2.7.0 (`lib\wspr\wsprd.exe`, built for
-  RADIMCOM); band keys, a progress bar of the 2-minute recording, table (SNR, DT, drift, call, locator, power, km), LOG and
-  a **station map** like that of FT8. See docs/decoders/wspr.md.
-- **PC clock against NTP** in the heads of FT8 and WSPR (green / amber / red by the offset) with **SYNC**, which sets the
-  clock of Windows (with the administrator consent of Windows when needed).
-- **SpyServer source:** an own client of the Airspy SpyServer protocol (driver `spyserver`); a server with a narrow band
-  (e.g. an HF+ with 228 kHz) is upsampled and the VFO keeps its tuning inside the real band; on a shared server the gain is
-  the server's. A **click on the network icon** of a SpyServer VFO pauses it (disconnects: no data, the client slot is free)
-  and connects it again; the tooltip shows the data rate.
-- **SETTINGS › SDR SOURCES:** the SDR setup is now a page of the running RADIMCOM in the STATION style (the *SDR setup…* item
-  of the tray menu is gone; the Start menu item and `--setup` open this page). Sources (USB devices with their USB name,
-  index, tuner and the VFO using them; rtl_tcp dongles; SpyServers) are dragged onto VFO A–D; network servers are told apart
-  by their protocol (a SpyServer on any port), and **DIRECTORY** lists the public SpyServers of the Airspy directory (by the
-  distance from the QTH, filters, a click adds one). **APPLY restarts only the VFOs that change** (a bubble shows them
-  starting), the others keep running; a VFO keeps its settings with its source, also when it moves to another letter.
-  EEPROM serial numbers with STOP USB VFOs.
-- **COMPOSITE map: tracks, Track menu, tracker bars** *(by Brano, [brjanicek](https://github.com/brjanicek), PR #23)*:
-  - **Lists:** counts Total / Local / Sharing (live / no position) per kind and in the status row, a **Show** checkbox per
-    kind, the selected track kept in view, flags of shared ships, a label for an emergency squawk and its handling in the list.
-  - **Track menu** per track: label, font, prediction, trail, note, **Lock** display; it opens at the mouse, also in the
-    small map of a tab.
-  - **Tracks** and **Tracker** bars over the map: show / hide all labels, Center, clouds, precipitation, A/D map,
-    **Find track**, Unlock.
-  - **Map settings:** Show label, Note item, the colours of the radiosonde trail (ascent / descent) and landing prediction,
-    the station icon and its colour, **Restore default** (`static/com_defaults.js`, also used the first time the map opens
-    in a browser).
-  - **Fixes:** the radiosonde / ship settings no longer reset on every page load, leader lines and label drag work in a
-    scaled page, ship and sonde labels are centred, the aisstream socket is closed after an error, the data of tracks gone
-    for an hour are dropped.
-
-### Changes
-
-- **SETTINGS › VFO › RX CHAIN** (was SDR DONGLE): a **Source** card after the bias-tee (local device, chained VFO, rtl_tcp or
-  SpyServer with address and device); with a network source the antenna, upconverter LO and bias-tee are greyed, with a
-  shared SpyServer the gain too. The VFO window shows the network icon for SpyServer as for rtl_tcp.
-- **SETTINGS › DATA/LOG** (was LOGS).
-- Decoders: the band key of the frequency the VFO is on stays lit (FT8, WSPR, WEFAX, SSTV, ACARS, AIS, ADS-B, ISM), also
-  when the VFO was tuned another way.
-- SETTINGS › DATA/LOG › LOGGING: the switches of a VFO that is not selected no longer flicker or switch back.
-- Bottom tabs: no strip of the waterfall at their bottom edge.
-- RADIMCOM.exe: the start window shows only *Starting RADIMCOM…* with the pulsing icon, and goes to full screen only when
-  the page is ready (no flash of the start page in full screen).
-- SDR setup: an `sdr://` (SpyServer) address no longer gives an rtl_tcp error.
-- `make_installer.py --exe` works while RADIMCOM runs (the running RADIMCOM.exe is renamed to `.old`).
-- **Decoders: one at a time** per VFO: switching one on (its ON key, a band key, a memory, ISM) switches the running one off.
-  The DECODERS tab names the running decoder in green (*DECODERS FT8*), its key has a lit green bar on top also while
-  another page is open, and the tab opens on the page of the running decoder (with none, on the page last chosen on the VFO).
-- **Bottom tabs:** a red **×** closes a tab (and switches its key off), never wrapping to a second line; the *Loading…*
-  bubble is in the middle of the pane; the COMPOSITE tab has the purple of its COM key.
-- **RECORDINGS:** a recording can be tagged with a **star** (kept in `starred.json` of the recordings folder; a filter shows only the starred ones).
-- RADIMCOM.exe: a restart of the server (tray menu or page) shows the small *Restarting RADIMCOM…* window like the start.
-- **SpyServer:** SDR SOURCES › DIRECTORY (table and map) lists only the servers that answer; the source chip shows the
-  owner and country of the server instead of its address (also in the tooltip of the network icon of the VFO window,
-  which no longer flickers). The country comes from the Natural Earth borders in `countries.json`.
-- HFDL: the status lines moved under INFO, so the map gets more room.
-- Decoder maps: the bubbles are dark like those of the FT8 / WSPR stations, not white, and a click on a mark draws a
-  red dotted line from the QTH to it; a click on the label of a mark (call, flight, serial) works like a click on the
-  mark. SONDE: to the selected sonde (like FT8 and WSPR). PACKET, ACARS / VDL2, HFDL, AIS
-  and ADS-B: to the mark whose bubble is open, with the distance and azimuth in the middle of the line; it follows a
-  moving plane or ship.
-- **DX CLUSTER** (new **DX** key in the PROP group, its own tab): the DX cluster spots of the last 30 minutes from HamQTH
-  (no login, read once a minute for the whole station by `dxcluster.py`), in the look of the FT8 station list, split into
-  HF / VHF / UHF with a filter; the same DX on one frequency is one row with the number of spotters. A click on a spot tunes
-  the active VFO there with its mode (from the comment or the IARU Region 1 band plan). The spots are pink marks with the DX
-  call at the bottom of the spectrum (tooltip with the details, a click tunes there). See docs/propagation.md.
-- Spectrum: the label above the passband shows the current SNR of the channel under the frequency and the bandwidth.
-- **SATELLITES: the Moon (EME).** MOON (EME) is one more satellite (SETUP tab **Moon (EME)**), its position calculated by
-  the new `moon.py` (Meeus' lunar theory, about 0.01° and 50 km against JPL Horizons, `tests/test_moon.py`). Passes,
-  map and the rotor (TRACK) work as for a satellite. The pass detail shows the distance, the own echo's Doppler at
-  144 / 432 / 1296 MHz and the path loss; TRACK has keys for the EME frequencies (50.19 MHz to 5760.1 MHz) and a typed
-  frequency in place of the transmitter list, and shows the echo shift, path loss and echo delay live.
-  See docs/satellites.md.
-- **Audio: TNF, APF and BIN keys** (AUDIO group after HUM, `audiofx.py`). **TNF**: tracking notch filters, **Shift+click**
-  on the spectrum or waterfall sets a notch on a carrier there (a second click removes it, up to 16, width 10–500 Hz in the
+- **TNF, APF and BIN keys** (AUDIO group after HUM, `audiofx.py`). **TNF**: tracking notch filters, **Shift+click** on
+  the spectrum or waterfall sets a notch on a carrier there (a second click removes it, up to 16, width 10–500 Hz in the
   TNF settings, CLEAR removes all); the notches sit on the RF frequency in the baseband, so they stay on the carrier when
-  the VFO is retuned, and are drawn as marks in the spectrum. **APF**: audio peak filter for CW, two band-pass sections at
-  the 700 Hz pitch, 50 / 100 / 200 Hz wide. **BIN**: binaural, the audio split by a Hilbert filter into a 90° phase
-  difference between the left and right ear, so a signal seems to come from a place in the head (CW, SSB, AM; headphones).
-- **DNR: three algorithms** (SETTINGS › AUDIO › DNR, `nrx.py`): **WIENER** (as before), **NR4** (spectral bleaching after
-  libspecbleach: noise estimated by speech presence probability, decision-directed SNR, smoothed gains; less music noise)
-  and **RNN** (the RNNoise neural network of Xiph, 48 kHz; `lib\rnnoise\rnnoise.dll`, downloaded by
-  `python installer\get_rnnoise.py`; without it RNN falls back to WIENER with a note).
+  the VFO is retuned, and are drawn as marks in the spectrum. **APF**: audio peak filter for CW, two band-pass sections
+  at the 700 Hz pitch, 50 / 100 / 200 Hz wide. **BIN**: binaural, the audio split by a Hilbert filter into a 90° phase
+  difference between the left and right ear, so a signal seems to come from a place in the head (CW, SSB, AM;
+  headphones).
+- **DNR: WIENER and NR4** (SETTINGS › AUDIO › DNR, `nrx.py`): **NR4** is spectral bleaching after libspecbleach (noise
+  estimated by speech presence probability, decision-directed SNR, smoothed gains; less music noise). **WIENER** distorts
+  the voice less: the strength of a level comes mostly from the floor (5.7–30 dB, was 6–24 dB) and much less from
+  overestimating the noise (1.0–1.45 ×, was 1.0–2.35 ×); at the same noise reduction the voice is 1.3–1.9 dB cleaner.
+  Default level 3 (was 5; a saved level stays). The mouse wheel over the DNR key changes the level (1–10); its tooltip
+  shows the algorithm and the level and stays up while the wheel changes it.
+- **NTH › EXP › FAST** (SETTINGS › AUDIO, on by default together with AUTO) for weak signals, where the expander often
+  turned the speech down: the voice detector smooths less, the audio goes out ~8 ms later so the opening comes before the
+  syllable (look-ahead), it stays open down to 1/3 of the threshold (normally 1/2), holds at least 250 ms and closes in
+  150 ms (normally 80). Simulated weak speech (−3 / 0 dB over 6 kHz): speech turned down 100 % → 9 %, 35 % → 1 %. *Now*
+  shows FAST. It also switches the ALC to FAST.
+- **ALC card** (SETTINGS › AUDIO, under NTH, per VFO): **FAST / SLOW** and their *hold* and *rise* times (hold
+  0–2000 ms, rise 100–5000 ms, DEFAULT). **FAST is the default** (hold 400 ms, rise 100 ms; SLOW: 600 ms, 1000 ms;
+  before: 400 ms, 1500 ms), so weak speech after a loud part is loud again sooner (−10 dB back in ~0.4 s with FAST,
+  ~1.4 s with SLOW; before ~2 s). The title and the tooltip of the ALC key say SLOW / FAST.
+- **HUM without the echo:** the former comb notched all ~60 multiples of 50 Hz up to 3 kHz at once and rang every 20 ms
+  in the speech it took out (an echo, −12 dB). Now each harmonic is followed separately and notched only while it is a
+  steady tone over 1 s standing 6 dB over the other harmonics – typically 2–8 notches, coming and going smoothly. Echo
+  −28 dB, the hum 20–28 dB down under speech (was ~9 dB), speech without hum untouched, ~3 % of a CPU core. Tests
+  `tests/test_hum.py`.
 - **ATU: CW zero beat.** The ATU key tunes a CW signal near the dial onto the 700 Hz pitch (max-hold of 0.2 s frames,
   ±400 Hz search, parabolic interpolation), as it does AM / SSB carriers.
+- **SETTINGS › VFO › AUDIO** as a chain of blocks in the order of the audio (NB, HUM, DNR, ALC, NTH, AFI, HPF / LPF,
+  ASQ, tone squelch; TNF, APF and BIN with a block each); a block whose key is off is greyed and can still be set.
+
+#### Sources: rtl_tcp, SpyServer, SDR SOURCES
+
+- **Remote dongles over the network (rtl_tcp)** *(by Brano, [brjanicek](https://github.com/brjanicek))*: a VFO can take
+  its RTL-SDR dongle over USB or from another computer, e.g. a Raspberry Pi with several dongles. Driver `rtltcp`
+  (`rtltcp.py`): the VFO tunes, sets gain, RTL AGC, ppm and bias-tee over the network and gets the same raw I/Q as from
+  USB, so VDL2, DAB and ISM work too. A dongle on a server with rtltcp-manager is addressed by its serial
+  (`SDR1@192.168.1.50`), any plain rtl_tcp server as `host:port`.
+- **Raspberry Pi server: `rpi/install_rtltcp.sh`** for a clean Raspberry Pi OS (any Debian): builds the rtl-sdr-blog
+  driver (V3, V4, generic) into /opt/rtlsdr-blog without touching a librtlsdr already there, blacklists the DVB-T driver
+  and installs the service **rtltcp-manager**: one rtl_tcp per dongle by serial on a fixed port (1234, 1235 …), dongles
+  plugged in later start by themselves, an rtl_tcp whose client stopped answering is restarted. Its HTTP side (port 1233)
+  lists the dongles and the state of the server.
+- **SETTINGS › RTL_TCP SERVER:** one card per server with name, IP, link (LAN / WIFI with SSID, signal and rate), ping,
+  CPU (load, clock, temperature), RAM, disk, power (Raspberry Pi under-voltage / throttling), time against this PC,
+  graphs of the last 10 minutes, the dongles with their VFO, frequency, data rate and share of the samples arriving, and
+  RESTART (one dongle), RESTART SERVER, SHUTDOWN and UPDATE (installs the rtltcp-manager shipped with RADIMCOM).
+- **VFO window: network icon** for rtl_tcp and SpyServer instead of the USB symbol; **orange** when the network does not
+  carry all the samples (rtl_tcp drops the rest silently; also in the VFO log), **red** when the server is not
+  reachable, a **blinking lightning** when the server has under-voltage or overheats.
+- **SpyServer source:** an own client of the Airspy SpyServer protocol (driver `spyserver`); a server with a narrow band
+  (e.g. an HF+ with 228 kHz) is upsampled and the VFO keeps its tuning inside the real band; on a shared server the gain
+  is the server's. A **click on the network icon** of a SpyServer VFO pauses it (disconnects: the client slot is free)
+  and connects it again; the tooltip shows the data rate and the owner and country of the server (from the Natural
+  Earth borders in `countries.json`).
+- **SETTINGS › SDR SOURCES:** the SDR setup is now a page of the running RADIMCOM in the STATION style (the *SDR setup…*
+  item of the tray menu is gone; the Start menu item and `--setup` open this page). Sources (USB devices with their USB
+  name, index, tuner and the VFO using them; rtl_tcp dongles; SpyServers) are dragged onto VFO A–D; network servers are
+  told apart by their protocol, and **DIRECTORY** lists the public SpyServers that answer (table and map, by the distance
+  from the QTH, filters, a click adds one). **APPLY restarts only the VFOs that change**, the others keep running; a VFO
+  keeps its settings with its source, also when it moves to another letter. EEPROM serial numbers with STOP USB VFOs.
+- **Each dongle keeps its PPM and upconverter LO** (by serial number, `data\dongle_cal.json`): taken off a VFO and put
+  on one again, or two VFOs swapping their dongles, it gets its own values back instead of 0. PPM typed there also goes
+  into the dongle profile of the VFO settings.
+- **No dongles assigned yet** (new installation, factory reset): RADIMCOM.exe opens the **SDR setup** by itself, in a
+  window in the middle of the screen. Cancelled without saving, RADIMCOM starts with the four VFO windows, VFO A dark
+  and silent (NO SDR); SETTINGS › SDR SOURCES assigns the dongles later.
+- **SETTINGS › VFO › RX CHAIN** (was SDR DONGLE, with the former ADVANCED page): cards in the order of the signal like
+  the STATION scheme – antenna, upconverter, LO, bias-tee, **Source** (local device, chained VFO, rtl_tcp or SpyServer
+  with address and device), dongle, tuner gain, RTL2832 gain, bandwidth, ppm, DC, SP, S-meter, AGC+ with its diagram –
+  as narrow blocks with an arrow before each; where a line wraps, a wire leads to the start of the next line. With a
+  network source the antenna, upconverter LO and bias-tee are greyed, with a shared SpyServer the gain too. The *Dongles
+  and VFOs* table and the *Settings for* card are gone.
+
+#### Decoders
+
+- **Decoders: one at a time** per VFO: switching one on (its ON key, a band key, a memory, ISM) switches the running one
+  off. The DECODERS tab names the running decoder in green (*DECODERS FT8*), its key has a lit green bar on top also
+  while another page is open, and the tab opens on the page of the running decoder.
+- The band key of the frequency the VFO is on stays lit (FT8, WSPR, WEFAX, SSTV, ACARS, AIS, ADS-B, ISM), also when the
+  VFO was tuned another way.
+- **WSPR decoder** (DECODERS › WSPR): WSPR beacons on 160 m – 6 m by wsprd of WSJT-X 2.7.0 (`lib\wspr\wsprd.exe`, built
+  for RADIMCOM); band keys, a progress bar of the 2-minute recording, table (SNR, DT, drift, call, locator, power, km),
+  LOG and a **station map** like that of FT8 (□ opens it alone in a new browser tab). See docs/decoders/wspr.md.
+- **Q65 / JT65 decoder** (DECODERS › Q65/JT65, `q65.py`): the slow weak-signal modes of HF, 6 m scatter and EME, decoded
+  by jt9 of WSJT-X 2.7.0 (`lib\jt9`, built by `installer/build_jt9.sh`, its licences in `installer/JT9.txt`). The USB
+  passband is recorded for the whole T/R period from its UTC start (Q65 15–300 s with submodes A–E, JT65 60 s A–C) and
+  decoded at its end. Band keys with the usual dial frequencies and modes, a progress bar of the period, PC clock check
+  with SYNC, table and daily log. See docs/decoders/q65.md.
+- **BPSK decoder for satellites** (DECODERS › BPSK, `bpsk.py`, `funcube.py`): telemetry at **1200, 2400, 4800 or
+  9600 Bd** from the baseband of the VFO, in any mode. It finds the carrier within **SEARCH** ±3 / ±6 / ±12 kHz (the line
+  of the squared signal) and follows its Doppler, with or without the Doppler correction of the satellite tracking.
+  Differential detection decodes DBPSK and NRZI alike, and every framing is tried on the same signal: **AO-40 FEC** of the
+  FUNcube family (FUNcube-1 AO-73, Nayif-1 EO-88, JY1Sat JO-97) with the realtime telemetry of FUNcube-1 above the table,
+  and **AX.25** (HDLC with NRZI), plain or with the G3RUH scrambler. Satellite keys, the bytes of each frame, daily log.
+  Checked on a recording of FUNcube-1 (every frame decoded); AX.25 only on generated signals so far.
+  See docs/decoders/bpsk.md.
 - **MSK144 decoder** (DECODERS › MSK144, `msk144.py`): meteor scatter as WSJT-X MSK144 on 6 m, 2 m, 1.25 m and 70 cm
-  (band keys 50.260 / 50.280 / 144.150 / 144.360 / 222.100 / 432.360 MHz, USB). Own decoder: each ping is found by the
-  squared spectrum and the power of its 72 ms parts, its frame located by the two sync words, frames of a long ping averaged,
-  both polarities tried, LDPC (128,90) by belief propagation and CRC-13 (the code tables in `msk144_ldpc.py` from WSJT-X,
-  GPL-3). No time slots and no PC clock needed; the same message within 10 s is one row (× count). Log, table, newest on
-  top. Simulated: a 0.3 s ping decodes at about 5 dB SNR in 2.5 kHz, a 1 s ping at about 3 dB; no false decodes on 60 s
-  of noise (`tests/test_msk144.py`). Short messages and free text are not decoded. Untested on the air.
-- **Meteor counter on GRAVES** (DECODERS › METEORS, `meteor.py`): echoes of the French space radar GRAVES (143.050 MHz)
-  reflected by meteor trails. Spectrum of the VFO baseband (~4–8 Hz bins, every ~30 ms) within ±500 Hz of the carrier,
-  each frame normalised by its median (gain steps and broadband noise change nothing), a slow floor per bin (a steady
-  carrier is learned and does not trigger), threshold 10 dB (THR) with hysteresis on the echo's own bins. Underdense
-  (< 1 s) and overdense echoes are counted; long or drifting echoes are aircraft and are not. Counts per UTC hour with
-  the time monitored in `data\meteors_<VFO>.json` (400 days). Page in the style of STATION: RECEIVER (TUNE 143.049 USB),
-  ROTOR (bearing and elevation to GRAVES from the QTH, POINT, the new rotor source **METEORS (GRAVES)** in RCTRL ›
-  SETTINGS), DETECTOR, COUNTS, the last 2 minutes, 48 hours, a yearly chart of echoes per hour of monitoring with the
-  meteor showers marked, the list of echoes, LOG.
-- **RETRO: tuning back in time** (RETRO key under REC IQ, `retro.py`): the raw IQ of the dongle of the last 10–300 s
-  (60 s default) kept in RAM; **Alt+click on the waterfall** plays that moment at that frequency, up to 20 s demodulated
-  with the mode, filter and all the AUDIO keys of the VFO as set now (NB, NF, DNR, HUM, TNF, APF, SAM, NTH, ALC, AFI,
-  LPF / HPF, BIN; no squelch; AM, FM, LSB, USB, CW) while the live audio is turned down. **SAVE IQ**
-  (SETTINGS › GENERAL › RECORDINGS) writes the whole buffer as an IQ WAV (`…_IQ_RETRO.wav`), so the last minute is
-  recorded after the fact. RTL at 2.4 MS/s needs 290 MB for 60 s, only while RETRO is on.
-- **SATELLITES › SUN NOISE** (`sunnoise.py`): G/T of the station by the Y factor on the Sun with the rotor:
-  the rotor goes to the Sun, the S-meter power of the active VFO is averaged, then on cold sky beside it, in 1–20 cycles;
-  Y in dB with its spread and G/T in dB/K (the Sun with its flux at the frequency estimated from today's F10.7 or typed
-  in). POINT turns the rotor to the Sun for peaking; the i in its head opens the instructions (432 MHz best).
-  **SCAN** steps the antenna across the Sun (±20° AZ, optionally EL), fits the beam and shows the pointing error with a
-  chart; **APPLY TO ROTOR CALIBRATION** shifts the AZ calibration by it after a confirmation. WHAT IT MEANS explains Y and G/T. Needs a fixed RF gain (AGC / AGC+ off).
-  See docs/satellites.md.
-- **SETTINGS › VFO › AUDIO:** a block whose key is off (NB, HUM, TNF, APF, BIN, DNR, ALC, NTH, HPF / LPF, AFI, ASQ,
-  TSQ) is greyed; it can still be set. TNF, APF and BIN have a block each.
-- WSPR map: the □ key opens it alone in a new browser tab, like the FT8 map; it keeps its view.
-- AGC+ card: a warning is one short line (the whole text in its tooltip); "more gain buys nothing" is grey information,
-  only the warnings to act on are amber. The A/D value and clipping of the AGC+ card are those of the VFO window.
-
-- **Development:** git workflow for working on one version branch together without conflicts: pull requests from short
-  topic branches rebased onto the version branch, the change log written by the maintainer from the PR description,
-  line endings fixed by `.gitattributes`. Rules in CONTRIBUTING.md (Git workflow) and CLAUDE.md for AI assistants.
-
-## Ver. 1.1beta1
-
-Test beta (GitHub branch `1.1beta1`; continues the release 1.0).
-
-### Main Features
-
-- **Remote dongles over the network (rtl_tcp)** *(by Brano, [brjanicek](https://github.com/brjanicek))*: a VFO can take its RTL-SDR dongle over USB or from another computer,
-  e.g. a Raspberry Pi with several dongles. New driver `rtltcp` (rtltcp.py): the VFO tunes, sets gain, RTL AGC, ppm and
-  bias-tee over the network and gets the same raw I/Q as from USB, so VDL2, DAB and ISM work too. A dongle on a server
-  with rtltcp-manager is addressed by its serial (`SDR1@192.168.1.50`: its port is looked up, the USB socket on the server
-  does not matter), any plain rtl_tcp server as `host:port`. **SDR setup** has a new line *Network dongles (rtl_tcp
-  servers)*: enter the server, FIND, and its dongles join the list to be dragged onto a VFO (saved in vfos.json).
-- **Raspberry Pi server: `rpi/install_rtltcp.sh`** for a clean Raspberry Pi OS (any Debian): builds the rtl-sdr-blog driver
-  (V3, V4, generic) into /opt/rtlsdr-blog without touching a librtlsdr already there, blacklists the DVB-T driver and
-  installs the service **rtltcp-manager**: one rtl_tcp per dongle by serial on a fixed port (1234, 1235 …), dongles
-  plugged in later start by themselves, an rtl_tcp whose client stopped answering is restarted (rtl_tcp serves one client
-  and would block the reconnect for minutes, e.g. after a WiFi switch). Its HTTP side (port 1233) lists the dongles and
-  the state of the server for RADIMCOM.
-- **SETTINGS › RTL_TCP SERVER** (the settings pages are now GENERAL, STATION, VFO, RTL_TCP SERVER): one card per server
-  with name, IP, link (LAN / WIFI 2G / WIFI 5G with SSID, signal and rate), ping, CPU (load, clock, temperature), RAM,
-  disk, power (Raspberry Pi under-voltage / throttling, with a warning), time against this PC (NTP), graphs of the last
-  10 minutes (data sent per dongle against what is needed, ping, WiFi signal), the dongles with their VFO, frequency,
-  data rate, share of the samples arriving and client, and keys RESTART (one dongle), RESTART SERVER, SHUTDOWN (with a
-  confirmation) and UPDATE (installs the rtltcp-manager shipped with RADIMCOM). Refreshed only while the page is open.
-- **VFO window: network icon for rtl_tcp** instead of the USB symbol; **orange** when the network does not carry all the
-  samples (the VFO compares what arrives with the sample rate; rtl_tcp drops the rest silently, so this is the only place
-  it shows; also in the VFO log), **red** when the server is not reachable, and a **blinking lightning** when the server
-  has under-voltage or overheats.
-### New
-
-- **SETTINGS › LOGS** (new page): one place for the logs and data files. **FILES** browses the folders LOGS, WEFAX,
-  SSTV, DAB (songs), SERVER (server logs), WIND (GFS cache) and SONDE IQ with their sizes – folder rows first (month by
-  name, day with its weekday), a click on a file shows it on the right (the end of a text file, up to 1 MB, with a line
-  filter; an image), ⤓ downloads it; tick + **DELETE** removes files and whole folders, **⇩ ZIP** exports a folder,
-  **⇧ UPLOAD** imports files into it (a sonde flight `*.jsonl` goes to its day folder by itself). **LOGGING** is the
-  crosscheck: a table decoder × VFO with the LOG switch of each (on / off from here, ● = the decoder runs now) and the
-  logs that are always written (scan activities, radiosonde flights, COMPOSITE history, ADS-B range, server log) with
-  how long they are kept. **HISTORY**: the COMPOSITE history of each VFO (objects by source, size) and the ADS-B range
-  with **EXPORT** (JSON), **IMPORT** (merged: the newer record of an object / the farther point of a range sector wins;
-  the COMPOSITE keeps only what is younger than its 6 h, a range only from the same place) and **CLEAR**; the sonde
-  flights and DAB songs lead to FILES. New API `/api/data/*` (roots, list, text, file, zip, delete, upload) and
-  `/api/history/<composite | adsb_range>` (export, import, clear).
-- **Logs in day folders:** `data\logs\<source>\YYYY\MM\DD\<source>_YYYY-MM-DD.txt` (UTC) for the decoders, ACARS / VDL2
-  (before in `data\acars`), the scan (`.csv`) and the radiosonde flights (`<date>_<serial>.jsonl`). The flat logs of older
-  versions are moved there once at the first start (datafiles.py; `data\acars` is removed when empty).
-- **NTH › EXP › FAST** (SETTINGS › AUDIO, on by default together with AUTO) for weak signals, where the expander often turned the speech down:
-  the voice detector smooths less (a syllable is caught one step sooner), the audio goes out ~8 ms later so the opening
-  comes before the syllable (look-ahead), it stays open down to 1/3 of the threshold (normally 1/2), holds at least 250 ms
-  and closes in 150 ms (normally 80). Simulated weak speech (−3 / 0 dB over 6 kHz): speech turned down 100 % → 9 %,
-  35 % → 1 %; more of the noise between words stays open. *Now* shows FAST. It also switches the ALC to FAST.
-- **ALC card** (SETTINGS › AUDIO, under NTH, per VFO): **FAST / SLOW** switch and their times – *hold* after a louder signal
-  and the *rise* time constant of the gain coming back (hold 0–2000 ms, rise 100–5000 ms, DEFAULT). **FAST is the default**
-  (hold 400 ms, rise 100 ms; SLOW: 600 ms, 1000 ms; before: 400 ms, 1500 ms), so weak speech after a loud part is loud again
-  sooner (−10 dB back in ~0.4 s with FAST, ~1.4 s with SLOW; before ~2 s). NTH › EXP › FAST switches the ALC to FAST by itself. The value beside the
-  title and the tooltip of the ALC key say SLOW / FAST.
-- **COMPOSITE map** (new **COM** key in DECODE, under DEC; tab COMPOSITE): one map with everything that has a position
-  from the decoders running on all VFOs – ADS-B, ACARS / VDL2, HFDL, AIS, SONDE (e.g. VFO A on VDL2, B on HFDL, C on the
-  sondes). SOURCES keys per VFO and decoder to show / hide; aircraft, ships and sondes with the icons and labels of their
-  own maps (an aircraft turned by its track, the trail, or the track of the adsb.fi / adsb.lol lookup), trail colour =
-  source, Precipitation / Trails switches, the view kept, ↗ opens the pane alone in a new tab. The **same aircraft** from
-  more VFOs / decoders becomes one: by ICAO address, registration, flight number (ACARS / HFDL IATA `LH0123` = ADS-B ICAO
-  `DLH123`, table of ~100 airlines) or an uncommon squawk within 150 km and 15 min; two different ICAO addresses never.
-  A click shows the **details on the right** (the lines of the own map's popup) with **SOURCES (n)** – every record joined,
-  its VFO, decoder, identifiers and time – and *joined by …*. **History:** each VFO server keeps 6 h of positions (every
-  30 s, also with the tab closed) in `data\composite_<VFO>.json`, read back after a restart. New `GET /api/positions`
-  (one format for all sources, a test for merging the feeds of more stations); **JSON** downloads the merged feed.
-  See `docs/composite.md`.
-- **COMPOSITE map: settings, lists, sharing** *(by Brano, [brjanicek](https://github.com/brjanicek))*: the ⚙ key opens
-  **Settings** in sections that open and close (remembered in the browser, the same in all windows of the address):
-  **Sources** for aircrafts, radiosondes and ships (one part open at a time; the local decoders instead of the SOURCES
-  row, and **Sharing** from other stations: **adsb.fi** aircraft, **aisstream.io** ships (free API key, stored on the
-  server), **SondeHub** radiosondes, each with a filter – radius, the nearest N, only those the local decoders do not
-  hear, altitude / moving / in flight …), **Map** (base map OSM / Esri dark grey / OpenTopoMap / Esri satellite / own tile
-  address / plain colour, darken, **OpenSeaMap**, **OpenAIP** with its API key stored on the server, own **GeoJSON / KML /
-  GPX layers** stored in `data\maplayers`, **A/D map** rings and azimuths around the station, **ADS-B range** with line /
-  fill colour per band), **Weather** (precipitation: only the latest frame or a loop of 20–120 min, refreshed when the
-  source has a new frame; **clouds**: MTG infrared from EUMETSAT), **Aircrafts**, **Radiosondes**, **Ships** and **Labels**
-  with columns Selected / Local / Sharing (trails: full, fading dots or radar **echo** of the last minutes; icon size,
-  aircraft symbol, **prediction** line with minute ticks, colours, no-position colour and time, hide after; label items
-  incl. azimuth / distance, font, background, text colour, without units). Selected object orange; squawk 7500 / 7600 /
-  7700 red, 1.5× bigger, red trail. Labels can be dragged (per window) and have a line to their icon. **Status row** under
-  the map (tracks, precipitation and cloud time, cursor LAT / LON / A-D, JSON); **lists** beside the map (Aircrafts,
-  Radiosondes, Ships, sortable; an emergency opens Aircrafts and stays red). The marks are kept between the drawings
-  (hundreds of objects drew for seconds). New `/api/maplayers`, `/api/mapkeys`, `/api/share/adsbfi`,
-  `/api/share/aisstream`, `/api/share/sondehub`; ADS-B trail points keep the squawk. See `docs/composite.md`.
-- **Precipitation radar on the maps** of VDL2 / ACARS, HFDL, ADS-B, SONDE and COMPOSITE: the RainViewer radar (only the map
-  tiles are asked, no position), the last 30 minutes animated (frames every 10 min, the newest held, its time in the corner),
-  switch in the top right corner, remembered per map, off by default; an opacity slider (10–100 %, 60 % by default, per map)
-  beside the time of the frame. **Trails** switch on the VDL2, HFDL, ADS-B and
-  COMPOSITE maps.
-
-### Changes
-
-- **Decoder maps keep their view:** FT8, PACKET, ACARS / VDL2, HFDL, ADS-B, AIS and SONDE remember centre and zoom (per map,
-  in the browser); after a switch of the VFO or tab or a reload the map comes back where it was instead of fitting itself
-  to the marks again or jumping to the QTH.
-
-- **HUM without the echo:** the former comb notched all ~60 multiples of 50 Hz up to 3 kHz at once and rang every 20 ms
-  in the speech it took out (an echo, −12 dB). Now each harmonic is followed separately (demodulated, low-passed to the
-  notch width with two poles, put back and subtracted) and notched only while it is a steady tone over 1 s standing 6 dB
-  over the other harmonics – typically 2–8 notches, coming and going smoothly. On a simulation: echo −28 dB, the hum
-  20–28 dB down under speech (was ~9 dB), speech without hum untouched, ~3 % of a CPU core; it catches the hum in
-  ~1–1.5 s. The mains of the transmitter is followed as before. Tests `tests/test_hum.py`.
-- **A/D value not red for a few clipped samples:** the dBFS value of the VFO window and the AGC+ bar turned red when a
-  single sample hit full scale in the last 2 s (an impulse), while the value (the 99.9 % peak) was far under it. Red now
-  only over the AGC+ clipping limit (BOLD 0.03 %, that cuts the gain); a few clipped samples under it are amber, with
-  their share in the tooltip.
-- **AGC+ on HF: the sensitivity wins over the headroom.** A temporary SNR sweep (the S/N of the tuned signal at every tuner gain) on 31 m (AM) showed AGC+ holding 3.7 dB with the
-  band's floor only ~3 dB over the A/D's noise, while the S/N was 5–10 dB better at 15–20 dB of gain (7 dB of headroom,
-  no clipping); on 80 m (RWM) it kept rising up to a floor 11–14 dB over the A/D's noise with 2.5–4.5 dB of headroom.
-  On HF the floor's goal is now 12 dB over the A/D's noise (narrow channel; was 8) and, below 30 MHz while the floor is
-  under its goal (+ the dead band as hysteresis), AGC+ climbs 3 dB at a time down to a headroom of 4 dB instead of
-  stopping at the headroom target; clipping still cuts at once. A step up for the sensitivity must not take the floor over
-  its goal + the dead band (predicted by the measured step), a step down for the headroom goes no deeper than the floor's
-  goal, so it does not hunt across it. On 80 m (RWM) AGC+ then sat at 19.7 dB of gain (floor 9.8 dB over the A/D's noise,
-  5.7 dB of headroom), in the best S/N of the sweep (16.6–20.7 dB; clipping from 28 dB). Test
-  `test_hf_sensitivity_wins_over_the_headroom`.
-- **AGC+ only BOLD:** the defaults are now the former preset BOLD (−4 dB headroom, clipping up to 0.03 %, faster steps up);
-  CONSERV., CAREFUL and MODERATE set too little gain (on HF the A/D's own noise limited the sensitivity) and are no longer
-  offered. A VFO saved with one of them gets the defaults; DEFAULT sets them. The sliders stay.
-- **AGC+ card does not jump:** the warning (one line) and the *why* line (two lines) keep their place when empty or longer,
-  the whole text is in the tooltip; before, the keys below moved with every message and BOLD was hard to click.
-- **Hidden lower part pauses the spectrum and waterfall:** with the lower part hidden (VIEW key) the servers of all VFOs
-  stop sending this tab the spectrum rows, as with the PAUSE key (❚❚), but without the key lit or PAUSED shown and without
-  changing the remembered PAUSE; audio, S-meter and decoders go on. Opening the lower part runs them again (unless PAUSE
-  is on); the waterfall has a gap for that time. Before, only the drawing stopped and the data kept coming. A hidden
-  browser tab still only stops the drawing.
-- **RF gain under the waterfall speed bar:** under the WF label the tuner gain of the active VFO (*RF*, the number in dB,
-  AUTO, green with AGC+; the full text in the tooltip), so it is seen without opening SETTINGS.
-- **Band keys remember where you were (band stacking):** each band key keeps the frequency and mode last tuned inside its
-  band (edges per key, e.g. 40 m 7.0–7.2 MHz, 41 m 7.2–7.45 MHz) and a press goes back there; the first press tunes its
-  default as before. Keys sharing a band (2 m SSB / FM / RPT / APRS, 70 cm) – the one pressed last gets it, else the one
-  of the same mode. Kept in the browser, common to all VFOs; FM BCAST as before (the last FM station).
-- **A VFO switch shows the waterfall:** a switch to another VFO (its key, its window, or by itself for a band / memory
-  out of its range) no longer restores the tab that VFO had last (SETTINGS too); it shows SPECTRUM, or DECODERS when a
-  decoder runs on it (decided once its decoders are loaded), the DAB / DSD tab in those modes. A VFO picked under
-  SETTINGS › VFO stays on SETTINGS. At start-up the last tab is restored as before.
-- **Double click on a memory → waterfall:** recalling a channel in MEMORIES by a double click switches to SPECTRUM,
-  unless the channel opened its own tab (DAB, a decoder, ROTOR CONTROL).
-- **RADIMCOM.exe starts in full screen:** always, not only when it was closed in full screen; F11 or the key beside the
-  logo goes to the window (its place and size remembered as before). `RADIMCOM.exe --window` starts in the window.
-- **Small start-up window:** while the server starts ("The receivers open their SDR dongles"), RADIMCOM.exe shows a
-  small window without a frame in the middle of the screen; when the page (or the SDR setup) is ready, it grows to full
-  screen (`--window`: to the remembered window). An error shows in the remembered window, so its text has room.
-- **POWER and FULL SCREEN keys** (RADIMCOM.exe): a line at the top of the master section – FULL SCREEN over the faders
-  (amber LED while in full screen, F11 the same) and POWER over the MUTE / REC keys (green LED, red under the mouse; a
-  click asks and switches RADIMCOM off, like the LED of the logo). The logo moved a little lower; the small full screen
-  icon in the corner is gone.
-- **DNR: less rough voice, level 3 by default, mouse wheel on the key.** The strength of a level now comes mostly from
-  the floor (5.7–30 dB, was 6–24 dB) and much less from overestimating the noise (1.0–1.45 ×, was 1.0–2.35 ×), which
-  took the weak harmonics of the voice. At the same noise reduction in the pauses the voice is 1.3–1.9 dB cleaner
-  (speech-to-distortion ratio, synthetic SSB speech at 6 dB SNR), e.g. −16 dB of noise: level 7 with 10.1 dB instead of
-  8.2 dB; level 10 still lowers the noise by 16–18 dB. The default level is 3 (was 5; a level saved on a VFO stays).
-  The mouse wheel over the DNR key changes the level (1–10); the level is in the key's tooltip.
-- **SETTINGS: compact cards in the look of STATION, notes behind an "i":** all setting cards are smaller (less padding,
-  thin border, 12 px text, no 10 % zoom of the page), the card title small, in capitals and spaced like the STATION
-  blocks. The explaining notes of each card moved behind an **i** icon at the right of its title; mouse over or a click
-  shows them in a bubble (Esc or a click outside closes it). Status texts, warnings, errors and notes with a control in
-  them stay in the card.
-- **SETTINGS › VFO: SDR DONGLE and AUDIO as chains of blocks, cards in colour.** SDR DONGLE and ADVANCED are one page
-  (the VFO name beside the tabs is gone, the *Dongles and VFOs* table and the *Settings for* card too). Its cards stand
-  in the order of the signal like the STATION scheme – antenna, upconverter, LO, bias-tee, dongle, tuner gain, RTL2832
-  gain, bandwidth, ppm, DC, SP, S-meter, AGC+ with its diagram beside it – as narrow blocks with an arrow before each,
-  using the whole width; where a line wraps, a wire leads from its end to an arrowhead at the start of the next line.
-  RESET SDR DONGLE stands aside (dashed, no arrow). AUDIO the same in the order of the audio chain: NB, HUM, DNR, ALC,
-  NTH, AFI, HPF / LPF, ASQ, tone squelch. Every setting card has the colour of its kind as in STATION (tinted border and
-  background, the title in the colour), a card whose main switch is off is grey; switches, sliders and block numbers
-  are in the colour of the card. The AGC+ card lost its *Why* line (the why is in the tooltip of the AGC+ key) and its
-  numbers stand in fixed cells, refreshed twice a second (the running sentence jumped with every status).
-- **Band keys are momentary:** pressed only while clicked, no lit key and no LED afterwards (they tune a band, they are
-  not a state).
+  (band keys 50.260 / 50.280 / 144.150 / 144.360 / 222.100 / 432.360 MHz, USB). Own decoder: each ping found by the
+  squared spectrum, its frame located by the two sync words, frames of a long ping averaged, LDPC (128,90) by belief
+  propagation and CRC-13 (the code tables in `msk144_ldpc.py` from WSJT-X, GPL-3). No time slots and no PC clock needed;
+  the same message within 10 s is one row (× count). A 0.3 s ping decodes at about 5 dB SNR in 2.5 kHz in simulation;
+  short messages and free text are not decoded. Untested on the air.
+- **Spots to the networks** (SETTINGS › GENERAL › SPOTS, `spotting.py`): FT8 decodes to PSK Reporter, WSPR decodes to
+  WSPRnet. Off until a callsign is entered and a network switched on; nothing is sent while the station location is
+  still 0 / 0. Spots that could not be sent go to the daily log `logs\spots`.
+- **PC clock against NTP** in the heads of FT8, WSPR and Q65 (green / amber / red by the offset) with **SYNC**, which sets
+  the clock of Windows (with the administrator consent of Windows when needed).
+- **WEFAX:** the image can be dragged sideways (wrapping round), the following lines keep the alignment; a saved image is
+  saved again after a shift or a slant fix.
+- **HFDL:** the status lines moved under INFO, so the map gets more room.
 - **ISM devices in columns, distance estimate:** the DEVICES view has a column per kind of device (weather, TPMS, remote,
-  sensor, …) with a coloured header and compact cards in the look of STATION. The kind filter moved to the top line
-  after the frequency keys; INFO and the message count stand after TIMELINE (no overlap with the keys). Each card shows
-  a rough distance (≈ m / km) estimated from its SNR – log-distance path loss (exponent 3.3) from a ~3 mW (5 dBm) transmitter at
-  the device's frequency, e.g. 30 dB ≈ 85 m, 20 dB ≈ 170 m, 10 dB ≈ 350 m; only a guide (walls, antenna and power vary).
-- **"Loading…" bubble over the tab:** a read that takes over a quarter of a second (the RECORDINGS list, the first read
-  of the COMPOSITE map with its 6 h history, sonde history and logs, the history of the decoders – ADS-B, AIS, HFDL,
-  ISM, PACKET, POCSAG, WEFAX, SSTV –, the satellite map, DAB song history) shows a small pulsing *Loading…* bubble over
-  its tab until the data come; quick reads and polls never show it.
-- **RECORDINGS: day folders, browse, sort, delete, playlist.** Every recording goes to `<recordings>\YYYY\MM\DD` of
-  its start – REC, REC SQ, the scan and DAB as MP3, REC IQ as WAV in its `iq` subfolder; the source is in the name
-  (`_SQ`, `_SCAN`). The scan records MP3 only (no WAV without the encoder: the recording does not start). The tab browses
-  the tree (path keys, ↑, TODAY; folders with their number of recordings and size, the month by name, the day with its
-  weekday), a **Source** column (REC, REC SQ, SCAN, DAB, IQ in colour), sorting by any column (header click, remembered;
-  Start ascending by default), ticks + **DELETE** for files and whole folders (files being written stay), ⤓ download,
-  and the folder as a **playlist**: PLAY starts at the top of the list as sorted, **AUTO-NEXT** (was NEXT) goes on with
-  the next row, `3 / 17` shows the place. IQ files are listed but not played (download them for SDR#, SDR++ …). The
-  recordings of the flat folders before 1.1 are moved into the day folders once at the first start and the old WAV of
-  the scan become MP3 (in the background; an interrupted run goes on at the next start). ACTIVITY ▶ of the scan still
-  finds them.
-- **CPU / MEM indicator: RADIMCOM against the whole PC, as Task Manager counts.** It showed the whole PC only. Now
-  `CPU 9/21%` = RADIMCOM / the PC (all cores = 100 %, as Task Manager's Details tab; its Processes tab scales by the
-  turbo clock and shows more) and `MEM 0.5/14G` = the private working set of RADIMCOM / the memory used on the PC; the
-  bars bright = RADIMCOM, dim = the PC, fixed width (nothing moves). The tooltip splits it: the server (launcher and
-  each VFO with its helper programs) and the window (RADIMCOM.exe + WebView2 with the page), and the PC; it stays open
-  while the mouse is on it. Opened from another PC the numbers are of the server PC (**SRV** before them), the window
-  there is not counted and this browser shows only its JS memory (Chrome / Edge).
-- **SCAN: the squelch threshold in the spectrum:** while scanning, each channel measured gets a short line at its
-  threshold on the scale of the spectrum (green, red when open): a signal whose curve reaches over it opens the channel.
+  sensor, …) with compact cards in the look of STATION; the kind filter moved to the top line. Each card shows a rough
+  distance estimated from its SNR (log-distance path loss from a ~3 mW transmitter, e.g. 30 dB ≈ 85 m, 10 dB ≈ 350 m).
+
+#### GRAVES (meteors, satellites, aircraft)
+
+- **DECODERS › GRAVES** (`meteor.py`) in three tabs **LIVE / STATS / SETTINGS**, the counts HOUR, PREV,
+  60 MIN, TODAY, PLANES, SATS beside them. Echoes of the French space radar GRAVES (143.050 MHz): the spectrum of the VFO
+  baseband (~4–8 Hz bins, every ~30 ms) within ±500 Hz of the carrier, each frame normalised by its median, a slow floor
+  per bin (a steady carrier does not trigger), threshold 10 dB (THR) with hysteresis on the echo's own bins. Underdense
+  (< 1 s) and overdense echoes are counted per UTC hour with the time monitored in `data\meteors_<VFO>.json` (400 days).
+- **Fine waterfall** (`meteor_fine.py`): the meteor band in cells of 1 Hz × 16 ms, sharp in time and in frequency at once
+  (a reassigned spectrogram of 64 ms and 1 s frames, Auger & Flandrin). Width **±250 Hz**, **±500 Hz**, **±1 kHz** (a
+  part of the satellite spectrum) or **±8 kHz**, time **10 s … 1 h**; one column per screen pixel (every 16 ms cell up to
+  3 minutes); it scrolls smoothly. ⚙ colours and levels like the main waterfall; a new installation starts with ±500 Hz,
+  1 minute, Classic colours, dark under 10 dB, full colour at 25 dB. The ±250 / ±500 Hz views are ~1.3 s behind the
+  sound (a 1 s frame needs half a second after each moment).
+- **Chart** under the waterfall: the strongest bin over its floor with the threshold dashed, THR in a frame; the mouse
+  wheel over it moves THR by 0.5 dB. Satellites at the same time each in a lane of their own.
+- **Satellites** (`meteor_sat.py`): a ±8 kHz spectrum always runs beside the meteor detector. A long, smooth streak that
+  drifts faster than an aircraft or runs further from the carrier than an aircraft can is a **SAT** echo: one row per
+  pass, its pieces not counted as meteors. **Which satellite:** its bistatic Doppler GRAVES → satellite → station is
+  compared with every satellite with public orbital elements (CelesTrak *active*, *visual*, *stations*,
+  `data\graves_tle.txt`, downloaded once a day, plus the elements of SATELLITES), with the receiver offset fitted. Name,
+  NORAD, AZ / EL / distance and the fit; debris and objects without public elements stay *?*. Needs the station location.
+- **Aircraft** (`meteor_air.py`, ADS-B key): a PLANE echo is compared with the aircraft adsb.fi (else adsb.lol) sees
+  within 250 NM of the middle of the path (only that point is sent), moved to the time of the echo; flight,
+  registration, type, FL and distance shown, a click on the callsign opens the aircraft on adsb.fi. The receiver offset is
+  learned from the satellites identified surely.
+- **Classification:** an aircraft near the middle of the path (~0 Hz, no drift) is not an overdense meteor (a meteor
+  starts at once, an aircraft is already there weakly at its Doppler); meteors in a burst at one Doppler and a meteor right
+  after an aircraft stay meteors; a long overdense echo whose Doppler jumps a bin is not an aircraft (it must drift by
+  3 bins); a short echo sweeping through the band is a satellite; a head echo braking onto its trail is not a satellite.
+- **Head echoes:** the **HEAD ECHO** key adds a ±5 kHz spectrum with ~15 ms frames for fast head echoes (a straight
+  streak going one way onto the trail, away from the carrier and from the echo's own Doppler); a **slow head echo** (a
+  curved streak braking onto the trail, tens to hundreds of Hz) is found in the fine cells from where the trail really
+  starts back in time, also when the detector started on the head echo; a short steep one the detector started on is
+  taken from its own track. Marked **HEAD ECHO** in the table.
+- **AFC** (on by default): the meteors show where the GRAVES carrier really is (a receiver off by some ppm); all the
+  detectors follow it, the VFO is not retuned. Without meteors the carrier is looked for in the wide spectrum.
+- **Echoes:** NOW (the last 500), an earlier UTC **day from the daily log**, or the **marked** ones (☆ keeps an echo with
+  its detail and sound in `data\meteor_marks\<VFO>`). Filters METEORS / SAT / PLANE / head echo / minimum dB, CLR. The
+  type column names how an echo was found (HEAD ECHO, FAST BURST, KNOWN (TLE), UNKNOWN LINE / LINE); the log line has the
+  satellite or aircraft found and H for a head echo.
+- **Detail of an echo:** short echoes in the fine cells, the ±5 kHz head echo spectrum on the same time axis, every part
+  with the colour levels of the fine cells; a satellite in its own band (its track ±400 Hz), enhanced by itself (each
+  frame averaged with the 8 before it along the drift of the track, its own colour levels); the calculated Doppler
+  (satellite, aircraft, head echo) as two bright green dashed lines over and under the track.
+- **Sound:** ▶ plays the echo as on 143.049 MHz USB (the carrier = 1 kHz tone), WAV saves it. A satellite is followed
+  along its Doppler track (only ±60 Hz around it kept, so a weak one is heard over the noise) and sounds as a tone that
+  follows its Doppler; a sweep wider than 2 kHz is squeezed into the audio band.
+- **Weak echoes** (`meteor_weak.py`, SETTINGS › DETECTOR, each off by default):
+  - **FAST:** pings of a few tens of ms in the time signal (the carrier ±150 Hz in 32 ms spectra every 8 ms, as in the
+    BRAMS network); a reference band rejects impulse noise, a burst that sweeps is left out. Counted as underdense,
+    **FAST BURST** in the table (F in the log); no false ping in 25 minutes of noise.
+  - **SAT·TLE:** the ±8 kHz spectrum summed along the bistatic Doppler of every satellite GRAVES lights over the station
+    (every 15 s, the last 40 s): streaks too weak for the tracker, the satellite already known (**KNOWN (TLE)**).
+  - **SAT·LINES:** weak straight streaks (80–600 Hz/s) by a Hough transform over 6 s windows, joined to tracks and
+    identified like the tracker's (**UNKNOWN LINE** / **LINE**); a track within ±350 Hz is an aircraft (PLANE), slow lines
+    (under 80 Hz/s) are looked for there too. Threshold z 8.5 (no false line in 10 minutes of noise).
+  - What the tracker or the meteor detector already has is not reported twice.
+- **STATS:** echoes per hour over 48 hours and per day over the year (per hour of monitoring, the showers marked),
+  RESET STATS. **SETTINGS:** ROTOR (the rotor dial, POINT along the path GRAVES → ROTOR, the rotor source **GRAVES** in
+  RCTRL › SETTINGS), RECEIVER (TUNE 143.049 USB), DETECTOR (THR, AFC, HEAD ECHO, ADS-B, FAST, SAT·TLE, SAT·LINES), blocks
+  in the STATION style.
+
+#### COMPOSITE map and decoder maps
+
+- **COMPOSITE map** (**COM** key in DECODE, tab COMPOSITE, purple): one map with everything that has a position from the
+  decoders running on all VFOs – ADS-B, ACARS / VDL2, HFDL, AIS, SONDE. Aircraft, ships and sondes with the icons and
+  labels of their own maps; the **same aircraft** from more VFOs / decoders becomes one (ICAO address, registration,
+  flight number – ACARS / HFDL IATA `LH0123` = ADS-B ICAO `DLH123` –, or an uncommon squawk within 150 km and 15 min).
+  A click shows the details on the right with **SOURCES (n)**. Each VFO server keeps 6 h of positions in
+  `data\composite_<VFO>.json`, read back after a restart; `GET /api/positions`, **JSON** downloads the merged feed;
+  ↗ opens it in a new tab. See `docs/composite.md`.
+- **COMPOSITE map: settings, lists, sharing** *(by Brano, [brjanicek](https://github.com/brjanicek))*: ⚙ **Settings**
+  in sections – **Sources** per kind (the local decoders and **Sharing**: **adsb.fi** aircraft, **aisstream.io** ships
+  with a free API key, **SondeHub** radiosondes, each with a filter), **Map** (base maps, darken, OpenSeaMap, own GeoJSON /
+  KML / GPX layers in `data\maplayers`, **A/D map** rings, **ADS-B range**), **Weather** (precipitation loop, MTG
+  infrared clouds of EUMETSAT), **Aircrafts**, **Radiosondes**, **Ships** and **Labels** (trails full / fading / radar
+  echo, icon size, prediction line, colours, label items). Selected object orange; squawk 7500 / 7600 / 7700 red.
+  Labels can be dragged; status row under the map; **lists** beside it (sortable).
+- **COMPOSITE map: tracks, Track menu, tracker bars** *(by Brano, PR #23)*: counts Total / Local / Sharing per kind, a
+  **Show** checkbox per kind, the selected track kept in view; a **Track menu** per track (label, font, prediction,
+  trail, note, **Lock**); **Tracks** and **Tracker** bars over the map (labels, Center, clouds, precipitation, A/D map,
+  **Find track**, Unlock); more map settings with **Restore default** (`static/com_defaults.js`).
+- **Vector maps** *(by Brano, PR #24)* on the COMPOSITE map and the other decoder maps, offline: openAIP airspaces,
+  airports, navaids, reporting points and obstacles; OurAirports airports, runways and frequencies; OpenStreetMap
+  transmitter sites; FUA activated areas of Slovakia; IFR waypoints (EUROCONTROL FRA points plus the INSPIRE points of
+  SK / DE / AT / FI); MEMORIES channels with a location; own GeoJSON / KML / GPX files. Each country downloaded with
+  Update into `data\vectormaps`; a tree of parts and objects, zoom bars per layer, a style editor with ICAO chart
+  symbols, an FL filter, own names and notes per object; the Maps bar with Map memory (10 setups, export / import), Map
+  info and Map edit; stored on the server for all browsers. It replaces the raster OpenAIP layer; new default COMPOSITE
+  settings.
+- **Precipitation radar on the maps** of VDL2 / ACARS, HFDL, ADS-B, SONDE and COMPOSITE: the RainViewer radar (only the
+  map tiles are asked), the last 30 minutes animated, opacity slider; off by default. **Trails** switch on the VDL2,
+  HFDL, ADS-B and COMPOSITE maps.
+- **Decoder maps keep their view** (FT8, PACKET, ACARS / VDL2, HFDL, ADS-B, AIS, SONDE): centre and zoom per map after a
+  switch of the VFO or tab or a reload.
+- **Decoder maps:** dark bubbles like those of FT8 / WSPR; a click on a mark or its label draws a red dotted line from the
+  QTH to it, with the distance and azimuth (SONDE, PACKET, ACARS / VDL2, HFDL, AIS, ADS-B), following a moving plane or
+  ship.
+
+#### Propagation and DX
+
+- **PROPAGATION tab (PROP key):** space weather from NOAA SWPC (solar flux, X-ray, solar wind, Kp and A, R / S / G
+  scales, alerts) as blocks in the STATION style, charts of Kp (3 days with the forecast), X-ray (6 h) and the
+  **magnetogram of Kiruna**. **HF BANDS · ESTIMATE NEXT 24 H:** the bands 160–6 m against the next 24 hours from an own
+  model (foF2 from the solar flux and the sun, absorption, storms), corrected by the **GIRO ionosondes** up to 1000 km
+  (via KC2G; sporadic E from foEs) and by what **FT8 and WSPR** of all VFOs hear. **FT8 BAND TEST** listens on each band
+  and returns the VFO afterwards. A chip under the S-meter shows SFI · Kp · A · R S G. See docs/propagation.md.
+- **DX CLUSTER** (**DX** key in the PROP group, its own tab): the spots of the last 30 minutes from HamQTH (read once a
+  minute for the whole station by `dxcluster.py`), split into HF / VHF / UHF with a filter; the same DX on one frequency
+  is one row with the number of spotters. A click on a spot tunes the active VFO there with its mode; the spots are pink
+  marks with the DX call at the bottom of the spectrum.
+
+#### Satellites and rotor
+
+- **SATELLITES › SUN NOISE** (`sunnoise.py`): G/T of the station by the Y factor on the Sun with the rotor, measured on
+  the **noise floor of the whole band** (the median of the spectrum without edges and centre, ~12 a second), in 1–20
+  cycles, the Sun's flux estimated from today's F10.7 or typed in. **SUN SCAN** sweeps across the Sun without stopping,
+  there and back (**Scan ±°**, **Sweeps ×**), in about a minute; the beam is fitted for each direction, so a lag cancels
+  and is shown in seconds. **APPLY TO ROTOR CALIBRATION** shifts the AZ calibration; in elevation it sets the new **EL
+  offset** of RCTRL › SETTINGS (used by the readings, targets and satellite tracking). See docs/satellites.md.
+- **SATELLITES: the Moon (EME).** MOON (EME) is one more satellite (SETUP tab **Moon (EME)**), its position from the new
+  `moon.py` (Meeus' lunar theory, about 0.01° and 50 km against JPL Horizons). Passes, map and the rotor (TRACK) work as
+  for a satellite; the pass detail shows the distance, the own echo's Doppler at 144 / 432 / 1296 MHz and the path loss;
+  TRACK has keys for the EME frequencies (50.19 MHz to 5760.1 MHz) and shows the echo shift, path loss and echo delay.
+- **Rotor dial** (`static/rotdial.js`): one block with the polar plot and the elevation column for RCTRL › SETTINGS,
+  SUN NOISE and GRAVES; a click in a plot turns the rotor. New rotor source **GRAVES** in RCTRL › SETTINGS.
+- **AD satellite tracking** (`static/satad.js`): while the Doppler correction tunes the VFO, the AD under the clock shows
+  a small polar plot of the pass, the satellite, the frequency received and the rotor tracking.
+
+#### Recording
+
+- **PRE-REC: tuning back in time** (PRE-REC key under REC IQ, `retro.py`): the raw IQ of the dongle of the last 10–300 s
+  (60 s default) kept in RAM (the waterfall mark *PRE-REC 60 s*); **Alt+click on the waterfall** plays that moment at that
+  frequency, up to 20 s demodulated with the mode, filter and all the AUDIO keys of the VFO as set now, while the live
+  audio is turned down. **SAVE IQ** (SETTINGS › GENERAL › RECORDINGS) writes the whole buffer as an IQ WAV
+  (`…_IQ_PREREC.wav`). RTL at 2.4 MS/s needs 290 MB for 60 s, only while PRE-REC is on.
+- **RECORDINGS: day folders, browse, sort, delete, playlist, stars.** Every recording goes to `<recordings>\YYYY\MM\DD`
+  of its start – REC, REC SQ, the scan and DAB as MP3, REC IQ as WAV in its `iq` subfolder; the source is in the name
+  (`_SQ`, `_SCAN`). The tab browses the tree, has a **Source** column, sorting by any column, ticks + **DELETE**, ⤓
+  download, the folder as a **playlist** (PLAY, **AUTO-NEXT**, `3 / 17`) and a **star** for a recording (`starred.json`,
+  a filter shows only the starred ones). The recordings of the flat folders before 1.1 are moved into the day folders
+  once at the first start and the old WAV of the scan become MP3.
+
+#### Settings, logs and data
+
+- **SETTINGS: compact cards in the look of STATION, notes behind an "i":** smaller cards, the title small in capitals,
+  every card in the colour of its kind as in STATION (grey when its main switch is off); the explaining notes behind an
+  **i** icon at the right of the title (bubble on mouse over or click). Pages GENERAL, STATION, SDR SOURCES, VFO,
+  RTL_TCP SERVER, DATA/LOG, DEBUG.
+- **SETTINGS › GENERAL › BACKUP:** the settings of the whole station to a ZIP file and back, chosen by ticks: VFO
+  settings, VFO sources, memories, station (location, antennas, rotor, recordings folder), satellites, ISM devices, map
+  API keys (secret, not ticked by default) and the page settings of the browser. **Restore** from a file or from
+  `RADIMCOM\backup\`: the VFOs restart with the settings and the page reloads; a VFO whose dongle is not on this PC stays
+  without a source, with a warning. **Factory reset** in two steps (type RESET): a full backup goes to
+  `RADIMCOM\backup\` first, then RADIMCOM restarts like a new installation (logs, recordings and decoder pictures stay).
+- **SETTINGS › DATA/LOG** (new): **FILES** browses the folders LOGS, WEFAX, SSTV, DAB (songs), SERVER, WIND and SONDE IQ
+  with their sizes, shows a file (the end of a text file with a line filter; an image), ⤓ downloads it; **DELETE**,
+  **⇩ ZIP** export and **⇧ UPLOAD** import. **LOGGING**: a table decoder × VFO with the LOG switch of each and the logs
+  that are always written with how long they are kept. **HISTORY**: the COMPOSITE history of each VFO and the ADS-B range
+  with **EXPORT**, **IMPORT** (merged) and **CLEAR**. API `/api/data/*` and `/api/history/<composite | adsb_range>`.
+- **Logs in day folders:** `data\logs\<source>\YYYY\MM\DD\<source>_YYYY-MM-DD.txt` (UTC) for the decoders, ACARS / VDL2
+  (before in `data\acars`), the scan (`.csv`) and the radiosonde flights (`<date>_<serial>.jsonl`); the flat logs of older
+  versions are moved there once at the first start.
+
+#### Page and window
+
+- **Tooltips:** one dark tooltip of RADIMCOM for every title of the page (`static/tooltip.js`), kept current while the
+  mouse wheel changes a value.
+- **Bottom tabs:** a red **×** closes a tab (and switches its key off), never wrapping to a second line; no strip of the
+  waterfall at their bottom edge; a **Loading…** bubble in the middle of the pane while a read takes over a quarter of a
+  second (recordings, maps with history, decoder logs).
+- **Hidden lower part pauses the spectrum and waterfall:** with the lower part hidden (VIEW key) the servers stop sending
+  this tab the spectrum rows, as with PAUSE but without the key lit; audio, S-meter and decoders go on.
+- **Band keys** remember the frequency and mode last tuned inside their band (band stacking; kept in the browser, common
+  to all VFOs) and are momentary (no lit key and no LED after the click).
+- **A VFO switch shows the waterfall** (or DECODERS when a decoder runs on it, the DAB / DSD tab in those modes), never
+  the tab that VFO had last; a double click on a memory switches to SPECTRUM too. A VFO picked under SETTINGS › VFO
+  stays on SETTINGS.
+- **RADIMCOM.exe:** starts in full screen (F11 or the key beside the logo for the window; `--window` starts in the
+  window); a small start-up window (*Starting RADIMCOM…* with the pulsing icon) grows to full screen only when the page is
+  ready, also after a restart of the server (*Restarting RADIMCOM…*). **POWER and FULL SCREEN keys** at the top of the
+  master section.
+- **CPU / MEM indicator: RADIMCOM against the whole PC, as Task Manager counts** (`CPU 9/21%`, `MEM 0.5/14G`), split in
+  the tooltip (the server by VFO, the window); from another PC the numbers of the server PC (**SRV**).
+- **Spectrum:** the label above the passband shows the current SNR of the channel and the bandwidth.
+- **SCAN:** the squelch threshold of each channel measured as a short line in the spectrum (green, red when open).
+
+#### Development
+
+- Git workflow for working on one version branch together without conflicts: pull requests from short topic branches
+  rebased onto the version branch, the change log written by the maintainer from the PR description, line endings fixed
+  by `.gitattributes`. Rules in CONTRIBUTING.md (Git workflow), CLAUDE.md for AI assistants and DEVELOPER_GUIDE.md (how
+  we build RADIMCOM: workflow, versions, names, style, tests, checks).
 
 ### Fixes
 
-- **AGC+ no longer hunts on HF:** with a strong station on 40 m / 80 m it went up and down every ~2.5 s (gain 0 ↔ 3.7 dB),
-  a line across the whole waterfall each time. The low gain steps of an R820T move the A/D far more than the table says
-  (0 → 3.7 dB by ~15 dB), so every step up overshot the headroom target and the next block took it back. AGC+ now measures
-  how far each step really moved the headroom (per band, also a chain of steps) and steps up only when that keeps it in the
-  dead band; a step down within 10 s of a step up holds the gain for 30 s while it learns. Test with such a front end in
-  `tests/test_sagc.py`.
-- **SCAN stopped too often on noise (ASQ):** a channel opened on one block (85 ms) over its threshold, so a click, a
-  burst or a rise of the whole band stopped the scan for nothing (the log had many activities of 0.1 s at 4–6 dB SNR,
-  several neighbours at once). A channel now opens only after 2 blocks in a row over its threshold (the window is looked
-  at once more; ~85 ms later for a real signal), and its own learned floor never counts below the noise of the band in
-  the current block, so a rise of the whole band does not open its channels. Test in `tests/test_scanner.py`.
+- **SCAN stopped too often on noise (ASQ):** a channel opened on one block (85 ms) over its threshold, so a click, a burst
+  or a rise of the whole band stopped the scan for nothing. A channel now opens only after 2 blocks in a row over its
+  threshold, and its own learned floor never counts below the noise of the band in the current block. Test in
+  `tests/test_scanner.py`.
 
 ## Ver. 1.0
 

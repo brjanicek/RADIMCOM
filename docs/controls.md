@@ -78,7 +78,7 @@ browser – and the **CUE** key of that VFO (orange LED): that VFO stays audible
 - **MODE**: demodulation. In the 5th column **SAM** (synchronous AM, an option of AM: a click switches to AM with SAM, another click back to the plain envelope detector) and under it its sideband **DSB / SB-L / SB-U** (click: next): DSB both sidebands, SB-L / SB-U only the lower / upper one, so an interfering station on the other side stays out. SAM recovers the carrier (a narrow 30 Hz filter behind a frequency loop that follows a carrier up to ±400 Hz off) and demodulates coherently: in a selective fade, when the carrier gets weaker than its sidebands, AM does not distort. The VFO window shows SAM, SAM-L or SAM-U as the mode. SAM works with **AGC+** (a gain step costs it less than the envelope detector: back in 150–180 ms, AM 270–390 ms); on shortwave AGC+ learns the real size of each gain step, so it does not hunt. **With a manual RF GAIN watch it:** shortwave in the evening is full of strong broadcast stations; with the gain too high the A/D clips: the **RF bar of the VFO window and its dB value turn red** (held 1 s; also whistles, splatter and false signals all over the spectrum), with it too low weak stations sink into the noise. Set it as high as it goes without turning red, and lower it again when the band gets busier. **FILTER**: bandwidth for the current mode (WFM: 50, 75, 150 or 200 kHz, default 200 kHz = the full broadcast signal with the best stereo and RDS; 150 kHz is a compromise, 50–75 kHz help with a weak station next to a strong one but distort and usually lose stereo and RDS; any width up to 250 kHz by dragging the filter edge).
 - **GAIN**: AGC switches automatic tuner gain on/off (manual gain with the RF GAIN slider or in SET). **AGC+** (AUTO) sets the tuner gain from the A/D converter and the spectrum of the band: with **smart clipping** it drives the A/D to its top, judged by the mean clipping of the last second, probes the next tuner step and returns when it clips too much, and does not climb when more gain buys nothing (the tuner AGC of the R820T watches only its LNA and mixer, not the A/D). Its settings and meters are in SETTINGS › VFO › ADVANCED › AGC+. The gain flag under the display shows `+` and the gain; the AGC+ key gets a red underline while the A/D clips over the AGC+ limit. With the squelch set, AGC+ makes it work as auto squelch (ASQ lights up), because a fixed level would not fit the changing gain; the slider then only turns it on / off, and ASQ pressed in this state turns the squelch off.
 - **TUNE**: **ATU** (autotune) in USB, LSB, AM and CW (CW: the strongest tone within ±400 Hz of the pitch is moved onto the 700 Hz pitch, a max-hold of 0.2 s frames over 1–3 s with parabolic interpolation). With ATU on, a click on a signal in the spectrum or waterfall tunes to the clicked point (without the step grid), listens for a moment and moves the tuning onto the carrier; the key blinks while listening and the passband label shows the shift (e.g. *ATU +130 Hz*) or *no signal*. Tuning by the wheel, the arrow keys, dragging or the VFO display digits starts it too, 0.7 s after the tuning rests, when it moved by at least 150 Hz. Switching ATU on autotunes the frequency tuned now at once. AM: the carrier is found within a few Hz in under 1 s. SSB: the suppressed carrier goes onto the red line (the tuned frequency), snapped onto a whole kHz when it is within 300 Hz of one (SSB stations sit on whole kHz, e.g. 14.265 MHz), otherwise rounded to 100 Hz: the edge of the voice band on the carrier side (the lower one in USB, the upper one in LSB) is found in a held spectrum of the channel (a max-hold over 0.5 s windows, so the pauses of speech do not matter, smoothed over 250 Hz, the edge where the band falls to 40 % of its peak height in dB, walking down from its peak) and the carrier lies 120 Hz beyond it – after ~2 s of speech (up to 6.5 s while nobody speaks); on real 40 m / 20 m / 17 m stations about 60 Hz from the tuning by ear (median). The last 8 analysed blocks are kept in `data/logs/atu`. Tuning elsewhere while listening cancels it.
-- **STEP**: tuning step: 10 Hz, 100 Hz, 1 kHz, 10 kHz in every mode, WFM included. WFM remembers its own chosen step, the other modes share one (in the browser). **Zoom** (1×–64×; at 64× the section is 24 kHz wide at 1.536 MS/s, each point 23 Hz from its own finer FFT) is the bar in the top right corner of the frequency scale: − / +, a click on a cell, or the mouse wheel over it. **Waterfall speed** (WF, 1/8 – 4×) is the same bar in the top right corner of the waterfall: below 1× several rows are averaged into one line (slower, longer history), above 1× each row is drawn taller (faster); the setting is kept in the browser. **Waterfall settings**: the gear in a square above the speed bar; with the mouse over it a half transparent window opens with the **colour scheme** (Classic, Inferno, Viridis, Turbo, Ice, Matrix; only new rows take the new colours), **colour range** and **colour offset**. Kept in the browser. **Spectrum settings**: the same gear and bar in the top right corner of the spectrum; the bar (dB) moves the **zero** (bottom edge of the spectrum) against the noise floor, −20 … +20 dB in 5 dB steps, the gear opens the **colour schemes** of the spectrum (background gradient / curve: Graphite, Waterfall, Night blue, Phosphor, Amber, Dusk, Ember, Steel). Kept in the browser.
+- **STEP**: tuning step: 10 Hz, 100 Hz, 1 kHz, 10 kHz in every mode, WFM included. WFM remembers its own chosen step, the other modes share one (in the browser). **Zoom** (1×–64×; at 64× the section is 24 kHz wide at 1.536 MS/s, each point 23 Hz from its own finer FFT) is the bar in the top right corner of the frequency scale: − / +, a click on a cell, or the mouse wheel over it. **Waterfall speed** (WF, 1/8 – 4×) is the same bar in the top right corner of the waterfall: below 1× several rows are averaged into one line (slower, longer history), above 1× each row is drawn taller (faster); the setting is kept in the browser. **Waterfall settings**: the gear in a square above the speed bar; with the mouse over it a half transparent window opens with the **colour scheme** (Classic, Inferno, Viridis, Turbo, Ice, Matrix; only new rows take the new colours), **colour range** and **colour offset**, and **GAIN COMP** (WF GAIN COMP, `wfcomp.py`, on by default): the RF gain of the tuner is taken off the waterfall and the spectrum, so their colours do not jump when AGC+ or you change the gain (each row keeps the correction of its time; each real step measured on the noise floor of the band; not with the tuner AGC; the S-meter and squelch stay in dBFS). Kept in the browser. **Spectrum settings**: the same gear and bar in the top right corner of the spectrum; the bar (dB) moves the **zero** (bottom edge of the spectrum) against the noise floor, −20 … +20 dB in 5 dB steps, the gear opens the **colour schemes** of the spectrum (background gradient / curve: Graphite, Waterfall, Night blue, Phosphor, Amber, Dusk, Ember, Steel). Kept in the browser.
 - **DEC** (group DECODE): turns on the CW, FT8, PACKET, RTTY, SSTV, WEFAX, ACARS, ADS-B, HFDL, VDL2, AIS or ISM decoder (DAB and DSD are keys in MODE with their own tabs). The panels are in the
   **DECODERS** tab next to SPECTRUM; turning a decoder on opens it, a green dot signals a new message/image.
   **One decoder at a time** on a VFO: switching one on (its ON key, a band key, a memory, the ISM key) switches the running
@@ -295,8 +295,8 @@ browser – and the **CUE** key of that VFO (orange LED): that VFO stays audible
 - **MENU → SET (gear)**: settings. While the gear key is lit, the bottom part has a **SETTINGS** tab
   (beside SPECTRUM, DECODERS and SATELLITES); the open pages are remembered in the browser.
   The gear is one switch for all VFOs; switching it off hides the tab. Pages GENERAL, STATION, SDR SOURCES (which source each
-  VFO receives from, see [SDR SOURCES](configuration.md#sdr-sources-assigning-sources-to-vfos)), VFO, RTL_TCP SERVER and
-  DATA/LOG (the logs and data files):
+  VFO receives from, see [SDR SOURCES](configuration.md#sdr-sources-assigning-sources-to-vfos)), VFO, RTL_TCP SERVER,
+  DATA/LOG (the logs and data files) and DEBUG (where RADIMCOM spends its time):
   - **GENERAL**: settings of the whole station, the same on every VFO.
     - **SKINS**: finish of the panel – dark brushed aluminium (default), black (darker) brushed aluminium, light brushed aluminium, mahogany or paint. A click on a colour of the RAL chart
       (36 common RAL Classic shades, screen approximations) or an own colour sprays the panel with it; on a light colour the print and the logo turn dark.
@@ -315,6 +315,13 @@ browser – and the **CUE** key of that VFO (orange LED): that VFO stays audible
       **ANT** in the VFO window (row with CTCSS / DCS / ATU): green while the VFO is tuned within one of the bands of its antenna, **amber** outside them (wrong antenna
       or a switch to turn), grey for an antenna without bands, dark without an antenna; its tooltip names the antenna.
     - **RECORDINGS**: the folder of the recordings of all VFOs (see [REC](#recordings)).
+    - <a id="spots"></a>**SPOTS** (`spotting.py`, `data\spotting.json`, the same on all VFOs): a **callsign** and an
+      **antenna** text, and two switches: **PSK Reporter** (every VFO with FT8 on reports the stations it hears to
+      pskreporter.info, collected and sent once per five minutes, each station once per hour and band) and **WSPRnet**
+      (every VFO with WSPR on reports its spots to wsprnet.org after each 2-minute cycle). Without a callsign nothing is
+      sent; the receiver locator is the station location, and nothing is sent while it is not set. The counts sent by
+      this VFO are shown here and beside the **PSK REPORTER** / **WSPRNET** switches of the decoders; spots that could not
+      be sent go to the daily log `logs\spots`. Receive only: RADIMCOM never transmits.
     - <a id="backup"></a>**BACKUP** (`backup.py` in the launcher, for the whole station):
       - **Backup**: tick what goes into the ZIP – **VFO settings** (`config_A…D.json` and the template `config.json`: frequency,
         mode, filters, AGC+, audio, decoders), **VFO sources** (`vfos.json`: which dongle, rtl_tcp or SpyServer each VFO uses),
@@ -352,7 +359,8 @@ browser – and the **CUE** key of that VFO (orange LED): that VFO stays audible
         with the reason in their tooltip, with a shared SpyServer also the tuner gain.
       - Without `vfos.json` (single receiver) the dongle selection and the upconverter mode (auto / on / off).
       - **Bandwidth**: the width of the band the dongle receives (sample rate) = the width of the spectrum and waterfall.
-      - **Correction (ppm)** and **Upconverter LO (MHz)**.
+      - **Correction (ppm)** and **Upconverter LO (MHz)**. Each dongle keeps its own values by its serial number
+        (`data\dongle_cal.json`), so they come back when it is put on another VFO or two VFOs swap their dongles.
       - Tuner gain (manual or automatic) and **RTL2832 digital gain** (its digital AGC, RTL-SDR only).
       - **Remove DC peak** (on by default): removes the peak of the dongle in the centre of the band, from the waterfall and from the received signal. **Width** (up to 1000 Hz) also
         takes out its wide skirts, which LimeSDR needs, but weakens signals that close to the centre. **Suppression** (0–60 dB) sets how deep the removal goes.
@@ -395,6 +403,12 @@ browser – and the **CUE** key of that VFO (orange LED): that VFO stays audible
           The warning and the *why* line keep their place (one and two lines, the whole text in the tooltip), so nothing below jumps.
           A legend under the sliders explains headroom, floor, % and the times. With WFM the blocks around a gain step are played in
           mono, so the stereo does not turn to noise. Settings of AGC+ from before 1.0beta2 are not taken over.
+        - **LINEARITY** (`imd.py`, part of AUTO): the tuner can make intermodulation (phantom stations) before the A/D without
+          one sample clipping. The spectra of the whole band at two neighbouring gains are compared line by line (only
+          steady lines, the band edges left out): a real signal moves with the gain one to one, a third-order product about
+          three times as much, one from a front end in compression hardly at all. A probe up that shows intermodulation goes
+          back down and holds a ceiling under it (2 min, doubled each time on the band, at most 15 min, lifted at once when
+          the strongest stations fade); at the top a step down is tried now and then.
       - **Where AGC+ and ALC work** (beside AGC+): a diagram of the signal path – tuner, A/D, DC · SP, NB, channel filter, demodulator, then the audio NOTCH, DNR, ALC, NTH, AFI,
         HPF · LPF and SQL. AGC+ (green) reads the raw A/D samples before any filter and sets only the tuner gain; a gain step plays that WFM block in mono,
         and with the squelch set AGC+ makes it auto squelch (ASQ). The ALC is the audio gain after the demodulator (AM, SSB, CW; *Smooth ALC gain*).
@@ -451,6 +465,14 @@ browser – and the **CUE** key of that VFO (orange LED): that VFO stays audible
     With the **RX Doppler** of a satellite on, its orange chip in DECODERS leads an orange line **DOPPLER → VFO** along the bottom
     of the row back into the VFO block: the correction retunes the VFO frequency. Lit = on, faint = off. It is
     read-only (a click on a row does nothing). The open page is remembered in the browser.
+  - <a id="debug"></a>**DEBUG** (`static/debug.js`, `dbgstats.py`): where RADIMCOM spends its time, as text to copy into a
+    report. **START** / **STOP** / **RESET** / **COPY**; it keeps measuring while other tabs are open.
+    - **Page:** frames (how many came late, the worst), the busy share of the main thread, long tasks, everything that ran
+      with its own and total time (every global function, the events of the servers by kind, clicks, timers, animation
+      frames, each with its place in the code), slow frames as the browser reports them (with forced layout), requests
+      by VFO and path, JS heap and the size of the DOM.
+    - **Servers:** CPU and memory of every process (launcher, each VFO, the window) and of every thread of each VFO, with
+      the lines of Python where it works (sampled 50 times a second, `/api/debug/threads`).
 
 - **MENU → MEM**: frequency memories. While the MEM key is lit, the bottom part has a **MEMORIES** tab (beside DECODERS,
   SATELLITES and SETTINGS) that covers the spectrum and waterfall like the other tabs; the MEM key is one switch for all VFOs,
@@ -523,10 +545,13 @@ browser – and the **CUE** key of that VFO (orange LED): that VFO stays audible
 1. **Error messages** (red), e.g. a refused setting, TX, a recording error, DAB on a dongle that cannot do it. A message stays until it is
    accepted by the small framed **OK**; the frame of the window blinks red (period 0.5 s) meanwhile. More waiting messages show *+n*, the next one comes after OK.
    (Errors used to show for 5 s under the logo.)
-2. **Rotor AZ / EL** while **MONITOR** is on (RCTRL › SETTINGS), with the requested direction while the rotor is on its way (or LINK OFF, NOT CONNECTED, FAULT).
-3. **DAB now on air** while a DAB station plays: the DAB / DAB+ tag, the station name, the SNR of the ensemble (green from 12 dB, yellow from 8 dB, red below)
+2. **Satellite tracking** while the Doppler correction tunes this VFO (`static/satad.js`): a small polar plot of the pass
+   (north up, the satellite now as a yellow dot, the antenna as a red cross) and beside it the satellite, the frequency
+   received now and the state of the rotor tracking.
+3. **Rotor AZ / EL** while **MONITOR** is on (RCTRL › SETTINGS), with the requested direction while the rotor is on its way (or LINK OFF, NOT CONNECTED, FAULT).
+4. **DAB now on air** while a DAB station plays: the DAB / DAB+ tag, the station name, the SNR of the ensemble (green from 12 dB, yellow from 8 dB, red below)
    and the DLS text (artist / song) under them; a text wider than the window runs to its end and back (the whole text is in the tooltip).
-4. **RDS** (station name, RadioText, PI, PTY, TP/TA); empty without RDS.
+5. **RDS** (station name, RadioText, PI, PTY, TP/TA); empty without RDS.
 
 The clock (top right) switches between local time and UTC with a click; the date under it is of the same zone. Small bars under the S-meter show the CPU load and
 memory use of the PC running RADIMCOM (amber over 70 %, red over 90 %). A click on the RADIMCOM logo opens the project on GitHub. When a newer version is released, the logo turns red; hovering shows the new version and a click opens its release page in a new tab.
