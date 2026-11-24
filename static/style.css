@@ -4936,6 +4936,19 @@ body.map-only #comStatus, #comPane:fullscreen #comStatus { display: flex; }
 .bpsk-tlm .bt-c { min-width: 0; }
 .bpsk-tlm .bt-c span { display: block; font-size: 10px; color: var(--dim); letter-spacing: .04em; }
 .bpsk-tlm .bt-c b { display: block; font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* DECODERS › NAVTEX (navtex.js) */
+.navtex-tbl col.c-id { width: 64px; }
+.navtex-tbl col.c-subj { width: 170px; }
+.navtex-tbl td.navtex-id { color: var(--amber); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.navtex-tbl td.navtex-subj { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.navtex-tbl td.msg { overflow-wrap: anywhere; }
+.navtex-tbl td.msg .lost { color: #ff7b6b; font-size: 11px; margin-left: 6px; }
+.navtex-tbl tbody tr:not(.navtex-full) { cursor: pointer; }
+.navtex-tbl tr.navtex-full pre { margin: 0; padding: 6px 8px; font-size: 12px; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
+#navtexInfo.navtex-sync { color: var(--accent); }
+.navtex-live-head { margin: 10px 0 4px; font-size: 11px; letter-spacing: .06em; }
+.navtex-live { margin: 0; padding: 6px 8px; height: 160px; overflow-y: auto; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere;
+  border: 1px solid var(--line, rgba(255,255,255,.12)); border-radius: 6px; color: var(--text); }
 /* vector maps (vectormaps.js): the section of the map settings and the tooltips */
 .vm-find { width: 140px; height: 20px; box-sizing: border-box; font: inherit; color: #dfe4ea; background: #141b26; border: 1px solid #3a4a60; border-radius: 3px; padding: 1px 4px; }
 .vm-btn { font: 11px/1 system-ui, sans-serif; color: #dfe4ea; background: #1c2533; border: 1px solid #3a4a60; border-radius: 3px; padding: 3px 8px; cursor: pointer; }
@@ -5107,3 +5120,43 @@ details[data-sec=vmaps] > .map-opts-body:empty { display: none; }
 .dbg-out { margin: 0; padding: 6px; min-height: 120px; max-height: 62vh; overflow: auto; border: 1px solid var(--line);
   border-radius: 4px; background: rgba(0, 0, 0, .35); font: 11px/1.35 ui-monospace, Consolas, monospace; white-space: pre;
   user-select: text; cursor: text; }
+
+/* IQ PLAYER (static/iqplay.js): the bar above the tabs, the virtual dongle (blue, blinking) on the VFO, OPEN window */
+.iqp-bar { display: flex; align-items: center; gap: 8px; padding: 4px 8px; margin-bottom: 4px; border: 1px solid rgba(255, 140, 26, .55);
+  border-radius: 4px; background: rgba(255, 140, 26, .08); font: 12px system-ui, sans-serif; color: var(--text); min-width: 0; }
+.iqp-bar[hidden] { display: none; }
+.iqp-tag { color: var(--orange); font-weight: 700; letter-spacing: .06em; white-space: nowrap; }
+.iqp-time { font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; }
+.iqp-seek { flex: 1 1 200px; min-width: 120px; accent-color: var(--orange); }
+.iqp-name { flex: 0 1 auto; min-width: 0; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.iqp-info { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.iqp-info.error { color: var(--red); }
+.iqp-back { margin-left: auto; white-space: nowrap; }
+.vfo-stat.iqplay { color: #4fa3ff; text-shadow: none; }
+.vfo-stat.iqplay .usb-icon { filter: drop-shadow(0 0 3px rgba(79, 163, 255, .8)); }
+.recs-table tbody tr.noplay:has(.iqp-row-ico) { cursor: pointer; }
+.iqp-row-ico .pp-ico { fill: #b693ff; }
+.iqp-row-ico.on .pp-ico { fill: var(--orange); }
+.iqp-dlg { position: fixed; inset: 0; z-index: 40; display: flex; align-items: flex-start; justify-content: center; padding-top: 8vh;
+  background: rgba(0, 0, 0, .45); }
+.iqp-dlg[hidden] { display: none; }
+.iqp-dlg-box { width: 640px; max-width: 92vw; padding: 10px 12px; border: 1px solid var(--line2); border-radius: 6px; background: #10151c;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, .6); font: 12px system-ui, sans-serif; color: var(--text); }
+.iqp-dlg-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; color: var(--orange); letter-spacing: .05em; }
+#iqpDlgPath { width: 100%; box-sizing: border-box; margin-bottom: 6px; }
+.iqp-dlg-list { list-style: none; margin: 0; padding: 0; height: 300px; overflow-y: auto; border: 1px solid var(--line); border-radius: 4px; }
+.iqp-dlg-list li { display: flex; align-items: center; gap: 6px; padding: 3px 8px; cursor: pointer; white-space: nowrap; }
+.iqp-dlg-list li:hover { background: rgba(255, 255, 255, .06); }
+.iqp-dlg-list li.dir { color: var(--yellow); }
+.iqp-dlg-list li.file span:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.iqp-dlg-list li.none { color: var(--dim); cursor: default; }
+.iqp-dlg-list .recs-dir-ico { width: 14px; height: 11px; fill: currentColor; flex: none; }
+.iqp-dlg .sz { color: var(--muted); font-variant-numeric: tabular-nums; }
+.iqp-dlg-file { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-top: 8px; }
+.iqp-dlg-file[hidden] { display: none; }
+.iqp-dlg-name { flex: 1 0 100%; color: var(--orange); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.iqp-dlg-file input { width: 110px; }
+.iqp-dlg-msg { color: var(--amber); min-height: 1em; }
+
+/* GRAVES REC (static/meteor_rec.js): the REC key red while the echoes are recorded */
+.mt-reck.rec-on { color: var(--red); border-color: color-mix(in srgb, var(--red) 70%, transparent); }

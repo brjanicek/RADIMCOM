@@ -4,6 +4,65 @@
 
 Test beta (GitHub branch `1.2beta2`; continues 1.2beta1).
 
+### Main Features
+
+- **IQ PLAYER:** an IQ file from the disk plays through the current VFO as a virtual dongle: waterfall, demodulation
+  and all the decoders, as if live. Thanks to **Dano OM1ATS** for the idea.
+- **NAVTEX decoder** (DECODERS › NAVTEX): maritime safety information on 518 / 490 / 4209.5 kHz and the HF MSI
+  frequencies.
+- **GRAVES: the detection of meteors, satellites and aircraft rebuilt on physics and statistics.** Tuning it is
+  demanding: it builds on scientific work on meteor radar, bistatic radar and statistical decision, and on our own
+  remarks from the live echoes.
+
+### Changes
+
+#### IQ PLAYER
+
+- **IQ FILE…** in the RECORDINGS tab (and ▶ at an IQ recording) opens a file: WAV of SDR# / SDR++ / HDSDR / RADIMCOM
+  (with the centre frequency in its `auxi` chunk or name), HackRF / PortaPack `.C16` with its `.TXT`, raw `.cu8`,
+  `.cs8`, `.c16`, `.cf32`, SigMF, the names of gqrx and rtl_433. The sample rate is fitted to the VFO (a faster file
+  decimated, a slower one upsampled).
+- PLAY switches to the SPECTRUM tab; the bar above the tabs: play / pause, position (click to seek), LOOP, the file
+  and its rate; **BACK TO VFO** returns to the dongle with the whole earlier setting (frequency, mode, gain,
+  demodulator, decoders, everything).
+- The VFO display shows the frequency as usual (the centre of the file when its name has one); the only sign of the
+  player is a blue blinking **IQ** instead of the USB / network icon. No tuning range check while playing.
+- SETTINGS › STATION draws the IQ file as the virtual dongle of the VFO.
+
+#### NAVTEX
+
+- SITOR-B (CCIR 476, FEC mode B) from the baseband of the VFO, any mode: AFC on the 170 Hz tone pair within ±3 kHz,
+  bit clock, word sync, each character from its DX or RX copy; messages from `ZCZC B1B2B3B4` to `NNNN`.
+- Frequency keys (tune USB 1.7 kHz below), filter, live text, LOG, the decoder in memories and in SETTINGS › STATION.
+
+#### GRAVES
+
+- **The physical bounds of each target** (bistatic Doppler at 143.05 MHz): an aircraft at most ~286 Hz off the
+  carrier and ~6 Hz/s; a satellite near the carrier at least ~18 Hz/s (at most ~121 Hz/s); a meteor trail moves only
+  with the wind. A drift decides a class only when it is beyond the bound by two standard errors (the drift measured
+  with its uncertainty: bin quantisation and the correlation of the detector's frames).
+- **Meteors no longer taken for satellite pieces:** a short ping on the line of a satellite is weighed by Bayes
+  factors – its own drift (with the line or still like a trail), the chance of a meteor there from the station's own
+  meteor rate and Doppler (learnt live) and the orbital elements. The same for a meteor that came where a satellite
+  track was, and for a "satellite" track made of meteors at different Dopplers joined by the tracker.
+- **Orbital elements (TLE) as evidence:** whether a satellite lit by GRAVES and over the station is predicted at the
+  measured Doppler; the chance of that by accident is measured on shifted copies (near the carrier ~230 of ~470 lit
+  satellites, so a short ping is not decided by TLE, a longer track is). The share of satellites without public
+  elements is learnt from the identifications.
+- **The head echo decides:** an echo with a head echo (the meteoroid itself, ≥ 0.5 kHz/s onto the trail's Doppler) is
+  always a meteor. **Faint head echoes** are found too: the power summed along the lines ending at the trail
+  (track-before-detect), against the noise just before; threshold set on noise alone (under ~1 false head in 1000
+  echoes), ~3.5 dB more sensitive. The detail shows "faint … σ over the noise".
+- **REC** (SETTINGS › RECORDINGS and the head of ECHOES): every echo of the chosen kinds (meteor / satellite /
+  aircraft) to the RECORDINGS tab as MP3 (source GRAVES), optionally its IQ (±8 kHz) and the IQ of the whole band from
+  PRE-REC; **SAVE** in the detail saves one echo.
+- **Waterfall grid:** faint lines at the carrier and at steps of the Doppler shift, under the signal, from the start.
+- The GRAVES page stays on the VFO where GRAVES runs (its history no longer disappears after switching the VFO).
+
+#### RECORDINGS
+
+- GRAVES MP3 and IQ files and PRE-REC SAVE files are recognised (memory, source, length).
+
 ## Ver. 1.2beta1
 
 Test beta (GitHub branch `1.2beta1`; continues the release 1.1).

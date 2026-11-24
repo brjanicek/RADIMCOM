@@ -11,7 +11,8 @@ detector), used for the wide spectrum of the satellites and the short frames of 
 SatTracker: in the wide spectrum (~64 ms frames, ~16 Hz bins, smoothed over SAT_SMOOTH frames) the strongest peaks
 of each frame are joined to tracks (each continues where its own slope points); a track ends after SAT_GAP_S without
 a point. A track is a satellite when it is long enough, dense enough, smooth (a cubic fits it) and either drifts over
-SAT_DRIFT Hz/s or runs further than SAT_FAR_HZ off the carrier, where no aircraft can be.
+SAT_DRIFT Hz/s or runs further than SAT_FAR_HZ off the carrier, where no aircraft can be. A track cut into pieces
+whose pieces each stand still (_stitched: meteors at different Dopplers joined by the gate) is not a satellite.
 
 identify: the bistatic Doppler of every satellite with orbital elements (CelesTrak groups "active", "visual" and
 "stations", data/graves_tle.txt, downloaded again after a day, and the elements of the SATELLITES tab) seen from both
@@ -28,6 +29,7 @@ import urllib.request
 
 import numpy as np
 
+import meteor_phys
 from paths import data
 
 SAT_HZ = 8000.0                 # the wide spectrum: ±SAT_HZ around the carrier (less if the VFO band is narrow)
@@ -51,7 +53,8 @@ HEAD_LIKE_MAX_S = 4.0           # a track this short that ends flat (HEAD_TAIL_S
 HEAD_TAIL_S = 0.4
 HEAD_TAIL_HZ = 15.0
 HEAD_TAIL_SLOPE = 25.0          # … Hz/s) after coming onto it is a head echo on its trail, not a satellite
-SAT_RING_S = 200.0             # the wide spectrum kept for the detail of a satellite
+STITCH_GAP_S = 0.5              # a track's pieces: its points this far apart (_stitched)
+SAT_RING_S = 200.0            # the wide spectrum kept for the detail of a satellite
 LINK_DT = 0.12                  # a meteor echo point and a track point closer than this in time …
 LINK_DF = 50.0                  # … and in Hz are the same signal
 LINK_SMEAR_S = 0.3              # the meteor detector (125 ms frames smoothed over 4) smears a fast sweep over this
@@ -70,7 +73,9 @@ ID_POINTS = 40                  # the track is compared at this many of its poin
 ID_RMS_HZ = 80.0                # a fit worse than this is no identification
 ID_OFFSET_HZ = 300.0            # the receiver may be off by this much (PPM)
 ID_OUTSIDE = 1.5                # the fit counts this much worse outside the sector GRAVES illuminates
-GRAVES_AZ = (90.0, 270.0)       # GRAVES lights the southern sky, low: azimuth and elevation seen from it (about)
+TLE_SD_HZ = 25.0                # the Doppler predicted from public elements is this good (a day old, LEO)
+TLE_DECOYS = 16                 # the chance of a satellite there: this many shifted copies of the points (tle_evidence)
+GRAVES_AZ = (90.0, 270.0)      # GRAVES lights the southern sky, low: azimuth and elevation seen from it (about)
 GRAVES_EL = (10.0, 45.0)
 EARTH_A_KM, EARTH_F = 6378.137, 1 / 298.257223563
 EARTH_W = 7.292115e-5
@@ -257,6 +262,11 @@ class SatTracker:
                 tr["t0"], tr["t1"] = pts[0][0], pts[-1][0]
                 if tr["sat"] and self._head_like(tt, ff, bin_hz):
                     tr["sat"], tr["head"] = False, True     # a meteor: its head echo braking onto its trail
+                tr["shape"] = tr["sat"]         # a satellite by its shape (meteor.py weighs it again with TLE)
+                if tr["sat"]:
+                    tr["stitch_lbf"] = self._stitched(tt, ff, c, bin_hz)
+                    if tr["stitch_lbf"] is not None and tr["stitch_lbf"] < 0:
+                        tr["sat"], tr["stitched"] = False, True     # meteors at different Dopplers joined by chance
                 if tr["sat"]:                   # a second track along the same streak (side peaks) is not another one
                     for o in self.closed:
                         if o.get("sat") and o["t1"] >= tr["t0"] and o["t0"] <= tr["t1"] and self._hits(o, pts, 0.0, 0.0) >= len(pts) / 2:
@@ -282,6 +292,30 @@ class SatTracker:
         if not len(d) or d.max() < 3 * flat:
             return False
         return float(np.mean(np.diff(d) <= flat)) >= 0.8 if len(d) > 1 else True    # nearer and nearer
+
+    @staticmethod
+    def _stitched(tt, ff, c, bin_hz):
+        """Is the track pieces of different signals joined by its gate (STITCH_GAP_S apart), each standing still (meteor
+        trails at their own Dopplers), not one satellite drifting along its curve? Each piece's own drift (with its
+        standard error) is weighed against the curve's slope there and against a trail in the wind; the log Bayes
+        factors of the pieces add up (meteor_phys.py). A satellite drifts along its curve in every piece.
+        -> the log Bayes factor (> 0: one satellite, < 0: pieces standing still), None if fewer than two pieces to
+        weigh."""
+        cuts = np.nonzero(np.diff(tt) > STITCH_GAP_S)[0] + 1
+        if not len(cuts):
+            return None
+        step = float(np.median(np.diff(tt))) if len(tt) > 1 else 0.032
+        corr = step * (1 + SAT_SMOOTH)              # half-overlapping frames smoothed over SAT_SMOOTH
+        dc = np.polyder(c)
+        lbf, n = 0.0, 0
+        for a, b in zip(np.r_[0, cuts], np.r_[cuts, len(tt)]):
+            seg = list(zip(tt[a:b], ff[a:b]))
+            r = meteor_phys.slope(seg, corr, bin_hz)
+            if r is None:
+                continue
+            lbf += meteor_phys.same_line(r[0], r[1], float(np.polyval(dc, np.mean(tt[a:b]))))
+            n += 1
+        return lbf if n >= 2 else None
 
     @staticmethod
     def _hits(tr, ev_pts, dt_more, smear_s):
@@ -495,3 +529,70 @@ def identify(pts, qth, tx=(47.348, 5.515), f_hz=143050000.0, elements=None):
             "az": round(float(az_r[i, mid]), 1), "el": round(float(el_r[i, mid]), 1), "km": round(float(km_r[i, mid])),
             "lit": bool(inside[i]), "others": others, "candidates": int(ok.sum()),
             "curve": [[round(float(a), 2), round(float(b + off[i]), 1)] for a, b in zip(t, fd[i])]}
+
+
+_loading = threading.Event()
+
+
+def elements_now():
+    """The orbital elements if they are loaded already, else None (and they are loaded in a thread): never blocks on a
+    download, for the detector's own thread."""
+    if _tle["arr"] is not None or _tle["names"]:
+        return _tle["arr"], _tle["names"], _tle["norads"]
+    if not _loading.is_set():
+        _loading.set()
+
+        def load():
+            try:
+                _elements()
+            except Exception as x:      # tried again by identify; the evidence is just missing till then
+                _tle["error"] = f"orbital elements: {x}"
+        threading.Thread(target=load, daemon=True, name="meteor-tle").start()
+    return None
+
+
+def tle_evidence(pts, qth, tx, f_hz, offset, offset_sd, q_unknown, bin_hz=16.0, elements=None):
+    """The orbital elements as evidence (meteor_phys.py, log Bayes factor > 0: a satellite): is any satellite lit by
+    GRAVES (its sector, with a margin) and over the station predicted at the measured Doppler of the points [(t, Hz)] (the receiver offset offset ±
+    offset_sd)?
+      - satellite: one is there unless the object has no public elements (q_unknown of the satellites seen, learnt);
+      - meteor: one is there only by chance, as often as one is at the same points shifted in frequency (decoys: the
+        local crowding of the predicted Dopplers, ~230 of ~470 lit satellites are within ±300 Hz of the carrier).
+    -> (log Bayes factor, the name of the satellite there or None); (0.0, None) without the station or the elements."""
+    if not qth or not pts:
+        return 0.0, None
+    el = elements or elements_now()
+    if not el or el[0] is None:
+        return 0.0, None
+    arr, names, _ = el
+    pts = sorted(pts)
+    if len(pts) > 8:
+        pts = [pts[int(i)] for i in np.linspace(0, len(pts) - 1, 8)]
+    t = np.array([p[0] for p in pts])
+    f = np.array([p[1] for p in pts])
+    err, r, v = _ecef(arr, t)
+    site_t, site_r = _site(tx[0], tx[1]), _site(*qth)
+    el_t, az_t, _ = _look(r, site_t)
+    el_r = _look(r, site_r)[0]
+    m = len(t) // 2                     # lit by GRAVES (its sector, with a margin) and over the station
+    vis = (np.all(err == 0, axis=1) & np.all(el_r > 0, axis=1)
+           & (az_t[:, m] >= GRAVES_AZ[0] - 10) & (az_t[:, m] <= GRAVES_AZ[1] + 10)
+           & (el_t[:, m] >= GRAVES_EL[0] - 5) & (el_t[:, m] <= GRAVES_EL[1] + 10))
+    n = int(vis.sum())
+    tol = 3.0 * math.hypot(offset_sd, TLE_SD_HZ) + bin_hz
+    q = min(max(q_unknown, 0.02), 0.98)
+    if not n:
+        return math.log(q), None        # nothing there: only a satellite without elements could be it
+    fd = bistatic_doppler(r[vis], v[vis], site_t[0], site_r[0], f_hz) + offset
+    res = np.median(np.abs(f[None, :] - fd), axis=1)
+    # how often a satellite is there by chance: the same points shifted in frequency (decoys, as target-decoy tests
+    # do), so the local crowding of the predicted Dopplers (dense near the carrier) and the shape of a longer track count
+    shifts = np.concatenate([s * np.arange(1, TLE_DECOYS // 2 + 1) * 2.5 * tol for s in (-1, 1)])
+    hit = [float(np.min(np.median(np.abs(f[None, :] + d - fd), axis=1))) <= tol for d in shifts]
+    p_chance = (sum(hit) + 0.5) / (len(hit) + 1.0)
+    if p_chance > 0.5:
+        return 0.0, None                # the sky too full there (near the carrier, the offset not known): no evidence
+    k = int(np.argmin(res))
+    if res[k] <= tol:
+        return math.log((1.0 - q) / p_chance), names[int(np.nonzero(vis)[0][k])]
+    return math.log(q / (1.0 - p_chance)), None

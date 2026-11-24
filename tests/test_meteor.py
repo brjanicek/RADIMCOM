@@ -293,6 +293,34 @@ class MeteorTest(unittest.TestCase):
         ev, _ = self._blind_run(x)
         self.assertEqual([e["kind"] for e in ev], ["sat", "under"], ev)
 
+    def test_short_meteor_on_a_satellite_line(self):
+        """A short ping 2.8 s after a slow satellite piece, right where its line is expected (~0 Hz), but not drifting
+        with it: a meteor (the Bayes factor of meteor_phys.py), not the satellite's next piece (it was SAT)."""
+        x = baseband(14, [(4.0, 5.6, 250.0, 0.12, -56.0), (8.4, 8.7, 0.0, 0.3, 0.0)])
+        ev, _ = self._blind_run(x)
+        self.assertEqual([e["kind"] for e in ev], ["sat", "under"], ev)
+
+    def test_head_echo_on_a_satellite_line_is_a_meteor(self):
+        """A short ping where a slow satellite's line goes on, even drifting with it (the third piece of
+        test_slow_weak_satellite_in_pieces: a SAT piece without the head echo), but with a head echo coming onto it
+        (+3 kHz -> -120 Hz in 0.15 s): only a meteoroid does that, a meteor."""
+        x = baseband(14, [(4.0, 5.6, 250.0, 0.12, -56.0), (8.0, 10.4, 250.0 - 56.0 * 4.0, 0.12, -56.0),
+                          (10.9, 11.2, -136.0, 0.3, -56.0)])
+        x = chirp(x, 10.75, 10.9, 3000.0, -120.0, 0.6)
+        thr = meteor.SAT_THR_DB
+        meteor.SAT_THR_DB = 60.0
+        try:
+            with tempfile.TemporaryDirectory() as dd:
+                c = meteor.MeteorCounter(path=os.path.join(dd, "m.json"))
+                c.set_head(True)
+                ev, _ = self._sat_run(x, counter=c)
+        finally:
+            meteor.SAT_THR_DB = thr
+        met = [e for e in ev if e["kind"] in ("under", "over")]
+        self.assertEqual(len(met), 1, ev)
+        self.assertAlmostEqual(met[0]["ts"] - T0, 10.9, delta=0.4)
+        self.assertIsNotNone(met[0]["head"], met)
+
     def _blind_run(self, x):
         """_sat_run with the tracker of the wide spectrum blind (the satellite too weak for its short frames)."""
         thr = meteor.SAT_THR_DB

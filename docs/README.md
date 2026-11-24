@@ -29,7 +29,8 @@ Decoders:
 | [DSD](decoders/dsd.md) | digital voice (DMR, P25, D-Star, YSF, NXDN, …) via DSD-FME |
 | [ISM](decoders/ism.md) | 433 / 868 MHz devices via rtl_433 |
 | [MSK144](decoders/msk144.md) | Meteor scatter (MSK144) on 6 m and 2 m, own decoder, no PC clock needed |
-| [GRAVES](decoders/meteors.md) | Echoes of the GRAVES radar (143.050 MHz): meteors per hour and day, head echoes, satellites and aircraft identified, fine waterfall, sound |
+| [GRAVES](decoders/meteors.md) | Echoes of the GRAVES radar (143.050 MHz): meteors per hour and day, head echoes (also faint ones), satellites and aircraft told apart by their physics and identified, fine waterfall, sound, recordings |
+| [NAVTEX](decoders/navtex.md) | Maritime safety information on 518 / 490 / 4209.5 kHz and HF MSI, own SITOR-B decoder |
 | [Q65 / JT65](decoders/q65.md) | The slow weak-signal modes of WSJT-X via jt9 (HF, scatter, EME) |
 | [BPSK](decoders/bpsk.md) | BPSK satellite telemetry 1200–9600 Bd (FUNcube family, AX.25) |
 | [WSPR](decoders/wspr.md) | WSPR beacons on HF and 6 m via wsprd (WSJT-X), map, PC clock sync |

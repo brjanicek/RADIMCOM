@@ -2735,7 +2735,7 @@ function renderRds() {
 // (disabled, with the reason in their tip), and SETTINGS › VFO › AUDIO says why. NB and SP act on the samples before
 // the channel and its baseband decoders, so they stay usable while such a decoder (FT8, CW, …) runs beside.
 const RAW_DEC_NAMES = { vdl2: "VDL2", ism: "ISM", hfdl: "HFDL", ais: "AIS", adsb: "ADS-B", acars: "ACARS", sonde: "SONDE" };
-const BASEBAND_DECS = ["ft8", "wefax", "cw", "rtty", "packet", "pocsag", "sstv", "wspr", "msk144", "meteor", "q65", "bpsk"];
+const BASEBAND_DECS = ["ft8", "wefax", "cw", "rtty", "packet", "pocsag", "sstv", "wspr", "msk144", "meteor", "q65", "bpsk", "navtex"];
 const BYPASS_KEYS = ["stereoKey", "notchKey", "hpfKey", "lpfKey", "alcKey", "dynKey", "afiKey", "asqKey", "tsqcKey", "tsqdKey", "dnrKey", "humKey", "tnfKey", "apfKey", "binKey"];
 function audioBypassWhy(s) {
   if (s.dab) return "DAB is on: welle-cli decodes the ensemble from the raw IQ and plays the station";
@@ -4024,7 +4024,7 @@ function setBodyTab(tab, save = true) {
 // order of the page keys; "|" = a vertical separator between the groups (HF digital, aircraft, ships, radiosondes, ISM)
 const DEC_LAYOUT = [
   { key: "cw", title: "CW" }, { key: "ft8", title: "FT8" }, { key: "packet", title: "PACKET" }, { key: "pocsag", title: "POCSAG" }, { key: "rtty", title: "RTTY" },
-  { key: "sstv", title: "SSTV" }, { key: "wefax", title: "WEFAX" }, { key: "wspr", title: "WSPR" }, { key: "msk144", title: "MSK144" }, { key: "q65", title: "Q65/JT65" }, { key: "meteor", title: "GRAVES" }, { key: "bpsk", title: "BPSK" }, "|",
+  { key: "sstv", title: "SSTV" }, { key: "wefax", title: "WEFAX" }, { key: "wspr", title: "WSPR" }, { key: "msk144", title: "MSK144" }, { key: "q65", title: "Q65/JT65" }, { key: "meteor", title: "GRAVES" }, { key: "bpsk", title: "BPSK" }, { key: "navtex", title: "NAVTEX" }, "|",
   { key: "acars", title: "ACARS" }, { key: "adsb", title: "ADS-B" }, { key: "hfdl", title: "HFDL" }, { key: "vdl2", title: "VDL2" }, "|",
   { key: "ais", title: "AIS" }, "|",
   { key: "sonde", title: "SONDE" }, "|",
@@ -4276,7 +4276,7 @@ function decOnlyThis(key) {
   }
   if (key !== "ism" && st) st.ism = false;
 }
-for (const id of ["ft8On", "wefaxOn", "cwOn", "rttyOn", "sstvOn", "packetOn", "pocsagOn", "sondeOn", "acarsOn", "vdl2On", "hfdlOn", "aisOn", "adsbOn", "wsprOn", "msk144On", "meteorOn", "q65On", "bpskOn"]) {
+for (const id of ["ft8On", "wefaxOn", "cwOn", "rttyOn", "sstvOn", "packetOn", "pocsagOn", "sondeOn", "acarsOn", "vdl2On", "hfdlOn", "aisOn", "adsbOn", "wsprOn", "msk144On", "meteorOn", "q65On", "bpskOn", "navtexOn"]) {
   $(id).addEventListener("change", (e) => {
     if (e.target.checked) decOnlyThis(id.slice(0, -2));
     renderDecTab();
@@ -13134,7 +13134,7 @@ $("medSaveCur").addEventListener("click", () => {   // the tuned frequency, mode
 
 const RECORD_NAMES = { off: "OFF", on: "ON", sq: "SQ", asq: "ASQ" };   // RECORD of a memory: recording at recall
 const DECODER_NAMES = { "": "—", ft8: "FT8", wefax: "WEFAX", cw: "CW", rtty: "RTTY", sstv: "SSTV", packet: "PACKET", pocsag: "POCSAG", sonde: "SONDE",
-  acars: "ACARS", vdl2: "VDL2", hfdl: "HFDL", ais: "AIS", adsb: "ADS-B", ism: "ISM" };
+  acars: "ACARS", vdl2: "VDL2", hfdl: "HFDL", ais: "AIS", adsb: "ADS-B", ism: "ISM", navtex: "NAVTEX" };
 const NO_GROUP = "\u0000none";   // value of "(no group)" in the group filters
 let memGroupList = [];           // [{name, note, count}] from /api/memory_groups
 let medTab = recall("medTab") || "channels";
@@ -14249,7 +14249,9 @@ function onStatus(s) {
   wsprStatus(s);
   mskStatus(s);
   q65Status(s);
+  iqpStatus(s);      // IQ PLAYER bar (static/iqplay.js)
   bpskStatus(s);
+  navtexStatus(s);
   mtStatus(s);
   decBandsMark(s);
   $("wefaxOn").checked = s.wefax;
@@ -14453,6 +14455,9 @@ function connectEvents(v) {
   on("q65cycle", (d) => q65Cycle(d));
   on("bpsk", (d) => { bpskAdd(d, true); decActivity("bpsk"); });
   on("bpskstat", (d) => bpskStat(d));
+  on("navtex", (m) => { navtexAdd(m, true); decActivity("navtex"); });
+  on("navtextext", (d) => navtexText(d.t));
+  on("navtexstate", (i) => navtexState(i));
   on("meteor", (d) => { mtEvent(d); if (d.kind !== "plane") decActivity("meteor"); });
   on("wsprcycle", (d) => { wsprInfo(st, d.info); wsprProg = { ...wsprProg, ...d }; renderWsprProg(); });
   bus.addEventListener("down", () => {
@@ -14493,7 +14498,7 @@ $("vfoList").addEventListener("click", (e) => {
   e.preventDefault();
   const v = vfos.find((x) => String(x.name) === stat.closest(".vfo-row").dataset.vfo);
   const s = v && (v === active ? st : v.st);
-  if (!s || !s.net_pausable) return;
+  if (!s || !s.net_pausable || s.iq_play) return;
   const pause = s.status !== "paused";
   s.status = pause ? "paused" : "opening dongle";      // shown at once; the state from the server follows
   renderVfoDisplays();
@@ -14832,7 +14837,8 @@ function renderVfoDisplaysNow(only) {
     const [stTxt, stCls, stTitle] = !v.online ? (v.st ? ["OFFLINE", "off", "connection to the VFO server lost"] : ["WAIT", "wait", "waiting for receiver"])
       : !s ? ["WAIT", "wait", "waiting for receiver"]
       : s.error ? ["OFFLINE", "off", s.error]
-      : s.status === "running" && s.out_of_band ? ["OOR", "wait", `out of range VFO-${s.chain_owner}`]
+      : s.status === "running" && s.out_of_band ? ["OOR", "wait", s.iq_play ? "tuned outside the band of the IQ file" : `out of range VFO-${s.chain_owner}`]
+      : s.iq_play ? ["IQ FILE", "iqplay blink", iqpStatTitle(s.iq_play)]
       : s.status === "running" && s.chain_owner ? ["CHAIN", "chain", `chained to the dongle of VFO ${s.chain_owner}`]
       : s.status === "running" ? ["RUNNING", "", "receiver running"]
       : s.status === "opening dongle" ? ["OPENING", "wait", "opening dongle"]
@@ -14846,12 +14852,13 @@ function renderVfoDisplaysNow(only) {
     const icon = connecting || stTxt === "RUNNING" || stTxt === "OFFLINE" || stTxt === "PAUSED";
     const net = ["rtltcp", "spyserver"].includes((s && s.driver) || v.driver);   // network source (rtl_tcp, SpyServer)
     const netWarn = net && s && s.net_warn && s.net_warn.length ? s.net_warn : null;
-    const stHtml = icon ? (net ? NET_ICON + (stTxt === "PAUSED" ? NET_PAUSE_ICON : netWarn ? NET_WARN_ICON : "") : USB_ICON) : stTxt;
+    const stHtml = stTxt === "IQ FILE" ? IQP_ICON   // IQ PLAYER: the virtual dongle, blue and blinking
+      : icon ? (net ? NET_ICON + (stTxt === "PAUSED" ? NET_PAUSE_ICON : netWarn ? NET_WARN_ICON : "") : USB_ICON) : stTxt;
     if (stat.dataset.html !== stHtml) { stat.innerHTML = stHtml; stat.dataset.html = stHtml; }
     // rtl_tcp: orange = the network does not carry all samples, red = no connection or no data from the server
     const netSlow = net && stTxt === "RUNNING" && s.net_ratio != null && s.net_ratio < 0.97;
     const netErr = net && stTxt === "OFFLINE" && v.online && !!s;
-    stat.className = `vfo-stat ${netErr ? "neterr" : netSlow ? "netslow" : stCls}${connecting ? " blink" : ""}${s && s.net_pausable ? " pausable" : ""}`;
+    stat.className = `vfo-stat ${netErr ? "neterr" : netSlow ? "netslow" : stCls}${connecting ? " blink" : ""}${s && s.net_pausable && !s.iq_play ? " pausable" : ""}`;
     let tip = netSlow ? `NETWORK TOO SLOW: only ${Math.round(s.net_ratio * 100)} % of the samples arrive, `
       + "the rest is lost on the rtl_tcp server (lower the sample rate or use a faster link)" : `${stTxt}: ${stTitle}`;
     const spy = net && ((s && s.driver) || v.driver) === "spyserver" ? spyInfo(v.serial) : null;
@@ -15000,7 +15007,8 @@ async function selectVfo(v, keepTab) {
   mskReset();
   q65Reset();
   bpskReset();
-  mtReset();
+  navtexReset();
+  mtTarget();        // GRAVES: a reset only when the page shows another VFO now (it stays on the VFO where GRAVES runs)
   cwReset(); rttyOut.clear();
   packetReset();
   pocsagReset();
@@ -15066,7 +15074,8 @@ async function loadDecoders() {
   await mskLoad(v);
   await q65Load(v);
   await bpskLoad(v);
-  mtLoad(v);
+  await navtexLoad(v);
+  mtLoad(mtTarget());
   const ac = await fetch(vbase + "/api/acars").then((r) => r.json());
   const cp = await fetch(vbase + "/api/cpdlc").then((r) => r.json());
   if (v !== active) return;
@@ -15647,7 +15656,7 @@ const recsSel = new Set();    // ticked paths (files and folders)
 let recsSort = (() => { try { return JSON.parse(recall("recsSort")) || { k: "start", d: 1 }; } catch { return { k: "start", d: 1 }; } })();
 let recsWriting = "";         // files being written when the list was read (a change = read again)
 let recsLoading = false;
-const RECS_SRC = { rec: ["REC", "#ff6a5c"], sq: ["REC SQ", "#ffa646"], scan: ["SCAN", "#4fd6c8"], dab: ["DAB", "#ffd84a"], iq: ["IQ", "#b693ff"] };
+const RECS_SRC = { rec: ["REC", "#ff6a5c"], sq: ["REC SQ", "#ffa646"], scan: ["SCAN", "#4fd6c8"], dab: ["DAB", "#ffd84a"], iq: ["IQ", "#b693ff"], graves: ["GRAVES", "#7fb6ff"] };
 const RECS_MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const recsFileUrl = (path, dl) => `${vbase}/api/recordings/file?path=${encodeURIComponent(path)}${dl ? "&dl=1" : ""}`;
 const recsPlayable = (f) => f && f.src !== "iq";    // IQ is the raw band of the dongle, not audio for the browser
@@ -15753,11 +15762,11 @@ function renderRecordings() {
     tr.dataset.path = f.path;
     tr.classList.toggle("playing", f.path === recsPlaying);
     tr.classList.toggle("noplay", !recsPlayable(f));
-    tr.title = !recsPlayable(f) ? "IQ of the dongle: open it in SDR#, SDR++ … (⤓ downloads it)"
+    tr.title = !recsPlayable(f) ? "IQ of the dongle: click to play it through this VFO (IQ PLAYER: waterfall, demodulation, decoders); ⤓ downloads it"
       : f.writing ? "Being written now: plays what is saved so far" : "Click to play";
     const [sl, sc] = RECS_SRC[f.src] || [f.src ? f.src.toUpperCase() : "—", "#8a95a3"];
     tr.innerHTML = `<td class="sel"><input type="checkbox"${recsSel.has(f.path) ? " checked" : ""}${f.writing ? " disabled" : ""}></td>`
-      + `<td class="play">${recsPlayable(f) ? PP_ICO[f.path === recsPlaying && playing ? "pause" : "play"] : ""}</td>`
+      + `<td class="play">${recsPlayable(f) ? PP_ICO[f.path === recsPlaying && playing ? "pause" : "play"] : f.src === "iq" ? iqpRowIcon(f) : ""}</td>`
       + `<td class="star${f.starred ? " on" : ""}" title="${f.starred ? "Starred: click to remove the star" : "Click to star the recording"}">${f.starred ? "★" : "☆"}</td>`
       + `<td>${escHtml(f.start || "—")}</td><td><span class="recs-src" style="--sc:${sc}">${escHtml(sl)}</span></td>`
       + `<td>${escHtml(f.memory)}</td><td class="num">${f.hz ? `${(f.hz / 1e6).toFixed(6)} MHz` : ""}</td><td>${escHtml(f.mode)}</td>`
@@ -15859,6 +15868,7 @@ $("recsRows").addEventListener("click", (e) => {
   if (tr.dataset.dir) { recsGo(tr.dataset.dir); return; }
   const f = recsData && recsData.files.find((x) => x.path === path);
   if (recsPlayable(f)) playRecording(path);
+  else if (f && f.src === "iq") iqpOpen({ rel: path });   // IQ PLAYER (static/iqplay.js): through this VFO
 });
 $("recsHead").addEventListener("click", (e) => {
   if (e.target.id === "recsAll") {
@@ -16103,7 +16113,7 @@ $("lgViewClose").addEventListener("click", lgViewClose);
 
 // LOGGING: the LOG switch of every decoder on every VFO (from their states), and what is always written
 const LG_LOGS = [["ft8", "FT8"], ["cw", "CW"], ["rtty", "RTTY"], ["wefax", "WEFAX"], ["sstv", "SSTV"], ["acars", "ACARS / VDL2"],
-  ["hfdl", "HFDL"], ["ais", "AIS"], ["adsb", "ADS-B"], ["ism", "ISM"], ["packet", "PACKET"], ["pocsag", "POCSAG"], ["dsd", "DSD"], ["wspr", "WSPR"], ["msk144", "MSK144"], ["q65", "Q65 / JT65"], ["bpsk", "BPSK"], ["meteor", "GRAVES"]];
+  ["hfdl", "HFDL"], ["ais", "AIS"], ["adsb", "ADS-B"], ["ism", "ISM"], ["packet", "PACKET"], ["pocsag", "POCSAG"], ["dsd", "DSD"], ["wspr", "WSPR"], ["msk144", "MSK144"], ["q65", "Q65 / JT65"], ["bpsk", "BPSK"], ["meteor", "GRAVES"], ["navtex", "NAVTEX"]];
 const LG_ALWAYS = [["SCAN activities", "logs\\scan", "every activity of the scan; kept KEEP HISTORY days (⚙ of SCAN, default 31)"],
   ["RADIOSONDE flights", "logs\\radiosonde", "every frame while SONDE runs (the history of the sonde map 1D / 7D); kept until deleted"],
   ["COMPOSITE map history", "composite_<VFO>.json", "positions of the last 6 hours per VFO, written every 2 min (HISTORY)"],
@@ -19865,7 +19875,7 @@ var sdg = { rotor: null, dop: {}, qth: null, at: 0, timer: null, html: "" };   /
 const SDG_DEC = [["ft8", "FT8"], ["cw", "CW"], ["rtty", "RTTY"], ["packet", "PACKET"], ["pocsag", "POCSAG"], ["sstv", "SSTV"],
   ["wefax", "WEFAX"], ["acars", "ACARS"], ["vdl2", "VDL2"], ["hfdl", "HFDL"], ["adsb", "ADS-B"], ["ais", "AIS"], ["ism", "ISM"],
   ["sonde", "SONDE"], ["dab", "DAB"], ["wspr", "WSPR"], ["msk144", "MSK144"], ["q65", "Q65/JT65"], ["meteor", "GRAVES"],
-  ["bpsk", "BPSK"]];     // every new decoder goes here too (state key, chip text); SDG_RAW when it takes the raw IQ
+  ["bpsk", "BPSK"], ["navtex", "NAVTEX"]];     // every new decoder goes here too (state key, chip text); SDG_RAW when it takes the raw IQ
 // where a decoder takes its samples: the raw A/D samples of the whole band (IQ, before DC, NB and the channel filter),
 // otherwise the baseband of the channel or the demodulated audio (SSTV, DSD); SONDE MULTI works on the raw samples
 const SDG_RAW = new Set(["vdl2", "dab", "ism", "hfdl", "ais", "adsb"]);
@@ -19979,6 +19989,7 @@ function sdgLane(v) {
     `<span>${v === active ? sdgChip("MAIN", "on") : ""}${v.cue && v !== active ? sdgChip("CUE", "cue") : ""}${v.mute ? sdgChip("MUTE", "bad", "silenced in this browser (MUTE key)") : ""}${s.tx ? sdgChip("TX", "bad") : ""}` +
     `${!off && recOn ? sdgChip(recSq ? "REC SQ" : "REC", recAct ? "bad blink" : "warn", recAct ? "recording" : "waiting for the squelch") : ""}` +
     `${!off && s.iq_rec && s.iq_rec.on ? sdgChip("REC IQ", "iq blink", "recording the whole IQ of the dongle (WAV)") : ""}` +
+    `${!off && s.iq_play ? sdgChip("IQ PLAY", "iq blink", "IQ PLAYER: an IQ file plays instead of the dongle") : ""}` +
     `${!off && scOn ? sdgChip(`SCAN ${escHtml(sc.state)}`, "on", sc.cur ? sdgHz(sc.cur) : "") : ""}</span></div>`;
   if (off) return head + `<div class="sdg-b off sdg-span"><b>RECEIVER</b><span>not running${s.error ? ": " + escHtml(s.error) : ""}</span></div>`;
   const mode = s.dab ? "DAB" : s.dsd && s.dsd.enabled ? "DSD" : s.mode || "";
@@ -19988,7 +19999,7 @@ function sdgLane(v) {
   const ownS = ownV ? (ownV === active ? st || ownV.st : ownV.st) || {} : {};
   const ownA = ownV ? antById(ownS.antenna) : null;
   // a chained VFO: no dongle of its own – the raw A/D samples of the owner's dongle (iqshare.py), its antenna and AGC+
-  const ant = s.chain_owner ? sdgBlk("ANTENNA", `<span class="v">${ownA ? escHtml(ownA.name) : "–"}</span><span>of VFO-${escHtml(s.chain_owner)}</span>`,
+  const ant = s.iq_play ? sdgIqAnt() : s.chain_owner ? sdgBlk("ANTENNA", `<span class="v">${ownA ? escHtml(ownA.name) : "–"}</span><span>of VFO-${escHtml(s.chain_owner)}</span>`,
     "off k-ant", `VFO-${s.chain_owner} owns the dongle: this VFO receives on its antenna`) : sdgBlk("ANTENNA", a ? `<span class="v">${escHtml(a.name)}</span><span>${escHtml([a.type, a.pol].filter(Boolean).join(" · "))}</span>` +
     `<span>${a.rotor ? sdgChip("ROTOR", sdg.rotor && sdg.rotor.connected ? "on" : "") : ""}${cov === false ? sdgChip("OUT OF RANGE", "warn") : ""}</span>` : "<span>not chosen</span>",
     (a ? (cov === false ? "lit warn" : "lit") : "off") + " k-ant", "SETTINGS › VFO › RX CHAIN › ANTENNA");
@@ -20004,7 +20015,7 @@ function sdgLane(v) {
     `<span class="${clip ? "err" : ""}">${!auto && s.adc_peak != null ? `${minusSign(s.adc_peak)} dBFS${clip ? " clip" : ""}` : "peak –"}</span></div>`;
   const chips = `${s.upconv && s.upconv !== "off" ? sdgChip("UPCONV", "on") : ""}${s.bias_tee ? sdgChip("BIAS-T", "on") : ""}` +
     `${s.ppm ? sdgChip(`${s.ppm} ppm`, "on") : ""}${chained ? sdgChip(escHtml(chained), "on") : ""}`;
-  const sdr = s.chain_owner ? sdgBlk(`IQ FROM VFO-${escHtml(s.chain_owner)}`, `<span class="v">raw A/D samples</span>` +
+  const sdr = s.iq_play ? sdgIqFile(s) : s.chain_owner ? sdgBlk(`IQ FROM VFO-${escHtml(s.chain_owner)}`, `<span class="v">raw A/D samples</span>` +
     `<span>${escHtml(devName)} ${escHtml(ownS.serial || s.serial || "")} · ${+((s.sample_rate || 0) / 1e6).toFixed(3)} MS/s</span>` +
     `<span>gain ${auto ? "auto" : gainLabel(s)}${smart ? ` · AGC+ by VFO-${escHtml(s.chain_owner)}` : ""}</span>` +
     `<span class="chips">${sdgChip("CHAINED", "on")}</span>`,
@@ -20134,7 +20145,7 @@ function sdgLane(v) {
   // on a shared dongle the owner VFO runs it; with the squelch set it also switches ASQ on
   const ag = s.agc || {};
   const agcTxt = owner ? `by ${owner}` : smart ? `headroom ${ag.head ?? "–"} / ${ag.target ?? "–"} dB` : auto ? "AGC (tuner)" : "manual gain";
-  const agc = owner ? "" : sdgBlk("AGC+", `<span class="v">${smart ? "on" : "off"}</span><span>${agcTxt}</span>` +
+  const agc = owner || s.iq_play ? "" : sdgBlk("AGC+",   // (IQ PLAYER: no tuner to set, the file has its levels) `<span class="v">${smart ? "on" : "off"}</span><span>${agcTxt}</span>` +
     (smart && s.auto_sql_on && !s.auto_sql ? `<span class="chips">${sdgChip("→ ASQ", "on", "AGC+ switched the auto squelch on")}</span>` : ""),
     `sdg-agc k-agc ${smart ? "lit" : "off"}`, "AGC+: keeps the A/D headroom of the signal kind and band – measures the A/D peak and the noise floor of the band, " +
     "sets the TUNER gain (SETTINGS › VFO › RX CHAIN, AGC+ key). Runs in RADIMCOM on the PC" +
@@ -20162,7 +20173,8 @@ function renderSdg() {
   const lanes = named.map((v) => `<div class="sdg-lane" data-vfo="${escHtml(v.name)}">${sdgLane(v)}</div>`).join("")
     // chained VFOs: the raw A/D samples from the dongle of the owner into their IQ FROM block (sdgPlaceChain)
     + named.map((v) => {
-      const o = v.online && ((v === active ? st || v.st : v.st) || {}).chain_owner;
+      const vs = (v === active ? st || v.st : v.st) || {};
+      const o = v.online && !vs.iq_play && vs.chain_owner;   // (IQ PLAYER: the samples come from the file, not the owner)
       return o ? `<i class="sdg-chnl" data-from="${escHtml(o)}" data-to="${escHtml(v.name)}" title="raw A/D samples of VFO-${escHtml(o)} into VFO-${escHtml(v.name)}">` +
         `<i></i><i></i><i></i><i></i><em>raw IQ → VFO-${escHtml(v.name)}</em></i>` : "";
     }).join("");
@@ -23199,12 +23211,29 @@ var mtData = null, mtBusy = false, mtLastEv = "", mtRot = null, mtRotAt = 0, mtR
 const mtShown = () => !MAP_ONLY && bodyTab === "dec" && decPage === "meteor";
 const mtEsc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" })[c]);
 function mtStatus(s) {
-  $("meteorOn").checked = !!s.meteor;
-  $("meteorInfo").textContent = !s.meteor ? (s.meteor_error ? `off · ${s.meteor_error}` : "off")
+  $("meteorOn").checked = !!s.meteor;          // the switch: of the active VFO
+  const v = typeof mtVfo === "function" ? mtVfo() : null, o = v && v !== active ? v.st || {} : null;
+  $("meteorInfo").textContent = o ? `runs on VFO-${v.name} · ${o.meteor_error ? `error: ${o.meteor_error}` : o.meteor_info || "listening…"}`
+    : !s.meteor ? (s.meteor_error ? `off · ${s.meteor_error}` : "off")
     : s.meteor_error ? `error: ${s.meteor_error}` : s.meteor_info || "listening…";
   mtRenderRx();
 }
+/** The VFO the GRAVES page shows: the active one when GRAVES runs there (or nowhere), else the VFO where it runs, so a
+ *  switch of the active VFO does not take the page (waterfall, echoes, statistics) away from it. */
+var mtCur;                    // the VFO shown now (mtReset)
+function mtVfo() {
+  const sOf = (v) => (v === active ? st || v.st : v.st) || {};
+  if (!active || sOf(active).meteor) return active;
+  return vfos.find((v) => v.name && v.online && sOf(v).meteor) || active;
+}
+/** mtVfo(), after a reset of the page when it is another VFO than shown. */
+function mtTarget() {
+  const v = mtVfo();
+  if (v !== mtCur) mtReset();
+  return v;
+}
 function mtReset() {
+  mtCur = mtVfo();
   mtData = null; mtLastEv = "";
   if (typeof mtView !== "undefined") {          // another VFO: its own marks and log
     mtView = { src: "live", day: "", hist: null, marks: null, base: null, ver: 0 };
@@ -23242,7 +23271,8 @@ $("mtWides").addEventListener("click", (e) => {
   store("mtWide", k.dataset.wide);
   mtSpanShow();
   mtWf = mtWfNew();
-  if (active) mtWfLoad(active);
+  const v = mtTarget();
+  if (v) mtWfLoad(v);
 });
 $("mtSpans").addEventListener("click", (e) => {
   const k = e.target.closest("[data-span]");
@@ -23250,7 +23280,8 @@ $("mtSpans").addEventListener("click", (e) => {
   store("mtSpan", k.dataset.span);
   mtSpanShow();
   mtWf = mtWfNew();
-  if (active) mtLoad(active);
+  const v = mtTarget();
+  if (v) mtLoad(v);
 });
 mtSpanShow();
 // Smooth like the main waterfall: the columns are fetched every 250 ms into an image (one pixel per column, built only when
@@ -23358,6 +23389,22 @@ $("mtWfCfg").addEventListener("pointerdown", () => {      // stays open while a 
 });
 mtWfCfgShow();
 /** Screen pixel rows of the waterfall. */
+// The grid of the GRAVES waterfall: faint horizontal lines at the carrier (0 Hz, a little brighter) and at steps of the
+// Doppler shift up and down; the whole image starts as the background with it, and each column of the signal is painted
+// over it: the grid shows only on the background (under MT_GRID_V of the colour scale), every echo covers it. A new
+// span, size, colour scale or band builds the image again with the grid for it.
+const MT_GRID_V = 40;                 // colour index (0..255) under which a pixel is background
+const MT_GRID_ADD = [0, 16, 30];      // brightness added: a step line, the centre line
+/** Row (0 = bottom) -> 0 no line, 1 a step, 2 the centre, for nb bins over R rows (mtWf.hz = "lo:hi:n" of the bins). */
+function mtWfGrid(nb, R) {
+  const g = new Uint8Array(R), [lo, hi] = (mtWf.hz || "").split(":").map(Number);
+  if (!(hi > lo) || nb < 2) return g;
+  const W = Math.max(Math.abs(lo), Math.abs(hi));
+  const step = W <= 300 ? 50 : W <= 600 ? 100 : W <= 1200 ? 250 : W <= 4000 ? 1000 : 2000;
+  const rowOf = (f) => Math.min(R - 1, Math.floor(Math.round((f - lo) / (hi - lo) * (nb - 1)) * R / nb));
+  for (let f = Math.ceil(lo / step) * step; f <= hi; f += step) if (f >= lo) g[rowOf(f)] = Math.abs(f) < step / 2 ? 2 : Math.max(g[rowOf(f)], 1);
+  return g;
+}
 function mtWfRows() {
   const cv = document.getElementById("mtWf");
   return cv && cv.clientHeight ? Math.round(cv.clientHeight * (window.devicePixelRatio || 1)) : 128;
@@ -23374,25 +23421,31 @@ function mtWfBuild(keys = null) {
   const rowOf = new Int32Array(nb), m = new Uint8Array(R);
   for (let q = 0; q < nb; q++) rowOf[q] = Math.min(R - 1, Math.floor((q * R) / nb));
   const k = mtWf.wide === "1" || mtWf.wide === "1000" ? MT_WIDE_K : 1;   // the wide spectrum: its noise as the fine one's
+  const grid = mtWfGrid(nb, R);
   const paint = (px, w, x, col) => {
     m.fill(0);
     for (let q = 0; q < nb; q++) if (col[q] > m[rowOf[q]]) m[rowOf[q]] = col[q];
     for (let r = 0; r < R; r++) {
       const v = mtWfV(m[r], k);
       const o = ((R - 1 - r) * w + x) * 4;                                 // Doppler up
-      px[o] = mtLut[v * 3]; px[o + 1] = mtLut[v * 3 + 1]; px[o + 2] = mtLut[v * 3 + 2]; px[o + 3] = 255;
+      // the grid only where there is no signal: a layer under it, every echo covers it
+      const g = grid[r] && v < MT_GRID_V ? MT_GRID_ADD[grid[r]] : 0;
+      px[o] = Math.min(255, mtLut[v * 3] + g); px[o + 1] = Math.min(255, mtLut[v * 3 + 1] + g);
+      px[o + 2] = Math.min(255, mtLut[v * 3 + 2] + g); px[o + 3] = 255;
     }
   };
-  const img = mtWf.img, bg = `rgb(${mtLut[0]},${mtLut[1]},${mtLut[2]})`;
+  // an empty column: the background with the grid (the whole image starts so, the signal is painted over it)
+  const blank = new Uint8Array(nb), empty = new ImageData(1, R);
+  paint(empty.data, 1, 0, blank);
+  const img = mtWf.img;
   if (keys && img && img.width === n && img.height === R && mtWf.nb === nb) {
     const ctx = img.getContext("2d"), one = ctx.createImageData(1, R);
     for (const k of [...keys].sort((a, c) => a - c)) {
       const col = mtWf.cols.get(k);
       if (!col || col.length !== nb) continue;
-      if (k > mtWf.newest + 1) {           // columns that never came (a pause): dark, not what was there a ring ago
-        ctx.fillStyle = bg;
-        if (k - mtWf.newest - 1 >= n) ctx.fillRect(0, 0, n, R);
-        else for (let j = mtWf.newest + 1; j < k; j++) ctx.fillRect(xOf(j), 0, 1, R);
+      if (k > mtWf.newest + 1) {           // columns that never came (a pause): empty, not what was there a ring ago
+        const from = k - mtWf.newest - 1 >= n ? k - n : mtWf.newest + 1;
+        for (let j = from; j < k; j++) ctx.putImageData(empty, xOf(j), 0);
       }
       paint(one.data, 1, 0, col);
       ctx.putImageData(one, xOf(k), 0);
@@ -23402,7 +23455,9 @@ function mtWfBuild(keys = null) {
   }
   const im = img && img.width === n && img.height === R ? img : Object.assign(document.createElement("canvas"), { width: n, height: R });
   const ctx = im.getContext("2d"), data = ctx.createImageData(n, R), px = data.data;
-  for (let i = 0; i < n * R; i++) { px[i * 4] = mtLut[0]; px[i * 4 + 1] = mtLut[1]; px[i * 4 + 2] = mtLut[2]; px[i * 4 + 3] = 255; }
+  for (let r = 0; r < R; r++) {                                            // the grid first, all over
+    for (let x = 0; x < n; x++) px.set(empty.data.subarray(r * 4, r * 4 + 4), (r * n + x) * 4);
+  }
   let newest = -Infinity;
   for (const [k, col] of mtWf.cols) newest = Math.max(newest, k);
   for (const [k, col] of mtWf.cols) if (k > newest - n && col.length === nb) paint(px, n, xOf(k), col);
@@ -23449,7 +23504,7 @@ function mtWfDraw() {          // after a reset: an empty waterfall
   ctx.fillStyle = `rgb(${mtLut[0]},${mtLut[1]},${mtLut[2]})`;
   ctx.fillRect(0, 0, cv.width, cv.height);
 }
-setInterval(() => { if (mtShown() && active && !document.hidden) mtWfLoad(active); }, 250);
+setInterval(() => { const v = mtShown() && !document.hidden ? mtTarget() : null; if (v) mtWfLoad(v); }, 250);
 /** COUNTS: five numbers, "–" before the first data (the block keeps its size). */
 function mtStatsHtml(d) {
   const stat = (k, v, t) => `<div class="mt-stat" title="${t}"><span>${k}</span><b>${d ? v : "–"}</b></div>`;
@@ -23465,8 +23520,9 @@ async function mtLoad(v) {
   mtBusy = true;
   try {
     const d = await fetch(v.base + `/api/meteors?span=${mtSpan()}`).then((r) => r.json());
-    if (v === active) { mtData = d; mtRender(); }
-    if (v === active && mtView.base !== v.base) { mtView.base = v.base; mtMarksLoad(v); }    // the marks of this VFO
+    if (v === mtVfo()) { mtData = d; mtRender(); }
+    if (v === mtVfo() && mtView.base !== v.base) { mtView.base = v.base; mtMarksLoad(v); }    // the marks of this VFO
+    if (v === mtVfo()) mtRecLoad(v);            // GRAVES REC (static/meteor_rec.js)
     if (Date.now() - mtRotAt > 2000) {          // the rotor (held by one VFO for the whole station)
       mtRotAt = Date.now();
       mtRot = await fetch(rotorBase() + "/api/rotor").then((r) => r.json()).catch(() => null);
@@ -23474,15 +23530,16 @@ async function mtLoad(v) {
     }
   } catch { /* server unreachable */ } finally { mtBusy = false; }
 }
-function mtEvent() { if (mtShown()) mtLoad(active); }
+function mtEvent() { if (mtShown()) mtLoad(mtTarget()); }
 
 /** RECEIVER: is GRAVES near the dial? The counter reads the baseband (any mode); USB 143.049 also lets you hear it. */
 function mtRenderRx() {
-  if (!st || !document.getElementById("mtRxV")) return;
-  const off = MT_GRAVES - st.tune_hz, near = Math.abs(off) <= 10000;
-  $("mtRxV").textContent = `${fmtMHz(st.tune_hz, 3)} ${st.mode}`;
+  const v = mtVfo(), s = v === active ? st : v && v.st;     // the VFO where GRAVES runs (mtVfo)
+  if (!s || !document.getElementById("mtRxV")) return;
+  const off = MT_GRAVES - s.tune_hz, near = Math.abs(off) <= 10000;
+  $("mtRxV").textContent = `${v !== active ? `VFO-${v.name} · ` : ""}${fmtMHz(s.tune_hz, 3)} ${s.mode}`;
   $("mtRxSub").textContent = !near ? "not on GRAVES: TUNE" : `GRAVES carrier ${off >= 0 ? "+" : "−"}${Math.abs(Math.round(off))} Hz from the dial` +
-    (st.mode === "USB" && off > 200 && off < 2700 ? " · audible" : "");
+    (s.mode === "USB" && off > 200 && off < 2700 ? " · audible" : "");
   $("mtRxB").classList.toggle("lit", near);
   $("mtRxB").classList.toggle("warn", !near);
 }
@@ -23669,7 +23726,7 @@ async function mtMarksLoad(v) {
   if (!v) return;
   try {
     const j = await fetch(v.base + "/api/meteors/marks").then((r) => r.json());
-    if (v !== active) return;
+    if (v !== mtVfo()) return;
     mtView.marks = j.events || [];
     mtView.base = v.base;
     mtMarkSet = new Set(mtView.marks.map((e) => mtTsKey(e.ts)));
@@ -23688,12 +23745,13 @@ async function mtDaysLoad(v) {
   } catch { /* stays */ }
 }
 async function mtHistLoad(day) {
-  if (!active || !day) return;
+  const v = mtVfo();
+  if (!v || !day) return;
   mtView.hist = null;
   mtView.ver++;
   if (mtData) mtTable(mtData);
   try {
-    const j = await fetch(active.base + `/api/meteors/history?day=${encodeURIComponent(day)}`).then((r) => r.json());
+    const j = await fetch(v.base + `/api/meteors/history?day=${encodeURIComponent(day)}`).then((r) => r.json());
     if (mtView.src !== "day" || mtView.day !== day) return;
     mtView.hist = j.events || [];
   } catch { mtView.hist = []; }
@@ -23713,10 +23771,10 @@ $("mtSrc").addEventListener("click", (e) => {
   mtView.src = b.dataset.src;
   mtView.ver++;
   mtSrcShow();
-  if (mtView.src === "marks") mtMarksLoad(active);
+  if (mtView.src === "marks") mtMarksLoad(mtVfo());
   if (mtData) mtTable(mtData);
 });
-$("mtDay").addEventListener("focus", () => mtDaysLoad(active));
+$("mtDay").addEventListener("focus", () => mtDaysLoad(mtVfo()));
 $("mtDay").addEventListener("change", () => {
   const day = $("mtDay").value;
   if (!day) { mtView.src = "live"; mtSrcShow(); mtView.ver++; if (mtData) mtTable(mtData); return; }
@@ -23737,16 +23795,17 @@ $("mtMinSnr").addEventListener("input", () => { store("mtMinSnr", $("mtMinSnr").
 $("mtMinSnr").value = recall("mtMinSnr") || "0";
 /** ☆ at a row: marks / unmarks the echo (its detail is kept by the server if it is still in memory). */
 async function mtMarkToggle(ts) {
-  if (!active) return;
+  const v = mtVfo();
+  if (!v) return;
   const list = mtSrcList(mtData) || [], e = list.find((x) => mtTsKey(x.ts) === mtTsKey(ts));
   const on = !mtMarkSet.has(mtTsKey(ts));
   try {
-    const r = await fetch(active.base + "/api/meteors/mark", { method: "POST", headers: { "Content-Type": "application/json" },
+    const r = await fetch(v.base + "/api/meteors/mark", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ts, on, echo: e || null }) });
     const j = await r.json();
     if (!r.ok) { $("mtCountT").textContent = j.error || "not marked"; return; }
   } catch { return; }
-  await mtMarksLoad(active);
+  await mtMarksLoad(v);
 }
 /** The sub-pages LIVE · STATS · SETTINGS (remembered); the charts are drawn again at their real width when shown. */
 function mtTabShow() {
@@ -23841,8 +23900,8 @@ function mtDetClose() {
   for (const r of $("mtRows").querySelectorAll("tr.sel")) r.classList.remove("sel");
 }
 async function mtDetOpen(ts) {
-  if (!active) return;
-  const base = active.base;
+  if (!mtVfo()) return;
+  const base = mtVfo().base;
   $("mtDetAudio").pause();
   mtDet = { ts, base, d: null, msg: "loading…", w: 0 };
   for (const r of $("mtRows").querySelectorAll("tr")) r.classList.toggle("sel", Number(r.dataset.ts) === ts);
@@ -23875,7 +23934,7 @@ function mtDetShow() {
   $("mtDetSub").textContent = m.msg || (e && e.kind === "plane" ? `${mtAirName(e, true)}${e.air && e.air.hex ? " · green, over and under it: its calculated Doppler" : ""}`
     : sat ?`${e.f0 > 0 ? "+" : ""}${e.f0} → ${e.f1 > 0 ? "+" : ""}${e.f1} Hz · ${mtSatName(e, true)}` +
       `${e.sat && e.sat.norad ? " · green, over and under it: its calculated Doppler" : ""} · enhanced: frames averaged along the track, levels of this detail`
-    : h ? `Head echo${h.fine ? " (slow, green lines)" : ""}: ${h.f0 > 0 ? "+" : ""}${h.f0} → ${h.f1 > 0 ? "+" : ""}${h.f1} Hz, ` +
+    : h ? `Head echo${h.fine ? " (slow, green lines)" : ""}${h.weak ? ` (faint: found along its line, ${h.z} σ over the noise)` : ""}: ${h.f0 > 0 ? "+" : ""}${h.f0} → ${h.f1 > 0 ? "+" : ""}${h.f1} Hz, ` +
       `${Math.abs(h.slope) < 1000 ? `${h.slope} Hz/s` : `${(h.slope / 1000).toFixed(1)} kHz/s`}, ` +
       (h.t >= 0.005 ? `starts ${h.t} s before the echo` : h.t <= -0.005 ? `starts ${-h.t} s after the echo start` : "starts with the echo")
     : d && d.head ? "No head echo found in the ±5 kHz spectrum (a steep streak before the echo)" : "HEAD ECHO is off: only the trail echo (±500 Hz)");
@@ -24039,24 +24098,24 @@ $("mtRows").addEventListener("click", (ev) => {
 });
 $("mtDetX").addEventListener("click", mtDetClose);
 $("mtAir").addEventListener("change", () => {
-  if (!active) return;
-  fetch(active.base + "/api/meteors", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ air: $("mtAir").checked }) })
+  if (!mtVfo()) return;
+  fetch(mtVfo().base + "/api/meteors", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ air: $("mtAir").checked }) })
     .then((r) => r.json()).then((d) => { mtData = d; mtRender(); }).catch(() => {});
 });
 $("mtAfc").addEventListener("change", () => {
-  if (!active) return;
-  fetch(active.base + "/api/meteors", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ afc: $("mtAfc").checked }) })
+  if (!mtVfo()) return;
+  fetch(mtVfo().base + "/api/meteors", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ afc: $("mtAfc").checked }) })
     .then((r) => r.json()).then((d) => { mtData = d; mtRender(); }).catch(() => {});
 });
 $("mtHead").addEventListener("change", () => {
-  if (!active) return;
-  fetch(active.base + "/api/meteors", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ head: $("mtHead").checked }) })
+  if (!mtVfo()) return;
+  fetch(mtVfo().base + "/api/meteors", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ head: $("mtHead").checked }) })
     .then((r) => r.json()).then((d) => { mtData = d; mtRender(); }).catch(() => {});
 });
 // the weak detectors (meteor_weak.py): FAST, SAT·TLE, SAT·LINES
 [["mtFast", "fast"], ["mtTle", "sat_tle"], ["mtLines", "sat_lines"]].forEach(([id, key]) => $(id).addEventListener("change", () => {
-  if (!active) return;
-  fetch(active.base + "/api/meteors", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ [key]: $(id).checked }) })
+  if (!mtVfo()) return;
+  fetch(mtVfo().base + "/api/meteors", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ [key]: $(id).checked }) })
     .then((r) => r.json()).then((d) => { mtData = d; mtRender(); }).catch(() => {});
 }));
 $("meteorOn").addEventListener("change", () => {
@@ -24097,7 +24156,7 @@ $("mtInfoBtn").addEventListener("click", () => { $("mtInfo").hidden = !$("mtInfo
 // the mouse wheel over the chart under the waterfall moves the threshold (the dashed line) by 0.5 dB; sent when it stops
 var mtThrPend = null, mtThrTimer = 0;
 $("mtScope").addEventListener("wheel", (e) => {
-  if (!active || !mtData) return;
+  if (!mtVfo() || !mtData) return;
   e.preventDefault();
   const v = Math.min(30, Math.max(3, (mtThrPend ?? mtData.threshold_db) + (e.deltaY < 0 ? 0.5 : -0.5)));
   mtThrPend = v;
@@ -24110,27 +24169,29 @@ $("mtScope").addEventListener("wheel", (e) => {
   if (bx) bx.setAttribute("y", y - 13);
   clearTimeout(mtThrTimer);
   mtThrTimer = setTimeout(() => {
-    const base = active.base;
+    const base = mtVfo().base;
     fetch(base + "/api/meteors", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ threshold_db: v }) })
-      .then((r) => r.json()).then((d) => { if (mtThrPend === v) mtThrPend = null; if (active && active.base === base) { mtData = d; mtRender(); } })
+      .then((r) => r.json()).then((d) => { if (mtThrPend === v) mtThrPend = null; if (mtVfo() && mtVfo().base === base) { mtData = d; mtRender(); } })
       .catch(() => { mtThrPend = null; });
   }, 400);
 }, { passive: false });
 $("mtThr").addEventListener("change", () => {
   const v = Number($("mtThr").value);
-  if (!active || !isFinite(v)) return;
-  fetch(active.base + "/api/meteors", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ threshold_db: v }) })
+  if (!mtVfo() || !isFinite(v)) return;
+  fetch(mtVfo().base + "/api/meteors", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ threshold_db: v }) })
     .then((r) => r.json()).then((d) => { mtData = d; mtRender(); }).catch(() => {});
 });
 $("mtClear").addEventListener("click", () => {
-  if (!active) return;
-  fetch(active.base + "/api/meteors", { method: "DELETE" }).then(() => { mtLastEv = ""; mtLoad(active); }).catch(() => {});
+  const v = mtVfo();
+  if (!v) return;
+  fetch(v.base + "/api/meteors", { method: "DELETE" }).then(() => { mtLastEv = ""; mtLoad(v); }).catch(() => {});
 });
 $("mtReset").addEventListener("click", () => {
-  if (!active || !confirm("Delete all hourly and daily meteor statistics of this VFO?")) return;
-  fetch(active.base + "/api/meteors?stats=1", { method: "DELETE" }).then(() => mtLoad(active)).catch(() => {});
+  const v = mtVfo();
+  if (!v || !confirm(`Delete all hourly and daily meteor statistics of VFO-${v.name}?`)) return;
+  fetch(v.base + "/api/meteors?stats=1", { method: "DELETE" }).then(() => mtLoad(v)).catch(() => {});
 });
-setInterval(() => { if (mtShown() && active) mtLoad(active); }, 1000);
+setInterval(() => { const v = mtShown() ? mtTarget() : null; if (v) mtLoad(v); }, 1000);
 
 // ===== SETTINGS › GENERAL › SPOTS: callsign for PSK Reporter (FT8) and WSPRnet (WSPR), spotting.py =====
 function spMsg(text, err) {

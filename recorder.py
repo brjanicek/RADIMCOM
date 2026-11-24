@@ -44,11 +44,14 @@ SCAN_KBPS = 64        # MP3 of the scanner (scanner.REC_KBPS, mono): for the len
 DAB_IDLE_S = 10.0     # DAB with REC SQ: the file ends when no MP3 came for this long (DAB off, no signal)
 DAB_KBPS = 160        # the MP3 of welle-cli (MPEG-1 layer 3, 48 kHz): for the length of a DAB file
 NAME_RE = re.compile(r"^(?:(?P<memory>.+?)_)?(?P<mhz>\d+\.\d{6})MHz_(?P<mode>[A-Z0-9]+)_(?P<start>\d{8}_\d{6})"
-                     r"(?:_(?P<tag>SQ|SCAN))?(?:_\d+)?\.(?:mp3|wav)$")
-# REC IQ (iqrec.py, SDR# style, UTC): RADIMCOM[_<VFO>]_<YYYYMMDD_HHMMSS>Z_<centre>Hz_IQ[_n].wav
-IQ_RE = re.compile(r"^RADIMCOM(?:_.+?)?_(?P<start>\d{8}_\d{6})Z_(?P<hz>\d+)Hz_IQ(?:_\d+)?\.wav$")
+                     r"(?:_(?P<tag>SQ|SCAN|GRAVES))?(?:_\d+)?\.(?:mp3|wav)$")
+# REC IQ (iqrec.py, SDR# style, UTC): RADIMCOM[_<VFO>]_<YYYYMMDD_HHMMSS>Z_<centre>Hz_IQ[_<tag>][_n].wav; the tag:
+# PREREC (PRE-REC SAVE), GRAVES / GRAVESBAND (meteor_rec.py: the IQ of an echo, around the carrier / the whole band)
+IQ_RE = re.compile(r"^RADIMCOM(?:_.+?)?_(?P<start>\d{8}_\d{6})Z_(?P<hz>\d+)Hz_IQ(?:_(?P<tag>PREREC|GRAVES|GRAVESBAND))?(?:_\d+)?\.wav$")
+IQ_TAG_NAME = {"PREREC": "PRE-REC", "GRAVES": "GRAVES echo", "GRAVESBAND": "GRAVES band"}   # shown as its memory
 AUDIO_EXT = (".mp3", ".wav")
-TAG_SRC = {"": "rec", "SQ": "sq", "SCAN": "scan"}   # tag in the file name → source shown in RECORDINGS
+TAG_SRC = {"": "rec", "SQ": "sq", "SCAN": "scan", "GRAVES": "graves"}   # tag in the file name → source shown in RECORDINGS
+GRAVES_KBPS = 32      # the MP3 of a GRAVES echo (meteor_rec.MP3_KBPS, 8 kHz mono): for its length
 STARS_FILE = "starred.json"   # in the root of the recordings folder: the recordings starred (★) in RECORDINGS
 _stars_lock = threading.Lock()
 
@@ -150,7 +153,8 @@ def parse_name(name):
                 calendar.timegm(time.strptime(m.group("start"), "%Y%m%d_%H%M%S"))))
         except ValueError:
             t = m.group("start")
-        return {"memory": "", "hz": int(m.group("hz")), "mode": "IQ", "start": _start_text(t), "src": "iq"}
+        return {"memory": IQ_TAG_NAME.get(m.group("tag") or "", ""), "hz": int(m.group("hz")), "mode": "IQ",
+                "start": _start_text(t), "src": "iq"}
     return {"memory": "", "hz": 0, "mode": "", "start": "", "src": ""}
 
 
@@ -462,7 +466,7 @@ class Recorder:
         if name.lower().endswith(".wav"):
             secs = wav_secs(path, stat.st_size)
         else:
-            kbps = SCAN_KBPS if info["src"] == "scan" else DAB_KBPS if info["src"] == "dab" else BITRATE
+            kbps = {"scan": SCAN_KBPS, "dab": DAB_KBPS, "graves": GRAVES_KBPS}.get(info["src"], BITRATE)
             secs = int(stat.st_size * 8 / (kbps * 1000))
         return dict(info, name=name, path=self.rel(path), size=stat.st_size, mtime=int(stat.st_mtime), secs=secs,
                     writing=os.path.normcase(os.path.abspath(path)) in writing)

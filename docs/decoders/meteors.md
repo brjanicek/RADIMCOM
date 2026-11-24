@@ -34,6 +34,10 @@ hour), **60 MIN**, **TODAY**, **PLANES** and **SATS** (since the start, not coun
     for 3 minutes, longer views take the strongest value of each column. It scrolls smoothly.
   - ⚙: colour schemes and levels like the main waterfall (*Dark under*, *Full colour at*). A new installation starts
     with ±500 Hz, 1 minute, Classic, 10 dB and 25 dB.
+  - A faint grid: horizontal lines at the carrier (a little brighter) and at steps of the Doppler shift, drawn as the
+    background from the start; every signal covers it.
+  - The page always shows the VFO where GRAVES runs (named in the status when it is not the active VFO), so its
+    waterfall and history stay when another VFO is chosen.
   - The ±250 / ±500 Hz views are about **1.3 s behind the sound**: a 1 s frame needs half a second of signal after each
     moment before its cell is final. The ±1 kHz and ±8 kHz views are about 1.2 s behind (the chart's answers come once a
     second).
@@ -54,6 +58,7 @@ hour), **60 MIN**, **TODAY**, **PLANES** and **SATS** (since the start, not coun
     of the waterfall;
   - a head echo, a satellite's calculated Doppler or an aircraft's Doppler from adsb.fi: two bright green dashed lines
     just over and under the track, which stays clear between them.
+  - **SAVE**: this echo into the recordings folder (as REC below).
   - **▶ PLAY** / **WAV**: the echo as on 143.049 MHz USB (the carrier = a 1 kHz tone). A satellite is followed along its
     Doppler track: only ±60 Hz around it is kept (a weak one is heard over the noise), and it sounds as a tone that
     follows its Doppler; a sweep wider than 2 kHz is squeezed into the audio band.
@@ -76,6 +81,11 @@ Blocks in the style of STATION (lit when in use, amber when something needs atte
 - **ROTOR · AZ / EL** (optional): the rotor dial with the bearing to GRAVES from the QTH (about 265° from Slovakia) and
   the elevation of the meteor zone over the middle of the path (about 10°). **GRAVES → ROTOR** shows the path in
   RCTRL › SETTINGS (linked or open); **POINT** turns the rotor to GRAVES through it; **RCTRL** opens the rotor settings.
+- **RECORDINGS:** **REC** (also REC at the head of ECHOES, the same setting): while it is on, every echo of the chosen
+  kinds (METEORS / SAT / PLANE) is saved to the RECORDINGS tab (day folder, source GRAVES) as MP3
+  (`METEOR_<MHz>MHz_USB_<time>_GRAVES.mp3`, 1 s before and after); **IQ ECHO** adds its IQ (±8 kHz, `iq\…_IQ_GRAVES.wav`,
+  playable in the IQ PLAYER), **IQ BAND** the IQ of the whole dongle band from PRE-REC (switched on for at least 30 s,
+  `…_IQ_GRAVESBAND.wav`, at most 8 s).
 - **RECEIVER:** the dial and the mode; **TUNE 143.049 USB**. The counter reads the baseband of the VFO, not the audio,
   so any mode works with the dial within about ±10 kHz of the carrier.
 - **DETECTOR:**
@@ -132,16 +142,43 @@ Blocks in the style of STATION (lit when in use, amber when something needs atte
 
 ### Classification
 
-- **PLANE** (listed, not counted): longer than 20 s; or longer than 2 s drifting over 5 Hz/s by at least 3 bins; or the
-  next piece of an aircraft just heard at its Doppler; or already there weakly at its Doppler before its strong part (a
-  meteor starts at once, an aircraft near the middle of the path has ~0 Hz and no drift). A meteor just before at the
-  same Doppler does not make the next one an aircraft.
-- **SAT**: a part of a satellite track of the wide spectrum, or a short echo sweeping through the band all along, or
-  an echo drifting straight at 25 Hz/s or more for at least 0.6 s, both its halves the same way (all its points are
-  used, a weak one has few over THR). A meteor trail drifts only a few Hz/s with the wind (live: up to ~17 Hz/s); a
-  meteor fading out wanders over the noise only at its end. Measured on VFO D: satellites near the carrier drift
-  −34 to −59 Hz/s and are too weak for the wide spectrum. Echoes that start on its line within 10 s (it fades in and
-  out with the beam) are its pieces: not counted, not reported again.
+Tuning this is demanding: it builds on scientific work on meteor radar, bistatic radar and statistical decision
+(below) and on our own remarks from the live echoes. The physics is in `meteor_phys.py`.
+
+**The physical bounds** (bistatic Doppler f = −(1/λ)·d(R_T + R_R)/dt, its rate v⊥²/(λR), λ = 2.096 m; Willis,
+*Bistatic Radar*; Skolnik, *Radar Handbook*):
+
+| Target | Doppler off the carrier | Drift | Shape |
+|---|---|---|---|
+| meteor trail | the wind's, ≲ 95 Hz | a few Hz/s (twisted overdense trails more) | rises at once, underdense decays exponentially (McKinley, *Meteor Science and Engineering*; Ceplecha et al. 1998) |
+| aircraft (≤ 300 m/s) | ≤ ~286 Hz | ≤ ~6 Hz/s | there for tens of seconds, comes up gradually |
+| LEO satellite (7.5 km/s) | up to kHz | near the carrier ≥ ~18 Hz/s, at most ~121 Hz/s | long, fades in and out with the GRAVES beam |
+| head echo (the meteoroid) | kHz | ≥ ~0.5 kHz/s, onto the trail's Doppler | tens to hundreds of ms just before the trail |
+
+A drift is measured with its standard error (the bin quantisation, the frames of the detector are not independent)
+and decides a class only when it is beyond the bound by **two standard errors**.
+
+- **Head echo → meteor:** an echo with a head echo is always a meteor (UNDERDENSE / OVERDENSE), whatever else it looks
+  like; nothing else sweeps onto the trail at kHz per second.
+- **PLANE** (listed, not counted): longer than 20 s (and not drifting like a satellite); or longer than 2 s drifting
+  surely over 5 Hz/s by at least 3 bins, within the Doppler an aircraft can have; or the next piece of an aircraft just
+  heard at its Doppler; or already there weakly at its Doppler before its strong part (a meteor starts at once). A
+  meteor just before at the same Doppler does not make the next one an aircraft.
+- **SAT**: an echo drifting straight at 25 Hz/s or more for at least 0.6 s (surely faster than ~18 Hz/s); a short echo
+  sweeping through the band all along; a part of a satellite track of the wide spectrum; the next piece of a satellite
+  on its line within 10 s.
+- **Is an echo on a satellite's line (or track) its piece, or a meteor that came there?** The evidence is weighed by
+  Bayes factors (Jeffreys; Kass & Raftery 1995), added up:
+  - its own drift: like the line's or still like a trail in the wind (measured, or roughly from a short ping);
+  - the chance of a meteor there by accident: the station's own meteor rate and Doppler distribution, learnt live
+    (100 meteors an hour around the carrier before there are enough);
+  - the orbital elements: is a satellite lit by GRAVES and over the station predicted there? How often that happens by
+    chance is measured on the same points shifted in frequency. Near the carrier about 230 of ~470 lit satellites are
+    within ±300 Hz, so a short ping is not decided by TLE, a longer track is. The share of satellites without public
+    elements (debris) is learnt from the identifications (30 % before).
+- **A "satellite" track made of meteors:** the tracker can join meteors at different Dopplers into one curve. Each
+  piece of a track is weighed: a satellite drifts along its curve in every piece, meteors stand still; with the TLE
+  evidence added.
 - **UNDERDENSE** (shorter than 1 s) and **OVERDENSE** otherwise.
 
 ### Satellites
@@ -176,7 +213,15 @@ A **head echo** is looked for three ways:
   trail, away from the carrier and from the echo's own Doppler (a strong echo spreads over the short frames);
 - in the fine cells: a path of strong cells from where the trail really starts back in time, coming onto the trail in a
   parabola or an exponential (it brakes), at least 150 Hz/s over 40 Hz, nearer to the trail from cell to cell;
-- in the detector's own track: a short steep head echo the detector started on, coming onto the trail point by point.
+- in the detector's own track: a short steep head echo the detector started on, coming onto the trail point by point;
+- **a faint head echo** (`meteor_head.py`), too weak for its points to stand out one by one: the power of the ±5 kHz
+  spectrum (not clipped) is summed along every straight line that ends at the trail's Doppler at about the start of
+  the echo (0.48–80 kHz/s, the slopes so dense that a line is never more than half a bin off), and compared with the
+  noise just before (track-before-detect, a Hough transform through one point; Carlson, Evans & Wilson 1994; Tonissen
+  & Evans 1996). The threshold (9.5 σ) was set on noise alone with all the lines tried: under ~1 false head in 1000
+  echoes. About 3.5 dB more sensitive; the detail says "faint … σ over the noise". It needs HEAD ECHO on.
+
+The head echo is looked for when the echo ends, before it is classified (it decides a meteor).
 
 ### Simulated results (`tests/test_meteor.py`)
 
@@ -186,7 +231,10 @@ A **head echo** is looked for three ways:
   meteors;
 - a satellite cut into pieces by the beam is one SAT echo; its sound follows its Doppler, also 15 dB under the noise of
   the audio band;
-- a straight, a curved and a slow (1 s) head echo are found, the spread of a strong echo is not one.
+- a straight, a curved and a slow (1 s) head echo are found, the spread of a strong echo is not one;
+- a short meteor on a slow satellite's line stays a meteor; a ping drifting with the line but with a head echo is a
+  meteor; meteors joined into a curve are not a satellite, a satellite in pieces is one (`tests/test_meteor_phys.py`);
+- a faint head echo too weak for its points is found, noise alone gives none (`tests/test_meteor_head.py`).
 
 ## Tips
 

@@ -276,6 +276,19 @@
 <section class="radio radio-body" id="radioBody">
   <!-- hidden lower part (VIEW) with the active VFO on DAB: the station card (#dabHero) moves here, a small display sunk into the panel -->
   <div class="dab-mini" id="dabMini"></div>
+  <!-- IQ PLAYER (iqplay.py, static/iqplay.js): shown while the active VFO plays an IQ file instead of its dongle;
+       thanks to Dano OM1ATS for the idea -->
+  <div class="iqp-bar" id="iqpBar" hidden>
+    <span class="iqp-tag" title="IQ PLAYER: the VFO plays an IQ file instead of its dongle (waterfall, demodulation, decoders)&#10;Thanks to Dano OM1ATS for the idea">IQ PLAYER</span>
+    <button id="iqpPlay" class="key small accent" title="Play / pause the file (PLAY at the end starts again from the beginning)">PAUSE</button>
+    <span class="iqp-time" id="iqpTime">0:00</span>
+    <input id="iqpSeek" class="iqp-seek" type="range" min="0" max="1" step="1" value="0" title="Position in the file: drag to jump">
+    <span class="iqp-time" id="iqpLen">0:00</span>
+    <label class="key small toggle" title="At the end of the file start again from the beginning"><input id="iqpLoop" type="checkbox">LOOP</label>
+    <span class="iqp-name" id="iqpName"></span>
+    <span class="iqp-info" id="iqpInfo"></span>
+    <button id="iqpBack" class="key small iqp-back" title="Stop the file and go back to the dongle of this VFO, with its frequency and settings as before">BACK TO VFO</button>
+  </div>
   <!-- tabs of the bottom part: spectrum with waterfall, decoders, or lists of satellites -->
   <div class="body-tabs" id="bodyTabs">
     <button data-tab="scope" class="on">SPECTRUM</button>
@@ -736,6 +749,34 @@
       </div>
     </section>
 
+    <!-- NAVTEX (navtex.py: SITOR-B maritime safety information); its script is static/navtex.js -->
+    <section class="card ft8 navtex" id="navtexCard" data-dec="navtex" hidden>
+      <div class="ft8-head">
+        <label class="key small toggle" data-dec-on="navtex" title="NAVTEX decoder on/off"><input id="navtexOn" type="checkbox">ON</label>
+        <div class="bands" id="navtexFreqs"></div>
+        <input id="navtexFilter" class="pkt-filter" type="search" placeholder="filter" title="Show only messages containing this text, station or subject (e.g. MA, B, ISTANBUL)">
+        <span id="navtexInfo" class="muted"></span>
+        <label class="wf-opt log-opt" title="Write every message to the daily log data\logs\navtex\YYYY\MM\DD\navtex_YYYY-MM-DD.txt (UTC, shared by all VFOs)"><input type="checkbox" data-log="navtex">LOG</label>
+        <button id="navtexClear" class="key small" title="Clear the messages and the live text">CLR</button>
+      </div>
+      <p class="note">SITOR-B (FSK 100 Bd, 170 Hz shift) from the baseband, independent of the mode and its filter: the tone pair is found
+        within ±3 kHz of the tuned frequency. A key tunes USB 1.7 kHz below the frequency, so it is heard as 1615 / 1785 Hz. Every
+        character is sent twice; one lost in both copies is shown as <b>~</b>. Messages run from <b>ZCZC</b> to <b>NNNN</b>: the
+        station letter, the subject (A navigational warning, B weather warning, D search and rescue, E forecast …) and the number.
+        518 kHz needs a good antenna for the medium wave; 4209.5 kHz is heard from far away in the evening.</p>
+      <div class="ft8-table">
+        <table class="ft8-tbl navtex-tbl">
+          <colgroup><col class="c-utc"><col class="c-f"><col class="c-id"><col class="c-subj"><col></colgroup>
+          <thead><tr><th>UTC</th><th class="num">kHz</th><th title="Station letter, subject letter and number (ZCZC B1B2B3B4)">ID</th><th>Subject</th>
+            <th>Message <span class="muted">(click a row for the whole text)</span></th></tr></thead>
+          <tbody id="navtexRows"></tbody>
+        </table>
+        <div id="navtexEmpty" class="ft8-empty">No messages yet.</div>
+      </div>
+      <div class="navtex-live-head muted">LIVE TEXT</div>
+      <pre class="navtex-live" id="navtexLive"></pre>
+    </section>
+
     <!-- GRAVES (meteor.py: echoes of the GRAVES radar carrier, hourly / daily counts); blocks in the look of STATION -->
     <section class="card ft8 meteor" id="meteorCard" data-dec="meteor" hidden>
       <div class="ft8-head">
@@ -828,6 +869,18 @@
               <label class="key small toggle" id="mtTleK" title="SAT·TLE: weak satellites along the Doppler their orbital elements predict (every 15 s, the last 40 s of the ±8 kHz spectrum, only satellites GRAVES lights over the station). Finds streaks too weak for the tracker, with the satellite already known. Needs the station location"><input id="mtTle" type="checkbox">SAT·TLE</label>
               <label class="key small toggle" id="mtLinesK" title="SAT·LINES: weak straight streaks (80–600 Hz/s) in the ±8 kHz spectrum, a Hough transform over 6 s windows joined to tracks; a track is then identified from the orbital elements like the tracker's"><input id="mtLines" type="checkbox">SAT·LINES</label></div>
             <small>an echo = the strongest bin THR dB over its floor; FAST, SAT·TLE and SAT·LINES add the weak ones</small></div>
+          <!-- GRAVES REC (meteor_rec.py): the echoes into the recordings folder (RECORDINGS tab) -->
+          <div class="sdg-b k-log" id="mtRecB"><b>RECORDINGS</b><i class="sdg-ico"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6"/><circle cx="8" cy="8" r="2.4"/></svg></i>
+            <span class="v" id="mtRecV">off</span>
+            <div class="chips">
+              <label class="key small toggle mt-reck" title="REC: every echo of the kinds chosen goes into the recordings folder as MP3 (its sound as on 143.049 MHz USB), in the day folder of its start; the RECORDINGS tab shows them as GRAVES"><input class="mt-rec" type="checkbox">REC</label>
+              <label class="key small toggle" title="Meteors (underdense and overdense)"><input class="mt-reck-kind" data-kind="met" type="checkbox">METEORS</label>
+              <label class="key small toggle" title="Satellites (their sound follows the Doppler track)"><input class="mt-reck-kind" data-kind="sat" type="checkbox">SAT</label>
+              <label class="key small toggle" title="Aircraft"><input class="mt-reck-kind" data-kind="plane" type="checkbox">PLANE</label></div>
+            <div class="chips">
+              <label class="key small toggle" title="IQ ECHO: also the IQ around the carrier (±8 kHz, ~16 kS/s) from 1 s before to 1 s after the echo, as an IQ WAV in the iq folder (IQ PLAYER, SDR#)"><input id="mtRecIq" type="checkbox">IQ ECHO</label>
+              <label class="key small toggle" title="IQ BAND: also the raw IQ of the whole dongle band at that time (from PRE-REC, which it switches on with at least 30 s; at most 8 s an echo, ~5 MB/s at 2.4 MS/s)"><input id="mtRecBand" type="checkbox">IQ BAND</label></div>
+            <small id="mtRecSub">RECORDINGS tab › the day folder, source GRAVES; SAVE in the detail of an echo saves that one</small></div>
         </div></div>
         <!-- LIVE: the waterfall, under it the echoes -->
         <div class="mt-page mt-live" data-mt-page="live">
@@ -861,6 +914,7 @@
               <span class="mt-spans" id="mtFilt" role="group" aria-label="Kinds shown">
                 <button class="key small on" data-kind="all">ALL</button><button class="key small" data-kind="met" title="Meteors: underdense and overdense">METEORS</button><button class="key small" data-kind="sat">SAT</button><button class="key small" data-kind="plane">PLANE</button><button class="key small" data-kind="head" title="With a head echo">H</button></span>
               <label class="mt-thr" title="Only echoes at least this strong">≥ <input id="mtMinSnr" type="number" min="0" max="60" step="1" value="0"> dB</label>
+              <label class="key small toggle mt-reck" title="REC: the echoes into the recordings folder as MP3 (kinds and IQ in SETTINGS › RECORDINGS); the RECORDINGS tab shows them as GRAVES"><input class="mt-rec" type="checkbox">REC</label>
               <button id="mtClear" class="key small" title="Clear the list of echoes of NOW (the hourly statistics, the log and the marked ones stay)">CLR</button>
               <span class="muted" id="mtCountT"></span></div>
             <!-- the detail of one echo (meteor.py _cut): full resolution ±500 Hz, with HEAD ECHO also ±5 kHz before it -->
@@ -868,6 +922,7 @@
               <div class="mt-dethead"><span id="mtDetT"></span>
                 <button type="button" class="key small" id="mtDetPlay" hidden title="Play the echo as on 143.049 MHz USB (the carrier = a 1 kHz tone). A satellite: its signal followed along its track (±60 Hz kept, a weak one is heard too) as a tone that follows its Doppler, a sweep over 2 kHz squeezed into the audio band">▶ PLAY</button>
                 <a class="key small" id="mtDetWav" hidden download title="Save the sound of this echo (WAV)">WAV</a>
+                <button type="button" class="key small" id="mtDetSave" title="SAVE: this echo into the recordings folder (RECORDINGS tab, source GRAVES): its sound as MP3, its IQ around the carrier and, with PRE-REC on, the IQ of the whole band – whatever is still kept of it">SAVE</button>
                 <button type="button" class="key small" id="mtDetX" title="Close the detail">×</button></div>
               <audio id="mtDetAudio" preload="none"></audio>
               <div class="mt-detbox" title="The echo at full resolution: ~30 ms frames, ±500 Hz around GRAVES, from 1 s before to 1 s after (dashed: its start and end). A satellite: ±8 kHz over its whole track, the calculated Doppler of the satellite found as two green dashed lines just over and under it (the track itself stays clear between them)">
@@ -1662,6 +1717,7 @@
         <label class="key small toggle" title="Shows only the starred (★) recordings of this folder"><input id="recsStarOnly" type="checkbox">★ ONLY</label>
         <input id="recsFilter" class="recs-filter" type="search" placeholder="filter: name, memory, kHz, mode, source…" title="Shows only the recordings of this folder whose name, memory, frequency, mode or source contain the text">
         <button id="recsDel" class="key small recs-del" disabled title="Delete the ticked recordings and folders (a folder with all in it; files being written stay)">DELETE</button>
+        <button id="iqpOpenKey" class="key small" title="IQ PLAYER: open an IQ file of the disk (WAV of REC IQ, SDR#, SDR++; .cu8, .cs8, HackRF PortaPack .C16, .cf32, SigMF) and play it through this VFO">IQ FILE…</button>
         <button id="recsReload" class="key small" title="Read the folder again (it is read by itself when the tab opens and every 10 s while a recording runs)">⟳</button>
         <span class="amsat-info" id="recsInfo"></span>
       </div>
@@ -2724,6 +2780,27 @@
 
 </div>
 
+<!-- IQ PLAYER: OPEN window, the folders and IQ files of the disk of the receiver's PC (static/iqplay.js) -->
+<div class="iqp-dlg" id="iqpDlg" hidden role="dialog" aria-label="Open an IQ file">
+  <div class="iqp-dlg-box">
+    <div class="iqp-dlg-head"><b>IQ PLAYER · OPEN FILE</b><button id="iqpDlgClose" class="key small" title="Close">✕</button></div>
+    <input id="iqpDlgPath" class="mono" type="text" spellcheck="false" placeholder="folder or file, Enter" title="A folder (Enter lists it) or the full path of a file">
+    <ul class="iqp-dlg-list" id="iqpDlgList"></ul>
+    <div class="iqp-dlg-file" id="iqpDlgFile" hidden>
+      <div class="iqp-dlg-name"><span id="iqpDlgName"></span> <span class="sz" id="iqpDlgLen"></span></div>
+      <label>Centre <input id="iqpDlgCentre" type="number" step="any" min="0"> MHz</label>
+      <label>Sample rate <input id="iqpDlgRate" type="number" step="any" min="1"> kS/s</label>
+      <label>Format <select id="iqpDlgFmt"></select></label>
+      <button id="iqpDlgPlay" class="key accent">PLAY</button>
+    </div>
+    <p class="note iqp-dlg-msg" id="iqpDlgMsg"></p>
+    <p class="note">WAV (REC IQ, SDR#, SDR++, HDSDR: the centre from the name or the auxi chunk), .cu8 (rtl_sdr), .cs8 / .iq
+      (hackrf_transfer), .C16 (HackRF PortaPack CAPTURE, with its .TXT), .cf32 / .cfile / .raw (GNU Radio, gqrx), SigMF.
+      Faster files are divided down to ≤ 2.6 MS/s (the middle of the band stays), slower ones upsampled.
+      Thanks to Dano OM1ATS for the idea.</p>
+  </div>
+</div>
+
 <script src="/static/debug.js"></script><!-- SETTINGS › DEBUG: first, it measures the listeners / timers of all -->
 <script src="/static/icao_countries.js"></script>
 <script src="/static/bandplan.js"></script>
@@ -2733,6 +2810,9 @@
 <script src="/static/app.js"></script>
 <script src="/static/q65.js"></script><!-- DECODERS › Q65 / JT65 (q65.py) -->
 <script src="/static/bpsk.js"></script><!-- DECODERS › BPSK (bpsk.py, funcube.py) -->
+<script src="/static/navtex.js"></script><!-- DECODERS › NAVTEX (navtex.py) -->
+<script src="/static/iqplay.js"></script><!-- IQ PLAYER (iqplay.py) -->
+<script src="/static/meteor_rec.js"></script><!-- DECODERS › GRAVES › REC (meteor_rec.py) -->
 <script src="/static/tooltip.js"></script><!-- the dark tooltip of every title="" -->
 <script src="/static/satad.js"></script><!-- AD: satellite tracking of the VFO (polar plot, name, frequency) -->
 <script src="/static/rotdial.js"></script><!-- the rotor dial of RCTRL › SETTINGS, SUN NOISE and GRAVES -->

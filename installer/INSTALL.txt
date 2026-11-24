@@ -82,6 +82,31 @@ Change log
 
 Ver. 1.2beta2
 (test beta, GitHub branch 1.2beta2; continues 1.2beta1)
+Main
+- IQ PLAYER: an IQ file plays through the current VFO as a virtual dongle (waterfall, demodulation, all decoders);
+  thanks to Dano OM1ATS for the idea.
+- NAVTEX decoder: maritime safety information on 518 / 490 / 4209.5 kHz and the HF MSI frequencies.
+- GRAVES: detection of meteors, satellites and aircraft rebuilt on physics and statistics. Tuning it is demanding: it
+  builds on scientific work (meteor radar, bistatic radar, statistical decision) and on our own remarks from live echoes.
+IQ PLAYER
+- IQ FILE... in RECORDINGS (or play at an IQ recording): SDR# / SDR++ / HDSDR / RADIMCOM WAV, HackRF / PortaPack .C16
+  + .TXT, .cu8 / .cs8 / .c16 / .cf32, SigMF; the rate fitted to the VFO.
+- PLAY switches to SPECTRUM; bar with play / pause, seek, LOOP; BACK TO VFO returns the whole earlier setting.
+- VFO display as usual, only a blue blinking IQ instead of the USB / network icon; STATION shows the virtual dongle.
+NAVTEX
+- SITOR-B (FEC mode B) from the baseband in any mode, AFC, DX / RX copies, messages ZCZC ... NNNN; frequency keys,
+  filter, LOG, in memories and STATION.
+GRAVES
+- Physical bounds per target (aircraft <= ~286 Hz and ~6 Hz/s, satellites >= ~18 Hz/s near the carrier); a drift
+  decides only when beyond the bound by two standard errors.
+- Meteors no longer taken for satellite pieces: Bayes factors of the own drift, the chance of a meteor there (own
+  meteor rate and Doppler, learnt live) and the orbital elements (TLE); tracks made of meteors are not satellites.
+- A head echo always means a meteor; faint head echoes found along their line (track-before-detect), ~3.5 dB more
+  sensitive, under ~1 false head in 1000 echoes.
+- REC: echoes of chosen kinds to RECORDINGS as MP3, optionally IQ of the echo and of the band (PRE-REC); SAVE in the detail.
+- Waterfall grid under the signal; the page stays on the VFO where GRAVES runs.
+RECORDINGS
+- GRAVES and PRE-REC files recognised.
 
 Ver. 1.2beta1
 (test beta, GitHub branch 1.2beta1; continues the release 1.1)
