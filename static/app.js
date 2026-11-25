@@ -3974,7 +3974,7 @@ function setBodyTab(tab, save = true) {
   if (tab === "dec" && save) store(decOnKey(), "1");   // the DECODERS tab open → DECODE on for this VFO
   if (tab === "set" && save) store("setOn", "1");       // the SETTINGS tab open → the gear key on
   if (tab === "mem" && save) store("memOn", "1");       // the MEMORIES tab open → the MEM key on
-  if (tab === "recs" && save) store("recsOn", "1");     // the RECORDINGS tab open → the RECS key on
+  if (tab === "recs" && save) store("recsOn", "1");     // the RECORDINGS tab open → the PLAY key (RECORD) on
   if (tab === "rot" && save) store("rotOn", "1");       // the ROTOR CONTROL tab open → the RCTRL key on
   if (tab === "scan" && save) store("scanOn", "1");     // the SCAN tab open → the SCAN key on
   if (tab === "com" && save) store("comOn", "1");       // the COMPOSITE tab open → the COM key on
@@ -3989,6 +3989,7 @@ function setBodyTab(tab, save = true) {
   $("settingsCard").hidden = tab !== "set";
   $("memPane").hidden = tab !== "mem";
   $("recsPane").hidden = tab !== "recs";
+  $("iqPlayBtn").classList.toggle("lit", tab === "recs");      // IQ PLAY: its LED lit (the blue of REC IQ) while RECS is open
   $("rotPane").hidden = tab !== "rot";
   $("scanPane").hidden = tab !== "scan";
   $("comPane").hidden = tab !== "com";
@@ -4177,7 +4178,7 @@ function renderMemKey() {
   $("memTab").hidden = !on;
 }
 $("memKey").addEventListener("click", () => setMemOn(!memTabShown()));
-/** RECS key (AUDIO group): the RECORDINGS tab (the MP3 files of REC / REC SQ) is there only while it is on; one switch for all VFOs. */
+/** PLAY key (RECORD): the RECORDINGS tab (all recordings) is there only while it is on; one switch for all VFOs. */
 function recsTabShown() { return recall("recsOn") === "1"; }
 function setRecsOn(on) {
   store("recsOn", on ? "1" : "0");
@@ -4186,11 +4187,10 @@ function setRecsOn(on) {
   else renderRecsKey();
 }
 function renderRecsKey() {
-  const on = recsTabShown();
-  $("recsKey").classList.toggle("on", on);
-  $("recsTab").hidden = !on;
+  $("recsTab").hidden = !recsTabShown();
 }
-$("recsKey").addEventListener("click", () => setRecsOn(!recsTabShown()));
+// PLAY: the RECORDINGS tab open (or brought to the front); pressed while it is in front: the tab off
+$("iqPlayBtn").addEventListener("click", () => setRecsOn(!(recsTabShown() && bodyTab === "recs")));
 /** RCTRL key (TRACKING group): the ROTOR CONTROL tab (map to aim the rotor) is there only while it is on; one switch for all VFOs. */
 function rotTabShown() { return recall("rotOn") === "1"; }
 function setRotOn(on) {
@@ -15642,7 +15642,7 @@ $("recDirDefault").addEventListener("click", async () => {
 });
 $("recDir").addEventListener("keydown", (e) => { if (e.key === "Enter") $("recDirSave").click(); });
 
-// ---------- RECORDINGS tab (RECS key): the folder tree of the recordings, played in the browser ----------
+// ---------- RECORDINGS tab (PLAY key of RECORD): the folder tree of the recordings, played in the browser ----------
 // recorder.py writes every recording – REC, REC SQ, SCAN, DAB (MP3) and REC IQ (WAV, subfolder iq) – into the day
 // folder <recordings>/YYYY/MM/DD of its start. The tab browses that tree (path keys at the top, folder rows first),
 // sorts the recordings by any column (header click, remembered), deletes ticked files and whole folders at once and
@@ -23958,7 +23958,12 @@ function mtDetShow() {
       (h.t >= 0.005 ? `starts ${h.t} s before the echo` : h.t <= -0.005 ? `starts ${-h.t} s after the echo start` : "starts with the echo")
     : d && d.head ? "No head echo found in the ±5 kHz spectrum (a steep streak before the echo)" : "HEAD ECHO is off: only the trail echo (±500 Hz)")
     + (e && e.tau && !sat && e.kind !== "plane" ? ` · decay τ ${Math.round(e.tau * 1000)} ms` +
-      (e.tau_r2 >= 0.9 ? " (exponential: an underdense trail)" : ` (not exponential, r² ${e.tau_r2}: overdense or fading)`) : "");
+      (e.tau_r2 >= 0.9 ? " (exponential: an underdense trail)" : ` (not exponential, r² ${e.tau_r2}: overdense or fading)`) : "")
+    + (e && e.est && !sat && e.kind !== "plane" ? ` · estimated meteoroid ~${e.est.mm} mm (${e.est.mm_lo}–${e.est.mm_hi} mm), ~${e.est.mg} mg, ` +
+      `~${e.est.mag > 0 ? "+" : ""}${e.est.mag} mag` : "");
+  $("mtDetSub").title = e && e.est && !sat && e.kind !== "plane"
+    ? `Estimated (meteor_size.py), within a factor of a few: line density of the trail ~${e.est.q.toExponential(1)} e/m from the ${e.est.how}; ` +
+      "magnitude M = 40 − 2.5 log q, mass at 40 km/s (0 mag ~1 g), a sphere of 1 g/cm³ (the range: speed 20–70 km/s)" : "";
   if (d) mtDetDraw();
 }
 /** Draws the echo (and the head echo spectrum) into their canvases at the real size. */

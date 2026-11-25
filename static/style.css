@@ -2780,6 +2780,11 @@ html.compact .r-keys .keys button { --led-at: left 3px top 2px / 6px 3px no-repe
     radial-gradient(closest-side, color-mix(in srgb, var(--led) 70%, transparent), transparent) var(--led-glow),
     linear-gradient(180deg, #3a3f47, #2a2e34); }
 .rec.iq.on { animation: rec-iq-led-blink 2s steps(1) infinite; }
+/* IQ PLAY while RECS is open: only its LED lit (the blue of REC IQ), the key itself not pressed, no frame */
+.rec.iq.lit { --led: var(--rec-iq);
+  background: linear-gradient(var(--led), var(--led)) var(--led-at),
+    radial-gradient(closest-side, color-mix(in srgb, var(--led) 70%, transparent), transparent) var(--led-glow),
+    linear-gradient(180deg, #4a5059 0%, #30343b 50%, #24272c 100%); }
 @keyframes rec-iq-led-blink { 50% { --led: #142a70; } }
 
 /* =====================================================================================================
@@ -2901,16 +2906,20 @@ html[data-skin="alu-light"] .r-bands, html[data-ink="dark"] .r-bands { border-to
 .r-master .vol { align-self: stretch; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 6px 16px; }
 .vol > .r-gh:first-child { grid-column: 1 / -1; margin-bottom: 0; }
 /* faders, dB scale and meter as tall as the speaker + RECORD keys at the right (the rows come from the keys) */
-.vol > .vol-sliders { grid-column: 1; grid-row: 2 / span 6; align-self: stretch; }
+.vol > .vol-sliders { grid-column: 1; grid-row: 2 / span 5; align-self: stretch; }
 .r-master .vol-ch, .r-master .vol-scale, .r-master .vu { align-self: stretch; }
 .r-master .vol input[type=range], .r-master .vol-scale > div, .r-master .vu-cols { flex: 1 1 0; height: 0; min-height: 60px; }
 .r-master .vol-scale i { bottom: calc(6px + var(--f) * (100% - 12px)); }
 .vol > .spk { grid-column: 2; grid-row: 2; }
 .vol > .spk + .r-gh { grid-column: 2; grid-row: 3; margin-top: 8px; }
-.vol > #recBtn { grid-column: 2; grid-row: 4; }
-.vol > #recSqBtn { grid-column: 2; grid-row: 5; }
-.vol > #recIqBtn { grid-column: 2; grid-row: 6; }
-.vol > #retroBtn { grid-column: 2; grid-row: 7; }
+/* REC | REC SQ and REC IQ | IQ PLAY half wide side by side, PRE-REC the whole width under them */
+.vol > #recBtn, .vol > #recIqBtn { grid-column: 2; justify-self: start; }
+.vol > #recSqBtn, .vol > #iqPlayBtn { grid-column: 2; justify-self: end; }
+.vol > #recBtn, .vol > #recSqBtn { grid-row: 4; }
+.vol > #recIqBtn, .vol > #iqPlayBtn { grid-row: 5; }
+.vol > #recBtn, .vol > #recSqBtn, .vol > #recIqBtn, .vol > #iqPlayBtn { width: calc(50% - 3px); min-width: 0; padding: 4px 3px 0;
+  gap: 3px; font-size: 10px; letter-spacing: 0; white-space: nowrap; overflow: hidden; justify-content: center; }   /* the LED at the top as on the others */
+.vol > #retroBtn { grid-column: 2; grid-row: 6; }
 .spk, .rec { height: 26px; }
 
 /* the lower part is a display sunk deeper into the panel: a stepped milled edge (dark wall, bright lower lip)
@@ -2930,7 +2939,7 @@ html[data-skin="alu-light"] .r-bands, html[data-ink="dark"] .r-bands { border-to
 .body-tabs button[data-tab="dec"], .body-tabs button[data-tab="com"] { --tc: #e45cff; }
 .body-tabs button[data-tab="prop"] { --tc: #ffb84d; }
 .body-tabs button[data-tab="sat"], .body-tabs button[data-tab="rot"] { --tc: #6db3ff; }
-.body-tabs button[data-tab="recs"] { --tc: #b693ff; }
+.body-tabs button[data-tab="recs"] { --tc: var(--rec-iq); }   /* the blue of the LED of PLAY / REC IQ */
 .body-tabs button[data-tab="mem"], .body-tabs button[data-tab="scan"], .body-tabs button[data-tab="set"] { --tc: #2fe0c0; }
 .body-tabs button.on { background: #0f1620; color: var(--tc); border-color: #1d2733; box-shadow: inset 0 2px 0 var(--tc); }
 /* red × that closes a tab (and switches its key off) */
@@ -2942,7 +2951,7 @@ html[data-skin="alu-light"] .r-bands, html[data-ink="dark"] .r-bands { border-to
    SPECTRUM, DAB and DSD stay yellow. The LED line of a lit key follows it. */
 #decPane { --yellow: #e45cff; }
 #amsatPane, #rotPane { --yellow: #6db3ff; }
-#recsPane { --yellow: #b693ff; }
+#recsPane { --yellow: color-mix(in srgb, var(--rec-iq) 55%, #fff); }   /* the blue of the LED of PLAY, lighter for text */
 #memPane, #scanPane, #settingsCard { --yellow: #2fe0c0; }
 #decPane, #amsatPane, #rotPane, #recsPane, #memPane, #scanPane, #settingsCard { --accent: var(--yellow); }
 .radio-body .key, .radio-body .keys button, .radio-body .bands button { --led: var(--yellow); }
@@ -5181,3 +5190,34 @@ details[data-sec=vmaps] > .map-opts-body:empty { display: none; }
 
 /* GRAVES REC (static/meteor_rec.js): the REC key red while the echoes are recorded */
 .mt-reck.rec-on { color: var(--red); border-color: color-mix(in srgb, var(--red) 70%, transparent); }
+
+/* REC IQ recording: only its LED blinks (blue), the key itself not pressed, no frame or glow (as PLAY) */
+#recIqBtn.on, #recIqBtn.armed { color: #eef1f5; border-color: var(--line2); box-shadow: var(--key-raised); transform: none;
+  background: linear-gradient(var(--led), var(--led)) var(--led-at),
+    radial-gradient(closest-side, color-mix(in srgb, var(--led) 70%, transparent), transparent) var(--led-glow),
+    linear-gradient(180deg, #4a5059 0%, #30343b 50%, #24272c 100%); }
+
+/* RECORDINGS tab (PLAY key) in the look of STATION: FOLDER | PLAYER | SHOW, the list of recordings under them, all in
+   the blue of the LED of PLAY / REC IQ */
+#recsPane .sdg-b { --bc: color-mix(in srgb, var(--rec-iq) 70%, #fff); }
+#recsPane .recs-blocks { flex: none; display: grid; gap: 8px; grid-template-columns: 560px minmax(300px, 1fr) minmax(220px, .8fr) minmax(170px, auto);
+  align-items: stretch; }
+#recsPane .recs-blocks > .sdg-b { min-width: 0; padding: 5px 30px 6px 8px; }
+#recsPane .sdg-b .chips { align-items: center; }
+/* FOLDER: ↑ TODAY ⟳ and the path in one row; the column is as wide as the longest path
+   (RECORDINGS › 2026 › September › 25 · Wed › iq), so nothing wraps or moves */
+#recsPane .recs-dirrow { flex-wrap: nowrap; }
+#recsPane .recs-dirrow .recs-path { flex: 1 1 auto; flex-wrap: nowrap; min-width: 0; overflow: hidden; }
+#recsPane .recs-path .key { flex: none; }
+#recsPane .sdg-b .chips > .key { flex: none; width: auto; height: auto; min-height: 22px; white-space: nowrap; overflow: visible; }   /* the text stays inside the key */
+#recsPane .sdg-b > small { color: var(--dim); font-size: 10.5px; white-space: normal; }
+#recsPane .recs-player { flex: none; display: flex; align-items: center; gap: 8px; min-width: 0; }
+#recsPane .recs-player audio { flex: 1 1 0; min-width: 160px; height: 30px; }
+#recsPane .recs-now { flex: 1 1 0; max-width: none; min-width: 0; }
+#recsPane .recs-b-show .recs-filter { flex: 1 1 auto; width: auto; min-width: 0; }
+#recsPane .recs-b-list { flex: 1 1 0; min-height: 0; min-width: 0; padding: 5px 8px 6px; }
+#recsPane .recs-b-list > .recs-body { flex: 1 1 0; min-height: 0; overflow: auto; padding: 0; border: 0; background: transparent; }
+#recsPane .recs-table th { background: #0b1018; }
+#recsPane .recs-table .sel input { accent-color: var(--rec-iq); }
+#recsPane .recs-table tbody tr.dir .recs-dir-ico { fill: var(--yellow); }
+@media (max-width: 1200px) { #recsPane .recs-blocks { grid-template-columns: 560px 1fr; } #recsPane .recs-b-play { grid-column: 1 / -1; } }

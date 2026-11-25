@@ -209,6 +209,8 @@
         <button id="recSqBtn" class="rec"><span class="rec-dot"></span><span id="recSqTime">REC SQ</span></button>
         <!-- the whole IQ of the dongle to WAV (SDR# style) in the iq subfolder of the day folder (YYYY/MM/DD) of the recordings; dark blue LED -->
         <button id="recIqBtn" class="rec iq"><span class="rec-dot"></span><span id="recIqTime">REC IQ</span></button>
+        <!-- PLAY: the RECORDINGS tab on / off (the RECS key of AUDIO before), IQ FILE… / ▶ at an IQ recording play it through the VFO (iqplay.py) -->
+        <button id="iqPlayBtn" class="rec iq" title="PLAY: the RECORDINGS tab on / off – all recordings (REC, REC SQ, SCAN, DAB, GRAVES, IQ) in the day folders YYYY/MM/DD: play them, ▶ at an IQ recording or IQ FILE… plays it through this VFO as a virtual dongle; the LED is lit while the tab is open">PLAY</button>
         <!-- PRE-REC: the last minute of IQ kept in RAM; Alt+click on the waterfall replays that moment (retro.py) -->
         <button id="retroBtn" class="rec iq retro"><span class="rec-dot"></span><span id="retroTime">PRE-REC</span></button>
       </div>
@@ -240,7 +242,6 @@
       <button id="asqKey" class="key" title="ASQ: auto squelch in AM/FM/WFM – the level follows the noise floor (margin in SETTINGS › VFO › AUDIO). Also on by itself with AGC+ and the squelch set">ASQ</button>
       <button id="tsqcKey" class="key" title="TSQ-C: CTCSS tone squelch (FM)">TSQ-C</button>
       <button id="tsqdKey" class="key" title="TSQ-D: DCS code squelch (FM)">TSQ-D</button>
-      <button id="recsKey" class="key" aria-controls="recsPane" title="RECS: the RECORDINGS tab – all recordings (REC, REC SQ, SCAN, DAB, IQ) in day folders YYYY/MM/DD of the recordings folder: browse, sort, delete, play a day as a playlist">RECS</button>
       <button id="nbKey" class="key" title="NB – Noise Blanker (all modes except WFM / DAB): pulses (ignition, electric fences, switching supplies, radar) blanked in the wideband samples before the channel filter, where they are still a few µs long. Level and width in SETTINGS › VFO › AUDIO">NB</button>
       <button id="dnrKey" class="key" title="DNR – Digital Noise Reduction in AM/LSB/USB/CW: takes the noise out all the time, also under speech. Click = on/off, mouse wheel = level 1–10; the algorithm in SETTINGS › VFO › AUDIO">DNR</button>
       <button id="humKey" class="key" title="HUM – mains hum filter in AM/LSB/USB: narrow notches at 50 Hz (or 60 Hz) and all its multiples, following the exact mains frequency of the transmitter. Base and width in SETTINGS › VFO › AUDIO">HUM</button>
@@ -1741,35 +1742,47 @@
       </div>
     </div>
 
-    <!-- RECORDINGS tab (RECS key): the folder tree YYYY/MM/DD[/iq] of all recordings (REC, REC SQ, SCAN, DAB, IQ):
-         browse, sort, tick and delete files and folders, play a folder as a playlist -->
+    <!-- RECORDINGS tab (PLAY key of RECORD): the folder tree YYYY/MM/DD[/iq] of all recordings (REC, REC SQ, SCAN, DAB,
+         GRAVES, IQ): browse, sort, tick and delete files and folders, play a folder as a playlist; blocks in the look of
+         STATION: FOLDER | PLAYER | SHOW, the list under them -->
 
     <div class="set-pane recs-pane" id="recsPane" hidden aria-label="Recordings">
-      <div class="amsat-head recs-head">
-        <button id="recsUp" class="key small" title="Up one folder">↑</button>
-        <div class="recs-path" id="recsPath" role="navigation" aria-label="Folder of the recordings"></div>
-        <button id="recsToday" class="key small" title="The folder of today (YYYY/MM/DD)">TODAY</button>
-        <div class="recs-player">
-          <button id="recsPlayKey" class="key accent" title="Play / pause; with nothing playing it plays the folder from the top of the list as shown (the playlist: sorted by Start = from the oldest)"><svg class="pp-ico" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 .8L9.2 5 2 9.2z"/></svg>PLAY</button>
-          <audio id="recsAudio" controls preload="none"></audio>
-          <span class="recs-pos" id="recsPos" title="Place in the playlist (the recordings of the folder in the order shown when it started)"></span>
-          <span class="recs-now" id="recsNow" title="The recording being played"></span>
-        </div>
-        <label class="key small toggle" title="When a recording ends, the next one of the playlist (the next row as sorted) plays by itself"><input id="recsNext" type="checkbox">AUTO-NEXT</label>
-        <label class="key small toggle" title="Shows only the starred (★) recordings of this folder"><input id="recsStarOnly" type="checkbox">★ ONLY</label>
-        <input id="recsFilter" class="recs-filter" type="search" placeholder="filter: name, memory, kHz, mode, source…" title="Shows only the recordings of this folder whose name, memory, frequency, mode or source contain the text">
-        <button id="recsDel" class="key small recs-del" disabled title="Delete the ticked recordings and folders (a folder with all in it; files being written stay)">DELETE</button>
-        <button id="iqpOpenKey" class="key small" title="IQ PLAYER: open an IQ file of the disk (WAV of REC IQ, SDR#, SDR++; .cu8, .cs8, HackRF PortaPack .C16, .cf32, SigMF) and play it through this VFO">IQ FILE…</button>
-        <button id="recsReload" class="key small" title="Read the folder again (it is read by itself when the tab opens and every 10 s while a recording runs)">⟳</button>
-        <span class="amsat-info" id="recsInfo"></span>
+      <div class="sdg recs-blocks">
+        <div class="sdg-b lit k-iq recs-b-dir"><b>FOLDER</b><i class="sdg-ico"><svg viewBox="0 0 16 16"><path d="M1.8 4.2h4.4l1.4 1.6h6.6v7.4H1.8z"/></svg></i>
+          <!-- one row: the fixed keys first (they do not move when the path gets longer), then the path -->
+          <div class="chips recs-dirrow">
+            <button id="recsUp" class="key small" title="Up one folder">↑</button>
+            <button id="recsToday" class="key small" title="The folder of today (YYYY/MM/DD)">TODAY</button>
+            <button id="recsReload" class="key small" title="Read the folder again (it is read by itself when the tab opens and every 10 s while a recording runs)">⟳</button>
+            <div class="recs-path" id="recsPath" role="navigation" aria-label="Folder of the recordings"></div></div>
+          <small class="amsat-info" id="recsInfo"></small></div>
+        <div class="sdg-b lit k-iq recs-b-play"><b>PLAYER</b><i class="sdg-ico"><svg viewBox="0 0 16 16"><path d="M5 3.2l7.5 4.8L5 12.8z"/></svg></i>
+          <div class="recs-player">
+            <button id="recsPlayKey" class="key accent" title="Play / pause; with nothing playing it plays the folder from the top of the list as shown (the playlist: sorted by Start = from the oldest)"><svg class="pp-ico" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 .8L9.2 5 2 9.2z"/></svg>PLAY</button>
+            <audio id="recsAudio" controls preload="none"></audio></div>
+          <div class="chips">
+            <label class="key small toggle" title="When a recording ends, the next one of the playlist (the next row as sorted) plays by itself"><input id="recsNext" type="checkbox">AUTO-NEXT</label>
+            <span class="recs-pos" id="recsPos" title="Place in the playlist (the recordings of the folder in the order shown when it started)"></span>
+            <span class="recs-now" id="recsNow" title="The recording being played"></span></div></div>
+        <div class="sdg-b lit k-iq recs-b-show"><b>SHOW</b><i class="sdg-ico"><svg viewBox="0 0 16 16"><path d="M2 3h12l-4.6 5.4V13l-2.8-1.4V8.4z"/></svg></i>
+          <div class="chips">
+            <input id="recsFilter" class="recs-filter" type="search" placeholder="filter: name, memory, kHz, mode, source…" title="Shows only the recordings of this folder whose name, memory, frequency, mode or source contain the text"></div>
+          <div class="chips">
+            <label class="key small toggle" title="Shows only the starred (★) recordings of this folder"><input id="recsStarOnly" type="checkbox">★ ONLY</label>
+            <button id="recsDel" class="key small recs-del" disabled title="Delete the ticked recordings and folders (a folder with all in it; files being written stay)">DELETE</button></div></div>
+        <div class="sdg-b lit k-iq recs-b-iq"><b>IQ PLAYER</b><i class="sdg-ico"><svg viewBox="0 0 16 16"><path d="M1.5 8c1.5-4 3-4 4.5 0s3 4 4.5 0 3-4 4 0"/></svg></i>
+          <div class="chips">
+            <button id="iqpOpenKey" class="key small" title="IQ PLAYER: open an IQ file of the disk (WAV of REC IQ, SDR#, SDR++; .cu8, .cs8, HackRF PortaPack .C16, .cf32, SigMF) and play it through this VFO">LOAD IQ FILE…</button></div>
+          <small>plays through this VFO as a virtual dongle; ▶ at an IQ recording in the list too</small></div>
       </div>
+      <div class="sdg-b lit k-iq recs-b-list"><b>RECORDINGS</b><i class="sdg-ico"><svg viewBox="0 0 16 16"><path d="M2.5 3.5h11M2.5 6.5h11M2.5 9.5h11M2.5 12.5h7"/></svg></i>
       <div class="amsat-body recs-body">
         <table class="recs-table">
           <thead id="recsHead"><tr><th class="sel"><input id="recsAll" type="checkbox" title="Tick all shown (folders and recordings)"></th><th></th><th class="star" data-k="starred" title="Starred recordings first (a click on ☆ in a row stars it)">★</th><th data-k="start">Start</th><th data-k="src">Source</th><th data-k="memory">Memory</th><th data-k="hz">Frequency</th><th data-k="mode">Mode</th><th data-k="secs">Length</th><th data-k="size">Size</th><th data-k="name">File</th><th></th><th></th></tr></thead>
           <tbody id="recsRows"></tbody>
         </table>
         <p class="note" id="recsEmpty" hidden></p>
-      </div>
+      </div></div>
     </div>
     <!-- MEMORIES tab (MEM key): the memory editor (CHANNELS, where a double click also recalls a memory, GROUPS, IMPORT, EXPORT);
          memory editor by Brano (brjanicek) -->

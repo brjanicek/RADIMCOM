@@ -62,6 +62,7 @@ import meteor_audio
 import meteor_fine
 import meteor_head
 import meteor_phys as mp
+import meteor_size
 import meteor_store
 import meteor_weak
 from meteor_store import log_name  # noqa: F401  (app.py: the log line of an echo)
@@ -268,6 +269,7 @@ class MeteorCounter:
         self._sat_recent = collections.deque(maxlen=WEAK_RECENT_N)    # {"pts"}: the satellites reported last
         self._plane_recent = collections.deque(maxlen=WEAK_RECENT_N)  # … and the aircraft of the meteor detector
         self._prior = mp.DopplerPrior()  # the station's own meteors: their rate and Doppler (meteor_phys.py)
+        self._size = meteor_size.SizeEstimator()     # the estimated size of each meteoroid (meteor_size.py)
         self._sat_known = collections.deque(maxlen=TLE_Q_N)    # satellites seen: identified from TLE or not
         self._fast = None               # meteor_weak.Fast
         self._fast_wait = []            # its pings waiting for the meteor detector (_fast_step)
@@ -636,6 +638,11 @@ class MeteorCounter:
         dec = mp.decay(trace)           # the exponential decay of the trail (meteor_phys.decay): tau, how straight in dB
         if dec:
             e["tau"], e["tau_r2"] = round(dec[0], 3), round(dec[1], 2)
+            if kind == "under":
+                self._size.add_tau(*dec)
+        est = self._size.estimate(kind, ev["peak"], dur, self.threshold_db)      # meteor_size.py: an estimate only
+        if est:
+            e["est"] = est
         self._recent_ev.append((ev["t0"], ev["t1"]))                   # a FAST ping at that time is this echo
         self._recent_det.append((ev["t0"], ev["t1"], ev["dop"]))       # … and a SAT·LINES aircraft there too
         self._pending.append((ev, e))   # reported when its detail is complete (DETAIL_POST_S later)
