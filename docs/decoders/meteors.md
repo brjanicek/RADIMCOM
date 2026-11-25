@@ -21,7 +21,8 @@ echoes).
 
 The head of the page: **ON** switches the counter on, **LOG** writes every echo to a daily log
 (`data\logs\meteor\YYYY\MM\DD\meteor_YYYY-MM-DD.txt`, UTC, with the satellite or aircraft found and H for a head echo),
-**i** opens a short guide. The counts are shown on every page next to the tabs: **HOUR**, **PREV** (the previous UTC
+**i** opens a short guide, **?** a sub-page of how each echo is classified (the rules of the meteor detector in their
+order, the satellite tracker with TLE, the weak detectors; again **?**: back). The counts are shown on every page next to the tabs: **HOUR**, **PREV** (the previous UTC
 hour), **60 MIN**, **TODAY**, **PLANES** and **SATS** (since the start, not counted as meteors).
 
 ### LIVE
@@ -46,13 +47,16 @@ hour), **60 MIN**, **TODAY**, **PLANES** and **SATS** (since the start, not coun
 - **ECHOES**: **NOW** (the last 500 since the start), **DAY…** (an earlier UTC day from the daily log; no detail unless
   marked) or **★ MARKED** (☆ on a row keeps the echo with its detail and sound for good in `data\meteor_marks\<VFO>`).
   Filters **ALL**, **METEORS**, **SAT**, **PLANE**, **H** (with a head echo), a minimum SNR, and **CLR** (clears NOW;
-  statistics, log and marks stay). The *Type* column says UNDERDENSE, OVERDENSE, PLANE (flight / registration, a click on
-  it opens the aircraft on adsb.fi), SAT (the satellite found, *?* when none), and how it was found: **HEAD ECHO**,
-  **FAST BURST**, **KNOWN (TLE)**, **UNKNOWN LINE** / **LINE**.
-- **Detail** (a click on a row):
+  statistics, log and marks stay). The *Type* column has a coloured tag in the colours of the charts: **UNDER** (green),
+  **OVER** (amber), **PLANE** (blue; flight / registration after it, a click on it opens the aircraft on adsb.fi), **SAT**
+  (violet; the satellite found, *?* when none), **HEAD** (pink, a head echo found), and how it was found: **FAST BURST**,
+  **KNOWN (TLE)**, **UNKNOWN LINE** / **LINE** (a PLANE with LINE: a slow line near the carrier found by SAT·LINES).
+- **Detail** (a click on a row): the title with the same tags; **◀ PREV** / **NEXT ▶** (fixed at its left) open the
+  echo before / after it among those the table shows (its source, kinds and minimum SNR).
   - a meteor: the fine cells (1 Hz × 16 ms) around its Doppler from 1 s before to 1 s after, dashed lines at its start
     and end; with **HEAD ECHO** on also the ±5 kHz head echo spectrum on the same time axis under it. All parts get the
-    colour levels of the fine cells, so they look alike;
+    colour levels of the fine cells, so they look alike. A head echo reaching out of the band shown: its Hz widened to
+    the whole head echo, the rest filled from the head echo spectrum (thin lines at the edges of the band);
   - a satellite: its own band (its track ±400 Hz) over the whole track, enhanced by itself (each frame averaged with the
     8 before it along the drift of the track, its own colour levels), so a weak streak shows without touching the levels
     of the waterfall;

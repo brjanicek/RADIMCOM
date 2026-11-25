@@ -4,6 +4,20 @@
 
 Test beta (GitHub branch `1.2beta3`; continues 1.2beta2).
 
+### Changes
+
+#### GRAVES
+
+- **?** next to **i**: a sub-page of how each echo is classified, in the look of STATION – the rules of the meteor
+  detector in the order they decide (head echo, aircraft, satellite pieces, slow satellites, sweeps, meteors), the
+  satellite tracker with the orbital elements, and the weak detectors FAST, SAT·TLE and SAT·LINES.
+- **Kind tags:** UNDER, OVER, PLANE, SAT and HEAD as coloured tags (the colours of the charts) in the ECHOES table, the
+  title of the detail and the ? page. An aircraft found by SAT·LINES says so (a slow line, not a satellite).
+- **Detail: ◀ PREV / NEXT ▶** (fixed at its left) open the echo before / after among those the table shows (source,
+  kinds, minimum SNR).
+- **Detail: a head echo outside ±500 Hz is shown whole** in the upper spectrum: its Hz widened to the head echo, the rest
+  filled from the head echo spectrum (before, only its last tens of ms within the band showed).
+
 ## Ver. 1.2beta2
 
 Test beta (GitHub branch `1.2beta2`; continues 1.2beta1).

@@ -82,6 +82,10 @@ Change log
 
 Ver. 1.2beta3
 (test beta, GitHub branch 1.2beta3; continues 1.2beta2)
+GRAVES
+- ? next to i: how each echo is classified (meteor, aircraft, satellite, SAT-TLE, SAT-LINES, FAST), in the look of STATION.
+- Coloured kind tags UNDER / OVER / PLANE / SAT / HEAD in ECHOES, the detail and the ? page.
+- Detail: PREV / NEXT through the echoes the table shows; a head echo outside +-500 Hz shown whole in the upper spectrum.
 
 Ver. 1.2beta2
 (test beta, GitHub branch 1.2beta2; continues 1.2beta1)

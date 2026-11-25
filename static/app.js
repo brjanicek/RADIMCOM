@@ -23809,7 +23809,8 @@ async function mtMarkToggle(ts) {
 }
 /** The sub-pages LIVE · STATS · SETTINGS (remembered); the charts are drawn again at their real width when shown. */
 function mtTabShow() {
-  const t = ["live", "stats", "set"].includes(recall("mtTab")) ? recall("mtTab") : "live";
+  const t = ["live", "stats", "set", "how"].includes(recall("mtTab")) ? recall("mtTab") : "live";
+  $("mtHowBtn").classList.toggle("open", t === "how");
   for (const b of $("mtTabs").querySelectorAll("[data-mt-tab]")) {
     b.classList.toggle("on", b.dataset.mtTab === t);
     b.setAttribute("aria-selected", b.dataset.mtTab === t ? "true" : "false");
@@ -23821,6 +23822,15 @@ $("mtTabs").addEventListener("click", (e) => {
   const b = e.target.closest("[data-mt-tab]");
   if (!b) return;
   store("mtTab", b.dataset.mtTab);
+  mtTabShow();
+  mtLastEv = "";
+  if (mtData) mtRender();
+});
+// ?: the sub-page of how echoes are classified; again: back to the page before it
+$("mtHowBtn").addEventListener("click", () => {
+  const t = recall("mtTab");
+  if (t === "how") store("mtTab", recall("mtTabPrev") || "live");
+  else { store("mtTabPrev", t || "live"); store("mtTab", "how"); }
   mtTabShow();
   mtLastEv = "";
   if (mtData) mtRender();
@@ -23855,6 +23865,11 @@ function mtTable(d) {
     rows.innerHTML = ev.slice(-1500).reverse().map(mtRowHtml).join("");
   }
   mtTbl = { base, last: lastE ? lastE.ts : null, sig: sigOf(lastE) };
+  if (mtDet) {                           // a new echo or another filter: PREV / NEXT of the detail again
+    const nb = mtDetNear(mtDet.ts);
+    $("mtDetPrev").disabled = !nb.prev;
+    $("mtDetNext").disabled = !nb.next;
+  }
 }
 /** One row of the echo table. */
 function mtRowHtml(e) {
@@ -23867,14 +23882,14 @@ function mtRowHtml(e) {
     return `<tr class="${cls}" data-ts="${e.ts}" title="${e.det === false && e.log ? "From the log: no detail kept" : "Click: the detail of this echo"}">` +
       `<td class="mt-star${star ? " on" : ""}" data-star="${e.ts}" title="${star ? "Marked: kept for good (click: unmark)" : "Mark: keep this echo and its detail for good"}">${star ? "★" : "☆"}</td>` +
       `<td class="utc">${day}${e.time}</td><td class="num">${e.snr.toFixed(1)}</td><td class="num">${e.dur.toFixed(2)}</td>` +
-      `<td class="num">${e.doppler > 0 ? "+" : ""}${e.doppler}</td><td class="num">${e.drift ? e.drift.toFixed(1) : ""}</td><td><span class="mt-kind ${k[1]}" title="${k[0]}">${k[2]}</span>` +
+      `<td class="num">${e.doppler > 0 ? "+" : ""}${e.doppler}</td><td class="num">${e.drift ? e.drift.toFixed(1) : ""}</td><td><span class="mt-k ${k[1]}" title="${k[0]}">${k[2]}</span>` +
       `${sn ? (e.kind === "plane" && e.air && e.air.hex
         ? `<a class="mt-satn" href="https://globe.adsb.fi/?icao=${mtEsc(e.air.hex.toLowerCase())}" target="_blank" rel="noopener" title="${mtEsc(mtSatName(e, true))}\nClick: open on adsb.fi">`
         : `<span class="mt-satn" title="${mtEsc(mtSatName(e, true))}">`) + mtEsc(sn.length > 18 ? sn.slice(0, 17) + "…" : sn) + (e.kind === "plane" && e.air && e.air.hex ? "</a>" : "</span>") : ""}` +
-      `${h ? `<span class="mt-hd mt-how" title="${h.log ? "Head echo (from the log)" : `Head echo: ${h.f0 > 0 ? "+" : ""}${h.f0} → ${h.f1 > 0 ? "+" : ""}${h.f1} Hz, ${(h.slope / 1000).toFixed(1)} kHz/s, ${h.t} s before the echo`}">HEAD ECHO</span>` : ""}` +
+      `${h ? `<span class="mt-k mt-head" title="${h.log ? "Head echo (from the log)" : `Head echo${h.weak ? " (faint, found along its line)" : ""}: ${h.f0 > 0 ? "+" : ""}${h.f0} → ${h.f1 > 0 ? "+" : ""}${h.f1} Hz, ${(h.slope / 1000).toFixed(1)} kHz/s, ${h.t} s before the echo`}">HEAD</span>` : ""}` +
       `${e.fast ? `<span class="mt-hd mt-how" title="Found by FAST (a short ping in the time signal), not by the meteor detector">FAST BURST</span>` : ""}` +
       `${e.how === "tle" ? `<span class="mt-hd mt-how" title="Found by SAT·TLE along the predicted Doppler (too weak for the tracker)${e.z ? `, z ${e.z}` : ""}">KNOWN (TLE)</span>` : ""}` +
-      `${e.how === "lines" ? `<span class="mt-hd mt-how" title="Found by SAT·LINES as a weak straight streak (too weak for the tracker)${e.z ? `, z ${e.z}` : ""}">${e.kind === "plane" || (e.sat && e.sat.norad) ? "LINE" : "UNKNOWN LINE"}</span>` : ""}</td></tr>`;
+      `${e.how === "lines" ? `<span class="mt-hd mt-how" title="${e.kind === "plane" ? "Found by the line search (SAT·LINES) as a weak slow line near the carrier: an aircraft, not a satellite" : "Found by SAT·LINES as a weak straight streak (too weak for the tracker)"}${e.z ? `, z ${e.z}` : ""}">${e.kind === "plane" || (e.sat && e.sat.norad) ? "LINE" : "UNKNOWN LINE"}</span>` : ""}</td></tr>`;
   }
 }
 
@@ -23920,7 +23935,11 @@ function mtDetShow() {
   if (!m) return;
   const d = m.d, e = d ? d.echo : (mtSrcList(mtData) || []).find((x) => x.ts === m.ts);
   const k = e ? (MT_KIND[e.kind] || MT_KIND.under) : null;
-  $("mtDetT").innerHTML = e ? `<b>${e.time} UTC</b> · ${k[0]} · ${e.snr.toFixed(1)} dB · ${e.dur.toFixed(2)} s · ${e.doppler > 0 ? "+" : ""}${e.doppler} Hz` +
+  const nb = mtDetNear(m.ts);
+  $("mtDetPrev").disabled = !nb.prev;
+  $("mtDetNext").disabled = !nb.next;
+  $("mtDetT").innerHTML = e ? `<b>${e.time} UTC</b> <span class="mt-k ${k[1]}" title="${k[0]}">${k[2]}</span>` +
+    `${e.head ? `<span class="mt-k mt-head" title="Head echo found">HEAD</span>` : ""} · ${e.snr.toFixed(1)} dB · ${e.dur.toFixed(2)} s · ${e.doppler > 0 ? "+" : ""}${e.doppler} Hz` +
     `${e.drift ? ` · drift ${e.drift.toFixed(1)} Hz/s` : ""}` : "";
   $("mtDetHB").hidden = !(d && d.head);
   const snd = !!((d && d.audio) || (e && e.audio));      // its sound (meteor_audio.py), also of a marked echo
@@ -23957,9 +23976,22 @@ function mtDetDraw() {
     mtDetPart($("mtDetCv"), d, e, [[e.ts, "start"], [e.ts + e.dur, "end"]], [0, -500, 500], d.curve && d.curve.length > 1 ? d.curve : null, 6, true);
   } else {          // an aircraft: two green lines, the Doppler of the aircraft found on adsb.fi; a slow head echo (in the fine cells) too
     const h = e.head && e.head.fine ? e.head : null;
-    const fit = d.curve && d.curve.length > 1 ? d.curve
+    let fit = d.curve && d.curve.length > 1 ? d.curve
       : h ? (h.pts && h.pts.length > 1 ? h.pts : [[e.ts - h.t, h.f0], [e.ts - h.t + (h.f1 - h.f0) / h.slope, h.f1]]) : null;
-    mtDetPart($("mtDetCv"), d, e, [[e.ts, "start"], [e.ts + e.dur, "end"]], [0], fit, 6, false, win);
+    // a head echo reaching out of the band shown (mostly ±500 Hz): the Hz widened to the whole head echo, the rest
+    // of it from the head echo spectrum (the band itself stays at its own resolution)
+    let ext = null, lines = [0];
+    const hh = e.head, hz = d.hz || [];
+    if (hh && !hh.fine && hh.slope && d.head && d.head.n && win && hz.length > 1) {
+      const lo = Math.min(hh.f0, hh.f1), hi = Math.max(hh.f0, hh.f1), m = Math.max(150, 0.15 * (hi - lo));
+      const hLo = d.head.hz[0], hHi = d.head.hz[d.head.hz.length - 1];
+      if (hi > hz[hz.length - 1] || lo < hz[0]) {
+        ext = { part: d.head, fLo: Math.max(hLo, Math.min(hz[0], lo - m)), fHi: Math.min(hHi, Math.max(hz[hz.length - 1], hi + m)) };
+        lines = [0, Math.round(hz[0]), Math.round(hz[hz.length - 1])];
+        if (!fit) fit = [[e.ts - hh.t, hh.f0], [e.ts - hh.t + (hh.f1 - hh.f0) / hh.slope, hh.f1]];
+      }
+    }
+    mtDetPart($("mtDetCv"), d, e, [[e.ts, "start"], [e.ts + e.dur, "end"]], lines, fit, 6, false, win, ext);
   }
   if (d.head) {
     const h = e.head;
@@ -24024,19 +24056,12 @@ function mtDetGain(raw) {
   const db = (p * 30) / 255;
   return db > 0.5 ? Math.max(0.6, Math.min(2.5, MT_DET_P99 / db)) : 1;
 }
-function mtDetPart(cv, part, e, marks, hzLines, fit, gap = 6, enhance = false, win = null) {
-  const dpr = window.devicePixelRatio || 1;
-  const W = Math.max(1, Math.round(cv.clientWidth * dpr)), H = Math.max(1, Math.round(cv.clientHeight * dpr));
-  cv.width = W; cv.height = H;
-  const ctx = cv.getContext("2d");
-  ctx.fillStyle = `rgb(${mtLut[0]},${mtLut[1]},${mtLut[2]})`;
-  ctx.fillRect(0, 0, W, H);
-  const raw = atob(part.rows), nb = part.hz.length, n = part.n;
-  if (!n || !nb || raw.length < n * nb) return;
-  const enh = enhance ? mtSatEnhance(raw, n, nb, part, e, fit) : null;     // colour indices already
-  const gk = enh ? 1 : mtDetGain(raw);
+/** The image of a detail part (frames × bins -> canvas n × R, Doppler up): R pixel rows at most. */
+function mtDetImg(part, raw, R, enh) {
+  const nb = part.hz.length, n = part.n, gk = enh ? 1 : mtDetGain(raw);
   // more bins than pixel rows (the fine one: 1001): the max of each group, so a thin line is never skipped
-  const R = Math.max(1, Math.min(nb, H)), rowOf = new Int32Array(nb), m = new Uint8Array(R);
+  R = Math.max(1, Math.min(nb, R));
+  const rowOf = new Int32Array(nb), m = new Uint8Array(R);
   for (let q = 0; q < nb; q++) rowOf[q] = Math.min(R - 1, Math.floor((q * R) / nb));
   const img = document.createElement("canvas");
   img.width = n; img.height = R;
@@ -24051,12 +24076,34 @@ function mtDetPart(cv, part, e, marks, hzLines, fit, gap = 6, enhance = false, w
     }
   }
   ic.putImageData(data, 0, 0);
+  return img;
+}
+/** ext: {part, fLo, fHi}: the Hz shown wider than the part (a head echo outside it): ext.part (the head echo
+ *  spectrum) fills the rest, the part over its own band. */
+function mtDetPart(cv, part, e, marks, hzLines, fit, gap = 6, enhance = false, win = null, ext = null) {
+  const dpr = window.devicePixelRatio || 1;
+  const W = Math.max(1, Math.round(cv.clientWidth * dpr)), H = Math.max(1, Math.round(cv.clientHeight * dpr));
+  cv.width = W; cv.height = H;
+  const ctx = cv.getContext("2d");
+  ctx.fillStyle = `rgb(${mtLut[0]},${mtLut[1]},${mtLut[2]})`;
+  ctx.fillRect(0, 0, W, H);
+  const raw = atob(part.rows), nb = part.hz.length, n = part.n;
+  if (!n || !nb || raw.length < n * nb) return;
+  const enh = enhance ? mtSatEnhance(raw, n, nb, part, e, fit) : null;     // colour indices already
   ctx.imageSmoothingEnabled = false;
   // win: the time shown (the same for the parts of one echo, so their times are one under the other)
-  const [ta, tb] = win || mtDetSpan(part), span = tb - ta, fLo = part.hz[0], fHi = part.hz[nb - 1];
+  const [ta, tb] = win || mtDetSpan(part), span = tb - ta;
+  const fLo = ext ? ext.fLo : part.hz[0], fHi = ext ? ext.fHi : part.hz[nb - 1];
   const x = (t) => ((t - ta) / span) * W, y = (f) => ((fHi - f) / (fHi - fLo)) * H;
-  const [pa, pb] = mtDetSpan(part);
-  ctx.drawImage(img, x(pa), 0, x(pb) - x(pa), H);
+  if (ext) {
+    const xp = ext.part, xr = atob(xp.rows), xnb = xp.hz.length;
+    if (xp.n && xnb && xr.length >= xp.n * xnb) {
+      const [qa, qb] = mtDetSpan(xp), y0 = y(xp.hz[xnb - 1]), y1 = y(xp.hz[0]);
+      ctx.drawImage(mtDetImg(xp, xr, Math.round(y1 - y0), null), x(qa), y0, x(qb) - x(qa), y1 - y0);
+    }
+  }
+  const [pa, pb] = mtDetSpan(part), py0 = y(part.hz[nb - 1]), py1 = y(part.hz[0]);
+  ctx.drawImage(mtDetImg(part, raw, Math.round(py1 - py0), enh), x(pa), py0, x(pb) - x(pa), py1 - py0);
   ctx.font = `${9 * dpr}px system-ui, sans-serif`;
   ctx.lineWidth = dpr;
   ctx.strokeStyle = "rgba(255,255,255,.18)";
@@ -24099,6 +24146,27 @@ $("mtRows").addEventListener("click", (ev) => {
   if (mtDet && mtDet.ts === ts) mtDetClose(); else mtDetOpen(ts);
 });
 $("mtDetX").addEventListener("click", mtDetClose);
+/** The echoes before and after ts among those the table shows (its source, kinds, min SNR) -> {prev, next} (ts or null). */
+function mtDetNear(ts) {
+  const filt = mtFilt(), min = Number($("mtMinSnr").value) || 0;
+  const ev = (mtSrcList(mtData) || []).filter((x) => mtKindOk(x, filt) && x.snr >= min);
+  let prev = null, next = null;
+  for (const x of ev) {
+    if (x.ts < ts - 0.005 && (prev === null || x.ts > prev)) prev = x.ts;
+    if (x.ts > ts + 0.005 && (next === null || x.ts < next)) next = x.ts;
+  }
+  return { prev, next };
+}
+function mtDetStep(dir) {
+  if (!mtDet) return;
+  const ts = mtDetNear(mtDet.ts)[dir];
+  if (ts === null) return;
+  mtDetOpen(ts);
+  const r = $("mtRows").querySelector(`tr[data-ts="${ts}"]`);
+  if (r) r.scrollIntoView({ block: "nearest" });
+}
+$("mtDetPrev").addEventListener("click", () => mtDetStep("prev"));
+$("mtDetNext").addEventListener("click", () => mtDetStep("next"));
 $("mtAir").addEventListener("change", () => {
   if (!mtVfo()) return;
   fetch(mtVfo().base + "/api/meteors", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ air: $("mtAir").checked }) })

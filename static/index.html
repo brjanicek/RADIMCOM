@@ -783,6 +783,7 @@
         <label class="key small toggle" data-dec-on="meteor" title="Meteor counter on/off"><input id="meteorOn" type="checkbox">ON</label>
         <span id="meteorInfo" class="muted"></span>
         <label class="wf-opt log-opt" title="Write every echo to the daily log data\logs\meteor\YYYY\MM\DD\meteor_YYYY-MM-DD.txt (UTC, shared by all VFOs)"><input type="checkbox" data-log="meteor">LOG</label>
+        <button type="button" class="set-i mt-ibtn mt-qbtn" id="mtHowBtn" aria-label="How echoes are classified" title="How echoes are classified (meteor, aircraft, satellite, SAT·TLE, SAT·LINES, FAST)">?</button>
         <button type="button" class="set-i mt-ibtn" id="mtInfoBtn" aria-label="How it works" title="How it works">i</button>
       </div>
       <div class="sdg mt-panel">
@@ -801,7 +802,7 @@
             <li>The Doppler of a trail echo hardly moves: the reflection comes from one fixed point of the trail, which only
               the wind drifts (tens of Hz). A click on an echo shows it at full resolution. <b>HEAD ECHO</b> adds a ±5 kHz
               spectrum with short frames: the head echo, the reflection from the meteoroid itself, is a fast sloping streak
-              (kHz in a fraction of a second) ending where the trail echo starts. It is rare and weak; <b>HEAD ECHO</b> in the table
+              (kHz in a fraction of a second) ending where the trail echo starts. It is rare and weak; the tag <b>HEAD</b> in the table
               marks one found. A slow head echo (tens to hundreds of Hz, braking onto the trail in a curve) is found in the
               fine cells of the detail without the key.</li>
             <li><b>SAT</b>: GRAVES is a radar for satellites, and they reflect it too: a long streak (seconds to tens of
@@ -862,7 +863,7 @@
               <button id="mtReset" class="key small" title="Delete the hourly and daily statistics of this VFO">RESET STATS</button></div>
             <div class="chips">
               <label class="key small toggle" id="mtAfcK" title="AFC: where the GRAVES carrier really is, found from the meteors"><input id="mtAfc" type="checkbox"><span id="mtAfcT">AFC</span></label>
-              <label class="key small toggle" id="mtHeadK" title="HEAD ECHO: a second spectrum ±5 kHz with short frames (~15 ms) for the head echo, the reflection from the meteoroid itself: a fast sloping streak just before the trail echo. Shown in the detail of each echo; H in the table = one found"><input id="mtHead" type="checkbox">HEAD ECHO</label>
+              <label class="key small toggle" id="mtHeadK" title="HEAD ECHO: a second spectrum ±5 kHz with short frames (~15 ms) for the head echo, the reflection from the meteoroid itself: a fast sloping streak just before the trail echo. Shown in the detail of each echo; the tag HEAD in the table = one found"><input id="mtHead" type="checkbox">HEAD ECHO</label>
               <label class="key small toggle" id="mtAirK" title="ADS-B: aircraft echoes looked up on adsb.fi"><input id="mtAir" type="checkbox">ADS-B</label></div>
             <div class="chips">
               <label class="key small toggle" id="mtFastK" title="FAST: short underdense pings (a few tens of ms) in the time signal, which the meteor detector (~0.25 s frames) dilutes: the carrier ±150 Hz in 32 ms spectra every 8 ms, a ping = a bin 11 dB over its floor for at least 3 of them and over a reference band (impulse noise). Counted as UNDER, FAST BURST in the table"><input id="mtFast" type="checkbox"><span id="mtFastT">FAST</span></label>
@@ -882,6 +883,45 @@
               <label class="key small toggle" title="IQ BAND: also the raw IQ of the whole dongle band at that time (from PRE-REC, which it switches on with at least 30 s; at most 8 s an echo, ~5 MB/s at 2.4 MS/s)"><input id="mtRecBand" type="checkbox">IQ BAND</label></div>
             <small id="mtRecSub">RECORDINGS tab › the day folder, source GRAVES; SAVE in the detail of an echo saves that one</small></div>
         </div></div>
+        <!-- ? (mtHowBtn): how an echo is classified, the rules of meteor.py / meteor_sat.py / meteor_weak.py -->
+        <div class="mt-page mt-howp" data-mt-page="how" hidden>
+          <div class="sdg-b k-cmt"><b>ECHO OF THE METEOR DETECTOR · ±500 Hz · the first rule that fits decides</b><i class="sdg-ico"><svg viewBox="0 0 16 16"><path d="M2 12h2l1.5-7 2 9 1.5-5 1 3H14"/></svg></i>
+            <table class="mt-cls">
+              <thead><tr><th>#</th><th>Kind</th><th>Based on</th></tr></thead>
+              <tbody>
+                <tr><td>1</td><td><span class="mt-k mt-head">HEAD</span> <span class="mt-k mt-under">UNDER</span> <span class="mt-k mt-over">OVER</span></td><td>A <b>head echo</b> before the trail (≥ ~0.5 kHz/s, ending on the trail's Doppler), found by any of the four ways, a faint one too (summed along its line, z ≥ 9.5). Always a meteor, even on a satellite's line.</td></tr>
+                <tr><td>2</td><td><span class="mt-k mt-plane">PLANE</span></td><td>Longer than 20 s and not drifting like a satellite.</td></tr>
+                <tr><td>3</td><td><span class="mt-k mt-sat">SAT</span> piece</td><td>On the line of the satellite just found, by the sum of Bayes factors: its own drift goes with the line (a trail stands still in the wind), the chance of a meteor at that Doppler (the station's own meteor rate, learnt live) and the orbital elements (TLE).</td></tr>
+                <tr><td>4</td><td><span class="mt-k mt-sat">SAT</span> slow</td><td>≥ 0.6 s, straight (rms ≤ 25 Hz), ≥ 25 Hz/s in both halves and the drift 2σ over ~18 Hz/s (the slowest a satellite can be near the carrier).</td></tr>
+                <tr><td>5</td><td><span class="mt-k mt-plane">PLANE</span> drift</td><td>&gt; 2 s, the drift 2σ over 5 Hz/s, moving at least 3 bins, the Doppler ≤ ~286 Hz (2v/λ at 300 m/s).</td></tr>
+                <tr><td>6</td><td><span class="mt-k mt-plane">PLANE</span> memory</td><td>Within 30 s of an aircraft, at its Doppler (±15 Hz + 5 Hz/s per second after it) and already up before the echo.</td></tr>
+                <tr><td>7</td><td><span class="mt-k mt-plane">PLANE</span> rise</td><td>1.5 to 0.3 s before the echo already 2.5× over the floor: a meteor starts at once, an aircraft comes up gradually.</td></tr>
+                <tr><td>8</td><td><span class="mt-k mt-sat">SAT</span> sweep</td><td>A short echo sweeping through: ≥ 6 points, ≥ 150 Hz/s in both halves, straight (rms ≤ 12 Hz).</td></tr>
+                <tr><td>9</td><td><span class="mt-k mt-under">UNDER</span> <span class="mt-k mt-over">OVER</span></td><td>Everything else: a meteor, underdense under 1 s, overdense from 1 s.</td></tr>
+              </tbody>
+            </table>
+            <small>Then: an echo on a finished satellite track of the tracker without a head echo is a piece of it, the satellite is reported once. An aircraft is looked up on ADS-B (adsb.fi). The decay τ is only shown, it does not decide.</small></div>
+          <div class="sdg-b k-dop"><b>SATELLITES · the wide spectrum ±8 kHz</b><i class="sdg-ico"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="2"/><path d="M2 12c3-1 6-4 12-10M3 4.5l2 2M11 9.5l2 2"/></svg></i>
+            <table class="mt-cls">
+              <thead><tr><th>Source</th><th>Kind</th><th>Based on</th></tr></thead>
+              <tbody>
+                <tr><td>Tracker</td><td><span class="mt-k mt-sat">SAT</span></td><td>A track ≥ 1 s, ≥ 8 points, ≥ 2 points/s, 80 % on a smooth curve, rms ≤ 30 Hz, and either ≥ 40 Hz/s over ≥ 250 Hz or ≥ 450 Hz off the carrier (where no aircraft gets). <b>Not a satellite:</b> a head echo braking onto a trail (a meteor), a duplicate of a side lobe, pieces whose Bayes factor (their drifts + TLE) is &lt; 0 (meteors joined by chance).</td></tr>
+                <tr><td>TLE evidence</td><td>for / against</td><td>A satellite lit by GRAVES and over the horizon predicted at the echo's Doppler; the chance of that by accident measured on 16 shifted copies (decoys). Over 50 %: no evidence (short pings near the carrier). The share of satellites without public elements is learnt from the identifications.</td></tr>
+                <tr><td>Identification</td><td>name, NORAD</td><td>The best TLE candidate on the curve with the known receiver offset.</td></tr>
+              </tbody>
+            </table></div>
+          <div class="sdg-b k-tune"><b>WEAK DETECTORS · SETTINGS › DETECTOR</b><i class="sdg-ico"><svg viewBox="0 0 16 16"><path d="M2 8h2l1-3 2 6 2-8 2 7 1-2h2"/></svg></i>
+            <table class="mt-cls">
+              <thead><tr><th>Detector</th><th>Kind</th><th>Based on</th></tr></thead>
+              <tbody>
+                <tr><td>FAST</td><td><span class="mt-k mt-under">UNDER</span> FAST BURST</td><td>Pings of tens of ms the main detector dilutes: 32 ms spectra (~31 Hz) in ±150 Hz, a bin ≥ 11 dB over its floor for ≥ 3 frames and ≥ 6 dB over a reference band 500 Hz away (impulse noise). Not counted if the main detector has it.</td></tr>
+                <tr><td>SAT·TLE</td><td><span class="mt-k mt-sat">SAT</span> named</td><td>The power summed along the Doppler curve TLE predicts for each lit satellite: z ≥ 10, each half ≥ 3.</td></tr>
+                <tr><td>SAT·LINES</td><td><span class="mt-k mt-sat">SAT</span></td><td>A Hough transform over the lines of 80–600 Hz/s, z ≥ 8.5, each half over the noise too; lines of following windows joined into a track, then identified.</td></tr>
+                <tr><td>SAT·LINES<br>slow line</td><td><span class="mt-k mt-plane">PLANE</span></td><td>The line search catches aircraft too, so not every line is a satellite: a track all within ±350 Hz (an aircraft ≤ ~286 Hz) and slower than 25 Hz/s (a satellite near the carrier ≥ ~18 Hz/s, live −34…−59 Hz/s) is an aircraft. Reported as PLANE with the tag LINE (found by the line search), looked up on ADS-B; not if the meteor detector has it.</td></tr>
+              </tbody>
+            </table>
+            <small>Nothing is reported twice: what the tracker or the main detector has already, the weak detectors drop.</small></div>
+        </div>
         <!-- LIVE: the waterfall, under it the echoes -->
         <div class="mt-page mt-live" data-mt-page="live">
           <div class="sdg-b k-cmt" id="mtScopeB"><i class="sdg-ico"><svg viewBox="0 0 16 16"><rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M4.5 6h3M9 6h2.5M4.5 9h1.5M8 9h4M4.5 11.5h5"/></svg></i><div class="mt-scopehead"><b>LAST <span id="mtSpanT">1 MINUTE</span> · waterfall <span id="mtWideT">±500 Hz</span> around GRAVES, under it the strongest bin above its floor, echoes marked</b>
@@ -919,7 +959,9 @@
               <span class="muted" id="mtCountT"></span></div>
             <!-- the detail of one echo (meteor.py _cut): full resolution ±500 Hz, with HEAD ECHO also ±5 kHz before it -->
             <div class="mt-det" id="mtDet" hidden>
-              <div class="mt-dethead"><span id="mtDetT"></span>
+              <div class="mt-dethead">
+                <button type="button" class="key small" id="mtDetPrev" title="The echo before this one (of those the table shows: its source, kinds and min SNR)">◀ PREV</button>
+                <button type="button" class="key small" id="mtDetNext" title="The echo after this one (of those the table shows: its source, kinds and min SNR)">NEXT ▶</button><span id="mtDetT"></span>
                 <button type="button" class="key small" id="mtDetPlay" hidden title="Play the echo as on 143.049 MHz USB (the carrier = a 1 kHz tone). A satellite: its signal followed along its track (±60 Hz kept, a weak one is heard too) as a tone that follows its Doppler, a sweep over 2 kHz squeezed into the audio band">▶ PLAY</button>
                 <a class="key small" id="mtDetWav" hidden download title="Save the sound of this echo (WAV)">WAV</a>
                 <button type="button" class="key small" id="mtDetSave" title="SAVE: this echo into the recordings folder (RECORDINGS tab, source GRAVES): its sound as MP3, its IQ around the carrier and, with PRE-REC on, the IQ of the whole band – whatever is still kept of it">SAVE</button>

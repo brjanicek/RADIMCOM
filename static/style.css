@@ -4818,6 +4818,27 @@ body.map-only #comStatus, #comPane:fullscreen #comStatus { display: flex; }
 .meteor .mt-rotx { display: flex; flex-direction: column; gap: 3px; }
 .meteor .mt-rotx > small { max-width: 240px; color: var(--dim); font-size: 10.5px; white-space: normal; }
 .meteor .mt-echohead { display: flex; align-items: center; gap: 6px 10px; flex-wrap: wrap; }
+/* ? : how an echo is classified (STATION blocks, a table in each) */
+.meteor .ft8-head .mt-qbtn + .mt-ibtn { margin-left: 4px; }
+.meteor .mt-howp { display: grid; gap: 8px; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); align-content: start; }
+.meteor .mt-howp > .sdg-b { min-width: 0; padding: 5px 30px 6px 8px; }
+.meteor .mt-howp > .sdg-b:first-child { grid-row: span 2; }
+.meteor .mt-howp > .sdg-b > small { color: var(--dim); font-size: 10.5px; white-space: normal; }
+.meteor .mt-cls { width: 100%; border-collapse: collapse; font-size: 11px; color: var(--text); }
+.meteor .mt-cls th { font: 700 9.5px system-ui, sans-serif; letter-spacing: .08em; color: var(--muted); text-align: left;
+  padding: 2px 6px; border-bottom: 1px solid var(--line); }
+.meteor .mt-cls td { padding: 3px 6px; vertical-align: top; border-bottom: 1px solid color-mix(in srgb, var(--line) 50%, transparent);
+  white-space: normal; }
+.meteor .mt-cls td:first-child { color: var(--muted); white-space: nowrap; }
+.meteor .mt-cls td:nth-child(2) { white-space: nowrap; color: var(--muted); }
+/* the kind tags (the ? page and the ECHOES table), in the colours of the charts */
+.meteor .mt-k { display: inline-block; padding: 0 5px; border-radius: 3px; font: 700 9.5px system-ui, sans-serif; letter-spacing: .06em;
+  line-height: 14px; border: 1px solid currentColor; background: color-mix(in srgb, currentColor 10%, transparent); white-space: nowrap; }
+.meteor .mt-k + .mt-k, .meteor .mt-satn + .mt-k, .meteor .mt-k + .mt-satn { margin-left: 4px; }
+.meteor .mt-tbl tr.mt-dim .mt-k { opacity: .8; }
+.meteor .mt-k.mt-under { color: var(--green); } .meteor .mt-k.mt-over { color: var(--amber); }
+.meteor .mt-k.mt-plane { color: var(--blue); } .meteor .mt-k.mt-sat { color: #c79bff; } .meteor .mt-k.mt-head { color: #ff9bd0; }
+@media (max-width: 1100px) { .meteor .mt-howp { grid-template-columns: 1fr; } .meteor .mt-howp > .sdg-b:first-child { grid-row: auto; } }
 .meteor .mt-echohead select { height: 20px; font-size: 10px; padding: 0 4px; }
 .meteor .mt-tbl .mt-star { width: 18px; text-align: center; padding: 0; }
 .meteor .mt-tbl td.mt-star { cursor: pointer; color: var(--dim); }
