@@ -562,11 +562,12 @@ function vmInit(map) {
       const q = map.latLngToContainerPoint(ob.ll || ob.c), txt = String(vmNote(ob.p).name || (ob.p.ident && !["airspace", "tx", "aero"].includes(ob.p.kind) ? ob.p.ident : vmName(ob.p)));
       if (!txt) continue;   // nothing to write
       const w = Math.max(20, txt.length * 6), hh = ob.p.kind === "airspace" || ob.p.kind === "navaid" ? 24 : 12;
-      const r = [q.x - w / 2, pt ? q.y + 10 : q.y - hh / 2, q.x + w / 2, (pt ? q.y + 10 : q.y - hh / 2) + hh];
+      const dy = pt ? Math.round((y.r || 4) * 1.5) + 1 : 0;   // a point: the name right under its symbol (its half height + 1 px)
+      const r = [q.x - w / 2, pt ? q.y + dy : q.y - hh / 2, q.x + w / 2, (pt ? q.y + dy : q.y - hh / 2) + hh];
       if (placed.some((o) => r[0] < o[2] && r[2] > o[0] && r[1] < o[3] && r[3] > o[1])) continue;
       placed.push(r);
       L.marker(ob.ll || ob.c, { pane: "vmlabels", interactive: false, keyboard: false,
-        icon: L.divIcon({ className: `vm-lbl${pt ? " pt" : ""}`, html: `<span style="--c:${col};font-size:${y.ls}px">${vmLabel(ob.p)}</span>`, iconSize: null }) }).addTo(lblLayer);
+        icon: L.divIcon({ className: `vm-lbl${pt ? " pt" : ""}`, html: `<span style="--c:${col};font-size:${y.ls}px${pt ? `;--dy:${dy}px` : ""}">${vmLabel(ob.p)}</span>`, iconSize: null }) }).addTo(lblLayer);
     }
   };
   map.on("moveend zoomend", () => st.labels());

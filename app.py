@@ -60,6 +60,7 @@ from msk144 import MSK144_FREQS, Msk144Decoder
 import q65 as q65_mod
 import bpsk as bpsk_mod
 import navtex as navtex_mod
+import atc as atc_mod
 import iqplay
 import meteor
 import meteor_rec as meteor_rec_mod
@@ -89,6 +90,7 @@ import ais as ais_mod
 from ais import AisDecoder
 import adsb as adsb_mod
 from adsb import RATE as ADSB_RATE, AdsbDecoder
+import fr24 as fr24_mod
 from tonesq import norm_ctcss, norm_dcs
 from sdr import (WF_FFT, DSD_BW, DSD_FILTERS, SAM_SIDEBANDS, HUM_BASES, HUM_WIDTH_MIN_HZ, HUM_WIDTH_MAX_HZ, AFI_MAX_HZ, AFI_MIN_HZ, DNR_LEVEL_MAX, DNR_LEVEL_MIN, NB_LEVEL_MAX, NB_LEVEL_MIN, NB_WIDTH_MAX_US, NB_WIDTH_MIN_US, EXP_DEPTH_MAX_DB, EXP_DEPTH_MIN_DB, EXP_SENS_MAX, EXP_SENS_MIN, EXP_HOLD_MAX_MS, EXP_HOLD_MIN_MS, ALC_HANG_MIN_MS, ALC_HANG_MAX_MS, ALC_DECAY_MIN_MS, ALC_DECAY_MAX_MS, ASQ_MAX_DB, ASQ_MIN_DB, DECIM, DSD_MODE, HPF_MAX_HZ, HPF_MIN_HZ, LPF_MAX_HZ, LPF_MIN_HZ, MODES, SQUELCH_OFF,
                  SAGC_PARAMS, UPCONV_MAX_HZ, ZOOMS, Receiver, list_devices, lowpass, sagc_params)
@@ -384,6 +386,7 @@ msk_dec = Msk144Decoder(on_decode=lambda d: decoder_event("msk144", d))
 q65_dec = q65_mod.Q65Decoder(on_decode=lambda d: decoder_event("q65", d), on_cycle=lambda i: hub.event("q65cycle", i))
 bpsk_dec = bpsk_mod.BpskDecoder(on_decode=lambda d: decoder_event("bpsk", d), on_stat=lambda d: hub.event("bpskstat", d))
 navtex_dec = navtex_mod.NavtexDecoder(on_event=decoder_event)
+atc_stt = atc_mod.AtcStt(on_event=lambda k, d: hub.event(k, d), on_state=lambda: hub.event("status", state()))   # ATC key: airband speech to text
 meteors = meteor.MeteorCounter(_tag, on_echo=lambda e: decoder_event("meteor", e))
 
 
@@ -467,6 +470,9 @@ hfdl = HfdlDecoder(on_event=decoder_event, on_state=lambda i: hub.event("hfdlsta
 ais = AisDecoder(on_event=decoder_event, on_state=lambda i: hub.event("aisstate", i))
 adsb = AdsbDecoder(on_event=decoder_event, on_state=lambda i: hub.event("adsbstate", i), station=own_station,
                    range_path=data("adsb_range.json"))     # the range map is one for the station (all VFOs)
+adsb.ext_on = bool(cfg.get("adsb_fr24"))   # FR24 ticked in the ADS-B card: the local FR24 receiver joins its aircraft in
+fr24 = fr24_mod.Fr24Feed(station=own_station, keep=lambda: adsb.enabled and adsb.ext_on)   # SETTINGS › FR24 RECEIVER
+fr24.on_update = adsb.ext_update
 _saved_logged.update(wefax=getattr(wefax, "saved", None), sstv=getattr(sstv, "saved", None))
 
 
@@ -490,7 +496,7 @@ def state():
     capable = tx_capable()
     return dict(receiver.state(), ft8=ft8.enabled, ft8_error=ft8.error, wspr=wspr_dec.enabled, wspr_error=wspr_dec.error, wspr_info=wspr_dec.info, wspr_prog=wspr_dec.progress(), msk144=msk_dec.enabled, msk144_error=msk_dec.error, msk144_info=msk_dec.info, meteor=meteors.enabled, meteor_error=meteors.error, meteor_info=meteors.info, wefax=wefax.enabled, cw=cw.enabled, rtty=rtty.enabled, packet=packet.enabled, pocsag=pocsag.enabled, sonde=sonde.enabled, sonde_multi=sonde.multi,
                 sstv=sstv.enabled, acars=acars.enabled, vdl2=vdl2.enabled, vdl2_error=vdl2.error, vdl2_region=vdl2.region, cpdlc=acars.cpdlc_on,
-                dsd=dsd.info(), dab=dab.enabled, dab_error=dab.error, dab_channel=dab.channel, dab_sids=cfg.get("dab_sids") or {}, ism=ism.enabled, ism_error=ism.error, ism_raw=ism.raw, hfdl=hfdl.enabled, hfdl_error=hfdl.error, ais=ais.enabled, ais_error=ais.error, adsb=adsb.enabled, adsb_error=adsb.error, ism_hz=cfg.get("ism_hz", ISM_DEFAULT), audio_muted=audio_muted(), recording=recorder.state(), iq_rec=iq_recorder.state(), retro=retro.state(), **q65_dec.status(), **bpsk_dec.status(), **navtex_dec.status(),logs={k: log_on(k) for k in LOG_KEYS},
+                dsd=dsd.info(), dab=dab.enabled, dab_error=dab.error, dab_channel=dab.channel, dab_sids=cfg.get("dab_sids") or {}, ism=ism.enabled, ism_error=ism.error, ism_raw=ism.raw, hfdl=hfdl.enabled, hfdl_error=hfdl.error, ais=ais.enabled, ais_error=ais.error, adsb=adsb.enabled, adsb_error=adsb.error, ism_hz=cfg.get("ism_hz", ISM_DEFAULT), audio_muted=audio_muted(), recording=recorder.state(), iq_rec=iq_recorder.state(), retro=retro.state(), **q65_dec.status(), **bpsk_dec.status(), **navtex_dec.status(), **atc_stt.status(),logs={k: log_on(k) for k in LOG_KEYS},
                 **doppler_trsp(), antenna=cfg.get("antenna", ""),
                 tx_capable=capable, tx_enabled=bool(cfg.get("tx_enabled", False)),
                 can_tx=capable and bool(cfg.get("tx_enabled", False)) and hasattr(receiver.sdr, "tx_start"))
@@ -610,6 +616,7 @@ receiver = Receiver(
     on_dsd=dsd.process,
 )
 receiver.on_wide = lambda db: hub.event("wide", {"db": round(db, 2)})   # SUN NOISE › Meter WIDE: the noise of the whole band
+receiver.on_voice = lambda audio, env, fs: atc_stt.feed(audio, env, fs, cfg["tune_hz"], cfg["mode"])   # ATC: before LPF / HPF
 receiver.want_rows = lambda: hub.wants("wf")   # no spectrum / waterfall rows built while no browser takes them
 dsd.set_enabled(cfg["mode"] == DSD_MODE)
 # one decoder on the IQ (IQ_ONE): a config from an older version may have several on (e.g. DAB with SONDE); the first of
@@ -1137,6 +1144,10 @@ meteor_rec_mod.register(app, meteor_rec)      # /api/meteors/rec: GRAVES REC (th
 q65_mod.register(app, q65_dec)      # /api/q65: DECODERS › Q65 / JT65 (jt9 of WSJT-X)
 bpsk_mod.register(app, bpsk_dec)    # /api/bpsk: DECODERS › BPSK (satellite telemetry: FUNcube AO-40 FEC, AX.25)
 navtex_mod.register(app, navtex_dec)    # /api/navtex: DECODERS › NAVTEX (SITOR-B maritime safety information)
+atc_mod.register(app, atc_stt, lambda on: (cfg.__setitem__("atc", on), save_config_later()))   # /api/atc: ATC key
+if cfg.get("atc"):
+    atc_stt.set_enabled(True)       # the model loads in the background
+fr24_mod.register(app, fr24)        # /api/fr24: the local FR24 receiver (SETTINGS › FR24 RECEIVER, COMPOSITE, ADS-B)
 iqplay.register(app, receiver, recorder, lambda: (save_config_later(), hub.event("status", state())))   # /api/iqplay: IQ PLAYER
 spotting.register(app, same_host, _tag)   # /api/spotting: SETTINGS › GENERAL › SPOTS (PSK Reporter from FT8, WSPRnet from WSPR)
 import dbgstats  # noqa: E402
@@ -1415,7 +1426,12 @@ def api_adsb_cmd():
         adsb.clear()
     elif action == "clear_range":
         adsb.range.clear()
-    return jsonify(adsb.info())
+    elif action == "fr24":                # the local FR24 receiver as another source of aircraft (fr24.py)
+        cfg["adsb_fr24"] = bool(request.get_json(force=True).get("on"))
+        adsb.set_ext(cfg["adsb_fr24"])
+        fr24.want()
+        save_config_later()
+    return jsonify(dict(adsb.info(), fr24_rx=fr24.info()))
 
 
 def _emerg_sq(sq):
@@ -1476,13 +1492,15 @@ def _positions_live():
     if adsb.enabled:
         srcs.append("adsb")
         for a in adsb.aircraft_list():
+            if not a.get("n"):
+                continue          # only from the FR24 receiver: the COMPOSITE has it as its own source (FR24)
             alt = a.get("alt")
             net = a.get("net") if isinstance(a.get("net"), dict) else None
             item("adsb", a["icao"], (a.get("flight") or "").strip() or a["icao"], a.get("lat"), a.get("lon"),
                  a.get("pos_time") or a.get("last"), None if alt is None else round(alt * 0.3048),
                  [[p[0], p[1], p[2]] + _emerg_sq(p[4] if len(p) > 4 else "") for p in a.get("trail", [])], track=a.get("track"),
                  air=air(None, a["icao"], "", a.get("flight"), net, alt_ft=alt, gs_kt=a.get("gs"), squawk=a.get("squawk"),
-                         ground=bool(a.get("ground")), n=a.get("n", 0)))
+                         ground=bool(a.get("ground")), vs_fpm=a.get("vrate"), n=a.get("n", 0)))
     if ais.enabled:
         srcs.append("ais")
         for s in ais.ship_list():
@@ -3074,6 +3092,8 @@ def api_set():
             changes["autotune"] = bool(body["autotune"])
         if body.get("autotune_go"):
             changes["autotune_go"] = True
+            if body.get("autotune_from") is not None:     # wheel / drag: the frequency the gesture started from (autotune.py)
+                changes["autotune_from"] = float(body["autotune_from"])
         if "auto_sql" in body:
             changes["auto_sql"] = bool(body["auto_sql"])
         if "auto_sql_db" in body:

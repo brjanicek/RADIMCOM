@@ -101,7 +101,7 @@ def make_upgrade(full_zip):
     print(f"{out}: {n + 2} files, {os.path.getsize(out) / 1e6:.1f} MB")
 
 
-CODE = ["app.py", "launcher.py", "paths.py", "serverlog.py", "sdr.py", "gainctl.py", "autotune.py", "lime.py", "airspy.py", "rds.py", "cw.py", "rtty.py", "packet.py", "pocsag.py", "sonde.py", "sonde_ext.py", "sonde_sites.py", "wind.py", "aprs.py", "daylog.py", "ft8.py", "wspr.py", "clocksync.py", "spyserver.py", "sources.py", "backup.py", "countries.json", "wefax.py", "sstv.py", "acars.py", "cpdlc.py", "cpdlc_schema.py", "adsc.py", "vdl2.py", "hfdl.py", "ais.py", "adsb.py", "tonesq.py", "scanner.py", "airports.py", "dab.py", "ism.py", "dsd.py", "recorder.py", "iqrec.py", "iqplay.py","install_dsd.py", "install_dsd.bat",
+CODE = ["app.py", "launcher.py", "paths.py", "serverlog.py", "sdr.py", "gainctl.py", "autotune.py", "lime.py", "airspy.py", "rds.py", "cw.py", "rtty.py", "packet.py", "pocsag.py", "sonde.py", "sonde_ext.py", "sonde_sites.py", "wind.py", "aprs.py", "daylog.py", "ft8.py", "wspr.py", "clocksync.py", "spyserver.py", "sources.py", "backup.py", "countries.json", "wefax.py", "sstv.py", "acars.py", "cpdlc.py", "cpdlc_schema.py", "adsc.py", "vdl2.py", "hfdl.py", "ais.py", "adsb.py", "fr24.py", "atc.py", "openflights_airlines.dat","tonesq.py", "scanner.py", "airports.py", "dab.py", "ism.py", "dsd.py", "recorder.py", "iqrec.py", "iqplay.py","install_dsd.py", "install_dsd.bat", "install_atc.py", "install_atc.bat",
         "memories.py", "datafiles.py", "satellites.py", "update_check.py", "sattrack.py", "moon.py", "satplan.py", "audiofx.py", "nrx.py", "wfcomp.py", "imd.py", "msk144.py", "msk144_ldpc.py", "q65.py", "bpsk.py", "funcube.py", "vectormaps.py", "spotting.py", "meteor.py", "meteor_sat.py", "meteor_air.py", "meteor_store.py", "meteor_audio.py", "meteor_fine.py", "meteor_weak.py", "meteor_rec.py", "meteor_phys.py", "meteor_head.py", "meteor_size.py", "navtex.py","dbgstats.py", "retro.py", "sunnoise.py", "location.py", "antennas.py", "sysload.py", "rotor.py", "iqshare.py", "eeprom_tool.py", "setup_sdr.py", "setup_web.py", "rtltcp.py", "spacewx.py", "dxcluster.py", "start.bat", "setup.bat", "README.md", "CHANGELOG.md",
         "LICENSE", "NOTICE.md", "API/API.md",
         # rtl_tcp server for a Raspberry Pi (brjanicek): install script + manager, also pushed by the UPDATE key (rtltcp.latest_manager)
@@ -304,6 +304,8 @@ def build_setup(build):
     os.makedirs(DIST, exist_ok=True)
     cmd = [compiler, "/Qp", f"/DAppVersion={VERSION}", f"/DVersionNumeric={numeric_version(VERSION)}",
            f"/DBuildDir={build}", f"/DOutDir={DIST}", f"/DIconFile={ICON}", f"/DDsdVersion={dsd_version()}",
+           # lib\whisper (install_atc.py) holds binary packages for one Python X.Y: offered again when it changes
+           "/DPythonAbi=" + ".".join(PYTHON_VERSION.split(".")[:2]),
            os.path.join(HERE, "radimcom.iss")]
     print("Inno Setup (a few minutes: LZMA2 ultra)…")
     subprocess.run(cmd, check=True)

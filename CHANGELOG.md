@@ -4,6 +4,66 @@
 
 Test beta (GitHub branch `1.2beta4`; continues 1.2beta3).
 
+### Main Features
+
+- **ATC speech to text** (AUDIO › **ATC**, airband AM 118–137 MHz): each transmission (squelch open to closed) is
+  transcribed by a local Whisper model fine-tuned on ATC radio, on the CPU, no cloud. The text runs as a subtitle in
+  the AD window with the callsigns coloured; a callsign heard is matched to an aircraft of ADS-B / FR24 and selected on
+  the COMPOSITE map. The airline telephony comes from OpenFlights (Open Database License). Optional download in the
+  setup (about 1.7 GB) or `install_atc.bat`.
+- **Local FR24 receiver** (SETTINGS › FR24 RECEIVER): the BaseStation stream (TCP 30003) of the station's
+  Flightradar24 receiver (or any dump1090 box) as a source of aircraft: the COMPOSITE map source **FR24**, and with
+  **FR24** ticked in DECODERS › ADS-B its aircraft join those decoded by the VFO (marked F, those only it hears cyan).
+- **COMPOSITE map: STCA** (Short Term Conflict Alert) and **multiselect**: Alt / Ctrl + click adds aircraft, ships or
+  sondes to a selection; the selected aircraft are listed with the separation of every pair (now and at the closest
+  approach). STCA predicts every pair of airborne aircraft and warns of a pair that is or will be closer than both
+  minima (line, rings, STCA list, blinking, sound); settings in the map settings, the STCA bar over the map. A help for
+  watching, not an ATC tool.
+
+### Changes
+
+#### COMPOSITE map
+
+- **ATC radar** design in map memory 4 (put once into an empty memory): dark plain background, range rings in NM,
+  small square targets with radar echoes and a 1 min vector, a label without background (callsign / FL ↑↓ speed /
+  type). Map memories now keep the look of the aircraft too (symbol, label, trails, vector, colours).
+- Climbing / descending arrow right after the flight level in the aircraft label (350↓).
+- Vector maps: the name of a point sits right under its symbol, whatever its size.
+- New default settings for aircraft (a new browser or Restore default): the look of the ATC radar design and STCA on.
+
+#### ADS-B
+
+- **FR24** check box in the ADS-B card and a map option for the cyan layer of the aircraft only the FR24 receiver hears.
+
+#### GRAVES
+
+- **Size of the meteoroid** in the echo detail: line density from the duration or the SNR, magnitude, mass and size
+  with its range (`meteor_size.py`).
+- Detail PREV / NEXT step only onto echoes whose detail is still kept.
+
+#### DAB
+
+- Magnifier next to the song (NOW ON AIR): search it on **Spotify** or **Apple Music**.
+
+#### ATU
+
+- A station you tune away from (wheel, drag, digits) is no longer pulled back: a carrier within 300 Hz of where the
+  gesture started is not taken ("ATU: kept (station left)").
+
+#### RECORD / STATION
+
+- The PLAY key opens the RECORDINGS tab (replaces RECS), its LED lit while open.
+- SETTINGS › STATION: the audio chain shows TNF, APF and BIN in their places; RECORDER (REC / REC SQ, after the squelch
+  or the DAB MP3) and REC IQ / PRE-REC (raw IQ) drawn where they take their samples.
+- Memory tags over the spectrum: the tooltip only over the tag and its ▲ mark, not the spectrum between them.
+
+#### Setup
+
+- The tasks page says that an RTL-SDR dongle (or Airspy) never installed on this PC needs Zadig; before Zadig starts, a
+  window explains what to do in it step by step.
+- Optional: download the ATC speech to text (faster-whisper into `lib\whisper` + the model, about 1.7 GB); offered
+  again when a new setup brings another Python.
+
 ## Ver. 1.2beta3
 
 Test beta (GitHub branch `1.2beta3`; continues 1.2beta2).

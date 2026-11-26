@@ -55,6 +55,9 @@ does not contain the binaries; the release packages do, except where noted.
 | Natural Earth 1:50m admin 0 countries | the country of a SpyServer in SETTINGS › SDR SOURCES › DIRECTORY; outer borders simplified in `countries.json` by `installer/make_countries.py` | public domain | <https://www.naturalearthdata.com/> |
 | sgp4 | satellite positions (SATELLITES tab, PASSES); in the Python of the setup (`python\`), `install.bat` installs it from PyPI | MIT | <https://github.com/brandon-rhodes/python-sgp4> |
 | lameenc (with the LAME MP3 encoder) | MP3 recording; in the Python of the setup (`python\`), `install.bat` installs it from PyPI | LGPL v3 or later (LAME: LGPL) | <https://github.com/chrisstaite/lameenc> |
+| OpenFlights airline database (`openflights_airlines.dat`) | ATC speech to text: the radio telephony of the airlines → ICAO callsigns (`atc.py`) | Open Database License (ODbL) 1.0 | <https://openflights.org/data> |
+| faster-whisper 1.2.1 (with CTranslate2, PyAV, ONNX Runtime, tokenizers, huggingface_hub) | ATC speech to text; not in the package: downloaded from PyPI into `lib\whisper` by the setup's optional task or `install_atc.bat` | MIT (PyAV: BSD 3-Clause, FFmpeg in it: LGPL v2.1 or later; tokenizers, huggingface_hub, CTranslate2: Apache 2.0 / MIT) | <https://github.com/SYSTRAN/faster-whisper> |
+| Whisper model fine-tuned on ATC speech (`jacktol/whisper-medium.en-fine-tuned-for-ATC-faster-whisper`, from OpenAI Whisper medium.en) | ATC speech to text; not in the package: downloaded from Hugging Face into the user's cache | see its model card (Whisper: MIT) | <https://huggingface.co/jacktol/whisper-medium.en-fine-tuned-for-ATC-faster-whisper> |
 
 ### Not in the package: DSD-FME
 

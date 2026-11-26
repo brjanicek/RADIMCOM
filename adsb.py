@@ -763,6 +763,7 @@ class AdsbDecoder:
         self._rate_t = time.monotonic()
         self._last_state = 0.0
         self._df11 = {}                   # icao -> time of a DF11 not yet confirmed (an aircraft needs two)
+        self.ext_on = False               # the local FR24 receiver joins its aircraft in (fr24.py, ext_update)
         threading.Thread(target=self._worker, name="adsb-dsp", daemon=True).start()
         threading.Thread(target=self._net_worker, name="adsb-net", daemon=True).start()
 
@@ -785,6 +786,7 @@ class AdsbDecoder:
             npos = sum(1 for a in self.aircraft.values() if a["lat"] is not None)
         return {"enabled": self.enabled, "error": self.error, "count": self.count, "fixed": self.fixed, "dropped": self.dropped,
                 "running": self.demod is not None, "rate": round(self.rate, 1), "aircraft": n, "with_pos": npos,
+                "fr24": self.ext_on, "fr24_only": self._ext_only(),
                 "center_hz": self.key[1] if self.key else None, "fs": self.key[0] if self.key else None}
 
     def messages(self):
@@ -810,6 +812,68 @@ class AdsbDecoder:
             self._new_msgs = []
             self.count = self.fixed = self.dropped = 0
         self._emit_state(force=True)
+
+    # ---------- the local FR24 receiver (fr24.py): its aircraft joined with those decoded here ----------
+
+    def _ext_only(self):
+        with self.lock:
+            return sum(1 for a in self.aircraft.values() if not a["n"])
+
+    def set_ext(self, on):
+        """FR24 ticked in the ADS-B card. Off: the aircraft only the FR24 receiver heard are dropped, the others lose
+        the trail points and the position it gave (back to the last one decoded here); the page gets their new trails."""
+        with self.lock:
+            self.ext_on = bool(on)
+            if not on:
+                gone = [k for k, a in self.aircraft.items() if not a["n"]]
+                for k in gone:
+                    del self.aircraft[k]
+                changed = []
+                for a in self.aircraft.values():
+                    if not a["fr24"]:
+                        continue
+                    a["fr24"] = None
+                    own = [p for p in a["_trail"] if len(p) < 6]
+                    a["_trail"] = collections.deque(own, maxlen=TRAIL)
+                    if own:
+                        a["lat"], a["lon"], a["pos_time"] = own[-1][0], own[-1][1], own[-1][2]
+                    else:
+                        a["lat"] = a["lon"] = a["pos_time"] = a["dist_km"] = a["az"] = None
+                    if own and self.station():
+                        qth = self.station()
+                        a["dist_km"] = round(distance_km(qth[0], qth[1], a["lat"], a["lon"]), 1)
+                        a["az"] = round(bearing(qth[0], qth[1], a["lat"], a["lon"]))
+                    changed.append(dict(self._public(a), trail=[list(p) for p in own]))
+                if gone or changed:
+                    self.on_event("adsb", {"ac": changed, "msgs": [], "gone": gone, "info": self.info(), "log": []})
+        self._emit_state(force=True)
+
+    def ext_update(self, icao, f, now):
+        """One message of the FR24 receiver (fields already decoded there: flight, alt, gs, track, vrate, squawk,
+        emergency, ground, lat / lon). Not counted as a message decoded here (n, count, level, range map stay ours)."""
+        if not (self.enabled and self.ext_on):
+            return
+        with self.lock:
+            a = self._aircraft(icao, now)
+            a["last"] = max(a["last"], now)
+            a["fr24"] = round(now, 1)
+            for k in ("flight", "alt", "gs", "track", "vrate", "ground"):
+                if k in f:
+                    a[k] = f[k]
+            if f.get("squawk"):
+                a["squawk"] = f["squawk"]
+                a["emergency"] = SQUAWK_EMERGENCY.get(f["squawk"], "")
+            if "lat" in f:
+                a["lat"], a["lon"], a["pos_time"] = f["lat"], f["lon"], now
+                qth = self.station()
+                if qth:
+                    a["dist_km"] = round(distance_km(qth[0], qth[1], f["lat"], f["lon"]), 1)
+                    a["az"] = round(bearing(qth[0], qth[1], f["lat"], f["lon"]))
+                tr = a["_trail"]
+                if not tr or now - tr[-1][2] >= 2:
+                    tr.append((a["lat"], a["lon"], round(now, 1), a["alt"], a["squawk"], "fr24"))   # marked: dropped when FR24 goes off
+            self._changed.add(icao)
+        self._emit()      # also while the VFO is not on 1090 MHz yet (the decoder thread emits otherwise)
 
     # ---------- samples from the receiver thread ----------
 
@@ -977,7 +1041,7 @@ class AdsbDecoder:
             a = {"icao": icao, "flight": "", "category": "", "cat": "", "squawk": "", "emergency": "", "alt": None, "alt_geo": None,
                  "gs": None, "track": None, "hdg": None, "ias": None, "tas": None, "vrate": None, "sel_alt": None, "qnh": None,
                  "lat": None, "lon": None, "pos_time": None, "dist_km": None, "az": None, "ground": False, "tisb": False,
-                 "first": now, "last": now, "n": 0, "level": None, "logged": 0.0, "net": None, "_net_t": 0.0,
+                 "first": now, "last": now, "n": 0, "level": None, "logged": 0.0, "net": None, "_net_t": 0.0, "fr24": None,
                  "_cpr": [None, None], "_trail": collections.deque(maxlen=TRAIL)}
             self.aircraft[icao] = a
         return a
@@ -1079,7 +1143,7 @@ class AdsbDecoder:
         best = None
         with self.lock:
             for a in self.aircraft.values():
-                if now - a["last"] > NET_RECENT_S:
+                if now - a["last"] > NET_RECENT_S or not a["n"]:   # not those only the FR24 receiver hears
                     continue
                 if a["_net_t"] == 0.0:
                     key = (0, a["first"])
@@ -1153,7 +1217,7 @@ class AdsbDecoder:
             logs = []
             for d in ac:
                 a = self.aircraft[d["icao"]]
-                if now - a["logged"] >= 60:
+                if now - a["logged"] >= 60 and a["n"]:   # the log is of what was decoded here
                     a["logged"] = now
                     logs.append(d)
             self._changed = set()

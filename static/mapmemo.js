@@ -6,7 +6,55 @@
 
 const MAP_MEMO_KEY = "mapMemos", MAP_MEMO_N = 10;
 // the keys of the map settings a memory holds (the rest, e.g. the tracks, stays as it is)
-const MAP_MEMO_OPT = /^(base|baseColor|baseUrl|dark|sea|stIcon|cSt|ad|adMax|adUnit|adFine|adOpa|adFineOpa|cAd|cAdFine|rng|[cofp]Rng\d+)$/;
+const MAP_MEMO_OPT = new RegExp("^(base|baseColor|baseUrl|dark|sea|stIcon|cSt|ad|adMax|adUnit|adFine|adOpa|adFineOpa|cAd|cAdFine|rng|[cofp]Rng\\d+" +
+  // the look of the aircraft (symbol, label, trails, vector, colours): a memory can be a whole design (ATC radar)
+  // (…Shr: the same for the aircraft from adsb.fi)
+  "|sym|symShr|(icon|font|lbl|bg|trails|pred|noUnits|cIcon|cText|cTrail|cTrailDn|cPred)(Sel|Shr)?|lblTok)$");
+
+// a ready design: memory 4 "ATC radar" (as a radar display of air traffic control: dark plain background, range rings
+// in NM, small square targets with radar echoes behind and a 1 min speed vector, a label without background:
+// callsign ▲▼ / FL speed / type). Put once, only into an empty memory (4, else the first empty one).
+const MAP_MEMO_ATC = {
+  name: "ATC radar",
+  o: {
+    base: "solid", baseColor: "#17232b", dark: true, sea: false, rng: false,
+    ad: true, adMax: 150, adUnit: "nm", adOpa: 0.2, cAd: "#4a6676", adFine: false,
+    sym: "box", icon: 0.75, iconSel: 1, font: 1, fontSel: 1.2, bg: 0, bgSel: 0.3, noUnits: true, noUnitsSel: true,
+    lbl: ["name", "alt", "spd", "type"], lblSel: ["name", "alt", "spd", "type", "vs", "sq", "reg", "ad"],
+    lblTok: ["name", "|", "alt", "spd", "|", "type", "vs", "sq", "|", "reg", "|", "ad"],
+    trails: "e1", trailsSel: "e2", pred: 1, predSel: 2,   // history: radar echoes (one per antenna turn), as ATC has
+    // the targets cyan (not lost among the grey map and its waypoints), the label light, the selected one yellow
+    cIcon: "#5ce8ff", cText: "#d4e4ec", cTrail: "#3fc4e0", cTrailDn: "#3fc4e0", cPred: "#5ce8ff",
+    cIconSel: "#ffd84a", cTextSel: "#ffd84a", cTrailSel: "#c9a63a", cPredSel: "#ffd84a",
+    // the aircraft from adsb.fi (Sharing) look the same as our own
+    symShr: "box", iconShr: 0.75, fontShr: 1, bgShr: 0, noUnitsShr: true, lblShr: ["name", "alt", "spd", "type"],
+    trailsShr: "e1", predShr: 1, cIconShr: "#5ce8ff", cTextShr: "#d4e4ec", cTrailShr: "#3fc4e0", cTrailDnShr: "#3fc4e0",
+    cPredShr: "#5ce8ff",
+  },
+  // the vector maps: only the colours of these parts changed (the rest of the vector maps, names on, as they are):
+  // the waypoints and reporting points (symbol and name) in a light blue: seen, but not louder than the traffic
+  vmStyle: Object.fromEntries(["wpt.enroute", "wpt.terminal", "point.RP", "point.RP_OPT"].map((k) => [k, { fc: "#99c8ff", lc: "#99c8ff" }])),
+};
+// once per version of the design (MAP_MEMO_ATC_V): a memory still named "ATC radar" (ours) gets the new one
+const MAP_MEMO_ATC_V = "6";
+(function mapMemoSeedAtc() {
+  try {
+    const had = localStorage.getItem("mapMemoAtcSeed");
+    if (had && had.split(":")[1] === MAP_MEMO_ATC_V) return;
+    let v = JSON.parse(localStorage.getItem(MAP_MEMO_KEY) || "null");
+    v = Array.isArray(v) ? v : [];
+    const free = (i) => !(v[i] && typeof v[i] === "object" && v[i].o);
+    const ours = v.findIndex((m) => m && m.name === MAP_MEMO_ATC.name);
+    let i = ours >= 0 ? ours : had ? -1 : free(3) ? 3 : -1;   // already put once and deleted / renamed: not again
+    for (let j = 0; !had && i < 0 && j < MAP_MEMO_N; j++) if (free(j)) i = j;
+    if (i >= 0) {
+      while (v.length < MAP_MEMO_N) v.push(null);
+      v[i] = { ...JSON.parse(JSON.stringify(MAP_MEMO_ATC)), at: Date.now() };
+      localStorage.setItem(MAP_MEMO_KEY, JSON.stringify(v));
+    }
+    localStorage.setItem("mapMemoAtcSeed", `${i >= 0 ? i + 1 : "none"}:${MAP_MEMO_ATC_V}`);
+  } catch { /* no storage */ }
+})();
 
 /** The memories: an array of MAP_MEMO_N, each null (empty) or {name, at, o: {map settings}, vm: {vector maps}}. */
 function mapMemos() {
@@ -36,6 +84,11 @@ function mapMemoRecall(i) {
   const o = Object.fromEntries(Object.entries(m.o || {}).filter(([k]) => MAP_MEMO_OPT.test(k)));
   if (Object.keys(o).length) mapOptsSet(o);
   if (m.vm) vmSet({ ...Object.fromEntries(VM_VIEW_KEYS.filter((k) => k in m.vm).map((k) => [k, m.vm[k]])), on: m.vm.on !== false });
+  if (m.vmStyle && typeof m.vmStyle === "object") {   // a design (ATC radar): only some parts of the vector maps restyled
+    const style = { ...(vmOpt().style || {}) };
+    for (const [k, v] of Object.entries(m.vmStyle)) if (/^[\w.-]{1,80}$/.test(k) && v && typeof v === "object") style[k] = { ...(style[k] || {}), ...v };
+    vmSet({ style });
+  }
   if (typeof vmRefillAll === "function") vmRefillAll();   // an open settings window shows it
 }
 

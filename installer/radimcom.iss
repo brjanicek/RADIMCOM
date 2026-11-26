@@ -1,6 +1,6 @@
 ﻿; RADIMCOM setup (Inno Setup 6). Built by installer/make_installer.py, which passes:
 ;   /DAppVersion=0.115rc1 /DVersionNumeric=0.115.0.101 /DBuildDir=<staged program> /DOutDir=<dist> /DIconFile=<ico>
-;   /DDsdVersion=<VERSION of install_dsd.py>
+;   /DDsdVersion=<VERSION of install_dsd.py> /DPythonAbi=<X.Y of the bundled Python, for lib\whisper>
 ; One setup for a new installation and for an upgrade: an upgrade keeps the folder and data\ (settings, memories,
 ; logs, recordings). No administrator rights (installed per user); only the USB drivers ask for them.
 ; Upgrade = the chosen folder has data\config.json or RADIMCOM.exe: an installation by this setup, or an older zip
@@ -52,7 +52,11 @@ Name: "cs"; MessagesFile: "compiler:Languages\Czech.isl"
 
 [CustomMessages]
 en.Drivers=USB drivers (they ask for administrator rights):
-en.Zadig=Run Zadig: WinUSB driver for the RTL-SDR dongles (once per dongle)
+en.Zadig=Run Zadig: WinUSB driver for RTL-SDR dongles and the Airspy (once for every dongle new to this PC)
+en.ZadigNote=An RTL-SDR dongle (or Airspy) that was never installed on this PC needs the WinUSB driver: tick Zadig above. The setup explains what to do in it.
+en.ZadigHelp=Zadig starts now (it asks for administrator rights). Every dongle that has never been installed on this PC needs the WinUSB driver once:%n%n1. Connect the dongle.%n2. Menu Options: tick List All Devices.%n3. In the list select "Bulk-In, Interface (Interface 0)" (sometimes "RTL2838UHIDIR"; Airspy: "AIRSPY").%n    Do NOT select your keyboard, mouse or other devices.%n4. On the right leave WinUSB and click Replace Driver (or Install Driver); wait for "successfully installed".%n5. Repeat for every other dongle, then close Zadig.%n%nA dongle that already works with WinUSB (e.g. in SDR#) can be skipped. More in DRIVERS.txt.
+en.Whisper=Download the ATC speech to text (Whisper, about 1.7 GB: faster-whisper + the model fine-tuned on ATC)
+en.WhisperUpdate=Install the ATC speech to text again for the new Python of RADIMCOM (faster-whisper, about 200 MB)
 en.D3XX=Install the FTDI D3XX driver for the LimeSDR Mini
 en.Extras=Optional:
 en.Dsd=Download the DSD-FME decoder (DSD mode, digital voice; shows a patent notice)
@@ -71,7 +75,11 @@ en.NewInstall=A new installation (no RADIMCOM in this folder). If you have an ol
 en.Console=RADIMCOM is running from this folder in a console window (start.bat). Close that window and click Retry.
 en.DsdUpdate=Update the DSD-FME decoder to the version this RADIMCOM needs (shows a patent notice)
 sk.Drivers=USB ovládače (vyžiadajú si práva správcu):
-sk.Zadig=Spustiť Zadig: ovládač WinUSB pre RTL-SDR dongly (pre každý dongle raz)
+sk.Zadig=Spustiť Zadig: ovládač WinUSB pre RTL-SDR dongly a Airspy (raz pre každý dongle, ktorý je na tomto PC nový)
+sk.ZadigNote=RTL-SDR dongle (alebo Airspy), ktorý ešte nebol na tomto PC nainštalovaný, potrebuje ovládač WinUSB: zaškrtnite Zadig vyššie. Inštalátor vysvetlí, čo v ňom urobiť.
+sk.ZadigHelp=Teraz sa spustí Zadig (vyžiada si práva správcu). Každý dongle, ktorý ešte nebol na tomto PC nainštalovaný, potrebuje raz ovládač WinUSB:%n%n1. Pripojte dongle.%n2. Menu Options: zaškrtnite List All Devices.%n3. V zozname vyberte „Bulk-In, Interface (Interface 0)“ (niekedy „RTL2838UHIDIR“; Airspy: „AIRSPY“).%n    NEVYBERAJTE klávesnicu, myš ani iné zariadenia.%n4. Vpravo nechajte WinUSB a kliknite na Replace Driver (alebo Install Driver); počkajte na „successfully installed“.%n5. Zopakujte pre každý ďalší dongle a Zadig zatvorte.%n%nDongle, ktorý už s WinUSB funguje (napr. v SDR#), môžete preskočiť. Viac v DRIVERS.txt.
+sk.Whisper=Stiahnuť prepis hlasu ATC na text (Whisper, asi 1,7 GB: faster-whisper + model doladený na ATC)
+sk.WhisperUpdate=Znovu nainštalovať prepis ATC na text pre nový Python RADIMCOM (faster-whisper, asi 200 MB)
 sk.D3XX=Nainštalovať ovládač FTDI D3XX pre LimeSDR Mini
 sk.Extras=Voliteľné:
 sk.Dsd=Stiahnuť dekodér DSD-FME (režim DSD, digitálny hlas; zobrazí upozornenie na patenty)
@@ -90,7 +98,11 @@ sk.NewInstall=Nová inštalácia (v tomto priečinku nie je RADIMCOM). Ak máte 
 sk.Console=RADIMCOM z tohto priečinka beží v okne konzoly (start.bat). Zatvorte toto okno a kliknite na Opakovať.
 sk.DsdUpdate=Aktualizovať dekodér DSD-FME na verziu, ktorú tento RADIMCOM potrebuje (zobrazí upozornenie na patenty)
 cs.Drivers=USB ovladače (vyžádají si práva správce):
-cs.Zadig=Spustit Zadig: ovladač WinUSB pro RTL-SDR dongly (pro každý dongle jednou)
+cs.Zadig=Spustit Zadig: ovladač WinUSB pro RTL-SDR dongly a Airspy (jednou pro každý dongle, který je na tomto PC nový)
+cs.ZadigNote=RTL-SDR dongle (nebo Airspy), který ještě nebyl na tomto PC nainstalován, potřebuje ovladač WinUSB: zaškrtněte Zadig výše. Instalátor vysvětlí, co v něm udělat.
+cs.ZadigHelp=Nyní se spustí Zadig (vyžádá si práva správce). Každý dongle, který ještě nebyl na tomto PC nainstalován, potřebuje jednou ovladač WinUSB:%n%n1. Připojte dongle.%n2. Menu Options: zaškrtněte List All Devices.%n3. V seznamu vyberte „Bulk-In, Interface (Interface 0)“ (někdy „RTL2838UHIDIR“; Airspy: „AIRSPY“).%n    NEVYBÍREJTE klávesnici, myš ani jiná zařízení.%n4. Vpravo nechte WinUSB a klikněte na Replace Driver (nebo Install Driver); počkejte na „successfully installed“.%n5. Zopakujte pro každý další dongle a Zadig zavřete.%n%nDongle, který už s WinUSB funguje (např. v SDR#), můžete přeskočit. Více v DRIVERS.txt.
+cs.Whisper=Stáhnout přepis hlasu ATC na text (Whisper, asi 1,7 GB: faster-whisper + model doladěný na ATC)
+cs.WhisperUpdate=Znovu nainstalovat přepis ATC na text pro nový Python RADIMCOM (faster-whisper, asi 200 MB)
 cs.D3XX=Nainstalovat ovladač FTDI D3XX pro LimeSDR Mini
 cs.Extras=Volitelné:
 cs.Dsd=Stáhnout dekodér DSD-FME (režim DSD, digitální hlas; zobrazí upozornění na patenty)
@@ -117,6 +129,9 @@ Name: "d3xx"; Description: "{cm:D3XX}"; GroupDescription: "{cm:Drivers}"; Flags:
 ; DSD-FME: offered for a new installation; at an upgrade only when the installed one is of another version
 Name: "dsd"; Description: "{cm:Dsd}"; GroupDescription: "{cm:Extras}"; Flags: unchecked; Check: (not IsUpgrade) and (not DsdInstalled)
 Name: "dsdupdate"; Description: "{cm:DsdUpdate}"; GroupDescription: "{cm:Extras}"; Check: DsdOutdated
+; ATC speech to text (install_atc.py): offered while lib\whisper is missing; again when it was made for another Python
+Name: "whisper"; Description: "{cm:Whisper}"; GroupDescription: "{cm:Extras}"; Flags: unchecked; Check: not WhisperInstalled
+Name: "whisperupdate"; Description: "{cm:WhisperUpdate}"; GroupDescription: "{cm:Extras}"; Check: WhisperOutdated
 
 [InstallDelete]
 ; a clean Python and web interface on every upgrade (no leftovers of older package versions)
@@ -147,9 +162,10 @@ Name: "{group}\{cm:ServerConsole}"; Filename: "{app}\start.bat"; WorkingDir: "{a
 Name: "{group}\{cm:UninstallProgram,RADIMCOM}"; Filename: "{uninstallexe}"
 
 [Run]
-Filename: "{app}\drivers\zadig.exe"; Tasks: zadig; Flags: shellexec waituntilterminated skipifsilent
+Filename: "{app}\drivers\zadig.exe"; Tasks: zadig; Flags: shellexec waituntilterminated skipifsilent; BeforeInstall: ZadigHelp
 Filename: "{app}\drivers\FTD3XXDriver_WHQLCertified_v1.3.0.4_Installer.exe"; Tasks: d3xx; Flags: shellexec waituntilterminated skipifsilent
 Filename: "{cmd}"; Parameters: "/c install_dsd.bat"; WorkingDir: "{app}"; Tasks: dsd dsdupdate; Flags: waituntilterminated skipifsilent
+Filename: "{cmd}"; Parameters: "/c install_atc.bat --yes"; WorkingDir: "{app}"; Tasks: whisper whisperupdate; Flags: waituntilterminated skipifsilent
 ; a new installation: the SDR setup in the RADIMCOM window, then RADIMCOM starts by itself; an upgrade: just RADIMCOM
 Filename: "{app}\RADIMCOM.exe"; Parameters: "--setup"; WorkingDir: "{app}"; Description: "{cm:SdrSetup}"; Flags: postinstall nowait skipifsilent; Check: not IsUpgrade
 Filename: "{app}\RADIMCOM.exe"; WorkingDir: "{app}"; Description: "{cm:Launch}"; Flags: postinstall nowait; Check: IsUpgrade or WizardSilent
@@ -213,6 +229,28 @@ begin
   Result := Trim(String(V)) <> '{#DsdVersion}';
 end;
 
+{ install_atc.py: faster-whisper in lib\whisper, PYTHON.txt = the Python X.Y it was installed for }
+function WhisperInstalled: Boolean;
+begin
+  Result := FileExists(Dir + 'lib\whisper\faster_whisper\__init__.py');
+end;
+
+function WhisperOutdated: Boolean;
+var
+  V: AnsiString;
+begin
+  Result := False;
+  if not WhisperInstalled then Exit;
+  if not LoadStringFromFile(Dir + 'lib\whisper\PYTHON.txt', V) then V := '';
+  Result := Trim(String(V)) <> '{#PythonAbi}';
+end;
+
+{ before Zadig starts: what to do in it }
+procedure ZadigHelp;
+begin
+  MsgBox(CustomMessage('ZadigHelp'), mbInformation, MB_OK);
+end;
+
 function NoteText: String;
 begin
   if IsZipInstall then Result := CustomMessage('UpgradeZip')
@@ -253,7 +291,21 @@ end;
 procedure InitializeWizard;
 var
   D: Integer;
+  Z: TNewStaticText;
 begin
+  { the tasks page: a note under the list that a dongle new to this PC needs Zadig }
+  D := ScaleY(58);
+  WizardForm.TasksList.Height := WizardForm.TasksList.Height - D;
+  Z := TNewStaticText.Create(WizardForm);
+  Z.Parent := WizardForm.SelectTasksPage;
+  Z.AutoSize := False;
+  Z.WordWrap := True;
+  Z.Left := WizardForm.TasksList.Left;
+  Z.Width := WizardForm.TasksList.Width;
+  Z.Top := WizardForm.TasksList.Top + WizardForm.TasksList.Height + ScaleY(6);
+  Z.Height := D - ScaleY(6);
+  Z.Font.Style := [fsBold];
+  Z.Caption := CustomMessage('ZadigNote');
   { the first page (licence): the licence text shorter, the note under it }
   D := ScaleY(66);
   WizardForm.LicenseMemo.Height := WizardForm.LicenseMemo.Height - D;

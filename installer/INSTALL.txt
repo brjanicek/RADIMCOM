@@ -82,6 +82,24 @@ Change log
 
 Ver. 1.2beta4
 (test beta, GitHub branch 1.2beta4; continues 1.2beta3)
+Main
+- ATC speech to text (AUDIO > ATC, airband AM): a local Whisper model fine-tuned on ATC, subtitle in the AD with the
+  callsigns, the aircraft heard selected on the COMPOSITE map. Optional download in the setup (about 1.7 GB).
+- Local FR24 receiver (SETTINGS > FR24 RECEIVER, TCP 30003): source FR24 on the COMPOSITE map, FR24 in ADS-B.
+- COMPOSITE map: STCA (Short Term Conflict Alert) and multiselect (Alt / Ctrl + click) with the separation of pairs.
+COMPOSITE map
+- ATC radar design in map memory 4; memories keep the look of the aircraft; climb / descent arrow after the FL.
+- New default settings for aircraft (ATC radar look, STCA on); point names of vector maps right under the symbol.
+GRAVES
+- Size of the meteoroid in the echo detail (line density, magnitude, mass, size); PREV / NEXT only to kept details.
+DAB
+- Magnifier next to the song: search it on Spotify or Apple Music.
+ATU
+- A station you tune away from is no longer pulled back (ATU: kept (station left)).
+RECORD / STATION
+- PLAY opens the RECORDINGS tab; STATION shows TNF / APF / BIN, RECORDER and REC IQ / PRE-REC in their places.
+Setup
+- Tells that a dongle new to this PC needs Zadig and explains what to do in it; optional ATC speech to text download.
 
 Ver. 1.2beta3
 (test beta, GitHub branch 1.2beta3; continues 1.2beta2)

@@ -899,8 +899,7 @@ class MeteorCounter:
             self.error = f"meteor audio: {x}"
         with self.lock:
             self.details[e["ts"]] = det
-            while len(self.details) > DETAIL_N:
-                self.details.popitem(last=False)
+            self._trim_details()
         if self._fn is not None and ev["t1"] - ev["t0"] <= DETAIL_FINE_MAX_S and e["kind"] != "plane":
             # its fine cells come ~1 s later (from HEAD_PRE_S before it: a slow head echo is looked for there)
             self._fine_wait.append((e["ts"], min(t_start, ev["t0"] - HEAD_PRE_S), t_end))
@@ -915,6 +914,12 @@ class MeteorCounter:
                 near = [k for k in self.details if abs(k - ts) < 0.01]
                 d = self.details[near[0]] if near else None
         return d.get("wav") if d else None
+
+    def _trim_details(self):
+        """(under self.lock) Only the last DETAIL_N details; an echo whose detail goes says so ("det" False), so the
+        page does not step onto it with PREV / NEXT (the echo dict is the same one as in self.events)."""
+        while len(self.details) > DETAIL_N:
+            self.details.popitem(last=False)[1]["echo"]["det"] = False
 
     def detail(self, ts):
         """The detail of the echo ts (its "ts"), for the page: rows as base64 of uint8 (0..WF_DB dB), None if gone."""
@@ -1345,9 +1350,8 @@ class MeteorCounter:
                 self.details[e["ts"]] = det
                 sat = [k for k, v in self.details.items() if v["echo"]["kind"] == "sat"]
                 for k in sat[:-SAT_DETAIL_N]:           # the big ones: only the last few
-                    del self.details[k]
-                while len(self.details) > DETAIL_N:
-                    self.details.popitem(last=False)
+                    self.details.pop(k)["echo"]["det"] = False
+                self._trim_details()
             self.events.append(e)
         if self.on_echo:
             self.on_echo(e)

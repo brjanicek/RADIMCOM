@@ -63,6 +63,7 @@ HOLD_DECAY_DB = 0.6
 SSB_BW = (800.0, 6000.0)   # width of a band with a voice (and its skirts; narrower: a carrier, a data tone)
 ROUND_HZ = 100.0           # the carrier is rounded to this (0 = not)
 SNAP_KHZ_HZ = 300.0        # ... or onto a whole kHz when that is this near (SSB stations sit on whole kHz, e.g. 14.265)
+LEFT_HZ = 300.0            # a carrier this near the frequency a gesture started from = the station left: not taken
 # the last DUMP_KEEP analysed blocks with their results are kept here (data/logs/atu, a few MB), to check the ATU on
 # real signals (RADIMCOM_ATU_DUMP sets another folder)
 try:
@@ -414,7 +415,9 @@ class AutoTune:
         with self.lock:
             self.result = {**self.result, "state": "listen", "id": self.n + 1}
 
-    def start(self, mode, tune_hz, center_hz):
+    def start(self, mode, tune_hz, center_hz, left_hz=None):
+        """left_hz: where a wheel / drag / digits gesture started (the station the user tuned away from); a carrier found
+        there is not taken, otherwise ATU pulls the tuning back to it (a short move at a high zoom keeps it in the search)."""
         with self.lock:
             if mode not in MODES:
                 self.job = None
@@ -422,7 +425,7 @@ class AutoTune:
                 return
             self.n += 1
             self.job = {"id": self.n, "mode": mode, "tune": tune_hz, "center": center_hz, "chunks": [],
-                        "len": 0, "skip": None, "try": 0, "t0": time.time()}
+                        "len": 0, "skip": None, "try": 0, "t0": time.time(), "left": left_hz}
             self.result = {"id": self.n, "state": "listen", "shift_hz": None, "how": None, "mode": mode}
 
     def cancel(self):
@@ -497,6 +500,10 @@ class AutoTune:
                 shift = int(car - job["tune"])
             else:
                 shift = round(res[0] / 5) * 5
+            left = job.get("left")
+            if left is not None and shift and abs(job["tune"] + shift - left) <= LEFT_HZ:
+                self.result = {**self.result, "state": "left", "shift_hz": 0, "how": res[1]}   # the station left: stay
+                return
             self.result = {**self.result, "state": "done", "shift_hz": shift, "how": res[1]}
         if shift:
             self.done(job["tune"], job["tune"] + shift)

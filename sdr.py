@@ -1728,6 +1728,8 @@ class Receiver:
         self.on_baseband = on_baseband
         self.on_demod = on_demod
         self.on_dsd = on_dsd      # DSD mode: gets the discriminator, returns the voice
+        self.on_voice = None      # (audio float, squelch envelope or None = open, rate): app.py sets it (ATC)
+        self.sq_env = None
         self.on_raw = None        # raw dongle samples (VDL2), set by app.py
         self.want_rows = None     # () -> bool, set by app.py: False = no browser takes the waterfall rows (all paused / none)
         self.on_spurs = None      # LEARN finished: the settings have to be saved, set by app.py
@@ -2115,7 +2117,7 @@ class Receiver:
                 self.atune.cancel()
         if changes.get("autotune_go"):
             # after the click's tune_hz above; ATU off or another mode: start() only clears the armed "listen"
-            self.atune.start(c["mode"] if c.get("autotune") else None, c["tune_hz"], c["center_hz"])
+            self.atune.start(c["mode"] if c.get("autotune") else None, c["tune_hz"], c["center_hz"], changes.get("autotune_from"))
         if "afi_hz" in changes:
             c["afi_hz"] = changes["afi_hz"]
         if "auto_sql" in changes:
@@ -2486,6 +2488,7 @@ class Receiver:
                 self.on_demod(audio if audio.ndim == 1 else audio.mean(axis=1), self.fs / DECIM)
             if dsd and self.on_dsd:                 # from here on the audio is the decoded voice
                 audio = self.on_dsd(audio, self.fs / DECIM, c["tune_hz"])
+            voice = audio                           # on_voice (ATC speech to text): before LPF / HPF
             audio = self._audio_pass(audio)         # after the SSTV feed: LPF / HPF are for listening, not for decoders
             if self.tone_open is not None or self.tsq_hpf.key is not None:   # also the block after, for the crossfade
                 mono = audio.ndim == 1
@@ -2496,6 +2499,8 @@ class Receiver:
                 self.scan.audio(audio, self.fs / DECIM)   # scan: recording of each activity (before the squelch)
             self._noise_floor(mode, bw, sub_db, cal)
             audio = self._squelch(audio, mode, sub_db, self.tone_open)
+            if self.on_voice:                       # the voice without LPF / HPF, gated by the same squelch
+                self.on_voice(voice, self.sq_env, self.fs / DECIM)
             if audio.ndim == 1 and c.get("bin") and mode in audiofx.BIN_MODES:
                 audio = self.binaural.process(audio)    # BIN key: pseudo-stereo
             if audio.ndim == 1:                     # the browser always gets stereo (L, R interleaved)
@@ -2669,9 +2674,11 @@ class Receiver:
         start = np.concatenate(([self.sq_gain], gains[:-1])).astype(np.float32)
         self.sq_gain = float(gains[-1])
         if start.min() == 1.0 and gains.min() == 1.0:
+            self.sq_env = None
             return audio
         t = np.arange(len(audio) // parts, dtype=np.float32) / (len(audio) // parts)
         env = (start[:, None] + (gains - start)[:, None] * t).ravel()
+        self.sq_env = env                  # the same gate for on_voice
         return audio * (env[:, None] if audio.ndim == 2 else env)
 
     def tune_range(self):

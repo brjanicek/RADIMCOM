@@ -73,6 +73,7 @@
         <div class="ad-dab-dls" id="adDabDls"><span id="adDabDlsText"></span></div>
       </div>
       <div class="ad-dsd" id="adDsd" hidden title="DSD: the calls on air now, one line per time slot"></div>
+      <div class="ad-atc" id="adAtc" hidden title="ATC: the last transmission as text (local speech to text), callsigns coloured"></div>
       <div class="rds off" id="rds">
       <!-- simplified RDS logo (two interlaced rings and R·D·S); shown only while the station sends RDS -->
       <svg class="rds-logo" viewBox="0 0 100 100" aria-hidden="true">
@@ -252,6 +253,11 @@
     <div class="kgroup" data-g="DECODE"><span class="klabel">DECODE</span><div class="keys">
       <button id="decKey" class="key" aria-controls="decPane" title="DEC: decoders on/off – shows or hides the DECODERS tab, one page for each decoder (CW, FT8, PACKET, POCSAG, RTTY, SSTV, WEFAX | ACARS, ADS-B, HFDL, VDL2 | AIS | SONDE | ISM); DAB and DSD are modes with their own tabs">DEC</button>
       <button id="comKey" class="key" aria-controls="comPane" title="COM: the COMPOSITE tab – one map with everything that has a position from the decoders running on all VFOs (ADS-B, ACARS / VDL2, HFDL, AIS, SONDE); pick the sources to show. The same aircraft heard by more VFOs or decoders is joined into one">COM</button>
+      <button id="atcKey" class="key atc-off" aria-disabled="true" title="ATC – an AI tool for the airband voice: speech recognition (a local Whisper model fine-tuned on ATC radio, it runs on this computer, nothing goes to the internet) turns each transmission into text, finds the callsign in it (ryanair nine zulu zulu → RYR9ZZ) and selects that aircraft on the COMPOSITE map, also when only a part of the callsign was understood.
+
+Works only in AM on the airband (118–137 MHz); elsewhere the key is grey and does nothing. Set the squelch: one transmission = from the squelch opening to its closing.
+
+Key lit = on · fast blinking = a transmission is being transcribed · slow blinking = the model is loading (the first start after a while) · red = error (the text here)">ATC</button>
     </div></div>
     <div class="kgroup" data-g="TRACKING"><span class="klabel">TRACKING</span><div class="keys">
       <button id="satKey" class="key sat-key" aria-label="Satellite tracking" aria-controls="amsatPane" title="Satellite tracking: the SATELLITES tab (passes, map, Doppler, rotor)"><svg class="sat-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.6 7C3.2 12.6 8.4 18.8 15 17.4Z"/><path d="M9.8 12.2L13.4 8.6"/><circle cx="14.6" cy="7.4" r="1.6"/><path d="M16.6 3.1A5 5 0 0 1 19 5.5"/><path d="M17.2.6A8 8 0 0 1 21.5 4.9"/><path d="M7.6 15.4L5.8 20.6M11 17.2L12.4 20.6M3.2 21.2H15"/></svg></button>
@@ -383,7 +389,16 @@
               <div class="dab-meta" id="dabNowMeta"></div>
               <div class="dab-dls-box" id="dabDlsBox" hidden>
                 <span class="dab-cap">NOW ON AIR</span>
-                <div class="dab-dls" id="dabDls"></div>
+                <div class="dab-dls-row">
+                  <div class="dab-dls" id="dabDls"></div>
+                  <button class="dab-find" id="dabFind" title="Search the song on Spotify / Apple Music">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg>
+                  </button>
+                </div>
+                <div class="dab-find-menu" id="dabFindMenu" hidden>
+                  <a id="dabFindSpotify" target="_blank" rel="noopener">Spotify</a>
+                  <a id="dabFindApple" target="_blank" rel="noopener">Apple Music</a>
+                </div>
               </div>
             </div>
           </div>
@@ -961,8 +976,8 @@
             <!-- the detail of one echo (meteor.py _cut): full resolution ±500 Hz, with HEAD ECHO also ±5 kHz before it -->
             <div class="mt-det" id="mtDet" hidden>
               <div class="mt-dethead">
-                <button type="button" class="key small" id="mtDetPrev" title="The echo before this one (of those the table shows: its source, kinds and min SNR)">◀ PREV</button>
-                <button type="button" class="key small" id="mtDetNext" title="The echo after this one (of those the table shows: its source, kinds and min SNR)">NEXT ▶</button><span id="mtDetT"></span>
+                <button type="button" class="key small" id="mtDetPrev" title="The echo before this one (of those the table shows: its source, kinds and min SNR; only those whose detail is still kept)">◀ PREV</button>
+                <button type="button" class="key small" id="mtDetNext" title="The echo after this one (of those the table shows: its source, kinds and min SNR; only those whose detail is still kept)">NEXT ▶</button><span id="mtDetT"></span>
                 <button type="button" class="key small" id="mtDetPlay" hidden title="Play the echo as on 143.049 MHz USB (the carrier = a 1 kHz tone). A satellite: its signal followed along its track (±60 Hz kept, a weak one is heard too) as a tone that follows its Doppler, a sweep over 2 kHz squeezed into the audio band">▶ PLAY</button>
                 <a class="key small" id="mtDetWav" hidden download title="Save the sound of this echo (WAV)">WAV</a>
                 <button type="button" class="key small" id="mtDetSave" title="SAVE: this echo into the recordings folder (RECORDINGS tab, source GRAVES): its sound as MP3, its IQ around the carrier and, with PRE-REC on, the IQ of the whole band – whatever is still kept of it">SAVE</button>
@@ -1286,7 +1301,9 @@
           <button class="key small" data-view="msgs" title="The newest decoded Mode S / ADS-B messages">MESSAGES</button>
         </div>
         <label class="wf-opt" id="adsbRangeOpt" title="Range map: the farthest position decoded in each 2° sector, for aircraft up to 10000, 20000, 30000 ft and at any altitude. Collected all the time ADS-B runs and kept in data\adsb_range.json (also after a restart)"><input type="checkbox" id="adsbRange">RANGE</label>
+        <label class="wf-opt" id="adsbFr24MapOpt" title="Map: the aircraft of the local FR24 receiver (SETTINGS › FR24 RECEIVER) as a cyan layer with their trails, those the decoder does not show. Only drawn: the list, range and log stay of the decoder (FR24 beside the filter joins them into the list too)"><input type="checkbox" id="adsbFr24Map">FR24 RECEIVER</label>
         <button id="adsbRangeClr" class="key small" title="Start the range map again (click twice: the collected range is deleted)">CLR RANGE</button>
+        <label class="wf-opt" id="adsbFr24Opt" title="Local FR24 receiver (SETTINGS › FR24 RECEIVER): its aircraft join those decoded here, marked F; those only it hears are drawn cyan on the MAP. Not counted in the messages, the range or the log"><input type="checkbox" id="adsbFr24">FR24</label>
         <input id="adsbFilter" class="pkt-filter" type="search" placeholder="filter" title="Show only aircraft / messages containing this text (ICAO address, flight, squawk, country, category)">
         <label class="wf-opt log-opt" title="Write to the daily log data\logs\adsb\YYYY\MM\DD\adsb_YYYY-MM-DD.txt (UTC, shared by all VFOs; one line per aircraft at most once a minute)"><input type="checkbox" data-log="adsb">LOG</label>
         <button id="adsbClear" class="key small" title="Clear the aircraft, the messages and the counters">CLR</button>
@@ -1959,6 +1976,7 @@
           <button class="key small" data-set-tab="src" role="tab" aria-selected="false" title="Which source each VFO receives from: a local dongle, an rtl_tcp server, a SpyServer or the dongle of another VFO (the former SDR setup)">SDR SOURCES</button>
           <button class="key small" data-set-tab="vfo" role="tab" aria-selected="false">VFO</button>
           <button class="key small" data-set-tab="rtl" role="tab" aria-selected="false">RTL_TCP SERVER</button>
+          <button class="key small" data-set-tab="fr24" role="tab" aria-selected="false" title="The local Flightradar24 receiver of the station: its aircraft on the COMPOSITE map and in the ADS-B decoder (FR24)">FR24 RECEIVER</button>
           <button class="key small" data-set-tab="logs" role="tab" aria-selected="false" title="Logs and data files: browse, read, delete, export, import; which logs run; the histories of the maps">DATA/LOG</button>
           <button class="key small" data-set-tab="dbg" role="tab" aria-selected="false" title="Where RADIMCOM spends its time (the page and the servers), to find the slow places">DEBUG</button>
         </div>
@@ -2725,6 +2743,25 @@
               Servers are installed with rpi/install_rtltcp.sh.</p>
           </div>
         </div>
+        <!-- ===== FR24 RECEIVER: the local Flightradar24 receiver, its BaseStation stream (fr24.py, static/fr24.js) ===== -->
+        <div class="set-panel fr24-panel" data-set-panel="fr24" role="tabpanel" hidden>
+          <div class="setting">
+            <div class="row"><span>Local FR24 receiver</span><span class="muted" id="fr24Info"></span></div>
+            <div class="sats-row">
+              <label>IP address <input id="fr24Host" size="18" spellcheck="false" placeholder="192.168.1.10"></label>
+              <label>Port <input id="fr24Port" type="number" min="1" max="65535" step="1" value="30003" style="width: 6em"></label>
+              <label class="switch"><input id="fr24On" type="checkbox" checked><span></span> Use it</label>
+              <button class="key small accent" id="fr24Save">SAVE</button>
+              <a id="fr24Web" class="muted" href="#" target="_blank" rel="noopener" hidden>web page of the receiver</a>
+              <span class="note" id="fr24Msg"></span></div>
+            <table class="fr24-stat" id="fr24Stat"></table>
+            <p class="note">The Flightradar24 receiver of the station (or any dump1090 box) decodes ADS-B on its own antenna and
+              sends every message as a line of the BaseStation (SBS-1) format on TCP port 30003. RADIMCOM reads it here:
+              its aircraft are a source of the COMPOSITE map (FR24) and, with FR24 ticked in DECODERS › ADS-B, they join the
+              aircraft decoded by the VFO. One setting for the whole station (<code>data\fr24.json</code>); the connection
+              is held only while the map, the ADS-B decoder or this page wants the data.</p>
+          </div>
+        </div>
         <!-- ===== DEBUG: where RADIMCOM spends its time (static/debug.js, dbgstats.py) ===== -->
         <div class="set-panel dbg-panel" data-set-panel="dbg" role="tabpanel" hidden>
           <div class="setting">
@@ -2862,11 +2899,14 @@
 <script src="/static/com_defaults.js?v=20261120-1814"></script><!-- COMPOSITE map: default settings (first open, Restore default) -->
 <script src="/static/vectormaps.js"></script><!-- vector maps of the decoder maps (before app.js) -->
 <script src="/static/mapmemo.js"></script><!-- COMPOSITE map: Map memory, the Maps bar (before app.js) -->
+<script src="/static/stca.js"></script><!-- COMPOSITE map: multiselect (Alt / Ctrl + click), STCA, the STCA bar (before app.js) -->
 <script src="/static/app.js"></script>
 <script src="/static/q65.js"></script><!-- DECODERS › Q65 / JT65 (q65.py) -->
 <script src="/static/bpsk.js"></script><!-- DECODERS › BPSK (bpsk.py, funcube.py) -->
 <script src="/static/navtex.js"></script><!-- DECODERS › NAVTEX (navtex.py) -->
 <script src="/static/iqplay.js"></script><!-- IQ PLAYER (iqplay.py) -->
+<script src="/static/atc.js"></script><!-- AUDIO › ATC: airband speech to text, subtitle in the AD (atc.py) -->
+<script src="/static/fr24.js"></script><!-- SETTINGS › FR24 RECEIVER, COMPOSITE source FR24, ADS-B FR24 (fr24.py) -->
 <script src="/static/meteor_rec.js"></script><!-- DECODERS › GRAVES › REC (meteor_rec.py) -->
 <script src="/static/tooltip.js"></script><!-- the dark tooltip of every title="" -->
 <script src="/static/satad.js"></script><!-- AD: satellite tracking of the VFO (polar plot, name, frequency) -->

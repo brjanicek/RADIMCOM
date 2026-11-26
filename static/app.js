@@ -293,7 +293,8 @@ function atuSoon(prevHz) {
     atuTimer = null;
     if (!st || !st.autotune || !ATU_MODES.includes(st.mode) || drag) return;
     if (Math.abs(st.tune_hz - atuFrom) < ATU_MIN_MOVE_HZ) return;
-    send({ tune_hz: st.tune_hz, autotune_go: true });
+    // autotune_from: the station tuned away from is not taken again (a short move keeps it in the search window)
+    send({ tune_hz: st.tune_hz, autotune_go: true, autotune_from: atuFrom });
     if (st.autotune_info) st.autotune_info = { ...st.autotune_info, state: "listen", id: -1 };
     renderRds();
   }, ATU_REST_MS);
@@ -306,7 +307,7 @@ function atuNote() {
   if (atuShownId === null) { atuShownId = i.id; return ""; }
   if (i.id !== atuShownId) { atuShownId = i.id; atuNoteUntil = Date.now() + 4000; setTimeout(drawOverlays, 4100); }
   if (Date.now() > atuNoteUntil) return "";
-  return i.state === "done" ? `ATU ${i.shift_hz >= 0 ? "+" : ""}${i.shift_hz} Hz` : "ATU: no signal";
+  return i.state === "done" ? `ATU ${i.shift_hz >= 0 ? "+" : ""}${i.shift_hz} Hz` : i.state === "left" ? "ATU: kept (station left)" : "ATU: no signal";
 }
 
 // SAM (synchronous AM, an option of the mode AM): two keys in the 5th column of MODE, SAM above, the sideband under it
@@ -2038,7 +2039,8 @@ function drawMemTags(ctx, w, modeLabel) {
       ctx.fillStyle = color;
     }
     ctx.fillText(name, bx + 5 + (rec ? 9 : 0), y0 + MEM_TAG_H / 2 + 0.5);
-    memTagBoxes.push({ m, x0: bx, x1: bx + tw, y0: 0, y1: y0 + MEM_TAG_H });
+    // the tooltip only over the tag itself and the ▲ mark with its line, not over the spectrum between them
+    memTagBoxes.push({ m, x0: bx, x1: bx + tw, y0, y1: y0 + MEM_TAG_H }, { m, x0: x - 5, x1: x + 5, y0: 0, y1: y0 });
   }
 }
 function memTagAt(x, y) {
@@ -2429,6 +2431,7 @@ for (const id of ["specOverlay", "wfOverlay"]) {
   }
   cv.addEventListener("pointermove", (e) => hoverMove(e, cv));
   cv.addEventListener("pointerleave", hoverHide);
+  if (spectrum) cv.addEventListener("pointerleave", () => { cv.title = ""; });   // a memory / DX tooltip not left on the canvas
   cv.addEventListener("pointerdown", hoverHide);
   // wheel tuning: hide the tooltip and do not show it until the mouse moves again
   cv.addEventListener("wheel", (e) => { hoverHide(); hover = { x: e.clientX, y: e.clientY }; });
@@ -2827,7 +2830,10 @@ function renderAd() {
       : rotorMoving(i) ? `→ ${Math.round(i.target[0])}° / ${Math.round(i.target[1])}°` : "";
     $("adRotTgt").classList.toggle("bad", bad);
   }
-  const dab = !err && !sat && !rot && !!adDabInfo;
+  const atc = !err && !sat && !rot && typeof atcAdOn === "function" && atcAdOn();   // ATC subtitle (atc.js)
+  $("adAtc").hidden = !atc;
+  if (atc) atcAdRender(); else $("mfd").classList.remove("atc-x");   // atc-x: the AD opened down for a transmission
+  const dab = !err && !sat && !rot && !atc && !!adDabInfo;
   $("adDab").hidden = !dab;
   if (dab) {
     const d = adDabInfo, snr = d.snr == null ? null : Number(d.snr);
@@ -2848,7 +2854,7 @@ function renderAd() {
     }
   }
   // DSD: one line per call on air (both DMR time slots under each other), slot 1 first; no call = empty
-  const dsd = !err && !sat && !rot && !dab && !!adDsdInfo;
+  const dsd = !err && !sat && !rot && !atc && !dab && !!adDsdInfo;
   $("adDsd").hidden = !dsd;
   if (dsd) {
     const d = adDsdInfo, calls = [...d.active].sort((a, b) => (a.slot || 0) - (b.slot || 0)).slice(0, 2);
@@ -2861,7 +2867,7 @@ function renderAd() {
       `<span class="ad-dsd-from">${escHtml(c.src || "-")}</span>${dsdAdCall(c)}<span class="ad-dsd-dur">${dsdDuration(c.duration)}</span></div>`).join("")
       : "";   // no call on air: the AD stays empty (in DSD mode, not the RDS)
   }
-  $("rds").hidden = err || sat || rot || dab || dsd;
+  $("rds").hidden = err || sat || rot || atc || dab || dsd;
 }
 
 $("adErrOk").addEventListener("click", () => { adErrors.shift(); renderAd(); });
@@ -6468,6 +6474,7 @@ function renderDabNow(cur) {
     cur.protection && `<span title="Error protection of the subchannel">${dabEsc(cur.protection)}</span>`];
   $("dabChips").innerHTML = chips.filter(Boolean).join("");
   $("dabNowMeta").textContent = cur.mode || "buffering…";
+  if ($("dabDls").textContent !== (cur.dls || "")) dabFindSet(cur.dls || "");
   $("dabDls").textContent = cur.dls || "";
   $("dabDlsBox").hidden = !cur.dls;
   const e = cur.errors || {};
@@ -6475,6 +6482,27 @@ function renderDabNow(cur) {
   $("dabHealth").innerHTML = (errs ? `<span class="bad">●</span> errors: frame ${e.frameerrors} · RS ${e.rserrors} · AAC ${e.aacerrors}` : `<span class="ok">●</span> no decoding errors`) +
     ` · SID ${dabEsc(cur.sid)}` + (cur.subch != null ? ` · subchannel ${cur.subch}` : "");
 }
+
+/** Magnifier next to the DLS text: search the song on Spotify / Apple Music. The links are set whenever the text changes
+ *  (a new song closes the menu); prefixes such as "Now playing:" are left out of the query. */
+function dabFindSet(dls) {
+  const q = dls.replace(/^\s*(now playing|on air|you are listening to|teraz hráme|práve hráme|práve hrá|aktuálne hráme|hráme|právě hrajeme|právě hraje|nyní hrajeme|hrajeme|teraz gramy|jetzt läuft)\s*[:\-–|]?\s*/i, "")
+    .replace(/\s+[-–|]\s+/g, " ").trim();
+  $("dabFindSpotify").href = `https://open.spotify.com/search/${encodeURIComponent(q)}`;
+  $("dabFindApple").href = `https://music.apple.com/search?term=${encodeURIComponent(q)}`;
+  $("dabFindMenu").hidden = true;
+  $("dabFind").classList.remove("on");
+}
+$("dabFind").addEventListener("click", (ev) => {
+  ev.stopPropagation();
+  const m = $("dabFindMenu");
+  m.hidden = !m.hidden;
+  $("dabFind").classList.toggle("on", !m.hidden);
+});
+$("dabFindMenu").addEventListener("click", () => { $("dabFindMenu").hidden = true; $("dabFind").classList.remove("on"); });
+document.addEventListener("click", (ev) => {
+  if (!$("dabFindMenu").hidden && !ev.target.closest("#dabFindMenu, #dabFind")) { $("dabFindMenu").hidden = true; $("dabFind").classList.remove("on"); }
+});
 
 /** Stops polling and audio (DAB off, or another VFO selected). */
 function stopDab() {
@@ -11058,7 +11086,7 @@ function renderAdsbAcTable() {
     const cls = [adsbEmerg(a) ? "emerg" : "", now - a.last > ADSB_OLD_S ? "old" : "", a.icao === adsbSel ? "sel" : ""].filter(Boolean).join(" ");
     const sq = a.squawk ? `<span${adsbEmerg(a) ? ` class="sq-emerg" title="${esc(a.emergency || "emergency")}"` : ""}>${a.squawk}</span>` : (a.emergency ? `<span class="sq-emerg">${esc(a.emergency)}</span>` : "");
     return `<tr data-icao="${a.icao}" class="${cls}"><td class="cty">${adsbFlag(a.icao)}</td>` +
-      `<td class="icao"><a href="${adsbGlobe(a.icao)}" target="_blank" rel="noopener" title="globe.adsb.fi${a.tisb ? " · TIS-B / ADS-R (relayed by the ground)" : ""}">${a.icao}</a>${a.tisb ? '<span class="muted"> T</span>' : ""}</td>` +
+      `<td class="icao"><a href="${adsbGlobe(a.icao)}" target="_blank" rel="noopener" title="globe.adsb.fi${a.tisb ? " · TIS-B / ADS-R (relayed by the ground)" : ""}">${a.icao}</a>${a.tisb ? '<span class="muted"> T</span>' : ""}${fr24AdsbTag(a)}</td>` +
       `<td class="flt">${a.flight ? `<a href="${adsbLol(a)}" target="_blank" rel="noopener" title="adsb.lol">${esc(a.flight)}</a>` : (a.net && a.net.callsign ? `<span class="ext" title="Call sign from ${esc(a.net.src)}">${esc(a.net.callsign)}</span>` : "")}</td>` +
       `<td class="ext" title="${esc((a.net && a.net.desc) || "")}">${esc(adsbRegType(a))}</td>` +
       `<td>${sq}</td><td class="num">${adsbAlt(a)}</td><td class="num">${a.vrate == null ? "" : (a.vrate > 0 ? "+" : "") + a.vrate}</td>` +
@@ -11073,7 +11101,7 @@ function renderAdsbAcTable() {
 
 function adsbIcon(a, sel, net) {
   const old = Date.now() / 1000 - a.last > ADSB_OLD_S;
-  const cls = `hfdl-plane adsb-plane${sel ? " sel" : ""}${old ? " old" : ""}${adsbEmerg(a) ? " emerg" : ""}${a.ground ? " ground" : ""}${net ? " net" : ""}`;
+  const cls = `hfdl-plane adsb-plane${sel ? " sel" : ""}${old ? " old" : ""}${adsbEmerg(a) ? " emerg" : ""}${a.ground ? " ground" : ""}${net ? " net" : ""}${a.fr24 && !a.n ? " fr24" : ""}`;
   const trk = net ? a.track ?? a.net.track ?? a.hdg : a.track ?? a.hdg;
   const svg = `<svg viewBox="0 0 24 24" style="transform: rotate(${Math.round(trk ?? 0)}deg)"><path d="M12 2c.6 0 1 .9 1 2v5.2l8 4.6v2l-8-2.5v4.9l2.2 1.6V21L12 20.2 8.8 21v-1.2L11 18.2v-4.9l-8 2.5v-2l8-4.6V4c0-1.1.4-2 1-2z"/></svg>`;
   return L.divIcon({ className: cls, html: svg, iconSize: [22, 22], iconAnchor: [11, 11] });
@@ -11091,6 +11119,7 @@ function adsbPopup(a) {
   const p = adsbPos(a);
   if (p) lines.push(`${p.net ? `<span class="ext">position from ${esc(p.src)}</span>` : "position"} ${p.lat.toFixed(4)}, ${p.lon.toFixed(4)} (${adsbAge(p.t)} ago)${p.dist != null ? ` · ${Math.round(p.dist)} km, ${p.az}°` : ""}`);
   if (p && p.net && a.net.alt != null && a.alt == null) lines.push(`<span class="ext">${a.net.alt.toLocaleString("en-US")} ft · ${a.net.gs != null ? Math.round(a.net.gs) : "?"} kt (${esc(a.net.src)})</span>`);
+  if (a.fr24) lines.push(`<span class="fr24-c">${a.n ? "also heard" : "only heard"} by the local ${fr24Name()} receiver</span>`);
   lines.push(`last message ${adsbUtc(a.last)} UTC · ${a.n} msgs · <a href="${adsbGlobe(a.icao)}" target="_blank" rel="noopener">globe.adsb.fi</a> · <a href="${adsbLol(a)}" target="_blank" rel="noopener">adsb.lol</a>`);
   return lines.join("<br>");
 }
@@ -11160,6 +11189,7 @@ async function renderAdsbMap() {
     adsbMapFitted = true;
     adsbMap.fitBounds(L.featureGroup([...lay.marks.values()]).getBounds().pad(0.3), { maxZoom: 10 });
   }
+  const nFr24 = await fr24MapDraw();   // FR24 RECEIVER layer (fr24.js)
   const nNet = list.filter((a) => adsbPos(a).net).length;
   $("adsbMapList").innerHTML = `<div class="ais-ml-head">${list.length} aircraft with a position${nNet ? `, <span class="ext">${nNet} from adsb.fi</span>` : ""}${adsbAc.size > list.length ? ` (${adsbAc.size - list.length} without)` : ""}</div>` +
     list.map((a) => {
@@ -11168,8 +11198,8 @@ async function renderAdsbMap() {
         `${c && c.cc ? `<img src="${flagUrl(c.cc)}" alt="" title="${escHtml(c.name)}">` : "<span></span>"}` +
         `<b>${escHtml(adsbLabel(a))}</b><span class="mmsi">${a.icao}</span><span class="stype">${adsbAlt(a)}</span>` +
         `<span${p.net ? ' class="ext"' : ""}>${p.dist == null ? "" : `${Math.round(p.dist)} km`}</span><span class="age">${adsbAge(a.last)}</span></div>`;
-    }).join("");
-  $("adsbMapNote").textContent = `${list.length} with a position · yellow = aircraft turned to its track · blue = position from adsb.fi (not received here) · red = selected · grey = not heard for 1 min · white trail = decoded positions${adsbQth ? " · blue rings 50 / 100 / 200 / 300 km" : ""}${adsbRangeNote()} · map © OpenStreetMap`;
+    }).join("") + fr24MapListHtml();   // FR24 RECEIVER layer (fr24.js)
+  $("adsbMapNote").textContent = `${list.length} with a position · yellow = aircraft turned to its track · blue = position from adsb.fi (not received here)${adsbLast.fr24 ? " · cyan = only the local FR24 receiver hears it" : ""} · red = selected · grey = not heard for 1 min · white trail = decoded positions${adsbQth ? " · blue rings 50 / 100 / 200 / 300 km" : ""}${fr24MapNote(nFr24)}${adsbRangeNote()} · map © OpenStreetMap`;
 }
 
 // ----- RANGE: the farthest decoded position per 2° sector and altitude band (adsb.py RangeMap, data\adsb_range.json) -----
@@ -11251,7 +11281,7 @@ function setAdsbView(v) {
   $("adsbAcBox").hidden = v !== "ac";
   $("adsbMapBox").hidden = v !== "map";
   $("adsbMsgBox").hidden = v !== "msgs";
-  $("adsbRangeOpt").hidden = $("adsbRangeClr").hidden = v !== "map";
+  $("adsbRangeOpt").hidden = $("adsbRangeClr").hidden = $("adsbFr24MapOpt").hidden = v !== "map";
   renderAdsbView();
 }
 
@@ -11313,7 +11343,8 @@ function renderAdsbInfo(d) {
   el.classList.toggle("err", !!i.error);
   if (i.error) el.textContent = `ADS-B: ${i.error}`;
   else el.textContent = !i.enabled ? "" : !i.running ? "waiting for the VFO…"
-    : `${i.aircraft || 0} aircraft (${i.with_pos || 0} with a position) · ${i.count || 0} messages${i.rate ? ` · ${i.rate.toFixed(0)}/s` : ""}${i.fixed ? ` · ${i.fixed} fixed` : ""}${i.dropped ? ` · ${i.dropped} blocks dropped` : ""}`;
+    : `${i.aircraft || 0} aircraft (${i.with_pos || 0} with a position) · ${i.count || 0} messages${i.rate ? ` · ${i.rate.toFixed(0)}/s` : ""}${i.fixed ? ` · ${i.fixed} fixed` : ""}${i.dropped ? ` · ${i.dropped} blocks dropped` : ""}${i.fr24 ? ` · FR24 +${i.fr24_only || 0}` : ""}`;
+  if (i.fr24 != null) $("adsbFr24").checked = !!i.fr24;   // FR24 ticked (fr24.js)
   $("adsbStatus").textContent = i.enabled && i.running && i.fs ? `Listening on ${fmtMHz(adsbFreq, 3)} MHz at ${(i.fs / 1e6).toFixed(1)} MS/s` : "";
 }
 
@@ -12042,6 +12073,7 @@ function setSubOpened(name) {
   if (name.startsWith("logs:")) setTimeout(() => lgOpened(name));          // SETTINGS › LOGS (declared further down)
   if (name === "" && !document.querySelector('[data-set-panel="sta"]').hidden) setTimeout(sdgStart);   // STATION: no sub-pages
   if (name === "" && !document.querySelector('[data-set-panel="rtl"]').hidden) setTimeout(rtlStart);   // RTL_TCP: no sub-pages
+  if (name === "" && !document.querySelector('[data-set-panel="fr24"]').hidden) setTimeout(fr24SetStart);   // FR24 RECEIVER (fr24.js)
   if (name === "" && !document.querySelector('[data-set-panel="src"]').hidden) setTimeout(srcsStart);  // SDR SOURCES
 }
 /** The rotor settings (RCTRL › SETTINGS; SETTINGS › GENERAL › ROTOR until 1.0beta2) are on the screen. */
@@ -14252,6 +14284,7 @@ function onStatus(s) {
   iqpStatus(s);      // IQ PLAYER bar (static/iqplay.js)
   bpskStatus(s);
   navtexStatus(s);
+  atcStatus(s);      // AUDIO › ATC key (static/atc.js)
   mtStatus(s);
   decBandsMark(s);
   $("wefaxOn").checked = s.wefax;
@@ -14458,6 +14491,7 @@ function connectEvents(v) {
   on("navtex", (m) => { navtexAdd(m, true); decActivity("navtex"); });
   on("navtextext", (d) => navtexText(d.t));
   on("navtexstate", (i) => navtexState(i));
+  on("atc", (d) => atcText(d));   // ATC speech to text (atc.js)
   on("meteor", (d) => { mtEvent(d); if (d.kind !== "plane") decActivity("meteor"); });
   on("wsprcycle", (d) => { wsprInfo(st, d.info); wsprProg = { ...wsprProg, ...d }; renderWsprProg(); });
   bus.addEventListener("down", () => {
@@ -17112,6 +17146,7 @@ const COM_SRC = {   // source key → name and colour
   adsb: ["ADS-B", "#ffd84a"], acars: ["ACARS", "#6cb8ff"], vdl2: ["VDL2", "#6cb8ff"], hfdl: ["HFDL", "#ff9a3c"],
   ais: ["AIS", "#6cff9c"], sonde: ["SONDE", "#ff6cd2"], adsbfi: ["adsb.fi", "#9ad0ff"],
   aisstream: ["aisstream", "#7affd0"], sondehub: ["SondeHub", "#ffa0e6"],
+  fr24: ["FR24", "#5ee6e6"],   // the local FR24 receiver (fr24.js): a feed of its own, "~fr24"
 };
 const COM_SHARED = new Set(["adsbfi", "aisstream", "sondehub"]);
 let comShareSh = { sondes: [], t: 0, err: "", got: 0, shown: 0 }, comShareShAt = 0;   // sources from other stations (Sharing)
@@ -17228,10 +17263,11 @@ function comShareItems() {
     return { src: "adsbfi", id: hex, label: (a.flight || "").trim() || hex, lat: a.lat, lon: a.lon, alt_m: alt == null ? null : Math.round(alt * 0.3048),
       t: comShare.t - (a.seen_pos || 0), trail: comShareTr.get(hex) || [], track: a.track,
       air: { hex, reg: a.r || "", flight: (a.flight || "").trim(), type: a.t || "", desc: a.desc || "", alt_ft: alt, gs_kt: a.gs, squawk: a.squawk || "",
-        ground: a.alt_baro === "ground", track: a.track, gs: "", n: 0 } };
+        ground: a.alt_baro === "ground", track: a.track, vs_fpm: a.baro_rate ?? a.geom_rate ?? null, gs: "", n: 0 } };
   });
 }
 const COM_POLL_MS = 5000, COM_OLD_S = 900;
+const COM_GND_ZOOM = 11;   // aircraft on the ground shown from this zoom on (an airport fills the view)
 let comMap = null, comLayers = null, comTimer = null, comFeeds = new Map(), comFitted = !!mapViewSaved("com");
 let comOff = new Set((recall("comOff") || "").split(",").filter(Boolean));   // "A:vdl2" … switched off by the user
 let comMerged = [], comDrawn = [], comMarks = new Map();
@@ -17262,6 +17298,8 @@ async function comPoll() {
   }));
   const got = await (comFeeds.size ? all : busy("com", all));   // the first read (6 h history) takes a while
   comFeeds = new Map(got.filter(([, d]) => d));
+  const f24 = await fr24ComFeed();   // the local FR24 receiver (fr24.js), when set up
+  if (f24) comFeeds.set("~fr24", f24);
   await comShareLoad();
   renderComSrcs();
   await renderComMap();
@@ -17278,7 +17316,7 @@ function renderComSrcs() {
       b.className = "key small" + (comOff.has(k) ? "" : " on");
       b.dataset.k = k;
       b.style.setProperty("--sc", (COM_SRC[src] || ["", "#fff"])[1]);
-      b.textContent = `${vfo ? `VFO ${vfo} · ` : ""}${(COM_SRC[src] || [src.toUpperCase()])[0]} (${n})${hist ? " · history" : ""}`;
+      b.textContent = `${vfo && vfo[0] !== "~" ? `VFO ${vfo} · ` : ""}${(COM_SRC[src] || [src.toUpperCase()])[0]} (${n})${hist ? " · history" : ""}`;
       b.title = hist ? "This decoder does not run now: the positions it saw in the last 6 hours (history kept over a server restart)"
         : "Positions of this decoder: live + what it saw in the last 6 hours (history kept over a server restart)";
       btns.push(b);
@@ -17391,7 +17429,7 @@ function comMerge() {
     m.hist = (m.hist ?? true) && !!i.hist;   // only from the history (not in the decoder now)
     if (i.ship && (!m.ship || i.t >= m.t)) m.ship = i.ship;     // AIS: the whole ship record (details on the right)
     if (i.sonde && (!m.sonde || i.t >= m.t)) m.sonde = i.sonde;
-    if (vfo) m.vfos.add(vfo);
+    if (vfo && vfo[0] !== "~") m.vfos.add(vfo);   // not "~share" / "~fr24" (no VFO)
     if (i.t >= m.t) {
       Object.assign(m, { lat: i.lat, lon: i.lon, t: i.t, alt_m: i.alt_m ?? m.alt_m, track: i.track ?? m.track });
       if (i.label && i.label !== i.id) m.label = i.label;
@@ -17429,33 +17467,46 @@ function comHeading(m) {
 }
 
 /** All the records joined into the object: VFO, decoder, its identifiers, last time; and by what they were joined. */
-function comPartsHtml(m) {
+function comPartsHtml(m, bare) {   // bare: without its heading (in a details of its own)
   const esc = escHtml, parts = [...(m.parts || [])].sort((a, b) => b.t - a.t);
   const rows = parts.map((p) => {
     const ids = [p.flight, p.reg, p.hex && /^[0-9A-F]{6}$/i.test(p.hex) ? p.hex.toUpperCase() : "", p.squawk && `sq ${p.squawk}`]
       .filter((x, k, a) => x && a.indexOf(x) === k);
-    return `<tr><td>${p.vfo === "~share" ? "Sharing" : p.vfo ? `VFO ${esc(p.vfo)}` : ""}</td><td><b style="color:${(COM_SRC[p.src] || ["", "#fff"])[1]}">${esc((COM_SRC[p.src] || [p.src])[0])}</b></td>` +
+    return `<tr><td>${p.vfo === "~share" ? "Sharing" : p.vfo === "~fr24" ? "Local" : p.vfo ? `VFO ${esc(p.vfo)}` : ""}</td><td><b style="color:${(COM_SRC[p.src] || ["", "#fff"])[1]}">${esc((COM_SRC[p.src] || [p.src])[0])}</b></td>` +
       `<td>${esc(ids.join(" · ") || p.label || p.id)}${p.n ? ` · ${p.n} msgs` : ""}</td><td>${hfdlUtc(p.t)}${p.hist ? " (history)" : ""}</td></tr>`;
   }).join("");
   const how = parts.length > 1 ? `joined by ${esc((m.joined || []).join(", ") || "?")}` : "one record, nothing joined";
-  return `<div class="com-kind com-parts-head">SOURCES (${parts.length})</div><table class="com-parts">${rows}</table><span class="muted">${how}</span>`;
+  return `${bare ? "" : `<div class="com-kind com-parts-head">SOURCES (${parts.length})</div>`}<table class="com-parts">${rows}</table><span class="muted">${how}</span>`;
 }
 
 /** Popup of an aircraft: the same lines as on the HFDL / VDL2 / ADS-B maps, plus which VFOs and decoders heard it. */
 function comAirPopup(m) {
   const a = m.air, esc = escHtml, hex = /^[0-9A-F]{6}$/i.test(a.hex || "") ? a.hex.toUpperCase() : "";
   const c = hex ? icaoCountry(hex) : null;
-  const nav = [a.ground ? "GND" : a.alt_ft != null ? `${Math.round(a.alt_ft).toLocaleString("en-US")} ft` : "",
-    a.gs_kt != null && !a.ground ? `${Math.round(a.gs_kt)} kt` : "", m.track != null ? `${Math.round(m.track)}°` : "", a.squawk && `squawk ${a.squawk}`].filter(Boolean).join(" · ");
-  const lines = [`<b>${esc(a.flight || a.reg || hex || m.label)}</b> ${esc([a.reg, hex && `ICAO ${hex}`].filter((x) => x && x !== a.flight).join(" · "))}${c ? ` · ${esc(c.name)}` : ""}`];
-  if (a.type || a.desc) lines.push(esc([a.type, a.desc].filter(Boolean).join(" · ")));
-  if (nav) lines.push(esc(nav));
-  lines.push(`position ${m.lat.toFixed(3)}, ${m.lon.toFixed(3)} (${hfdlAge(m.t)} ago)`);
-  lines.push(`${esc(m.srcs.map((x) => (COM_SRC[x] || [x])[0]).join(" + "))}${m.vfos.length ? ` · VFO ${esc(m.vfos.join(", "))}` : ""}` +
-    `${a.gs ? ` · via ${esc(a.gs)}` : ""}${a.n ? ` · ${a.n} msgs` : ""} · last ${hfdlUtc(m.t)} UTC`);
-  lines.push(comPartsHtml(m));
-  if (hex) lines.push(`<a href="https://globe.adsb.fi/?icao=${hex.toLowerCase()}" target="_blank" rel="noopener">adsb.fi</a> · <a href="https://adsb.lol/?icao=${hex.toLowerCase()}" target="_blank" rel="noopener">adsb.lol</a>`);
-  return lines.join("<br>");
+  // STATION look: the callsign big with its type, the values in small blocks, the rest in short lines; nothing wider
+  // than the panel (the cells cut with …, the title of each has it whole)
+  const trend = comTrend(a), fl = a.ground ? "GND" : a.alt_ft != null ? `${String(Math.round(a.alt_ft / 100)).padStart(3, "0")}` : "";
+  const ad = mapQthV ? mapAdTxt(m, true) : "";
+  const cell = (k, v, tip) => `<div class="cs-v"${tip ? ` title="${esc(tip)}"` : ""}><b>${k}</b><span>${v || "–"}</span></div>`;
+  const vs = typeof a.vs_fpm === "number" && !a.ground ? `${a.vs_fpm > 0 ? "+" : ""}${Math.round(a.vs_fpm)}` : "";
+  const name = esc(a.flight || a.reg || hex || m.label);
+  return `<div class="cs-head">${c ? `<img src="${flagUrl(c.cc)}" alt="" title="${esc(c.name)}">` : ""}<b class="cs-call">${name}</b>` +
+      `<span class="cs-type" title="${esc(a.desc || "")}">${esc(a.type || "")}</span><span class="cs-age" title="last ${hfdlUtc(m.t)} UTC">${hfdlAge(m.t)}</span></div>` +
+    `<div class="cs-grid">${cell("FL", `${esc(fl)}${trend}`, a.alt_ft != null ? `${Math.round(a.alt_ft).toLocaleString("en-US")} ft` : "")}` +
+      `${cell("GS kt", a.gs_kt != null && !a.ground ? String(Math.round(a.gs_kt)) : "")}${cell("TRK", m.track != null ? `${Math.round(m.track)}°` : "")}` +
+      `${cell("VS fpm", vs)}${cell("SQ", esc(a.squawk || ""), mapEmerg(a.squawk) ? "emergency" : "")}${cell("A/D", esc(ad), `azimuth / distance from the station (${mapOpts.adUnit === "nm" ? "NM" : "km"})`)}</div>` +
+    `<div class="cs-sub" title="${esc([a.reg, hex && `ICAO ${hex}`, c && c.name, a.desc].filter(Boolean).join(" · "))}">${esc([a.reg, hex, c && c.name, a.desc].filter((x) => x && x !== a.flight).join(" · "))}</div>` +
+    `<div class="cs-sub" title="position ${m.lat.toFixed(4)}, ${m.lon.toFixed(4)}">${esc(m.srcs.map((x) => (COM_SRC[x] || [x])[0]).join(" + "))}` +
+      `${m.vfos.length ? ` · VFO ${esc(m.vfos.join(", "))}` : ""}${a.gs ? ` · via ${esc(a.gs)}` : ""}${a.n ? ` · ${a.n} msgs` : ""}` +
+      `${hex ? ` · <a href="https://globe.adsb.fi/?icao=${hex.toLowerCase()}" target="_blank" rel="noopener">adsb.fi</a> · <a href="https://adsb.lol/?icao=${hex.toLowerCase()}" target="_blank" rel="noopener">adsb.lol</a>` : ""}</div>` +
+    `<details class="cs-parts"${comPartsOpen ? " open" : ""}><summary>SOURCES (${(m.parts || []).length})</summary>${comPartsHtml(m, true)}</details>`;
+}
+let comPartsOpen = false;          // SOURCES of the detail open (kept over the redraws)
+document.addEventListener("toggle", (e) => { if (e.target.matches && e.target.matches("#comDetail details.cs-parts")) comPartsOpen = e.target.open; }, true);
+/** Climbing / descending: an arrow for after the level (as in the label on the map), "" when level. */
+function comTrend(a) {
+  if (!a || a.ground || typeof a.vs_fpm !== "number" || Math.abs(a.vs_fpm) < 256) return "";
+  return `<b class="map-vs ${a.vs_fpm > 0 ? "up" : "dn"}">${a.vs_fpm > 0 ? "↑" : "↓"}</b>`;
 }
 
 /** The panel right of the map: details of the selected aircraft, ship or sonde (the same lines as the popups of their own maps). */
@@ -17495,7 +17546,7 @@ function comTrackMenu(id, ev) {
   const m = comMerged.find((x) => x.id === id), box = document.fullscreenElement || (document.body.classList.contains("map-only") && $("comPane")) || document.body;   // fixed to the window (a tab: the page, a pane with a transform would move it; the map alone: its box, the rest of the page is hidden)
   if (!m) return;
   const t = comTrk.get(id) || {}, pre = m.sonde ? "s_" : m.ship ? "w_" : "";
-  const g = id === comSel ? true : m.srcs.every((x) => COM_SHARED.has(x)) ? "Shr" : false, def = (k) => mapOpts[pre + k + mapG(g)];
+  const g = id === comSel || comMultiHas(id) ? true : m.srcs.every((x) => COM_SHARED.has(x)) ? "Shr" : false, def = (k) => mapOpts[pre + k + mapG(g)];
   const lblOn = t.lbl != null ? t.lbl : def("lblShow") !== false;
   const opt = (list, cur, txt, d) => `<option value=""${cur == null ? " selected" : ""}>default (${escHtml(txt(d))})</option>` +
     list.map((v) => `<option value="${escHtml(String(v))}"${cur != null && String(cur) === String(v) ? " selected" : ""}>${escHtml(txt(v))}</option>`).join("");
@@ -17627,7 +17678,7 @@ function comPrune() {
 
 // ----- the bars over the bottom of the map: Tracks (the labels of all tracks) above Tracker (the view); each folds to
 // the left into its name and opens over the whole width of the map (remembered)
-const COM_BARS = [["tracks", "Tracks"], ["tracker", "Tracker"], ["maps", "Maps"]];   // Maps: the map memories (mapmemo.js)
+const COM_BARS = [["tracks", "Tracks"], ["tracker", "Tracker"], ["maps", "Maps"], ["stca", "STCA"]];   // Maps: the map memories (mapmemo.js); STCA: stca.js
 try { localStorage.removeItem("comTbarOpen"); } catch { /* the former single bar */ }
 function comBarOpen(k) {
   try { const v = JSON.parse(localStorage.getItem("comBarsOpen") || "{}") || {}; return v[k] !== false; } catch { return true; }
@@ -17652,6 +17703,7 @@ function renderComTbar() {
       `<button type="button" data-tb="find" title="Find a track by its name, flight, registration, ICAO, MMSI, call sign or serial">Find track</button>` +
       (lk ? `<button type="button" data-tb="unlock" title="The map stops following the track">Unlock ${escHtml(String(comName(lk)))}</button>` : ""),
     maps: mapMemoBarHtml(),
+    stca: stcaBarHtml(),
   };
   const html = COM_BARS.map(([k, name]) => {
     const open = comBarOpen(k);
@@ -17684,6 +17736,7 @@ document.addEventListener("click", (e) => {
     renderComMap();
   } else if (a === "unlock") comLockSet(null);
   else if (a.startsWith("mm")) mapMemoClick(b);
+  else if (a.startsWith("stca")) stcaBarClick(b);
 });
 
 // the border between the map and the lists beside it: dragged with the mouse, the width of the lists remembered
@@ -17757,15 +17810,16 @@ function renderComSide() {
   const side = $("comSide");
   if (!$("comDetail")) side.innerHTML = '<div id="comDetail" class="com-detail"></div><div id="comList" class="com-list"></div>';
   renderComList();
-  const m = comSel && comMerged.find((x) => x.id === comSel), box = $("comDetail");
+  const m = comSel && comMerged.find((x) => x.id === comSel), box = $("comDetail"), pre = stcaSideHtml();   // STCA alerts, the selection of several (stca.js)
   if (!m) {
-    box.innerHTML = '<div class="muted">Click an aircraft, ship or sonde on the map or in the list: its details show here.</div>';
+    box.innerHTML = pre || '<div class="muted">Click an aircraft, ship or sonde on the map or in the list: its details show here (Alt / Ctrl + click: several).</div>';
     return;
   }
   const kind = m.air ? "AIRCRAFT" : m.ship ? "SHIP / AIS STATION" : m.sonde ? "RADIOSONDE" : "OBJECT";
   const body = m.air ? comAirPopup(m) : m.ship ? aisPopup(m.ship) : m.sonde ? sondePopup(m.sonde)
     : `<b>${escHtml(m.label)}</b><br>position ${m.lat.toFixed(4)}, ${m.lon.toFixed(4)} (${hfdlAge(m.t)} ago)`;
-  box.innerHTML = `<div class="com-kind">${kind}${m.hist ? " · FROM HISTORY" : ""}</div>${body}${m.air ? "" : `<br>${comPartsHtml(m)}`}`;
+  box.innerHTML = `${pre}<div class="cs-blk${m.air && mapEmerg(m.air.squawk) ? " bad" : ""}"><div class="com-kind">${kind}${m.hist ? " · FROM HISTORY" : ""}</div>` +
+    `${body}${m.air ? "" : `<br>${comPartsHtml(m)}`}</div>`;
 }
 
 // the station on the COMPOSITE map: the icon and colour of Map › Station in the settings
@@ -17780,7 +17834,8 @@ function comStationIcon() {
     cross: `<polygon points="6.5,2 11.5,2 11.5,6.5 16,6.5 16,11.5 11.5,11.5 11.5,16 6.5,16 6.5,11.5 2,11.5 2,6.5 6.5,6.5" ${st}/>`,
     house: `<polygon points="9,1.5 16.5,8 14.5,8 14.5,16 3.5,16 3.5,8 1.5,8" ${st}/>`,
   }[mapOpts.stIcon] || `<circle cx="9" cy="9" r="6" ${st}/>`;
-  return L.divIcon({ className: "com-station", html: `<svg viewBox="0 0 18 18" width="18" height="18">${shape}</svg>`, iconSize: [18, 18], iconAnchor: [9, 9] });
+  // drawn on 18 units, shown 12 px (smaller than the aircraft: the station is only a reference point)
+  return L.divIcon({ className: "com-station", html: `<svg viewBox="0 0 18 18" width="12" height="12">${shape}</svg>`, iconSize: [12, 12], iconAnchor: [6, 6] });
 }
 function comStationApply() { if (comStation && comStation._st !== mapOpts.stIcon + mapOpts.cSt) { comStation._st = mapOpts.stIcon + mapOpts.cSt; comStation.setIcon(comStationIcon()); } }
 
@@ -17799,7 +17854,10 @@ async function comMapOpen() {
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors',
   }).addTo(comMap);
   mapPopout(comMap, "com");   // remembers the view; the ↗ key opens the map alone in a new tab
-  comMap.on("click", () => { if (comSel) { comSel = null; renderComMap(); } });
+  comMap.on("click", () => { if (comSel || comMulti.size) { comSel = null; comMulti.clear(); renderComMap(); } });
+  // the aircraft on the ground come and go with the zoom (COM_GND_ZOOM)
+  let gndIn = comMap.getZoom() >= COM_GND_ZOOM;
+  comMap.on("zoomend", () => { const v = comMap.getZoom() >= COM_GND_ZOOM; if (v !== gndIn) { gndIn = v; renderComMap(); } });
   comLayers = { gs: L.layerGroup().addTo(comMap), tracks: L.layerGroup().addTo(comMap), marks: L.layerGroup().addTo(comMap) };
   comMapSettings(comMap, "com", () => renderComMap());   // the map settings window (⚙)
   try {
@@ -17838,13 +17896,15 @@ async function renderComMap() {
   comDrawn = [];
   if (comSel && !comMerged.some((m) => m.id === comSel)) comSel = null;
   for (const m of comMerged) {
-    const col = (COM_SRC[m.srcs[0]] || ["", "#fff"])[1], old = now - m.t > COM_OLD_S, sel = m.id === comSel;
+    const col = (COM_SRC[m.srcs[0]] || ["", "#fff"])[1], old = now - m.t > COM_OLD_S, sel = m.id === comSel || comMultiHas(m.id);
     const g = sel ? true : m.srcs.every((x) => COM_SHARED.has(x)) ? "Shr" : false;   // selected / only from shared sources / local
     mapKindPre = m.sonde ? "s_" : m.ship ? "w_" : "";   // the settings of its kind
     mapTrkOv = comTrk.get(m.id) || null;   // and those of this track (Track menu)
     const kindOff = !comKindOn(m.air ? "air" : m.ship ? "ship" : m.sonde ? "sonde" : "");
     if (kindOff && !(m.air && mapEmerg(m.air.squawk))) continue;   // the kind switched off in the list (an emergency stays)
     if (mapGone(m.t, g)) continue;
+    // on the ground: only when zoomed in on an airport (a selected one or an emergency always)
+    if (m.air && m.air.ground && !sel && !mapEmerg(m.air.squawk) && comMap.getZoom() < COM_GND_ZOOM) continue;
     const tline = { color: sel ? MAP_SEL_C : col, weight: sel ? 2.5 : 1.5, opacity: sel ? 0.9 : 0.6, interactive: false };
     const tTop = m.sonde ? comSondeTop(m.sonde) : null;   // a radiosonde after the burst: ascent and descent in their colours
     if (tTop == null) mapTrail(comLayers.tracks, m.trail, tline, g);
@@ -17867,7 +17927,8 @@ async function renderComMap() {
       const fl = a.ground ? "GND" : a.alt_ft != null ? `FL${String(Math.round(a.alt_ft / 100)).padStart(3, "0")}` : "";
       emerg = mapEmerg(a.squawk);
       label = (emerg ? mapLabelEmerg : mapLabel)({ at: m, name: a.flight || a.reg || a.hex || m.label, reg: a.reg, id: a.hex, type: a.type, alt: fl,
-        spd: a.gs_kt != null && !a.ground ? `${Math.round(a.gs_kt)} kt` : "", sq: a.squawk, desc: a.desc, src }, g);
+        spd: a.gs_kt != null && !a.ground ? `${Math.round(a.gs_kt)} kt` : "", sq: a.squawk, desc: a.desc, src,
+        trend: a.ground || a.vs_fpm == null || Math.abs(a.vs_fpm) < 256 ? 0 : Math.sign(a.vs_fpm) }, g);   // ↑ / ↓ after the level
       icon = L.divIcon({ className: `hfdl-plane${sel ? " sel" : ""}${old ? " old" : ""}`, html: svg, iconSize: [22, 22], iconAnchor: [11, 11] });
       cls = "hfdl-label";
     } else if (m.ship) {   // as on the AIS map
@@ -17889,7 +17950,7 @@ async function renderComMap() {
     if (!mk) {
       mk = L.marker([m.lat, m.lon], { icon: ic }).addTo(comLayers.marks);
       mk.bindTooltip("", { permanent: true, direction: "bottom", offset: [0, m.sonde ? 2 : 8], className: cls });
-      mk.on("click", (e) => { L.DomEvent.stopPropagation(e); comSel = id; renderComMap(); });
+      mk.on("click", (e) => { L.DomEvent.stopPropagation(e); if (!comMultiClick(id, e.originalEvent)) comSel = id; renderComMap(); });   // Alt / Ctrl: several (stca.js)
       mk.on("contextmenu", (e) => { L.DomEvent.stop(e); comTrackMenu(id, e.originalEvent); });   // right click: the Track menu
       comMarks.set(id, mk);
     } else {
@@ -17906,6 +17967,7 @@ async function renderComMap() {
   mapKindPre = "";
   mapTrkOv = null;
   for (const [id, mk] of comMarks) if (!keepMk.has(id)) { mk.remove(); comMarks.delete(id); }
+  stcaDraw(comLayers.tracks, comDrawn, now);   // the selected pairs and the STCA alerts (stca.js)
   const lk = comLock && comMerged.find((x) => x.id === comLock);   // Lock display: the map follows the track, the zoom stays
   if (lk && (!comLockAt || comLockAt[0] !== lk.lat || comLockAt[1] !== lk.lon)) { comLockAt = [lk.lat, lk.lon]; comMap.panTo(comLockAt); }
   renderComTbar();
@@ -17918,9 +17980,9 @@ async function renderComMap() {
   const joined = comMerged.filter((m) => m.keys.length > 1).length;
   const shown = comDrawn.length;   // the status row under the map
   $("comInfo").textContent = `Tracks: ${comCountTxt(comCounts(comDrawn))}${joined ? ` · ${joined} joined` : ""}${shown !== comMerged.length ? ` · ${comMerged.length - shown} hidden` : ""}` +
-    `${lk ? ` · locked on ${comName(lk)}` : ""}`;
+    `${lk ? ` · locked on ${comName(lk)}` : ""}${stcaInfo()}`;
   $("comInfo").title = `${COM_COUNT_TIP}; joined = one object heard by more VFOs / decoders; hidden = dropped by the map settings`;
-  $("comNote").textContent = "a click on an aircraft, ship or sonde = its details on the right (orange = selected, red = emergency squawk, grey = no position for 15 min) · aircraft, ships and sondes as on their own maps · ▲ ground stations · trail colour = source · one object heard by more VFOs / decoders = one mark";
+  $("comNote").textContent = "";   // no help line under the map (only an error is shown here)
 }
 
 /** The lists beside the map: Aircraft, Radiosondes and Ships, each a section that opens and closes (remembered) with a
@@ -17940,7 +18002,7 @@ const COM_LIST_ITEMS = (() => {
       I("name", "Flight", (m) => { const a = m.air, c = a.hex ? icaoCountry(a.hex) : null; return `${flag(c && c.cc, c && c.name)}<b>${esc(a.flight || a.reg || a.hex || m.label)}</b>`; }),
       I("reg", "Reg", (m) => esc(m.air.reg || "")), I("id", "ICAO", (m) => esc(m.air.hex || "")),
       I("type", "Type", (m) => `<span class="stype">${esc(m.air.type || "")}</span>`), I("desc", "Model", (m) => esc(m.air.desc || "")),
-      I("alt", "FL", (m) => (m.air.ground ? "GND" : m.air.alt_ft != null ? String(Math.round(m.air.alt_ft / 100)).padStart(3, "0") : ""), (m) => (m.air.ground ? -1 : m.air.alt_ft ?? -2)),
+      I("alt", "FL", (m) => (m.air.ground ? "GND" : m.air.alt_ft != null ? String(Math.round(m.air.alt_ft / 100)).padStart(3, "0") + comTrend(m.air) : ""), (m) => (m.air.ground ? -1 : m.air.alt_ft ?? -2)),
       I("spd", "kt", (m) => (m.air.gs_kt != null && !m.air.ground ? Math.round(m.air.gs_kt) : ""), (m) => m.air.gs_kt ?? -1),
       I("sq", "Sq", (m) => esc(m.air.squawk || "")), ad, age, src,
     ],
@@ -17967,7 +18029,19 @@ const COM_LIST_ITEMS = (() => {
 })();
 // the list settings of a kind: the order of the items as tokens (with the mark "|2" of the second line) and the items shown;
 // the name (flight / serial / ship) is always the first column, over all lines, with its flag (can be switched off)
-const COM_LIST_DEF = { "": ["type", "alt", "spd", "ad", "age"], s_: ["type", "alt", "vs", "ad", "age"], w_: ["type", "spd", "ad", "age"] };
+const COM_LIST_DEF = { "": ["type", "alt", "spd", "ad"], s_: ["type", "alt", "vs", "ad", "age"], w_: ["type", "spd", "ad", "age"] };
+// once: the aircraft list back to only what is needed (Flight, Type, FL ↑↓, kt, A/D; more in the map settings › List);
+// before mapOptsRead below reads the stored settings ("mapOpts" = MAP_OPT_KEY, not declared yet here)
+try {
+  if (!localStorage.getItem("comListAirV2")) {
+    localStorage.setItem("comListAirV2", "1");
+    const o = JSON.parse(localStorage.getItem("mapOpts") || "null");
+    if (o && typeof o === "object") {
+      delete o.listTok; delete o.listOn; delete o.list;
+      localStorage.setItem("mapOpts", JSON.stringify(o));
+    }
+  }
+} catch { /* no storage */ }
 const comListIds = (p) => COM_LIST_ITEMS[p].map((x) => x.id).filter((id) => id !== "name");
 function comListTok(p) {
   const ids = comListIds(p), v = mapOpts[p + "listTok"];
@@ -18024,7 +18098,7 @@ function renderComList() {
     const l1 = cfg.filter((x) => x[1] === 1).map((x) => items.get(x[0])), l2 = cfg.filter((x) => x[1] === 2).map((x) => items.get(x[0]));
     const ncol = Math.max(1, l1.length, l2.length), nl = l2.length ? 2 : 1, nameIt = items.get("name");
     const srt = comListSort[k] && items.has(comListSort[k].key) ? comListSort[k] : { key: "age", dir: 1 };
-    const th = (it) => `<th data-sort="${it.id}" class="${it.id === srt.key ? `sorted${srt.dir < 0 ? " desc" : ""}` : ""}">${it.h}</th>`;
+    const th = (it) => `<th data-sort="${it.id}" class="c-${it.id}${it.id === srt.key ? ` sorted${srt.dir < 0 ? " desc" : ""}` : ""}">${it.h}</th>`;
     const pad = (n) => (n < ncol ? `<th colspan="${ncol - n}"></th>` : "");
     sec.querySelector("thead").innerHTML = `<tr>${th(nameIt).replace("<th ", `<th rowspan="${nl}" `)}${l1.map(th).join("")}${pad(l1.length)}</tr>` +
       (l2.length ? `<tr class="l2">${l2.map(th).join("")}${pad(l2.length)}</tr>` : "");
@@ -18035,14 +18109,15 @@ function renderComList() {
     });
     rows.sort((x, y) => (y.red - x.red) || ((typeof x.sv === "string" ? String(x.sv).localeCompare(String(y.sv), "en", { numeric: true, sensitivity: "base" }) : x.sv - y.sv) * srt.dir));
     const cnt = sec.querySelector(".com-lcount");
-    cnt.textContent = `${comCountTxt(comCounts(list))}${rows.some((x) => x.red) ? " · EMERGENCY" : ""}`;
-    cnt.title = COM_COUNT_TIP;
+    const cc = comCounts(list), n = ([a, b]) => a + b;   // short (the whole in the title): all · local · sharing
+    cnt.textContent = `${n(cc.tot)} · L ${n(cc.loc)} · S ${n(cc.shr)}${rows.some((x) => x.red) ? " · EMERGENCY" : ""}`;
+    cnt.title = `${comCountTxt(cc)}: ${COM_COUNT_TIP}`;
     sec.querySelectorAll("tbody").forEach((b) => b.remove());
     const tb = (line, m, c) => line.map((it) => `<td class="c-${it.id}">${it.cell(m, c)}</td>`).join("") + (line.length < ncol ? `<td colspan="${ncol - line.length}"></td>` : "");
     sec.querySelector("table").insertAdjacentHTML("beforeend", rows.map(({ m, c, red }, i) => {
       const col = (COM_SRC[m.srcs[0]] || ["", "#fff"])[1];
       const title = m.air ? [m.air.hex, m.air.reg, m.air.desc || m.air.type, m.air.squawk && `squawk ${m.air.squawk}`] : m.ship ? [m.ship.mmsi && `MMSI ${m.ship.mmsi}`] : m.sonde ? [m.sonde.freq_hz && `${fmtMHz(m.sonde.freq_hz, 3)} MHz`] : [];
-      return `<tbody class="com-ml${i % 2 ? " odd" : ""}${m.id === comSel ? " sel" : ""}${now - m.t > COM_OLD_S ? " old" : ""}${red ? " emerg" : ""}" data-id="${escHtml(m.id)}" style="--sc: ${col}" ` +
+      return `<tbody class="com-ml${i % 2 ? " odd" : ""}${m.id === comSel || comMultiHas(m.id) ? " sel" : ""}${now - m.t > COM_OLD_S ? " old" : ""}${red ? " emerg" : ""}" data-id="${escHtml(m.id)}" style="--sc: ${col}" ` +
         `title="${escHtml([...title, `distance in ${unit}`, m.srcs.map((x) => (COM_SRC[x] || [x])[0]).join(" + ")].filter(Boolean).join(" · "))}">` +
         `<tr><td class="c-name" rowspan="${nl}">${flag ? nameIt.cell(m, c) : nameIt.cell(m, c).replace(/^<(img|span class="noflag")[^>]*>(<\/span>)?/, "")}</td>${tb(l1, m, c)}</tr>` +
         `${l2.length ? `<tr class="l2">${tb(l2, m, c)}</tr>` : ""}</tbody>`;
@@ -18083,7 +18158,8 @@ $("comSide").addEventListener("click", (e) => {
   }
   const row = e.target.closest(".com-ml[data-id]");   // a row: select it, show it on the map
   if (!row) return;
-  comSelect(row.dataset.id, true);
+  if (comMultiClick(row.dataset.id, e)) renderComMap();   // Alt / Ctrl: into / out of the selection of several (stca.js)
+  else comSelect(row.dataset.id, true);
 });
 $("comSide").addEventListener("contextmenu", (e) => {   // right click on an object of the list: its Track menu
   const row = e.target.closest(".com-ml[data-id]");
@@ -18375,6 +18451,7 @@ function mapOptsRead0() {
     ...Object.fromEntries(["lblShow", "lblNote"].flatMap((x) => ["", "Sel", "Shr"].map((suf) => [x + suf, o[x + suf] !== false]))),   // label shown / its note (default on)
     lblLine: o.lblLine, list: o.list, lblTok: o.lblTok, listTok: o.listTok, listOn: o.listOn, listFlag: o.listFlag,   // aircrafts: label / list order (checked when used)
     fontShr: k(MAP_FONT_K, o.fontShr), bgShr: MAP_LBL_BG.includes(+o.bgShr) ? +o.bgShr : 0.85, lblShr: lbl(o.lblShr, MAP_LBL_DEF.lbl),
+    stca: stcaOptsNorm(o.stca),   // COMPOSITE: STCA (stca.js)
   };
 }
 // the colours of the landing prediction of the radiosondes (COMPOSITE): ascent, descent, landing area, burst
@@ -18465,7 +18542,7 @@ function mapTrail(layer, pts, line, sel, cKey) {
       const age = Math.min(1, Math.max(0, (now - p[2]) / win)), em = mapEmerg(p[3]);
       const d = mapAzDist(q, { lat: p[0], lon: p[1] });
       const mpp = (40075016.686 * Math.cos((p[0] * Math.PI) / 180)) / 2 ** (z + 8) / 1000;   // km per pixel here
-      const half = (sel === true ? 8 : 6) * mpp, depth = (sel === true ? 2.5 : 2) * mpp;   // 12 × 4 px (16 × 5 selected)
+      const half = 6 * mpp, depth = 2 * mpp;   // 12 × 4 px (the selected one the same, only its colour differs)
       if (d[1] < half * 2) continue;   // at the station itself: no direction
       const w = ((half / d[1]) * 180) / Math.PI, r0 = d[1] - depth, r1 = d[1] + depth, steps = [-1, -0.5, 0, 0.5, 1];
       const ring = [...steps.map((f) => mapDest(q.lat, q.lon, d[0] + f * w, r1)), ...steps.reverse().map((f) => mapDest(q.lat, q.lon, d[0] + f * w, r0))];
@@ -18477,7 +18554,7 @@ function mapTrail(layer, pts, line, sel, cKey) {
   for (const p of pts) {
     if (!(p[2] >= from)) continue;
     const age = Math.min(1, Math.max(0, (now - p[2]) / win)), em = mapEmerg(p[3]);   // age 0 = now, 1 = the oldest dot shown
-    L.circleMarker([p[0], p[1]], { renderer: layer._dots, radius: em ? 1.8 : sel === true ? 1.6 : 1.2, stroke: false, fillColor: em ? MAP_EMERG_C : line.color,
+    L.circleMarker([p[0], p[1]], { renderer: layer._dots, radius: em ? 1.8 : 1.2, stroke: false, fillColor: em ? MAP_EMERG_C : line.color,
       fillOpacity: top * (1 - 0.85 * age), interactive: false }).addTo(layer);
   }
 }
@@ -18668,10 +18745,14 @@ function mapLabel(f, sel) {
   // the items in the order and lines of the settings; azimuth and distance side by side as 123°/45km
   const val = { ...Object.fromEntries(MAP_LBL.map(([id]) => [id, g(id)])), sq, reg: g("reg") !== g("name") ? g("reg") : "", id: g("id") !== g("name") ? g("id") : "" };
   val.ad = ad;
+  // climbing / descending: the arrow right after the level (350↓), as an ATC label has it; with no level shown in line 1
+  const trend = f.trend ? `<b class="map-vs ${f.trend > 0 ? "up" : "dn"}">${f.trend > 0 ? "↑" : "↓"}</b>` : "";
+  if (trend && val.alt) val.alt += trend;
   val.note = mapTrkOv && mapTrkOv.note && mapO("lblNote", sel) !== false ? `<i class="map-lbl-note">${escHtml(mapTrkOv.note)}</i>` : "";   // COMPOSITE: the note of the Track menu
   const rows = [[], [], [], [], [], []];
   for (const [id, line] of mapLblCfg(mapKindPre)) if (val[id]) rows[line].push([id, val[id]]);
   const lines = rows.map((r) => r.map(([id, v], i) => (i && id === "dist" && r[i - 1][0] === "az" ? "/" : i ? " · " : "") + v).join("")).filter(Boolean);
+  if (lines.length && trend && !val.alt) lines[0] += ` ${trend}`;
   return lines.length ? `<span style="font-size:${mapO("font", sel)}em">${lines.join("<br>")}</span>` : "";
 }
 
@@ -18786,7 +18867,8 @@ function mapLblSave(map) {
 }
 function mapLblPlace(tt, map) {
   const o = (tt._lbl.key != null && mapLblOffs(map)[tt._lbl.key]) || [0, 0];
-  tt.options.offset = L.point(o[0], Math.round(tt._baseY * tt._lbl.k) + o[1]);
+  const au = tt._auto || [0, 0];   // moved out of the way of an STCA warning (stca.js), not kept
+  tt.options.offset = L.point(o[0] + au[0], Math.round(tt._baseY * tt._lbl.k) + o[1] + au[1]);
 }
 function mapLblDragInit(map) {
   const box = map.getContainer();
@@ -19071,7 +19153,7 @@ function comMapSettings(map, kind, rerender, noTrails) {
         const [name, col] = COM_SRC[src] || [src.toUpperCase(), "#fff"];
         rows[kindOf(src)].push(`<label title="${hist ? "This decoder does not run now: what it saw in the last 6 hours" : "Live positions + the last 6 hours"}">` +
           `<input type="checkbox" data-src="${escHtml(k)}"${comOff.has(k) ? "" : " checked"}> <span class="map-opts-dot" style="background: ${col}"></span>` +
-          `${vfo ? `VFO ${escHtml(vfo)} · ` : ""}${escHtml(name)} <small class="muted">${n}${hist ? " · history" : ""}</small></label>`);
+          `${vfo && vfo[0] !== "~" ? `VFO ${escHtml(vfo)} · ` : ""}${escHtml(name)} <small class="muted">${n}${hist ? " · history" : ""}</small></label>`);
       }
     }
     // one part per kind, opening and closing with a click; only one open at a time (remembered)
@@ -19249,11 +19331,13 @@ function comMapSettings(map, kind, rerender, noTrails) {
       sec("map", "Maps", "vector maps, base map, rings, range", mapSec) + sec("weather", "Weather", "precipitation, clouds", weatherSec) +
       (rerender ? sec("objects", "Aircrafts", "symbol, label", kindSec("", true)) + sec("sondes", "Radiosondes", "symbol, label", kindSec("s_", false)) +
         sec("ships", "Ships", "symbol, label", kindSec("w_", false)) : "") +
+      (kind === "com" ? sec("stca", "STCA", "conflict alert, minima, prediction", stcaSecHtml()) : "") +   // stca.js
       `<p class="map-opts-note">Remembered in the browser, the same in all windows.</p>`;
   }
   function onInput(e) {
     const t = e.target;
     if (vmOnInput(e, panel)) return;   // the Vector maps section (vectormaps.js)
+    if (stcaOnInput(e)) return;   // the STCA section (stca.js)
     if (t.dataset.x != null) {   // a switch of this map only: the map's own overlayadd / overlayremove handler keeps it
       if (e.type !== "change") return;
       const [l] = extra[+t.dataset.x];
@@ -19907,6 +19991,8 @@ const SDG_ICO = {
   out: '<path d="M2.5 6h2.6L8.8 3v10L5.1 10H2.5z"/><path d="M11 5.6a3.4 3.4 0 0 1 0 4.8M12.8 3.8a6 6 0 0 1 0 8.4"/>',
   sm: '<path d="M1.8 11.5a6.2 6.2 0 0 1 12.4 0"/><path d="M8 11.5l3.2-4.4"/><path d="M3.6 7.4l.9.7M8 5.3v1.1M12.4 7.4l-.9.7"/>',
   dec: '<path d="M5.4 4.4L1.8 8l3.6 3.6M10.6 4.4L14.2 8l-3.6 3.6M9.2 2.8l-2.4 10.4"/>',
+  rec: '<circle cx="8" cy="8" r="5.6"/><circle cx="8" cy="8" r="2.4" style="fill:var(--bc)"/>',
+  reciq: '<circle cx="8" cy="8" r="5.6"/><path d="M4.4 8.6h1.4l.9-3 1.3 5 1.1-3.4.6 1.4h1.9"/>',
 };
 const sdgBlk = (title, body, cls = "", tip = "") => {
   const k = (/\bk-(\w+)/.exec(cls) || [])[1], ico = k && SDG_ICO[k];
@@ -20052,13 +20138,20 @@ function sdgLane(v) {
   // audio blocks (in the order of the chain)
   const sqlOn = s.auto_sql_on || s.tsq_on || (s.squelch != null && s.squelch > -120);
   const sqlTxt = s.auto_sql_on ? "ASQ" : s.tsq_on ? "TSQ" : "SQL";
-  // the audio stages in the order of sdr.py: HUM → NF → DNR → ALC → NTH (demodulator), AFI, LPF → HPF, squelch
-  const aChain = [sdgOn(s.hum, "HUM", s.hum ? `mains hum filter, ${s.hum_hz ?? s.hum_base} Hz` : "mains hum filter"),
+  // the audio stages in the order of sdr.py: TNF (on the channel, before the demodulator), HUM → NF → DNR → APF → ALC → NTH
+  // (demodulator), AFI, LPF → HPF, squelch, BIN (pseudo-stereo at the very end)
+  const tnfN = (s.tnf_hz || []).length, tnfOn = !!s.tnf && tnfN > 0 && ["AM", "LSB", "USB", "CW", "FM"].includes(s.mode);
+  const apfOn = !!s.apf && s.mode === "CW", binOn = !!s.bin && ["CW", "USB", "LSB", "AM"].includes(s.mode);
+  const lpfC = sdgOn(s.lpf, "LPF", s.lpf ? `low pass ${s.lpf_hz} Hz` : "low pass");
+  const hpfC = sdgOn(s.hpf, "HPF", s.hpf ? `high pass ${s.hpf_hz} Hz` : "high pass");
+  const aChain = [sdgOn(tnfOn, "TNF", tnfOn ? `tracking notches (${tnfN}) on the channel, before the demodulator` : s.tnf && tnfN ? `TNF: not in ${s.mode}` : "tracking notches off"),
+    sdgOn(s.hum, "HUM", s.hum ? `mains hum filter, ${s.hum_hz ?? s.hum_base} Hz` : "mains hum filter"),
     sdgOn(s.notch, "NF", "notch filter (whistles)"), sdgOn(s.dnr, "DNR", `noise reduction${s.dnr ? `, level ${s.dnr_level}` : ""}`),
+    sdgOn(apfOn, "APF", apfOn ? `CW peak filter, ${s.apf_width || 100} Hz at 700 Hz` : s.apf ? `APF: not in ${s.mode}` : "CW peak filter off"),
     sdgOn(s.audio_agc !== false, "ALC", "audio level control"), sdgOn(s.dyn, "NTH", "noise threshold: expander and limiter"),
-    sdgOn(s.afi, "AFI", s.afi ? `voice inversion, ${s.afi_hz} Hz` : "voice inversion"),
-    sdgOn(s.lpf, "LPF", s.lpf ? `low pass ${s.lpf_hz} Hz` : "low pass"), sdgOn(s.hpf, "HPF", s.hpf ? `high pass ${s.hpf_hz} Hz` : "high pass"),
-    sdgOn(sqlOn, sqlTxt, sqlOn ? (s.squelch_open ? "squelch open" : "squelch closed") : "squelch off", sqlOn && !s.squelch_open)];
+    sdgOn(s.afi, "AFI", s.afi ? `voice inversion, ${s.afi_hz} Hz` : "voice inversion"), lpfC, hpfC,
+    sdgOn(sqlOn, sqlTxt, sqlOn ? (s.squelch_open ? "squelch open" : "squelch closed") : "squelch off", sqlOn && !s.squelch_open),
+    sdgOn(binOn, "BIN", binOn ? "binaural: pseudo-stereo, after the squelch" : s.bin ? `BIN: not in ${s.mode}` : "binaural off")];
   // squelch: the level set (SQL) or the auto squelch (ASQ, by its key or by AGC+ with the squelch set), each with the
   // channel power (S-meter, dBFS) / the level it opens at
   const sqLv = s.squelch_levels || {}, hasSq = s.mode in sqLv && !s.dab;
@@ -20075,7 +20168,7 @@ function sdgLane(v) {
   // DSD: the FM discriminator goes straight into the DSD voice decoder (no HUM … AFI), its voice through LPF / HPF to
   // the output – the decoder sits in the audio chain, not at its end
   const dsdOn = mode === "DSD";                        // (DAB first: under DAB dsd-fme is off)
-  if (dsdOn) aChain.splice(0, aChain.length, aChain[6], aChain[7]);
+  if (dsdOn) aChain.splice(0, aChain.length, lpfC, hpfC);
   // DSD as its own block between DEMOD and AUDIO (in the AUDIO column, which has the room)
   const dsdB = dsdOn ? sdgBlk("DSD", `<span class="v">${escHtml(s.dsd.proto || "auto")}</span>` +
     (s.dsd.error ? `<span class="err">${escHtml(s.dsd.error)}</span>` : "<span>voice</span>"), `${s.dsd.error ? "lit bad" : "lit"} k-dec sdg-dsd`,
@@ -20111,9 +20204,29 @@ function sdgLane(v) {
   const out = `<i class="sdg-out${fork ? " fork" : ""}" data-to="${outTo}"><i class="wo ${mainSt}" title="${escHtml(outTip)}"></i><i class="wc ${cueSt}" title="${escHtml(cueTip)}"></i>` +
     `<i class="br" title="${fork ? "demodulated audio into SSTV (whatever goes to MAIN or CUE)" : "no decoder on the audio (the others take the baseband)"}"></i><b class="dot df"></b><b class="dot do ${mainSt}"></b><b class="dot dc ${cueSt}"></b>` +
     `<em class="lo ${mainSt}">${mainSt === "muted" ? "MUTED" : "OUT"}</em><em class="lc ${cueSt}">${cueSt === "muted" ? "CUE MUTED" : "CUE"}</em></i>`;
-  const raw = rawDecs.length ? `<i class="sdg-tap" title="raw A/D samples of the whole band"></i>` +
-    sdgBlk("IQ DECODERS", `<span class="chips">${rawDecs.join("")}</span><span>raw A/D samples · whole band</span>`, "lit sdg-raw k-dec",
-      "These decoders take the raw IQ samples straight from the A/D, before DC, NB and the channel filter") : "";
+  // recorders, each where it takes its samples from: REC / REC SQ the sound after the squelch (app.py on_audio; with DAB
+  // the MP3 of the station), REC IQ and PRE-REC the raw A/D samples of the whole band like the IQ decoders
+  const mmss = (n) => `${Math.floor(n / 60)}:${String(n % 60).padStart(2, "0")}`;
+  const rc = s.recording || {}, rcC = rc.cont || {}, rcS = rc.squelch || {}, iqr = s.iq_rec || {}, rt = s.retro || {};
+  const recNoAudio = s.audio_muted && !s.dab;          // a raw-IQ decoder mutes the sound: REC gets nothing
+  const iqChips = (iqr.on ? sdgChip(`REC IQ${iqr.secs ? ` ${mmss(iqr.secs)}` : ""}`, iqr.error ? "bad" : iqr.open ? "iq blink" : "iq",
+      iqr.error || `REC IQ: the raw samples of the whole band into a WAV${iqr.open ? `, ${iqr.mb} MB` : ""}${iqr.dropped ? `, ${iqr.dropped} blocks dropped` : ""}`) : "") +
+    (rt.on ? sdgChip(`PRE-REC ${rt.seconds || 60} s`, rt.error ? "bad" : "iq", rt.error || `PRE-REC: the last ${rt.seconds || 60} s of raw IQ kept in RAM` +
+      `${rt.held_s ? ` (${Math.round(rt.held_s)} s held, ${rt.mb} MB)` : ""}; Alt+click in the waterfall plays it`) : "");
+  const rawTitle = rawDecs.length && iqChips ? "IQ DECODERS · IQ REC" : rawDecs.length ? "IQ DECODERS" : "IQ RECORDER";
+  const raw = rawDecs.length || iqChips ? `<i class="sdg-tap" title="raw A/D samples of the whole band"></i>` +
+    sdgBlk(rawTitle, (rawDecs.length ? `<span class="chips">${rawDecs.join("")}</span>` : "") + (iqChips ? `<span class="chips">${iqChips}</span>` : "") +
+      "<span>raw A/D samples · whole band</span>", `lit sdg-raw ${rawDecs.length ? "k-dec" : "k-reciq"}`,
+      "The raw IQ samples straight from the A/D, before DC, NB and the channel filter" +
+      (rawDecs.length ? ": these decoders take them" : "") + (iqChips ? `${rawDecs.length ? ";" : ":"} REC IQ / PRE-REC record them` : "")) : "";
+  const recChip = (t, name, waitTip) => sdgChip(`${name}${t.active && t.secs ? ` ${mmss(t.secs)}` : ""}`,
+    t.error ? "bad" : recNoAudio ? "warn" : t.active ? "rec blink" : "on",
+    t.error || (recNoAudio ? `${name}: no sound to record – ${SDG_RAW_TIP}` : t.active ? `${name}: recording${t.file ? ` into ${t.file}` : ""}` : waitTip));
+  const recB = rcC.on || rcS.on ? sdgBlk("RECORDER", `<span class="chips">${rcC.on ? recChip(rcC, "REC", "REC: armed") : ""}` +
+      `${rcS.on ? recChip(rcS, "REC SQ", "REC SQ: waiting for the squelch to open") : ""}</span><span>${s.dab ? "MP3 of the DAB station" : "sound after the squelch"}</span>`,
+    `lit k-rec sdg-rec${recNoAudio ? " warn" : ""}`, s.dab ? "REC / REC SQ: the MP3 of the DAB station as welle-cli sends it" :
+      "REC / REC SQ: the sound of AUDIO after the squelch (what you hear, before the volume) as MP3; REC SQ only while the squelch is open") +
+    `<i class="sdg-recl${s.dab ? " dab" : ""}" title="${s.dab ? "DAB station MP3 → RECORDER" : "sound after the squelch → RECORDER"}"></i>` : "";
   // SPECTRUM / WATERFALL: the FFT of the whole band the dongle receives, taken after DC removal and before NB (sdr.py
   // _waterfall: the band as it is); a line from between DC and NB of the IQ block down into it. On screen for the
   // VFO shown (the others are computed and kept in the band history of the page)
@@ -20161,7 +20274,7 @@ function sdgLane(v) {
   const asqL = !hasSq ? "" : `<i class="sdg-asql${agcAsq ? " on" : ""}" title="AGC+ ${agcAsq ? "switches the auto squelch (ASQ) on" : "does not switch ASQ on now"}">` +
     `<i class="up"></i><em>AGC+ → ASQ ${agcAsq ? "ON" : "OFF"}</em></i>`;
   return head + [ant, sdr, meterOnly(iq, why && !keepIq), meterOnly(mixer, why && !keepIq), meterOnly(spB, why && !keepIq), meterOnly(filt, why), idle(demod, why), dsdOn ? `<div class="sdg-pair">${dsdB}${idle(audio, why)}</div>` : idle(audio, why),
-    dec, `<i class="sdg-busc"></i>`].join("") + out + bbl + wfB + agc + (why ? smB.replace('class="sdg-sml', 'class="sdg-sml nouse') : smB) + raw + ctl + dop + asqL +
+    dec, `<i class="sdg-busc"></i>`].join("") + out + bbl + wfB + agc + (why ? smB.replace('class="sdg-sml', 'class="sdg-sml nouse') : smB) + raw + recB + ctl + dop + asqL +
     // DAB: the sound comes from the DAB decoder on the raw IQ – a line from IQ DECODERS along the bottom up into OUTPUT
     (s.dab ? `<i class="sdg-dabl" title="DAB: the audio of the station comes from the DAB decoder (welle-cli) on the raw IQ samples">` +
       `<i class="up"></i><em>DAB AUDIO → ${outTo === "cue" ? "CUE" : "OUT"}</em></i>` : "");
@@ -20355,6 +20468,19 @@ function sdgPlaceDop() {
     lane.style.setProperty("--tap-x", `${xa - dev.offsetLeft - 1}px`);
     const raw = lane.querySelector(".sdg-raw"), tap = lane.querySelector(".sdg-tap");
     if (raw && tap) lane.style.setProperty("--tap-y", `${raw.offsetTop + raw.offsetHeight / 2 - tap.offsetTop}px`);
+  }
+  // RECORDER: straight down from AUDIO into it; with DAB from the DAB audio line (its rising part) left into it
+  for (const el of $("sdgLanes").querySelectorAll(".sdg-recl")) {
+    const lane = el.parentElement, aud = lane.querySelector(".sdg-aud"), rec = lane.querySelector(".sdg-rec");
+    if (!aud || !rec || (el.classList.contains("dab") && !lane.dataset.outX)) { el.hidden = true; continue; }
+    el.hidden = false;
+    if (el.classList.contains("dab")) {
+      const x1 = rec.offsetLeft + rec.offsetWidth, y = rec.offsetTop + rec.offsetHeight / 2;
+      Object.assign(el.style, { left: `${x1}px`, top: `${y}px`, width: `${+lane.dataset.outX - x1}px`, height: "0px" });
+    } else {
+      const x = rec.offsetLeft + rec.offsetWidth / 2, y = aud.offsetTop + aud.offsetHeight;
+      Object.assign(el.style, { left: `${x}px`, top: `${y}px`, width: "0px", height: `${rec.offsetTop - y}px` });
+    }
   }
   for (const el of $("sdgLanes").querySelectorAll(".sdg-wfl")) {
     const lane = el.parentElement, iq = lane.querySelector(".k-iq"), wf = lane.querySelector(".sdg-wf");
@@ -23912,6 +24038,7 @@ function mtDetClose() {
   $("mtDetAudio").pause();
   mtDet = null;
   $("mtDet").hidden = true;
+  $("mtRows").closest(".mt-tablebox").hidden = false;     // the table back in place of the detail
   for (const r of $("mtRows").querySelectorAll("tr.sel")) r.classList.remove("sel");
 }
 async function mtDetOpen(ts) {
@@ -23932,8 +24059,11 @@ async function mtDetOpen(ts) {
 function mtDetShow() {
   const m = mtDet;
   $("mtDet").hidden = !m;
+  $("mtRows").closest(".mt-tablebox").hidden = !!m;       // the detail in place of the table it was picked from (× brings it back)
   if (!m) return;
   const d = m.d, e = d ? d.echo : (mtSrcList(mtData) || []).find((x) => x.ts === m.ts);
+  // no detail (loading, or gone: only the last ones are kept): no picture, not the one of the echo shown before
+  $("mtDetCv").parentElement.hidden = !d;
   const k = e ? (MT_KIND[e.kind] || MT_KIND.under) : null;
   const nb = mtDetNear(m.ts);
   $("mtDetPrev").disabled = !nb.prev;
@@ -24154,7 +24284,8 @@ $("mtDetX").addEventListener("click", mtDetClose);
 /** The echoes before and after ts among those the table shows (its source, kinds, min SNR) -> {prev, next} (ts or null). */
 function mtDetNear(ts) {
   const filt = mtFilt(), min = Number($("mtMinSnr").value) || 0;
-  const ev = (mtSrcList(mtData) || []).filter((x) => mtKindOk(x, filt) && x.snr >= min);
+  // only echoes with a detail: one whose detail is gone (the server keeps the last ones) would show nothing
+  const ev = (mtSrcList(mtData) || []).filter((x) => mtKindOk(x, filt) && x.snr >= min && x.det !== false);
   let prev = null, next = null;
   for (const x of ev) {
     if (x.ts < ts - 0.005 && (prev === null || x.ts > prev)) prev = x.ts;

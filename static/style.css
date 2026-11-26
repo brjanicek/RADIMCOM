@@ -1823,6 +1823,20 @@ body.map-only .ft8-map.map-only-box { flex-direction: column; }
 .dab-meta { color: #b9c3cf; font-size: 12px; font-variant-numeric: tabular-nums; }
 .dab-dls-box { padding: 7px 10px; border-radius: 6px; background: rgba(0, 0, 0, .4); }
 .dab-dls { font: 600 18px/1.3 system-ui, sans-serif; color: var(--text); overflow-wrap: anywhere; }
+/* magnifier next to the song: search it on Spotify / Apple Music (the menu sits inside the box, the hero clips overflow) */
+.dab-dls-box { position: relative; }
+.dab-dls-row { display: flex; align-items: flex-start; gap: 8px; }
+.dab-dls-row .dab-dls { flex: 1 1 auto; min-width: 0; }
+.dab-find { flex: none; display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 1px solid var(--line); border-radius: 6px;
+  background: rgba(255, 255, 255, .06); color: var(--text); cursor: pointer; }
+.dab-find:hover, .dab-find.on { background: rgba(255, 255, 255, .16); color: var(--yellow); }
+.dab-find-menu { position: absolute; top: 6px; right: 46px; display: flex; gap: 4px; padding: 3px; border: 1px solid var(--line); border-radius: 6px;
+  background: #0a0e13; box-shadow: 0 4px 14px rgba(0, 0, 0, .7); }
+.dab-find-menu[hidden] { display: none; }
+.dab-find-menu a { padding: 4px 10px; border-radius: 4px; color: var(--text); font: 600 12px system-ui, sans-serif; text-decoration: none; white-space: nowrap; }
+.dab-find-menu a:hover { background: rgba(255, 255, 255, .14); }
+#dabFindSpotify { color: #1ed760; }
+#dabFindApple { color: #fc5c7d; }
 .dab-health { flex: none; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .dab-health .ok { color: #3cf07c; }
 .dab-health .bad { color: #ffb347; }
@@ -2873,6 +2887,10 @@ html.compact .r-keys .keys button { --led-at: left 3px top 2px / 6px 3px no-repe
 /* their bed only as high as the one key, the group at the top of the row (legend in line with the others) */
 .r-keys .keys:has(> #atuKey), .r-keys .keys:has(> #decKey), .r-keys .keys:has(> #propKey) { grid-template-rows: 28px; }
 .r-keys .kgroup:has(#atuKey), .r-keys .kgroup:has(#decKey), .r-keys .kgroup:has(#propKey) { align-self: flex-start; }
+#comNote:empty { display: none; }   /* COMPOSITE: no empty line under the map */
+/* DECODE: DEC, COM, ATC in one column, one under the other (ATC inactive outside AM on the airband) */
+.r-keys .kgroup[data-g="DECODE"] .keys:has(> #decKey) { --cols: 1; grid-template-rows: none; grid-auto-rows: 28px; }
+.r-keys .kgroup[data-g="DECODE"] #decKey { grid-row: auto; }
 /* HPF / LPF: the curve and the cutoff under the LED window, not into it */
 .r-keys .keys button.pass-key, html.compact .r-keys .keys button.pass-key { gap: 0; padding-top: 7px; padding-bottom: 1px; }
 .r-keys .pass-icon { height: 9px; }
@@ -3923,6 +3941,19 @@ html.app-shell .r-master .r-logo { margin-top: 10px; }
 .sdg-wfl { position: absolute; width: 0; border-left: 2px solid #5ee0d0; pointer-events: auto; }
 .sdg-wfl[hidden] { display: none; }
 .sdg-wfl::after { content: ""; position: absolute; left: -6px; bottom: -1px; border: 5px solid transparent; border-top: 6px solid #5ee0d0; border-bottom: 0; }
+
+/* STATION: RECORDER (REC / REC SQ) under AUDIO in row 2, fed from it (with DAB from the DAB audio line); REC IQ and
+   PRE-REC as chips of the raw-IQ branch (IQ RECORDER when no IQ decoder runs) */
+.sdg-b.k-rec { --bc: #ff6b6b; }
+.sdg-b.k-reciq { --bc: #7f9cff; }
+.sdg-b.sdg-rec { grid-row: 2; grid-column: 9; justify-self: end; width: max-content; min-width: 104px; max-width: 58%; }
+.sdg-b.sdg-rec::before, .sdg-b.sdg-rec::after { display: none; }
+.sdg-c.rec { border-color: var(--rec-red); background: rgba(255, 26, 26, .18); color: #ff8a80; }
+.sdg-recl { position: absolute; width: 0; border-left: 2px solid #ff6b6b; pointer-events: auto; }
+.sdg-recl[hidden] { display: none; }
+.sdg-recl::after { content: ""; position: absolute; left: -6px; bottom: -1px; border: 5px solid transparent; border-top: 6px solid #ff6b6b; border-bottom: 0; }
+.sdg-recl.dab { height: 0; border-left: 0; border-top: 2px solid var(--muted); }
+.sdg-recl.dab::after { left: -1px; top: -6px; bottom: auto; border: 5px solid transparent; border-right: 6px solid var(--muted); border-left: 0; }
 
 /* AGC+ meter strip (after OnAir): A/D level bar with the headroom target tick, clip lamp, numbers, warning, why */
 .agc-meter { display: flex; align-items: center; gap: 8px; margin: 4px 0 2px; }
@@ -5002,7 +5033,7 @@ body.map-only #comStatus, #comPane:fullscreen #comStatus { display: flex; }
 .vm-tip .muted { color: #8fa3bd; }
 .vm-lbl { background: none; border: none; }
 .vm-lbl span { display: block; transform: translate(-50%, -50%); white-space: nowrap; text-align: center; font: 600 10px/1.15 system-ui, sans-serif; color: var(--c); text-shadow: 0 0 2px #000, 0 0 2px #000, 0 0 3px #000; }
-.vm-lbl.pt span { transform: translate(-50%, 10px); }
+.vm-lbl.pt span { transform: translate(-50%, var(--dy, 10px)); }
 .vm-lbl small { display: block; font-weight: 400; font-size: 9px; color: #cfd6df; }
 .vm-pop .leaflet-popup-content-wrapper, .vm-pop .leaflet-popup-tip { background: rgba(20, 24, 30, .92); color: #fff; }
 .vm-pop .leaflet-popup-content { margin: 8px 10px; font: 12px/1.4 system-ui, sans-serif; }
@@ -5221,3 +5252,138 @@ details[data-sec=vmaps] > .map-opts-body:empty { display: none; }
 #recsPane .recs-table .sel input { accent-color: var(--rec-iq); }
 #recsPane .recs-table tbody tr.dir .recs-dir-ico { fill: var(--yellow); }
 @media (max-width: 1200px) { #recsPane .recs-blocks { grid-template-columns: 560px 1fr; } #recsPane .recs-b-play { grid-column: 1 / -1; } }
+
+/* ===== FR24 RECEIVER (static/fr24.js, fr24.py): SETTINGS page, the F tag and the cyan aircraft of DECODERS › ADS-B ===== */
+.set-panel.fr24-panel { display: block; }
+.fr24-panel .sats-row { flex-wrap: wrap; align-items: center; }
+.fr24-panel #fr24Info.err, .fr24-stat .err { color: #ff6b5e; }
+.fr24-stat { margin: 8px 0 4px; border-collapse: collapse; font-size: 12px; }
+.fr24-stat th { text-align: left; font-weight: 600; color: var(--muted, #8a929c); padding: 2px 14px 2px 0; white-space: nowrap; }
+.fr24-stat td { padding: 2px 0; }
+.fr24-tag { margin-left: 4px; padding: 0 3px; border: 1px solid #8a929c; border-radius: 3px; font-size: 10px; color: #c8d0d8; }
+.fr24-tag.only { border-color: #5ee6e6; color: #5ee6e6; }
+.fr24-c { color: #5ee6e6; }
+.adsb-plane.fr24:not(.sel):not(.old):not(.emerg) svg { fill: #5ee6e6; }
+.fr24-ml b { color: #5ee6e6; }
+.ais-ml-head.fr24-c { margin-top: 6px; }
+
+/* ===== AUDIO › ATC (static/atc.js, atc.py): the key and the subtitle in the AD under the clock ===== */
+#atcKey.atc-load { animation: atc-blink 1s steps(1, end) infinite; }
+#atcKey.atc-busy { animation: atc-blink .4s steps(1, end) infinite; }   /* transcribing a transmission */
+#atcKey.atc-off { opacity: .4; cursor: default; }   /* not in AM on the airband: as :disabled, but its tooltip shows */
+#atcKey.atc-err { color: #ff5a4f; }
+@keyframes atc-blink { 50% { opacity: .45; } }
+.ad-atc[hidden] { display: none !important; }
+.ad-atc { display: flex; flex-direction: column; height: 100%; padding: 0 6px; overflow: hidden; text-align: left; }
+.ad-atc-head { display: flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap; font: 10px/13px ui-monospace, Consolas, monospace; }
+.ad-atc-tag { padding: 0 4px; border: 1px solid currentColor; border-radius: 3px; color: var(--amber); font: 800 9px/11px system-ui, sans-serif; }
+.ad-atc-call { color: #5ee6e6; font-weight: 700; }
+.ad-atc-st { margin-left: auto; color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+.ad-atc-st.err { color: #ff5a4f; }
+.ad-atc-text { color: var(--text); font: 11px/12px system-ui, sans-serif; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.atc-cs { color: #5ee6e6; font-weight: 700; }
+.atc-cs.fuzzy { color: #9fd8d8; font-weight: 600; text-decoration: underline dotted; }
+.ad-atc-call:not(.map) { opacity: .6; }
+.ad-atc-call.map { cursor: pointer; text-decoration: underline; }
+/* ATC: the AD shows only the state; the transmission (big callsign, whole text, map match) is a box at the bottom right
+   of the COMPOSITE map */
+.ad-atc { justify-content: center; }
+.ad-atc-head { line-height: 18px; }
+.ad-atc-st.big { margin-left: 0; font: 600 12px/18px system-ui, sans-serif; color: var(--text); }
+.ad-atc-call { font: 800 15px/18px ui-monospace, Consolas, monospace; letter-spacing: .02em; }
+.atc-map-box { display: flex; flex-direction: column; gap: 3px; width: 420px; max-width: calc(100vw - 40px); padding: 4px 9px 6px;
+  background: rgba(8, 12, 16, .92); color: var(--text); border: 1px solid var(--line); border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .55); text-align: left; }
+.atc-map-box[hidden] { display: none !important; }
+.atc-map-box .ad-atc-head .ad-atc-st { margin-left: auto; }
+.atc-map-box .ad-atc-text { display: block; -webkit-line-clamp: unset; font: 13px/17px system-ui, sans-serif; }
+.ad-atc-match { font: 11px/15px system-ui, sans-serif; border-top: 1px solid var(--line); padding-top: 3px; }
+.ad-atc-ok { color: #6cff9c; font-weight: 700; }
+.ad-atc-no { color: #ffb347; font-weight: 600; }
+.ad-atc-bynum { color: #ffd84a; }
+
+/* ===== COMPOSITE: multiselect and STCA (stca.js) ===== */
+.stca-lbl { pointer-events: none; }
+.stca-lbl span { position: absolute; transform: translate(-50%, -50%); white-space: nowrap; padding: 0 5px; border-radius: 3px; font: 600 11px/16px system-ui, sans-serif; color: #fff; background: color-mix(in srgb, var(--stc, #ff2a2a) 60%, #000 40%); border: 1px solid var(--stc, #ff2a2a); }
+.stca-lbl.now span { animation: stca-blink 1s steps(2, start) infinite; }
+.stca-lbl.sel span { font-weight: 500; color: var(--stc, #ff8c1a); background: rgba(10, 13, 18, .8); }
+.stca-ring.blink { animation: stca-blink 1s steps(2, start) infinite; }
+@keyframes stca-blink { 50% { opacity: .25; } }
+.com-side .stca-head { display: flex; align-items: center; gap: 8px; color: var(--stc, #ff5a5a); }
+.com-side .stca-head.sel { margin-top: 6px; }
+.com-side .stca-head .key { margin-left: auto; }
+.com-side .stca-t { width: 100%; border-collapse: collapse; margin: 2px 0; }
+.com-side .stca-t th { text-align: left; font-weight: 500; color: var(--muted, #8fa3bd); padding: 1px 6px 1px 0; }
+.com-side .stca-t td { padding: 1px 6px 1px 0; white-space: nowrap; }
+.com-side .stca-t tr.sel td { color: var(--stc, #ff8c1a); }
+.com-side .stca-t tr.stca-row td { color: var(--stc, #ff6a6a); }
+.com-side .stca-t tr.stca-row[data-stca] { cursor: pointer; }
+.com-side .stca-t tr.stca-row.now td { font-weight: 700; }
+.com-side .stca-x { padding: 0 4px; border: 0; background: none; color: #8fa3bd; cursor: pointer; }
+.com-bar button.stca-on { color: #0b0f14; background: #6cb8ff; border-color: #6cb8ff; }
+.com-bar .stca-n { margin-left: auto; color: #8fa3bd; }
+.com-bar .stca-n.on { color: #ff5a5a; font-weight: 700; }
+
+/* aircraft label: climbing / descending arrow right after the level (COMPOSITE) */
+.map-vs { margin-left: 1px; font-weight: 700; }
+.map-vs.up { color: #7dff9a; }
+.map-vs.dn { color: #ffb35a; }
+
+/* ===== COMPOSITE: the panel right of the map in the STATION look (blocks as .sdg-b), nothing wider than the panel ===== */
+.cs-blk { display: flex; flex-direction: column; gap: 3px; min-width: 0; margin-bottom: 6px; padding: 6px 8px; border-radius: 6px;
+  border: 1.5px solid var(--line); background: rgba(255, 255, 255, .02); font-size: 11px; color: var(--muted); }
+.cs-blk.bad { border-color: var(--red); background: color-mix(in srgb, var(--red) 10%, transparent); }
+.cs-blk.stca-blk { border-color: color-mix(in srgb, var(--stc) 60%, transparent); }
+.com-side .cs-blk .com-kind { margin: 0; font: 700 10px system-ui, sans-serif; letter-spacing: .08em; color: var(--muted); }
+.com-side .cs-blk .stca-head { color: var(--stc); }
+.cs-head { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.cs-head img { flex: none; width: 18px; height: 12px; object-fit: cover; border-radius: 2px; align-self: center; }
+.cs-call { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font: 800 16px/20px ui-monospace, Consolas, monospace; color: var(--text); letter-spacing: .02em; }
+.cs-type { flex: none; font: 700 11px ui-monospace, Consolas, monospace; color: #6cb8ff; }
+.cs-age { flex: none; margin-left: auto; font-size: 10px; }
+.cs-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px; }
+.cs-v { min-width: 0; padding: 2px 5px; border: 1px solid var(--line); border-radius: 4px; background: rgba(0, 0, 0, .2); }
+.cs-v > b { display: block; font: 700 9px system-ui, sans-serif; letter-spacing: .06em; color: var(--muted); }
+.cs-v > span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font: 700 13px/16px ui-monospace, Consolas, monospace; color: var(--text); }
+.cs-sub, .cs-note { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.cs-parts > summary { cursor: pointer; font: 700 10px system-ui, sans-serif; letter-spacing: .08em; color: var(--muted); }
+.com-side .cs-parts .com-parts { table-layout: fixed; }
+.com-side .cs-parts .com-parts td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.com-side .cs-parts .com-parts td:nth-child(1) { width: 52px; }
+.com-side .cs-parts .com-parts td:nth-child(2) { width: 58px; }
+.com-side .cs-parts .com-parts td:nth-child(4) { width: 58px; }
+/* STCA and the selection of several: fixed columns, cut with … */
+.com-side .cs-blk .stca-t { table-layout: fixed; margin: 0; font-variant-numeric: tabular-nums; }
+.com-side .cs-blk .stca-t td, .com-side .cs-blk .stca-t th { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 4px; }
+.stca-t col.w-n { width: 40px; }
+.stca-t col.w-x { width: 22px; }
+.stca-t col.w-when { width: 54px; }
+.stca-t col.w-sep { width: 84px; }
+/* the lists: the heading as a STATION block title, the counts short; columns of a fixed width, the name takes the rest */
+.com-lsec > summary { font: 700 10px system-ui, sans-serif; letter-spacing: .08em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.com-lsec > summary .com-lcount { font-size: 10px; }
+.com-lt { font-variant-numeric: tabular-nums; }
+.com-lt thead th.c-name { width: auto; }
+.com-lt th.c-type { width: 44px; } .com-lt th.c-alt { width: 46px; } .com-lt th.c-spd { width: 36px; }
+.com-lt th.c-ad { width: 66px; } .com-lt th.c-age { width: 42px; } .com-lt th.c-sq { width: 40px; }
+.com-lt th.c-reg { width: 60px; } .com-lt th.c-id { width: 56px; } .com-lt th.c-desc { width: 84px; }
+.com-lt th.c-src { width: 70px; } .com-lt th.c-freq { width: 58px; } .com-lt th.c-vs { width: 42px; }
+.com-lt th.c-temp { width: 42px; } .com-lt th.c-rh { width: 40px; } .com-lt th.c-state { width: 62px; }
+.com-lt th.c-land { width: 72px; } .com-lt th.c-crs { width: 40px; } .com-lt th.c-nav { width: 72px; }
+.com-lt th.c-dest { width: 62px; } .com-lt th.c-call { width: 56px; }
+.com-lt td.c-name b { font-family: ui-monospace, Consolas, monospace; }
+
+/* ATC: a navpoint heard in a transmission (atc.js): a yellow triangle over its icon, its name yellow; blinking while
+   fresh, steady while its aircraft is selected */
+.atc-fix { pointer-events: none; }
+/* the size of the waypoint's own triangle (r 4: 12 px wide) and its name where the vector map writes it: only yellow */
+.atc-fix i { position: absolute; left: 5px; top: 5px; width: 0; height: 0; border-left: 6px solid transparent;
+  border-right: 6px solid transparent; border-bottom: 10px solid #ffd84a; }
+.atc-fix b { position: absolute; left: 50%; top: 18px; transform: translateX(-50%); white-space: nowrap;
+  font: 600 10px/1.15 system-ui, sans-serif; color: #ffd84a; text-shadow: 0 0 2px #000, 0 0 2px #000, 0 0 3px #000; }
+.atc-fix.blink i, .atc-fix.blink b { animation: atc-fix-blink .5s steps(1, end) infinite; }
+@keyframes atc-fix-blink { 50% { opacity: 0; } }
+/* the line from the aircraft to the navpoint it was told to fly to */
+.atc-route.blink { animation: atc-fix-blink .5s steps(1, end) infinite; }
