@@ -496,7 +496,7 @@ def state():
     capable = tx_capable()
     return dict(receiver.state(), ft8=ft8.enabled, ft8_error=ft8.error, wspr=wspr_dec.enabled, wspr_error=wspr_dec.error, wspr_info=wspr_dec.info, wspr_prog=wspr_dec.progress(), msk144=msk_dec.enabled, msk144_error=msk_dec.error, msk144_info=msk_dec.info, meteor=meteors.enabled, meteor_error=meteors.error, meteor_info=meteors.info, wefax=wefax.enabled, cw=cw.enabled, rtty=rtty.enabled, packet=packet.enabled, pocsag=pocsag.enabled, sonde=sonde.enabled, sonde_multi=sonde.multi,
                 sstv=sstv.enabled, acars=acars.enabled, vdl2=vdl2.enabled, vdl2_error=vdl2.error, vdl2_region=vdl2.region, cpdlc=acars.cpdlc_on,
-                dsd=dsd.info(), dab=dab.enabled, dab_error=dab.error, dab_channel=dab.channel, dab_sids=cfg.get("dab_sids") or {}, ism=ism.enabled, ism_error=ism.error, ism_raw=ism.raw, ism_minlevel=ism.minlevel,hfdl=hfdl.enabled, hfdl_error=hfdl.error, ais=ais.enabled, ais_error=ais.error, adsb=adsb.enabled, adsb_error=adsb.error, ism_hz=cfg.get("ism_hz", ISM_DEFAULT), audio_muted=audio_muted(), recording=recorder.state(), iq_rec=iq_recorder.state(), retro=retro.state(), **q65_dec.status(), **bpsk_dec.status(), **navtex_dec.status(), **atc_stt.status(),logs={k: log_on(k) for k in LOG_KEYS},
+                dsd=dsd.info(), dab=dab.enabled, dab_error=dab.error, dab_channel=dab.channel, dab_sids=cfg.get("dab_sids") or {}, ism=ism.enabled, ism_error=ism.error, ism_raw=ism.raw, hfdl=hfdl.enabled, hfdl_error=hfdl.error, ais=ais.enabled, ais_error=ais.error, adsb=adsb.enabled, adsb_error=adsb.error, ism_hz=cfg.get("ism_hz", ISM_DEFAULT), audio_muted=audio_muted(), recording=recorder.state(), iq_rec=iq_recorder.state(), retro=retro.state(), **q65_dec.status(), **bpsk_dec.status(), **navtex_dec.status(), **atc_stt.status(),logs={k: log_on(k) for k in LOG_KEYS},
                 **doppler_trsp(), antenna=cfg.get("antenna", ""),
                 tx_capable=capable, tx_enabled=bool(cfg.get("tx_enabled", False)),
                 can_tx=capable and bool(cfg.get("tx_enabled", False)) and hasattr(receiver.sdr, "tx_start"))
@@ -695,7 +695,6 @@ def sync_dsd(mode=None):
 
 sync_dsd()
 ism.set_raw(cfg.get("ism_raw", False))
-ism.set_minlevel(cfg.get("ism_minlevel", ism_mod.MINLEVEL_DEF))
 if cfg.get("ism") and RTL_DONGLE and not OWNER:
     ism.set_enabled(True)
 if cfg.get("hfdl") and not OWNER:
@@ -3370,10 +3369,7 @@ def api_set():
     if "ism_raw" in body:
         cfg["ism_raw"] = bool(body["ism_raw"])
         ism.set_raw(cfg["ism_raw"])
-    if "ism_minlevel" in body:
-        ism.set_minlevel(body["ism_minlevel"])
-        cfg["ism_minlevel"] = ism.minlevel
-    if "ism" in body or "ism_hz" in body or "ism_raw" in body or "ism_minlevel" in body:
+    if "ism" in body or "ism_hz" in body or "ism_raw" in body:
         save_config_later()
         hub.event("status", state())
     if any(body.get(k) for k in ("acars", "vdl2", "dab", "ism", "ais")) and hfdl.enabled:

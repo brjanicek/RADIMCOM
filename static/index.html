@@ -1407,7 +1407,6 @@ Key lit = on · fast blinking = a transmission is being transcribed · slow blin
         </div>
         <label class="wf-opt log-opt" title="Write to the daily log data\logs\ism\YYYY\MM\DD\ism_YYYY-MM-DD.txt (UTC, shared by all VFOs; a repeated message once)"><input type="checkbox" data-log="ism">LOG</label>
         <label class="wf-opt" title="RAW: also show packages of pulses no decoder of rtl_433 could read (grey rows): modulation guess, pulses, length and the demodulated bits, with a small picture of the pulses; ⧉ opens them at triq.org/pdv. Many of them are noise or unknown devices. Not written to the log."><input type="checkbox" id="ismRaw">RAW</label>
-        <label class="wf-opt ism-minlvl" title="MIN LEVEL: the weakest pulse rtl_433 still takes as a signal (dBFS). −12 dB = rtl_433's default (868 MHz keeps its autolevel there). Lower finds weaker devices but also more noise (RAW rows) and CPU; below −12 dB the level is fixed, also on 868 MHz. rtl_433 restarts when you let go of the slider. Double click = default −12 dB"><span>MIN</span><input id="ismMinLevel" type="range" min="-40" max="-12" step="1" value="-12" data-def="-12"><span id="ismMinLevelText" class="value">−12 dB</span></label>
         <label class="wf-opt" title="Also show the devices hidden with ⊘ on their card"><input type="checkbox" id="ismHidden">HIDDEN</label>
         <button id="ismClear" class="key small" title="Clear the list, the devices and the statistics">CLR</button>
       </div>

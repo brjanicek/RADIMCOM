@@ -16,7 +16,18 @@ of the whole band and all transmitters in it merge into long "packages", and of 
 each with its own rtl_433: 433.92 MHz (most devices), 433.42 MHz (Somfy and others) and 434.42 MHz (car keys, e.g.
 VW / Škoda / Audi; 434.40 MHz is a common key frequency), 868.30 MHz. Measured on a 5 min
 recording at 433.92 MHz: 107 messages in the whole band, 236 in the 256 kS/s channel, and rtl_433 needs 6x less CPU.
-The filtering runs in the thread that sends the samples of each channel, not in the receiver thread.
+All channels are cut at once by one FFT (overlap-save, class Splitter) in a thread of its own, not in the receiver
+thread: the samples are converted and transformed once, a channel is only its bins (the shift costs nothing), the filter
+response and a short inverse FFT. Six channels at 2.048 MS/s: about a tenth of the CPU of one FIR filter per channel.
+Near 433.92 / 868.30 MHz the channels stay on these frequencies when the dongle centre moves (the VFO dragged in the
+spectrum): only their digital offset changes.
+
+Narrow channels at 433.92 MHz: most devices there are weaker than rtl_433's default minimum level (-12 dB), and in a
+256 kS/s channel their level is too close to the noise. Three more channels of 64 kS/s (433.89, 433.93, 434.01 MHz)
+with a lower minimum level and SNR read them. Measured on 6 / 7 min recordings of two dongles: 74 / 95 transmissions
+with the 256 kS/s channels alone, 205 / 220 with these three added (most of them heard by both dongles). Lowering the
+level did not help in the 256 kS/s channels, and at 868 MHz it lost messages. The same packet read by several channels
+counts once (CROSS_S).
 
 RAW: with the RAW option rtl_433 also runs its pulse analyzer (-A); a package of at least RAW_MIN_PULSES pulses that no
 decoder read is shown as a RAW row (modulation guess, pulses, length, level, a pulse view link at triq.org).
@@ -46,13 +57,16 @@ ISM_DEFAULT = ISM_FREQS[0]
 CH_RATE = 256000              # sample rate of a channel for rtl_433 (default)
 CH_TAPS_PER_DOWN = 16         # low-pass of a channel: 16 taps per decimation step + 1 (129 taps for 8), at least 65
 CH_CUTOFF = 0.45              # its -6 dB point, as a part of the channel's sample rate (115 kHz at 256 kS/s)
+SPLIT_BIN_HZ = 500            # bin of the splitter's FFT (4096 points at 2.048 MS/s); channel offsets are rounded to it
 CH_GAIN = 1.0                 # the channel back to u8 bytes, same scale as the dongle (measured: clipping stays ~0.002 %)
+NARROW_RATE = 64000           # extra channels for the weak devices around 433.92 MHz
+NARROW_ARGS = ("-Y", "minlevel=-35", "-Y", "minsnr=4", "-b", "32768")   # -b: with the default block rtl_433 ends, "stalled"
+CROSS_S = 4.0                 # the same message from two channels this close together = one packet (64 kS/s output is late)
 # channels around each preset: (offset from the centre of the dongle, sample rate, rtl_433 -Y autolevel)
 # 433: OOK; autolevel lost messages there. 868: FSK; autolevel found the weaker devices.
-CHANNELS = {433920000: ((0, CH_RATE, False), (-500000, CH_RATE, False), (500000, CH_RATE, False)),   # 433.92, 433.42, 434.42
+CHANNELS = {433920000: ((0, CH_RATE, False), (-500000, CH_RATE, False), (500000, CH_RATE, False),   # 433.92, 433.42, 434.42
+                        (-30000, NARROW_RATE, False), (10000, NARROW_RATE, False), (90000, NARROW_RATE, False)),
             868300000: ((0, CH_RATE, True), (650000, CH_RATE, True))}   # 868.30 sensors, 868.95 wM-Bus meters
-MINLEVEL_DEF = -12            # rtl_433's own minimum pulse level (dBFS, -12.1); here nothing is passed (868: autolevel stays)
-MINLEVEL_MIN = -40            # lowest MIN LEVEL offered; below it a u8 dongle is in its own noise
 RAW_MIN_PULSES = 20           # smaller undecoded packages are noise
 RAW_MERGE_S = 10.0            # RAW packages of one kind near one frequency within this time = one row with a count
 RAW_MERGE_HZ = 15000
@@ -226,19 +240,45 @@ def _load_known():
         return {}
 
 
+class Splitter:
+    """The part of the channel filters all channels share: u8 I/Q of the dongle -> spectra of overlapping segments
+    (overlap-save, half of each segment is new)."""
+
+    def __init__(self, fs):
+        self.n = int(fs) // SPLIT_BIN_HZ
+        self.hop = self.n // 2
+        self.tail = np.zeros(self.hop, np.complex64)
+        self.m = 0                                    # number of the next segment
+
+    def spectrum(self, raw):
+        """(spectra [segment, bin], number of the first segment); samples short of a segment wait for the next call."""
+        from scipy.fft import fft
+        x = raw.astype(np.float32)
+        x -= 127.5
+        xe = np.concatenate((self.tail, x.view(np.complex64)))
+        k = max(0, (xe.size - self.hop) // self.hop)
+        first, self.m = self.m, self.m + k
+        self.tail = xe[k * self.hop:].copy()
+        if not k:
+            return np.zeros((0, self.n), np.complex64), first
+        segments = np.lib.stride_tricks.sliding_window_view(xe, self.n)[::self.hop][:k]
+        return fft(segments, axis=1), first
+
+
 class Channel:
     """One rtl_433 with its rtl_tcp server, fed by a narrow channel cut from the dongle samples (or by all of them)."""
 
-    def __init__(self, dec, fs, center_hz, offset_hz, raw, rate=CH_RATE, autolevel=False, minlevel=MINLEVEL_DEF):
+    def __init__(self, dec, fs, center_hz, offset_hz, raw, rate=CH_RATE, autolevel=False):
         self.dec = dec
         self.offset = offset_hz
         self.fs_in = fs
         self.autolevel = autolevel
-        self.minlevel = minlevel
         self.down = fs // rate if fs % rate == 0 and fs > rate else 1
         self.fs = fs // self.down
         self.start_hz = center_hz + offset_hz          # what rtl_433 is told
-        self.raw = raw
+        self.narrow = rate < CH_RATE
+        self.raw = raw and not self.narrow             # with the low minimum level its analyzer would mostly see noise
+        self.pinned = False                            # a preset channel: stays on its frequency (retune)
         self.proc = self.srv = self.conn = None
         self.q = queue.Queue(maxsize=TCP_QUEUE)
         self.log = collections.deque(maxlen=10)       # last lines rtl_433 printed (for errors)
@@ -248,55 +288,58 @@ class Channel:
         self.attempts = 0                             # analyzer blocks with a demodulation attempt (stderr)
         self.n_codes = 0                              # their codes lines (stdout), in the same order
         self.codes = {}
+        self.split = None                             # its own Splitter, only for channel()
         if self.down > 1:
             from scipy.signal import firwin
             n = max(CH_TAPS_PER_DOWN * self.down + 1, 65)
             n += (-(n - 1)) % self.down                  # (taps - 1) a multiple of the decimation
             self.h = firwin(n, CH_CUTOFF * self.fs, fs=fs, window=("kaiser", 7.0)).astype(np.float32)
-            self.tail = np.zeros(n - 1, np.complex64)
-            self.phase = 0.0
-            self.lut = None
-            self.w = -2 * np.pi * offset_hz / fs       # rad per input sample
+            size = int(fs) // SPLIT_BIN_HZ               # segment of the splitter
+            self.m_out = size // self.down               # its length at the channel's rate
+            self.rel = np.fft.ifftshift(np.arange(self.m_out) - self.m_out // 2)    # bins around 0 Hz, FFT order
+            self.resp = (np.fft.fft(self.h, size)[self.rel % size] / self.down).astype(np.complex64)
 
     # ---------- the narrow channel ----------
 
-    def channel(self, raw):
-        """u8 I/Q of the dongle -> u8 I/Q of this channel (mixed to 0 Hz, filtered, decimated)."""
-        if self.down == 1:
-            return raw
-        from scipy.signal import upfirdn
-        x = raw.astype(np.float32)
-        x -= 127.5
-        x = x.view(np.complex64)
-        if self.offset:
-            if self.lut is None or self.lut.size != x.size:
-                self.lut = np.exp(1j * self.w * np.arange(x.size)).astype(np.complex64)
-            x = x * (self.lut * np.complex64(np.exp(1j * self.phase)))
-            self.phase = (self.phase + self.w * x.size) % (2 * np.pi)
-        xe = np.concatenate((self.tail, x))
-        y = upfirdn(self.h, xe, down=self.down)
-        # outputs whose filter window lies inside xe: index k*down with k*down >= len(h) - 1
-        k0 = (self.h.size - 1) // self.down
-        k1 = (xe.size - 1) // self.down
-        y = y[k0:k1 + 1]
-        self.tail = xe[(k1 + 1) * self.down - (self.h.size - 1):]
-        out = np.empty(y.size * 2, np.float32)
-        out[0::2] = y.real
-        out[1::2] = y.imag
-        out *= CH_GAIN
-        out += 128.0                                 # + 127.5, and truncating below rounds
+    def retune(self, center_hz):
+        """The dongle centre moved: take other bins, so the channel stays on its frequency (start_hz)."""
+        if self.down > 1:
+            self.offset = self.start_hz - center_hz      # read by the splitter thread with every block
+
+    def hz_now(self, shift):
+        """Where the channel listens: a pinned channel stays on its frequency, any other moves with the dongle."""
+        return self.start_hz if self.pinned else self.start_hz + shift
+
+    def cut(self, spectra, first):
+        """The spectra of a Splitter -> u8 I/Q of this channel (mixed to 0 Hz, filtered, decimated)."""
+        from scipy.fft import ifft
+        size = spectra.shape[1]
+        shift = int(round(self.offset / SPLIT_BIN_HZ))
+        y = ifft(spectra[:, (shift + self.rel) % size] * self.resp, axis=1)[:, self.m_out // 2:]
+        if shift & 1:                                    # the segments start half a segment apart: phase of the shift
+            y[first & 1::2] *= -1
+        out = (y.astype(np.complex64).view(np.float32) * CH_GAIN).ravel()
+        out += 128.0                                     # + 127.5, and truncating below rounds
         np.clip(out, 0, 255, out=out)
         return out.astype(np.uint8).tobytes()
+
+    def channel(self, raw):
+        """u8 I/Q of the dongle -> u8 I/Q of this channel alone (the decoder shares one Splitter instead)."""
+        if self.down == 1:
+            return raw
+        if self.split is None:
+            self.split = Splitter(self.fs_in)
+        return self.cut(*self.split.spectrum(raw))
 
     # ---------- process and server ----------
 
     def command(self, port):
         cmd = [EXE, "-c", "0", "-d", f"rtl_tcp:127.0.0.1:{port}", "-f", str(int(self.start_hz)), "-s", str(self.fs),
                "-F", "json", "-F", "log", "-C", "si", "-M", "time:off", "-M", "level", "-M", "protocol"]
-        if self.minlevel < MINLEVEL_DEF:             # MIN LEVEL set lower: a fixed level (autolevel would move it again)
-            cmd += ["-Y", f"minlevel={self.minlevel}"]
-        elif self.autolevel:
+        if self.autolevel:
             cmd += ["-Y", "autolevel"]
+        if self.narrow:
+            cmd += NARROW_ARGS
         return cmd + ["-A"] if self.raw else cmd
 
     def start(self):
@@ -361,12 +404,8 @@ class Channel:
             if data is None or self.conn is not conn:
                 return
             try:
-                conn.sendall(self.channel(data))
+                conn.sendall(data)
             except OSError:
-                return
-            except Exception as e:           # a bug in the filter must not stop quietly
-                self.log.append(f"channel: {e!r}")
-                self.close_server()
                 return
 
     def _reader(self, p):
@@ -463,7 +502,6 @@ class IsmDecoder:
         self.on_state = on_state
         self.enabled = False
         self.raw = False              # RAW rows for packages no decoder read (rtl_433 -A)
-        self.minlevel = MINLEVEL_DEF  # MIN LEVEL: minimum pulse level for rtl_433 (dBFS)
         self.error = None
         self.count = 0                # all messages, also repeated ones
         self.raw_count = 0
@@ -476,6 +514,7 @@ class IsmDecoder:
         self.aliases = {}             # model -> all models rtl_433 reported for the same packets
         self.lock = threading.Lock()
         self.chans = []
+        self.split_q = None                  # raw blocks for the splitter thread
         self.not_before = 0.0
         self.devices = collections.OrderedDict()   # device key -> device, the least recently heard first
         self.rate = collections.deque(maxlen=RATE_MINUTES)   # [minute, messages]
@@ -504,26 +543,11 @@ class IsmDecoder:
             self.not_before = 0.0
         self._emit_state()
 
-    def set_minlevel(self, db):
-        """MIN LEVEL (dBFS, MINLEVEL_MIN .. MINLEVEL_DEF): rtl_433 starts again with it."""
-        try:
-            db = int(round(float(db)))
-        except (TypeError, ValueError):
-            db = MINLEVEL_DEF
-        db = max(MINLEVEL_MIN, min(MINLEVEL_DEF, db))
-        if db == self.minlevel:
-            return
-        with self.lock:
-            self.minlevel = db
-            self._stop()                     # the next samples start the channels again
-            self.not_before = 0.0
-        self._emit_state()
-
     def info(self):
         return {"enabled": self.enabled, "error": self.error, "count": self.count, "dropped": self.dropped,
-                "raw": self.raw, "raw_count": self.raw_count, "minlevel": self.minlevel,
+                "raw": self.raw, "raw_count": self.raw_count,
                 "running": bool(self.chans) and all(c.conn is not None for c in self.chans),
-                "channels": [round(c.start_hz + self.center_hz - self.start_hz) for c in self.chans],
+                "channels": [round(c.hz_now(self.center_hz - self.start_hz)) for c in self.chans],
                 "channel_rates": [c.fs for c in self.chans], "rate": self._rate_list(),
                 "center_hz": self.center_hz, "fs": self.fs}
 
@@ -648,26 +672,53 @@ class IsmDecoder:
         """raw: uint8 I/Q from an RTL dongle (the ISM key is not offered on LimeSDR); fs and centre of the dongle."""
         if not self.enabled or raw.dtype != np.uint8:
             return
-        self.center_hz = center_hz
-        if not self.chans or fs != self.fs or abs(center_hz - self.start_hz) > RESTART_HZ:
+        moved, self.center_hz = center_hz != self.center_hz, center_hz
+        restart = not self.chans or fs != self.fs or abs(center_hz - self.start_hz) > RESTART_HZ
+        if not restart and moved:
+            # preset channels stay on their frequencies while the dongle centre moves (the VFO dragged in the
+            # spectrum); restart only when another set of channels fits into the band now
+            pinned = [c for c in self.chans if c.pinned]
+            want = []
+            if self._pins(int(fs), center_hz):
+                want = sorted(round(center_hz + o) for o, _, _ in self._offsets(int(fs), center_hz))
+            restart = want != sorted(round(c.start_hz) for c in pinned)
+            if pinned and not restart:
+                for c in pinned:
+                    c.retune(center_hz)
+                self._emit_state()
+        if restart:
             if time.monotonic() < self.not_before:
                 return
             with self.lock:
                 if self.enabled:
                     self._start(int(fs), center_hz)
             self._emit_state()
+        q = self.split_q
+        if q is not None:
+            try:
+                q.put_nowait(raw)            # the splitter thread cuts the channels
+            except queue.Full:
+                self.dropped += 1
         for c in self.chans:
-            c.feed(raw)                      # the same array for all: it is only read
+            if c.down == 1:
+                c.feed(raw)                  # the whole band: the same array for all, it is only read
 
     # ---------- rtl_433 processes ----------
 
     def _offsets(self, fs, center_hz):
-        """Channels (offset, rate, autolevel) for this dongle centre and rate."""
+        """Channels (offset, rate, autolevel) for this dongle centre and rate. Near a preset the channels are at fixed
+        frequencies around the preset, so their offsets from the dongle centre follow the centre."""
         whole = ((0, fs, False),)             # cannot be cut into channels: rtl_433 gets the whole band, as before
         near = min(CHANNELS, key=lambda f: abs(f - center_hz))
-        specs = CHANNELS[near] if abs(near - center_hz) < 1e6 else ((0, CH_RATE, False),)
+        specs = tuple((near + o - center_hz, r, a) for o, r, a in CHANNELS[near]) if abs(near - center_hz) < 1e6 \
+            else ((0, CH_RATE, False),)
         specs = tuple(c for c in specs if fs % c[1] == 0 and fs > c[1] and abs(c[0]) + c[1] / 2 <= fs / 2)
         return specs or whole
+
+    def _pins(self, fs, center_hz):
+        """True near a preset where its channels can be cut: they get fixed frequencies."""
+        near = min(CHANNELS, key=lambda f: abs(f - center_hz))
+        return abs(near - center_hz) < 1e6 and self._offsets(fs, center_hz)[0][1] < fs
 
     def _start(self, fs, center_hz):
         self._stop()
@@ -679,7 +730,8 @@ class IsmDecoder:
         chans = []
         try:
             for off, rate, autolevel in self._offsets(fs, center_hz):
-                c = Channel(self, fs, center_hz, off, self.raw, rate, autolevel, self.minlevel)
+                c = Channel(self, fs, center_hz, off, self.raw, rate, autolevel)
+                c.pinned = self._pins(fs, center_hz)
                 chans.append(c)
                 c.start()
         except (OSError, ImportError, ValueError) as e:
@@ -689,8 +741,37 @@ class IsmDecoder:
             return
         self.chans = chans
         self.error = None
+        cut = [c for c in chans if c.down > 1]
+        if cut:
+            self.split_q = queue.Queue(maxsize=TCP_QUEUE)
+            threading.Thread(target=self._split, args=(Splitter(fs), self.split_q, cut), name="ism-split",
+                             daemon=True).start()
+
+    def _split(self, splitter, q, chans):
+        """The splitter thread: one FFT of every raw block, from it the samples of each channel."""
+        while True:
+            raw = q.get()
+            if raw is None or self.split_q is not q:
+                return
+            try:
+                spectra, first = splitter.spectrum(raw)
+                for c in chans:
+                    if c.conn is not None and spectra.size:
+                        c.feed(c.cut(spectra, first))
+                    else:
+                        c._raw_flush()
+            except Exception as e:           # a bug in the filter must not stop quietly
+                self.error = f"channel filter: {e!r}"
+                self._emit_state()
+                return
 
     def _stop(self):
+        q, self.split_q = self.split_q, None
+        if q is not None:
+            try:
+                q.put_nowait(None)           # wakes the thread; if full, it sees split_q has changed
+            except queue.Full:
+                pass
         chans, self.chans = self.chans, []
         for c in chans:
             c.stop()
@@ -709,8 +790,8 @@ class IsmDecoder:
 
     def _handle(self, j, ch):
         now = time.time()
-        # rtl_433 knows the frequency its channel was started with; the dongle may have moved a little since
-        shift = self.center_hz - self.start_hz
+        # rtl_433 knows the frequency its channel was started with; a channel of the whole band may have moved since
+        shift = ch.hz_now(self.center_hz - self.start_hz) - ch.start_hz
         mhz = j.get("freq") if j.get("freq") is not None else j.get("freq1")
         freq_hz = round(float(mhz) * 1e6 + shift) if isinstance(mhz, (int, float)) else round(ch.start_hz + shift)
         model = _clean(j["model"])
@@ -722,6 +803,9 @@ class IsmDecoder:
         meter = model.startswith("Wireless-MBus")
         window = METER_MERGE_S if meter else REPEAT_S
         names = self.aliases.get(model, {model})
+        for c in self.chans:                          # a RAW package of another channel: this decoded one
+            if c is not ch and c.raw and isinstance(mhz, (int, float)):
+                c.decoded.append((now, None, None, mhz))
         with self.lock:
             m = None
             for row in reversed(self.history):        # the latest activity last
@@ -742,6 +826,10 @@ class IsmDecoder:
                     break
                 if names.intersection(row["models"]) and (row["dev_id"], row["channel"]) == (dev_id, channel) \
                         and (meter or row["text"] == text):
+                    if not meter and now - row["last"] < CROSS_S and row.get("src", ch.start_hz) != ch.start_hz:
+                        m = dict(row, again=True)         # another channel read the same packet: nothing new
+                        break
+                    row["src"] = ch.start_hz
                     row["n"] += 1                         # the device repeats its message (maybe with another in between)
                     row["last"] = now
                     row["pkt"] = pkt
@@ -754,7 +842,7 @@ class IsmDecoder:
                     break
             if m is None:
                 m = {"id": self.next_id, "time": round(now, 1), "last": now, "n": 1, "freq_hz": freq_hz, "model": model,
-                     "models": [model], "pkt": pkt, "chan": ch.start_hz,
+                     "models": [model], "pkt": pkt, "chan": ch.start_hz, "src": ch.start_hz,
                      "dev_id": dev_id, "channel": channel, "text": text, "fields": fields, "mod": _clean(j.get("mod", "")),
                      "rssi": j.get("rssi"), "snr": j.get("snr"), "protocol": j.get("protocol"), "mic": _clean(j.get("mic", ""))}
                 self.next_id += 1
@@ -794,7 +882,7 @@ class IsmDecoder:
         codes = ch.codes.get(b.get("attempt", -1), "")
         if codes:
             parts.append(_clean(codes if len(codes) <= RAW_CODES_MAX else codes[:RAW_CODES_MAX] + "…"))
-        freq_hz = round(ch.start_hz + self.center_hz - self.start_hz + foff)
+        freq_hz = round(ch.hz_now(self.center_hz - self.start_hz) + foff)
         view = b["view"][0] if "view" in b else ""
         flex = _clean(b["flex"][0]) if "flex" in b else ""
         mod = b.get("mod", "")

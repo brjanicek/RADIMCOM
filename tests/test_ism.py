@@ -57,7 +57,8 @@ def test_channel_rejects_outside():
 
 def test_offsets():
     d = ism.IsmDecoder(lambda *a: None, lambda *a: None)
-    assert [c[0] for c in d._offsets(FS, 433920000)] == [0, -500000, 500000]   # 433.92, 433.42, 434.42 MHz
+    # 433.92, 433.42, 434.42 MHz and the narrow 433.89, 433.93, 434.01
+    assert [c[0] for c in d._offsets(FS, 433920000)] == [0, -500000, 500000, -30000, 10000, 90000]
     assert d._offsets(FS, 868300000)[0][:2] == (0, 256000)
     assert d._offsets(1000000, 433920000) == ((0, 1000000, False),)   # not a multiple of 256 kS/s: whole band
 
@@ -241,3 +242,66 @@ def test_raw_mark_becomes_device():
     ism.set_name(key, "")                                 # no name: the mark is gone
     assert key not in ism.load_names()
     os.remove(ism.NAMES_FILE)
+
+
+def test_channels_stay_when_the_centre_moves():
+    d = ism.IsmDecoder(lambda *a: None, lambda *a: None)
+    # the VFO dragged 310 kHz up: the same frequencies, other offsets (868.30 and 868.95 MHz)
+    assert [round(868610976 + o) for o, _, _ in d._offsets(FS, 868610976)] == [868300000, 868950000]
+    assert d._pins(FS, 868610976) and not d._pins(FS, 440000000) and not d._pins(1000000, 433920000)
+    c = ism.Channel(Dec(), FS, 868300000, 0, False)
+    c.pinned = True
+    c.retune(868600000)
+    assert c.offset == -300000 and c.hz_now(300000) == 868300000
+    raw = tone_u8(-300000 + 20000, 4 * N)                # 868.32 MHz, seen from the new centre
+    y = np.frombuffer(b"".join(c.channel(raw[i * 2 * N:(i + 1) * 2 * N]) for i in range(4)), np.uint8).astype(float) - 127.5
+    y = (y[0::2] + 1j * y[1::2])[200:]
+    f = np.fft.fftfreq(y.size, 1 / 256000)[np.abs(np.fft.fft(y)).argmax()]
+    assert abs(f - 20000) < 100
+
+
+def test_narrow_channel():
+    c = ism.Channel(Dec(), FS, 433920000, 10000, True, ism.NARROW_RATE)
+    assert c.down == 32 and not c.raw and "minlevel=-35" in c.command(1234) and "-A" not in c.command(1234)
+    assert "minlevel=-35" not in ism.Channel(Dec(), FS, 433920000, 0, False).command(1234)
+
+
+def test_two_channels_one_packet(monkeypatch):
+    d, ch, ev = make()
+    other = ism.Channel(Dec(), FS, 433920000, 10000, False, ism.NARROW_RATE)
+    now = [1000.0]
+    monkeypatch.setattr(ism.time, "time", lambda: now[0])
+    d._handle(msg("Nexus-TH", -5.0), ch)
+    now[0] += 1.5
+    d._handle(msg("Nexus-TH", -20.0), other)             # the narrow channel read the same packet
+    assert d.count == 1 and d.history[0]["n"] == 1 and ev[-1]["again"]
+    now[0] += 30
+    d._handle(msg("Nexus-TH", -20.0), other)             # a later packet: a repeat, whichever channel heard it
+    assert d.count == 2 and d.history[0]["n"] == 2
+
+
+def test_splitter_matches_a_filter_per_channel():
+    """The shared FFT gives what mixing, filtering and decimating each channel would, over block borders too."""
+    from scipy.signal import upfirdn
+    rng = np.random.default_rng(7)
+    raw = rng.integers(60, 196, 2 * 5 * 100000).astype(np.uint8)      # blocks that are not whole segments
+    x = (raw.astype(np.float32) - 127.5).view(np.complex64)
+    for off, rate in ((0, 256000), (-500000, 256000), (10000, 64000), (-30500, 64000)):   # even and odd bins
+        c = ism.Channel(Dec(), FS, 433920000, off, False, rate)
+        got = b"".join(c.channel(raw[i:i + 200000]) for i in range(0, raw.size, 200000))
+        got = np.frombuffer(got, np.uint8).astype(float) - 127.5
+        got = got[0::2] + 1j * got[1::2]
+        mixed = x * np.exp(-2j * np.pi * off / FS * np.arange(x.size))
+        want = upfirdn(c.h, mixed, down=c.down)[:got.size]
+        assert got.size > x.size // c.down - FS // 500 // 2 // c.down - 1
+        err = got[200:] - want[200:]
+        err -= err.mean()                                # the u8 rounding of the output
+        assert np.sqrt(np.mean(np.abs(err) ** 2)) < 0.8, (off, rate)
+
+
+def test_splitter_other_rates():
+    for fs, down in ((1024000, 4), (1536000, 6)):
+        for rate in (256000, 64000):
+            c = ism.Channel(Dec(), fs, 433920000, 10000, False, rate)
+            raw = np.full(2 * fs // 10, 127, np.uint8)
+            assert abs(len(c.channel(raw)) // 2 - rate // 10) <= fs // 500 // c.down
