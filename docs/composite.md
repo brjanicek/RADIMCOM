@@ -259,7 +259,14 @@ A click on an aircraft, ship or sonde (on the map or in the list) shows its deta
 with the same lines as the popups of its own map (aircraft: flight, registration, ICAO, country, type, altitude, speed,
 squawk, position, adsb.fi / adsb.lol; ship: as on the AIS map; sonde: as on the SONDE map), then **SOURCES (n)**: every
 record joined into the object (VFO, decoder, its identifiers, number of messages, last time, *(history)*) and
-**joined by …** (or *one record, nothing joined*). A click on the empty map drops the selection.
+**joined by …** (or *one record, nothing joined*). A click on the empty map drops the selection. A click on a row of the
+list selects the object without moving the map.
+
+An aircraft's detail shows a small **photo** of it from [Planespotters.net](https://www.planespotters.net) when there is one
+(asked by the browser by its ICAO address, then by its registration; nothing about the station is sent), with the
+photographer's name; a click opens the photo on Planespotters.net. The answer is remembered in the browser for a week
+(*no photo* for a day). The sources line of the detail is cut with … when it is long (the whole text in its tooltip); the
+adsb.fi / adsb.lol links at its end stay whole.
 
 ## Joining the same aircraft
 

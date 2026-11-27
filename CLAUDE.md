@@ -52,4 +52,11 @@ To avoid the most common conflicts, a pull request must not edit these:
 ## Project conventions
 
 - Code, comments and documentation in English.
+- UI text must never overflow its box (panels, blocks, table cells, bars). Check widths, inherited `white-space`,
+  `table-layout` and ellipsis. When something does not fit, ask the maintainer what to leave out of the text; until then,
+  or when it has to stay, cut it with `…` and put the whole text in a tooltip (`title="…"`, shown by `static/tooltip.js`).
+- Build every tab (and every panel of a tab) in the STATION style: content in blocks as `.sdg-b` of SETTINGS › STATION
+  (a small uppercase title, compact values, the border lit / amber / red by state). Blocks are as big as their content,
+  neighbours aligned to the same width / height, laid out without empty gaps, sized in advance for the data that will
+  come (nothing jumps), no value shown twice in the tab, button rows that belong together on one line.
 - Never commit `data\`, `dist\`, `lib\`, `drivers\`, recordings, logs or anything from your own station.

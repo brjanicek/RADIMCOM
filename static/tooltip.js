@@ -16,7 +16,7 @@
   box.setAttribute("role", "tooltip");
   document.body.appendChild(box);
 
-  let el = null, text = "", timer = null, x = 0, y = 0;
+  let el = null, text = "", timer = null, x = 0, y = 0, mx = 0, my = 0;   // x, y: where it opens; mx, my: the mouse now
   let off = [];                 // what was taken off: [node, title text] or [svg node, its <title> element]
   const watch = new MutationObserver(() => take());
 
@@ -76,8 +76,24 @@
     box.style.top = `${top}px`;
   }
 
+  /** The element under the mouse was drawn again (a panel rebuilt by innerHTML every few seconds) while the mouse stands
+   *  still: no mouseover comes, so the tooltip goes over to the element now under the mouse (-> false when there is none). */
+  function follow() {
+    if (!el || el.isConnected) return !!el;
+    const t = tipOf(document.elementFromPoint(mx, my));
+    restore();
+    watch.disconnect();
+    if (!t) { el = null; text = ""; box.hidden = true; return false; }
+    el = t;
+    strip();
+    take();
+    return true;
+  }
+  setInterval(() => { if (el && !el.isConnected && follow() && box.hidden && !timer) timer = setTimeout(show, SHOW_MS); }, 200);
+
   function show() {
     timer = null;
+    if (el && !el.isConnected) follow();
     if (!el || !text || !el.isConnected) return;
     box.textContent = text;
     box.hidden = false;
@@ -116,12 +132,14 @@
     t = tipOf(e.target);                                 // the titles are back now: an outer element may have one
     if (!t) return;
     el = t;
-    x = e.clientX; y = e.clientY;
+    x = mx = e.clientX; y = my = e.clientY;
     strip();
     take();
     if (!timer) timer = setTimeout(show, SHOW_MS);
   }, true);
   document.addEventListener("mousemove", (e) => {
+    mx = e.clientX; my = e.clientY;
+    if (el && !el.isConnected && follow()) return;   // drawn again under the mouse: the new element keeps the tooltip
     if (!el) return;
     if (!el.contains(e.target)) { leave(); return; }
     if (box.hidden) { x = e.clientX; y = e.clientY; }   // shown: it stays where it opened, as the browser's

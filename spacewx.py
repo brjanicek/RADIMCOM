@@ -57,7 +57,14 @@ FEEDS = {
     "alerts": ("products/alerts.json", 900),                         # alerts, warnings, watches, summaries
     "iono": (IONO_URL, 900),                                          # the newest values of each ionosonde (KC2G / GIRO)
     "kir": (KIR_URL, 300),                                            # Kiruna magnetometer, 1 min, today
+    "aur": ("json/ovation_aurora_latest.json", 600),                 # OVATION aurora nowcast (~30 min ahead), 1° grid
 }
+# the aurora map of NOAA itself (OVATION, northern hemisphere, ~800 x 800 JPEG), shown as it is on the PROP tab
+AUR_IMG_URL = BASE + "images/aurora-forecast-northern-hemisphere.jpg"
+AUR_IMG_TTL = 600
+_aur_img_lock = threading.Lock()
+AUR_MIN_LAT = 30               # the aurora grid is kept only north of this (the map shows the northern hemisphere)
+AUR_OVAL_P = 10                 # OVATION probability (%) from which a cell counts as the oval
 
 BANDS = (("160m", 1.85), ("80m", 3.65), ("60m", 5.36), ("40m", 7.1), ("30m", 10.12), ("20m", 14.1), ("17m", 18.1),
          ("15m", 21.1), ("12m", 24.94), ("10m", 28.5), ("6m", 50.1))
@@ -96,6 +103,8 @@ def _fetch(name):
             raw = gzip.decompress(raw)
     text = raw.decode("utf-8", "replace")
     d = text if name == "dsi" else _kir_merge(text) if name == "kir" else json.loads(text)
+    if name == "aur":
+        d = _aur_reduce(d)
     c = {"t": time.time(), "data": d}
     os.makedirs(DIR, exist_ok=True)
     tmp = _path(name) + ".tmp"
@@ -127,6 +136,53 @@ def _kir_merge(text):
         raise ValueError("no magnetometer values")
     end = max(pts)
     return [pts[t] for t in sorted(pts) if t > end - KIR_KEEP_S]
+
+
+def _aur_reduce(j):
+    """OVATION file (~1 MB, [lon 0..359, lat -90..90, %] for the whole globe) -> the northern cells with some aurora:
+    {"obs", "fc", "pts": [lon, lat, p, lon, lat, p, ...]}."""
+    pts = []
+    for c in j.get("coordinates") or []:
+        try:
+            lon, lat, p = int(c[0]), int(c[1]), int(round(float(c[2])))
+        except (TypeError, ValueError, IndexError):
+            continue
+        if lat >= AUR_MIN_LAT and p > 0:
+            pts += (lon if lon <= 180 else lon - 360, lat, p)
+    if not pts and not j.get("coordinates"):
+        raise ValueError("no aurora grid")
+    return {"obs": _iso(j.get("Observation Time")), "fc": _iso(j.get("Forecast Time")), "pts": pts}
+
+
+def aurora_image():
+    """The NOAA aurora map (bytes of the JPEG, or None): downloaded when the copy in data/spacewx is older than
+    AUR_IMG_TTL; the old copy is kept when the download fails."""
+    path = os.path.join(DIR, "aurora_north.jpg")
+    with _aur_img_lock:
+        try:
+            age = time.time() - os.path.getmtime(path)
+        except OSError:
+            age = None
+        if (age is None or age >= AUR_IMG_TTL) and time.time() - _failed.get("aur_img", 0) >= RETRY_S:
+            try:
+                req = urllib.request.Request(AUR_IMG_URL, headers={"User-Agent": "RADIMCOM"})
+                with urllib.request.urlopen(req, timeout=TIMEOUT_S) as r:
+                    raw = r.read()
+                if raw[:2] != b"\xff\xd8":
+                    raise ValueError("not a JPEG")
+                os.makedirs(DIR, exist_ok=True)
+                with open(path + ".tmp", "wb") as f:
+                    f.write(raw)
+                os.replace(path + ".tmp", path)
+                _errors.pop("aur_img", None)
+            except Exception as e:  # noqa: BLE001 - keep the old copy, try again later
+                _failed["aur_img"] = time.time()
+                _errors["aur_img"] = str(e)[:200]
+        try:
+            with open(path, "rb") as f:
+                return f.read()
+        except OSError:
+            return None
 
 
 def _stale(name, now):
@@ -219,11 +275,26 @@ def _kp_hist():
 
 
 def _kp_forecast():
+    """The 3-hour Kp of the forecast product. Its "estimated" rows of today are NOAA's forecast, not a measurement:
+    an interval that has begun gets the highest 1-minute estimated Kp measured in it instead ("nowcast"; the forecast
+    stays in "fc"), so a running interval does not show a storm that was only forecast."""
+    m1 = []
+    for r in _get("kp1m") or []:
+        if isinstance(r, dict) and _num(r.get("estimated_kp")) is not None:
+            t = _epoch(r.get("time_tag"))
+            if t is not None:
+                m1.append((t, _num(r["estimated_kp"])))
     out = []
     for r in _get("kpf") or []:
         if isinstance(r, dict) and _num(r.get("kp")) is not None:
-            out.append({"t": _iso(r.get("time_tag")), "kp": _num(r.get("kp")), "kind": r.get("observed"),
-                        "scale": r.get("noaa_scale")})
+            row = {"t": _iso(r.get("time_tag")), "kp": _num(r.get("kp")), "kind": r.get("observed"),
+                   "scale": r.get("noaa_scale")}
+            t0 = _epoch(row["t"])
+            if row["kind"] != "observed" and t0 is not None:
+                inside = [k for t, k in m1 if t0 <= t < t0 + 3 * 3600]
+                if inside:
+                    row.update(fc=row["kp"], kp=max(inside), kind="nowcast", n=len(inside))
+            out.append(row)
     return out
 
 
@@ -233,6 +304,31 @@ def _kp_now():
         return None
     r = rows[-1]
     return {"kp": _num(r["estimated_kp"]), "t": _iso(r.get("time_tag"))}
+
+
+def _aurora(lat, lon):
+    """The OVATION grid and, with the location: the % at the station and the nearest cell of the oval (>= AUR_OVAL_P %)."""
+    a = _get("aur")
+    if not a or not isinstance(a, dict):
+        return None
+    out = {"obs": a.get("obs"), "fc": a.get("fc"), "pts": a.get("pts") or []}
+    if lat is None or lon is None or (lat == 0 and lon == 0):
+        return out
+    p, here, near, best = out["pts"], 0, None, None
+    la1, r = math.radians(lat), math.pi / 180
+    for i in range(0, len(p) - 2, 3):
+        x, y, v = p[i], p[i + 1], p[i + 2]
+        if abs(y - lat) <= 0.5 and abs(((x - lon + 180) % 360) - 180) <= 0.5:
+            here = max(here, v)
+        if v < AUR_OVAL_P:
+            continue
+        c = math.sin(la1) * math.sin(y * r) + math.cos(la1) * math.cos(y * r) * math.cos((x - lon) * r)
+        km = 6371 * math.acos(max(-1.0, min(1.0, c)))
+        if best is None or km < best:
+            best, near = km, {"km": round(km), "lat": y, "lon": x, "p": v}
+    out["here"], out["near"] = here, near
+    out["max"] = max(p[2::3]) if p else 0
+    return out
 
 
 def _f107():
@@ -493,6 +589,7 @@ def summary(lat=None, lon=None):
         f107, daily, xray, flare = _f107(), _daily(), _xray(), _flare()
         sw, scales, alerts, kir = _solar_wind(), _scales(), _alerts(), _kir()
         iono = _iono(lat, lon) if lat is not None and lon is not None else []
+        aur = _aurora(lat, lon)
         ages = {n: round(time.time() - c["t"]) for n, c in _cache.items()}
         errors = dict(_errors)
     a_index = None
@@ -533,6 +630,6 @@ def summary(lat=None, lon=None):
         "sfi": f107, "ssn": ssn, "daily": daily, "kp": kp_now, "kp_t": kp1m["t"] if kp1m else None,
         "a": a_index, "kp_hist": kp_hist, "kp_fc": fc, "xray": xray, "flare": flare, "wind": sw,
         "scales": scales, "alerts": alerts, "prop": prop, "qth": {"lat": lat, "lon": lon}, "iono": iono,
-        "kir": kir, "ages": ages, "errors": errors, "busy": _busy.is_set(), "source": SOURCE, "iono_source": IONO_SOURCE,
+        "kir": kir, "aur": aur, "ages": ages, "errors": errors, "busy": _busy.is_set(), "source": SOURCE, "iono_source": IONO_SOURCE,
         "kir_source": KIR_SOURCE,
     }

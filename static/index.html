@@ -1487,12 +1487,16 @@ Key lit = on · fast blinking = a transmission is being transcribed · slow blin
           <div class="setting sdg">
             <div class="row"><span>Space weather and HF propagation</span><span class="muted" id="propInfo"></span></div>
             <span class="sdg-sec">SUN · SOLAR WIND · EARTH</span>
-            <div class="sdg-shared prop-blocks" id="propBlocks"></div>
-            <!-- three columns: the Sun (flux, X-ray) | the solar wind and the Earth (Kp) | NOAA scales, the magnetogram -->
-            <div class="prop-charts">
-              <div id="propXray"></div>
-              <div id="propKp"></div>
-              <div id="propMag"></div>
+            <!-- three columns: the Sun (flux, X-ray) | the solar wind and the Earth (Kp) | NOAA scales, the magnetogram;
+                 at the right over both rows the aurora oval (static/aurora.js) -->
+            <div class="prop-top">
+              <div class="sdg-shared prop-blocks" id="propBlocks"></div>
+              <div class="prop-charts">
+                <div id="propXray"></div>
+                <div id="propKp"></div>
+                <div id="propMag"></div>
+              </div>
+              <div class="prop-aur" id="propAur"></div>
             </div>
             <span class="sdg-sec">IONOSONDES UP TO 1500 KM · NEWEST VALUES (MHz)</span>
             <div class="sdg-shared prop-iono" id="propIono"></div>
@@ -2907,6 +2911,8 @@ Key lit = on · fast blinking = a transmission is being transcribed · slow blin
 <script src="/static/iqplay.js"></script><!-- IQ PLAYER (iqplay.py) -->
 <script src="/static/atc.js"></script><!-- AUDIO › ATC: airband speech to text, subtitle in the AD (atc.py) -->
 <script src="/static/fr24.js"></script><!-- SETTINGS › FR24 RECEIVER, COMPOSITE source FR24, ADS-B FR24 (fr24.py) -->
+<script src="/static/acphoto.js"></script><!-- COMPOSITE map: a small photo of the selected aircraft (Planespotters.net) -->
+<script src="/static/aurora.js"></script><!-- PROPAGATION › AURORA: OVATION oval on a polar map (spacewx.py) -->
 <script src="/static/meteor_rec.js"></script><!-- DECODERS › GRAVES › REC (meteor_rec.py) -->
 <script src="/static/tooltip.js"></script><!-- the dark tooltip of every title="" -->
 <script src="/static/satad.js"></script><!-- AD: satellite tracking of the VFO (polar plot, name, frequency) -->

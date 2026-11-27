@@ -82,6 +82,15 @@ Change log
 
 Ver. 1.2beta5
 (test beta, GitHub branch 1.2beta5; continues 1.2beta4)
+PROPAGATION
+- AURORA: NOAA aurora map of the northern hemisphere, distance and heading of the oval from the station (Au on 6 m / 2 m).
+- Kp chart: today's forecast no longer drawn as measured; a begun interval shows the Kp measured in it.
+COMPOSITE map
+- Photo of the selected aircraft from Planespotters.net; a click in the list no longer moves the map; STCA prediction 2 min.
+ATC speech to text
+- AI · ATC block in SETTINGS > STATION; the text sooner (0.4 s gap, 8 CPU threads).
+General
+- Tooltips stay open while the panel under the mouse is drawn again.
 
 Ver. 1.2beta4
 (test beta, GitHub branch 1.2beta4; continues 1.2beta3)

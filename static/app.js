@@ -17472,8 +17472,9 @@ function comPartsHtml(m, bare) {   // bare: without its heading (in a details of
   const rows = parts.map((p) => {
     const ids = [p.flight, p.reg, p.hex && /^[0-9A-F]{6}$/i.test(p.hex) ? p.hex.toUpperCase() : "", p.squawk && `sq ${p.squawk}`]
       .filter((x, k, a) => x && a.indexOf(x) === k);
-    return `<tr><td>${p.vfo === "~share" ? "Sharing" : p.vfo === "~fr24" ? "Local" : p.vfo ? `VFO ${esc(p.vfo)}` : ""}</td><td><b style="color:${(COM_SRC[p.src] || ["", "#fff"])[1]}">${esc((COM_SRC[p.src] || [p.src])[0])}</b></td>` +
-      `<td>${esc(ids.join(" · ") || p.label || p.id)}${p.n ? ` · ${p.n} msgs` : ""}</td><td>${hfdlUtc(p.t)}${p.hist ? " (history)" : ""}</td></tr>`;
+    const sn = (COM_SRC[p.src] || [p.src])[0];
+    return `<tr><td>${p.vfo === "~share" ? "Sharing" : p.vfo === "~fr24" ? "Local" : p.vfo ? `VFO ${esc(p.vfo)}` : ""}</td><td title="${esc(sn)}"><b style="color:${(COM_SRC[p.src] || ["", "#fff"])[1]}">${esc(sn)}</b></td>` +
+      `<td>${esc(ids.join(" · ") || p.label || p.id)}${p.n ? ` · ${p.n} msgs` : ""}</td><td title="${p.hist ? "from the history" : ""}">${hfdlUtc(p.t)}${p.hist ? " (history)" : ""}</td></tr>`;
   }).join("");
   const how = parts.length > 1 ? `joined by ${esc((m.joined || []).join(", ") || "?")}` : "one record, nothing joined";
   return `${bare ? "" : `<div class="com-kind com-parts-head">SOURCES (${parts.length})</div>`}<table class="com-parts">${rows}</table><span class="muted">${how}</span>`;
@@ -17492,13 +17493,14 @@ function comAirPopup(m) {
   const name = esc(a.flight || a.reg || hex || m.label);
   return `<div class="cs-head">${c ? `<img src="${flagUrl(c.cc)}" alt="" title="${esc(c.name)}">` : ""}<b class="cs-call">${name}</b>` +
       `<span class="cs-type" title="${esc(a.desc || "")}">${esc(a.type || "")}</span><span class="cs-age" title="last ${hfdlUtc(m.t)} UTC">${hfdlAge(m.t)}</span></div>` +
+    `${typeof acPhotoHtml === "function" ? acPhotoHtml(hex, a.reg) : ""}` +   // a small photo (acphoto.js)
     `<div class="cs-grid">${cell("FL", `${esc(fl)}${trend}`, a.alt_ft != null ? `${Math.round(a.alt_ft).toLocaleString("en-US")} ft` : "")}` +
       `${cell("GS kt", a.gs_kt != null && !a.ground ? String(Math.round(a.gs_kt)) : "")}${cell("TRK", m.track != null ? `${Math.round(m.track)}°` : "")}` +
       `${cell("VS fpm", vs)}${cell("SQ", esc(a.squawk || ""), mapEmerg(a.squawk) ? "emergency" : "")}${cell("A/D", esc(ad), `azimuth / distance from the station (${mapOpts.adUnit === "nm" ? "NM" : "km"})`)}</div>` +
     `<div class="cs-sub" title="${esc([a.reg, hex && `ICAO ${hex}`, c && c.name, a.desc].filter(Boolean).join(" · "))}">${esc([a.reg, hex, c && c.name, a.desc].filter((x) => x && x !== a.flight).join(" · "))}</div>` +
-    `<div class="cs-sub" title="position ${m.lat.toFixed(4)}, ${m.lon.toFixed(4)}">${esc(m.srcs.map((x) => (COM_SRC[x] || [x])[0]).join(" + "))}` +
-      `${m.vfos.length ? ` · VFO ${esc(m.vfos.join(", "))}` : ""}${a.gs ? ` · via ${esc(a.gs)}` : ""}${a.n ? ` · ${a.n} msgs` : ""}` +
-      `${hex ? ` · <a href="https://globe.adsb.fi/?icao=${hex.toLowerCase()}" target="_blank" rel="noopener">adsb.fi</a> · <a href="https://adsb.lol/?icao=${hex.toLowerCase()}" target="_blank" rel="noopener">adsb.lol</a>` : ""}</div>` +
+    `<div class="cs-src">${((t) => `<span class="cs-src-t" title="${esc(t)} · position ${m.lat.toFixed(4)}, ${m.lon.toFixed(4)}">${esc(t)}</span>`)(   // the text cut with …, the links always whole
+      `${m.srcs.map((x) => (COM_SRC[x] || [x])[0]).join(" + ")}${m.vfos.length ? ` · VFO ${m.vfos.join(", ")}` : ""}${a.gs ? ` · via ${a.gs}` : ""}${a.n ? ` · ${a.n} msgs` : ""}`)}` +
+      `${hex ? `<span class="cs-links"><a href="https://globe.adsb.fi/?icao=${hex.toLowerCase()}" target="_blank" rel="noopener">adsb.fi</a> · <a href="https://adsb.lol/?icao=${hex.toLowerCase()}" target="_blank" rel="noopener">adsb.lol</a></span>` : ""}</div>` +
     `<details class="cs-parts"${comPartsOpen ? " open" : ""}><summary>SOURCES (${(m.parts || []).length})</summary>${comPartsHtml(m, true)}</details>`;
 }
 let comPartsOpen = false;          // SOURCES of the detail open (kept over the redraws)
@@ -17796,13 +17798,14 @@ function comSondeTop(s) {
   return s.burst || top[2] - last[2] > 300 ? top[3] : null;
 }
 
-/** Selects a track (from the list or Find track): its label shown, the map on it; zoom = at least 8. */
-function comSelect(id, zoom) {
+/** Selects a track (from the list or Find track): its label shown, the map on it (stay = the map does not move);
+ *  zoom = at least 8. */
+function comSelect(id, zoom, stay) {
   comSel = id;
   if (!id) { renderComMap(); return; }
   comTrkSet(id, { lbl: true });   // its label shown
   const m = comMerged.find((x) => x.id === id);
-  if (m && comMap) comMap.setView([m.lat, m.lon], zoom ? Math.max(comMap.getZoom(), 8) : comMap.getZoom());
+  if (m && comMap && !stay) comMap.setView([m.lat, m.lon], zoom ? Math.max(comMap.getZoom(), 8) : comMap.getZoom());
   renderComMap();
 }
 
@@ -18159,7 +18162,7 @@ $("comSide").addEventListener("click", (e) => {
   const row = e.target.closest(".com-ml[data-id]");   // a row: select it, show it on the map
   if (!row) return;
   if (comMultiClick(row.dataset.id, e)) renderComMap();   // Alt / Ctrl: into / out of the selection of several (stca.js)
-  else comSelect(row.dataset.id, true);
+  else comSelect(row.dataset.id, true, true);   // the map stays where it is
 });
 $("comSide").addEventListener("contextmenu", (e) => {   // right click on an object of the list: its Track menu
   const row = e.target.closest(".com-ml[data-id]");
@@ -19992,6 +19995,7 @@ const SDG_ICO = {
   sm: '<path d="M1.8 11.5a6.2 6.2 0 0 1 12.4 0"/><path d="M8 11.5l3.2-4.4"/><path d="M3.6 7.4l.9.7M8 5.3v1.1M12.4 7.4l-.9.7"/>',
   dec: '<path d="M5.4 4.4L1.8 8l3.6 3.6M10.6 4.4L14.2 8l-3.6 3.6M9.2 2.8l-2.4 10.4"/>',
   rec: '<circle cx="8" cy="8" r="5.6"/><circle cx="8" cy="8" r="2.4" style="fill:var(--bc)"/>',
+  ai: '<path d="M2.5 4.5h11v6h-6l-3 2.5v-2.5h-2z"/><path d="M5 7.5h1M7.5 7.5h1M10 7.5h1"/>',   // AI · ATC: speech bubble with text
   reciq: '<circle cx="8" cy="8" r="5.6"/><path d="M4.4 8.6h1.4l.9-3 1.3 5 1.1-3.4.6 1.4h1.9"/>',
 };
 const sdgBlk = (title, body, cls = "", tip = "") => {
@@ -20227,6 +20231,19 @@ function sdgLane(v) {
     `lit k-rec sdg-rec${recNoAudio ? " warn" : ""}`, s.dab ? "REC / REC SQ: the MP3 of the DAB station as welle-cli sends it" :
       "REC / REC SQ: the sound of AUDIO after the squelch (what you hear, before the volume) as MP3; REC SQ only while the squelch is open") +
     `<i class="sdg-recl${s.dab ? " dab" : ""}" title="${s.dab ? "DAB station MP3 → RECORDER" : "sound after the squelch → RECORDER"}"></i>` : "";
+  // AI · ATC (atc.py): Whisper speech to text of the airband voice, taken after the demodulator and before LPF / HPF,
+  // one transmission per squelch opening; out: the subtitle in the AD and the callsigns heard → the COMPOSITE map
+  const atcIn = typeof atcHere === "function" ? atcHere(s) : s.mode === "AM";
+  const atcLoad = s.atc_state === "loading";
+  const atcB = s.atc ? sdgBlk("AI · ATC", `<span class="chips">${sdgChip("WHISPER", s.atc_error ? "bad" : !atcIn ? "warn" : atcLoad ? "ai blink" : "ai",
+      s.atc_error || (!atcIn ? "ATC: only in AM on the airband 118–137 MHz" : atcLoad ? "loading the model" : "local Whisper model fine-tuned on ATC radio, on the CPU"))}</span>` +
+      `<span>speech → text</span>` +
+      `<span class="sdg-dest" title="a callsign heard selects its aircraft on the COMPOSITE map; the text is also the subtitle in the AD window">→ COMPOSITE MAP</span>`,
+    `lit k-ai sdg-atc${s.atc_error ? " bad" : !atcIn ? " warn" : ""}`,
+    "AI · ATC (AUDIO › ATC key): each transmission between the squelch opening and closing, as the demodulator gives it " +
+      "(before LPF / HPF), is transcribed by a local Whisper model; the callsigns in the text are matched to the aircraft of " +
+      "ADS-B / FR24 and selected on the COMPOSITE map") +
+    `<i class="sdg-atcl" title="voice after the demodulator, before LPF / HPF, gated by the squelch → AI · ATC"></i>` : "";
   // SPECTRUM / WATERFALL: the FFT of the whole band the dongle receives, taken after DC removal and before NB (sdr.py
   // _waterfall: the band as it is); a line from between DC and NB of the IQ block down into it. On screen for the
   // VFO shown (the others are computed and kept in the band history of the page)
@@ -20274,7 +20291,7 @@ function sdgLane(v) {
   const asqL = !hasSq ? "" : `<i class="sdg-asql${agcAsq ? " on" : ""}" title="AGC+ ${agcAsq ? "switches the auto squelch (ASQ) on" : "does not switch ASQ on now"}">` +
     `<i class="up"></i><em>AGC+ → ASQ ${agcAsq ? "ON" : "OFF"}</em></i>`;
   return head + [ant, sdr, meterOnly(iq, why && !keepIq), meterOnly(mixer, why && !keepIq), meterOnly(spB, why && !keepIq), meterOnly(filt, why), idle(demod, why), dsdOn ? `<div class="sdg-pair">${dsdB}${idle(audio, why)}</div>` : idle(audio, why),
-    dec, `<i class="sdg-busc"></i>`].join("") + out + bbl + wfB + agc + (why ? smB.replace('class="sdg-sml', 'class="sdg-sml nouse') : smB) + raw + recB + ctl + dop + asqL +
+    dec, `<i class="sdg-busc"></i>`].join("") + out + bbl + wfB + agc + (why ? smB.replace('class="sdg-sml', 'class="sdg-sml nouse') : smB) + raw + recB + atcB + ctl + dop + asqL +
     // DAB: the sound comes from the DAB decoder on the raw IQ – a line from IQ DECODERS along the bottom up into OUTPUT
     (s.dab ? `<i class="sdg-dabl" title="DAB: the audio of the station comes from the DAB decoder (welle-cli) on the raw IQ samples">` +
       `<i class="up"></i><em>DAB AUDIO → ${outTo === "cue" ? "CUE" : "OUT"}</em></i>` : "");
@@ -20423,7 +20440,11 @@ function sdgPlaceDop() {
     const x0 = box.offsetLeft + box.offsetWidth / 2, y0 = box.offsetTop + box.offsetHeight;
     const x1 = aud.offsetLeft + chip.offsetLeft + chip.offsetWidth / 2;   // the chip is laid out in the AUDIO block
     const y1 = aud.offsetTop + aud.offsetHeight;
-    const yb = lane.clientHeight - (lane.querySelector(".sdg-dop") ? 26 : 9);
+    let yb = lane.clientHeight - (lane.querySelector(".sdg-dop") ? 26 : 9);
+    // AI · ATC in row 3 (and no raw-IQ branch there): through row 3, a little under its top (beside the ATC block, which
+    // is right of the line's end) instead of along the bottom of the lane
+    const atc = lane.querySelector(".sdg-atc");
+    if (atc && !lane.querySelector(".sdg-raw")) yb = Math.max(y0, atc.offsetTop + 14);
     Object.assign(el.style, { left: `${x0}px`, top: `${y0}px`, width: `${x1 - x0}px`, height: `${yb - y0}px` });
     el.style.setProperty("--up-h", `${yb - y1}px`);
   }
@@ -20481,6 +20502,23 @@ function sdgPlaceDop() {
       const x = rec.offsetLeft + rec.offsetWidth / 2, y = aud.offsetTop + aud.offsetHeight;
       Object.assign(el.style, { left: `${x}px`, top: `${y}px`, width: "0px", height: `${rec.offsetTop - y}px` });
     }
+  }
+  // AI · ATC (row 3 under AUDIO): straight down from AUDIO into it, between the rising S-meter level line and RECORDER,
+  // so it crosses neither; the block is moved under that line
+  for (const el of $("sdgLanes").querySelectorAll(".sdg-atcl")) {
+    const lane = el.parentElement, aud = lane.querySelector(".sdg-aud"), atc = lane.querySelector(".sdg-atc");
+    if (!aud || !atc) { el.hidden = true; continue; }
+    el.hidden = false;
+    const em = aud.querySelector(".sdg-sq > em"), rec = lane.querySelector(".sdg-rec");
+    const xl = em ? aud.offsetLeft + em.offsetLeft + Math.min(em.offsetWidth / 2, 30) + 14 : aud.offsetLeft + 20;   // right of the level line
+    const xr = rec ? rec.offsetLeft - 14 : aud.offsetLeft + aud.offsetWidth - 20;
+    const x = Math.round(Math.max(xl, Math.min((xl + xr) / 2, xr)));
+    atc.style.marginLeft = "0px";
+    const left0 = atc.offsetLeft;                     // where the grid puts it (start of the AUDIO column)
+    const ml = Math.max(0, Math.min(x - left0 - 16, aud.offsetWidth - atc.offsetWidth));   // the line enters 16 px from its left
+    atc.style.marginLeft = `${ml}px`;
+    const xa = left0 + ml + 16, y = aud.offsetTop + aud.offsetHeight;
+    Object.assign(el.style, { left: `${xa}px`, top: `${y}px`, width: "0px", height: `${atc.offsetTop - y}px` });
   }
   for (const el of $("sdgLanes").querySelectorAll(".sdg-wfl")) {
     const lane = el.parentElement, iq = lane.querySelector(".k-iq"), wf = lane.querySelector(".sdg-wf");
@@ -20899,8 +20937,12 @@ function propKpSvg(d) {
   let g = "";
   for (const k of [3, 5, 7, 9]) g += `<line class="grid" x1="${L}" x2="${W}" y1="${y(k)}" y2="${y(k)}"/><text x="${L - 4}" y="${y(k) + 3}" text-anchor="end">${k}</text>`;
   rows.forEach((r, i) => {
-    const x = L + 1 + i * bw, h = Math.max(1, y(0) - y(r.kp)), pred = r.kind === "predicted";
-    g += `<rect class="kp ${propKpCls(r.kp)}${pred ? " pred" : ""}" x="${x + 1}" y="${y(r.kp)}" width="${Math.max(1, bw - 2)}" height="${h}"><title>${r.t.slice(0, 16).replace("T", " ")} UTC · Kp ${r.kp.toFixed(2)} (${r.kind})</title></rect>`;
+    // "estimated" / "predicted" = NOAA forecast (pale); "nowcast" = a begun interval: the highest 1-minute Kp measured so far
+    const x = L + 1 + i * bw, h = Math.max(1, y(0) - y(r.kp)), pred = r.kind !== "observed" && r.kind !== "nowcast";
+    const what = r.kind === "nowcast" ? `measured so far (max of ${r.n} 1-min estimates); NOAA forecast ${r.fc.toFixed(2)}${r.scale ? ` (${r.scale})` : ""}`
+      : pred ? `NOAA forecast${r.scale ? ` (${r.scale})` : ""}` : "observed";
+    g += `<rect class="kp ${propKpCls(r.kp)}${pred ? " pred" : ""}" x="${x + 1}" y="${y(r.kp)}" width="${Math.max(1, bw - 2)}" height="${h}"><title>${r.t.slice(0, 16).replace("T", " ")} UTC · Kp ${r.kp.toFixed(2)} · ${what}</title></rect>`;
+    if (r.kind === "nowcast" && r.fc > r.kp) g += `<line class="kpfc ${propKpCls(r.fc)}" x1="${x + 1}" x2="${x + bw - 1}" y1="${y(r.fc)}" y2="${y(r.fc)}"/>`;
     if (r.t.slice(11, 13) === "00") g += `<line class="day" x1="${x}" x2="${x}" y1="${T}" y2="${H - B}"/><text x="${x + 3}" y="${H - 4}">${r.t.slice(5, 10)}</text>`;
   });
   const t0 = Date.parse(rows[0].t), nx = L + 1 + ((Date.now() - t0) / (3 * 3600e3)) * bw;
@@ -20959,10 +21001,12 @@ function propChartsRender(d) {
   const magLvl = dx == null ? "" : dx >= 400 ? "bad" : dx >= 150 ? "warn" : "";
   // GEOMAGNETIC and X-RAY were separate blocks above until 1.1rc2: their numbers are now the heads of these charts
   const fl = d.flare, last = d.daily?.[d.daily.length - 1];
+  const nc = (d.kp_fc || []).find((r) => r.kind === "nowcast" && Date.parse(r.t) <= Date.now() && Date.now() < Date.parse(r.t) + 3 * 3600e3);
   $("propKp").innerHTML = sdgBlk("GEOMAGNETIC · Kp 3 DAYS AND FORECAST", `<span class="v">Kp ${d.kp != null ? d.kp.toFixed(1) : "–"} · A ${d.a ?? "–"}<i>3 h bars, UTC; the forecast paler</i></span>` +
-    `<span class="prop-sub">${propGeoText(d.kp)}</span>${propKpSvg(d)}`,
+    `<span class="prop-sub">${propGeoText(d.kp)}${nc ? ` · this 3 h max ${nc.kp.toFixed(1)}, NOAA forecast ${nc.fc.toFixed(1)}${nc.scale ? ` (${nc.scale})` : ""}` : ""}</span>${propKpSvg(d)}`,
     `${d.kp_hist?.length ? "lit" : "off"} ${kpc === "bad" ? "bad" : kpc === "warn" ? "warn" : ""} k-geo`,
-    "Planetary Kp (estimated, each minute) and A of the last 24 h; the bars: observed 3-hour values of the last 3 days and the forecast (NOAA SWPC). " +
+    "Planetary Kp (estimated, each minute) and A of the last 24 h; the bars: observed 3-hour values of the last 3 days and the forecast (NOAA SWPC, paler). " +
+    "A begun interval that is not observed yet shows the highest 1-minute Kp measured in it; a line over it = what NOAA forecast for it. " +
     "Kp 0–2 quiet: best for the low bands and polar paths; 4 active; 5+ storm (G1+): the F2 layer drops (lower MUF), polar paths close, " +
     "absorption; aurora on 6 m / 2 m possible.");
   $("propXray").innerHTML = sdgBlk("X-RAY · LAST 6 HOURS", `<span class="v">${d.xray?.cls || "–"}<i>GOES 0.1–0.8 nm, log scale</i></span>` +
@@ -20977,6 +21021,7 @@ function propChartsRender(d) {
     "Magnetometer of the Kiruna observatory (Swedish Institute of Space Physics, IRF), 67.8° N: 1-minute X (north), Y (east), Z (down). " +
     "Big fast swings of X = substorms and aurora in the north (auroral Es and flutter on 6 m / 2 m, worse polar paths on HF). " +
     "ΔX 3 h = the range of X in the last 3 hours: under 150 nT quiet, 150–400 active, 400+ disturbed.");
+  if (typeof propAuroraRender === "function") propAuroraRender(d);   // static/aurora.js
 }
 
 function propBandsHtml(d) {

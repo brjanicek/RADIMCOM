@@ -3801,6 +3801,8 @@ html.app-shell .r-master .r-logo { margin-top: 10px; }
 /* AGC+ -> ASQ: a blue dashed line from under AGC+ along the bottom of the row up into the AGC+ chip in AUDIO */
 .sdg-lane:has(.sdg-asql) { padding-bottom: 22px; }
 .sdg-lane:has(.sdg-asql):has(.sdg-dop) { padding-bottom: 40px; }
+/* AI · ATC in row 3 without the raw-IQ branch: AGC+ → ASQ runs in the gap under row 2 (sdgPlace), the bottom needs no room */
+.sdg-lane:has(.sdg-asql):has(.sdg-atc):not(:has(.sdg-raw)):not(:has(.sdg-dop)) { padding-bottom: 6px; }
 .sdg-asql { position: absolute; border-left: 1.5px dashed #6cc6ff; border-bottom: 1.5px dashed #6cc6ff; font-style: normal; opacity: .35; pointer-events: auto; }
 .sdg-asql.on { opacity: 1; }
 .sdg-asql[hidden] { display: none; }
@@ -3954,6 +3956,16 @@ html.app-shell .r-master .r-logo { margin-top: 10px; }
 .sdg-recl::after { content: ""; position: absolute; left: -6px; bottom: -1px; border: 5px solid transparent; border-top: 6px solid #ff6b6b; border-bottom: 0; }
 .sdg-recl.dab { height: 0; border-left: 0; border-top: 2px solid var(--muted); }
 .sdg-recl.dab::after { left: -1px; top: -6px; bottom: auto; border: 5px solid transparent; border-right: 6px solid var(--muted); border-left: 0; }
+/* STATION: AI · ATC (Whisper speech to text, atc.py) in row 3 under AUDIO (row 2 has the S-meter level line and
+   RECORDER), fed from it; its destination the COMPOSITE map. sdgPlace moves it right of the level line. */
+.sdg-b.k-ai { --bc: #c08cff; }
+.sdg-b.sdg-atc { grid-row: 3; grid-column: 9; justify-self: start; width: max-content; min-width: 120px; max-width: 100%; }
+.sdg-b.sdg-atc::before, .sdg-b.sdg-atc::after { display: none; }
+.sdg-c.ai { border-color: #c08cff; background: rgba(192, 140, 255, .16); color: #dcc2ff; }
+.sdg-b .sdg-dest { color: #5ce8ff; font-weight: 700; white-space: nowrap; }
+.sdg-atcl { position: absolute; width: 0; border-left: 2px solid #c08cff; pointer-events: auto; }
+.sdg-atcl[hidden] { display: none; }
+.sdg-atcl::after { content: ""; position: absolute; left: -6px; bottom: -1px; border: 5px solid transparent; border-top: 6px solid #c08cff; border-bottom: 0; }
 
 /* AGC+ meter strip (after OnAir): A/D level bar with the headroom target tick, clip lamp, numbers, warning, why */
 .agc-meter { display: flex; align-items: center; gap: 8px; margin: 4px 0 2px; }
@@ -4259,6 +4271,25 @@ label.map-opts-sub2 { display: flex; align-items: center; gap: 6px; cursor: poin
 .prop-svg rect.kp { opacity: .85; } .prop-svg rect.kp.pred { opacity: .35; }
 .prop-svg .xband { fill: transparent; } .prop-svg .xband.M { fill: rgba(255, 181, 71, .07); } .prop-svg .xband.X { fill: rgba(255, 75, 62, .1); }
 .prop-svg .xline { fill: none; stroke: #ff7f6a; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+/* Kp: what NOAA forecast for a begun interval, a short line over the measured bar */
+.prop-svg .kpfc { stroke-width: 2; stroke-dasharray: 3 2; vector-effect: non-scaling-stroke; opacity: .8; }
+.prop-svg .kpfc.ok { stroke: var(--green); } .prop-svg .kpfc.warn { stroke: var(--amber); } .prop-svg .kpfc.bad { stroke: var(--red); }
+/* the top: blocks over charts at the left, the aurora oval at the right over both rows; its map fills what is left */
+.prop-top { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 10px; align-items: stretch; }
+.prop-top > .prop-blocks { grid-column: 1; grid-row: 1; }
+.prop-top > .prop-charts { grid-column: 1; grid-row: 2; }
+.prop-top > .prop-aur { grid-column: 2; grid-row: 1 / 3; display: flex; flex-direction: column; min-width: 0; }
+.prop-aur .sdg-b { flex: 1 1 auto; flex-direction: column; align-items: stretch; }
+.prop-aur .sdg-b .sdg-ico { top: 5px; transform: none; }
+.prop-aur .prop-sub { font-size: 10.5px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.prop-aur .aur-map { position: relative; flex: 1 1 0; min-height: 170px; }
+.prop-aur img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; border-radius: 4px; cursor: zoom-in; }
+.sdg-b.k-aur { --bc: #3ddc84; }
+@media (max-width: 1000px) {
+  .prop-top { grid-template-columns: minmax(0, 1fr); }
+  .prop-top > .prop-aur { grid-column: 1; grid-row: 3; }
+  .prop-aur .aur-map { min-height: 260px; }
+}
 /* the band table at the left over two rows; beside it HF AT THE STATION · SPORADIC E over FT8 · FT8 TEST, all stretched
    to the same heights, the whole width used */
 .prop-hf { display: grid; gap: 10px; align-items: stretch;
@@ -5351,9 +5382,14 @@ details[data-sec=vmaps] > .map-opts-body:empty { display: none; }
 .cs-parts > summary { cursor: pointer; font: 700 10px system-ui, sans-serif; letter-spacing: .08em; color: var(--muted); }
 .com-side .cs-parts .com-parts { table-layout: fixed; }
 .com-side .cs-parts .com-parts td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.com-side .cs-parts .com-parts td:nth-child(1) { width: 52px; }
-.com-side .cs-parts .com-parts td:nth-child(2) { width: 58px; }
-.com-side .cs-parts .com-parts td:nth-child(4) { width: 58px; }
+.com-side .cs-parts .com-parts td:nth-child(1) { width: 48px; }
+.com-side .cs-parts .com-parts td:nth-child(2) { width: 52px; }
+.com-side .cs-parts .com-parts td:nth-child(4) { width: 56px; }
+.com-side .cs-parts .com-parts td:nth-child(3) { white-space: normal; overflow-wrap: anywhere; }   /* the identifiers wrap, never cut */
+/* the sources line of the detail: the text cut with …, the adsb.fi / adsb.lol links always whole at its end */
+.cs-src { display: flex; gap: 6px; min-width: 0; font-size: 11px; }
+.cs-src-t { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cs-links { flex: none; white-space: nowrap; }
 /* STCA and the selection of several: fixed columns, cut with … */
 .com-side .cs-blk .stca-t { table-layout: fixed; margin: 0; font-variant-numeric: tabular-nums; }
 .com-side .cs-blk .stca-t td, .com-side .cs-blk .stca-t th { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 4px; }
@@ -5375,15 +5411,9 @@ details[data-sec=vmaps] > .map-opts-body:empty { display: none; }
 .com-lt th.c-dest { width: 62px; } .com-lt th.c-call { width: 56px; }
 .com-lt td.c-name b { font-family: ui-monospace, Consolas, monospace; }
 
-/* ATC: a navpoint heard in a transmission (atc.js): a yellow triangle over its icon, its name yellow; blinking while
-   fresh, steady while its aircraft is selected */
-.atc-fix { pointer-events: none; }
-/* the size of the waypoint's own triangle (r 4: 12 px wide) and its name where the vector map writes it: only yellow */
-.atc-fix i { position: absolute; left: 5px; top: 5px; width: 0; height: 0; border-left: 6px solid transparent;
-  border-right: 6px solid transparent; border-bottom: 10px solid #ffd84a; }
-.atc-fix b { position: absolute; left: 50%; top: 18px; transform: translateX(-50%); white-space: nowrap;
-  font: 600 10px/1.15 system-ui, sans-serif; color: #ffd84a; text-shadow: 0 0 2px #000, 0 0 2px #000, 0 0 3px #000; }
-.atc-fix.blink i, .atc-fix.blink b { animation: atc-fix-blink .5s steps(1, end) infinite; }
-@keyframes atc-fix-blink { 50% { opacity: 0; } }
-/* the line from the aircraft to the navpoint it was told to fly to */
-.atc-route.blink { animation: atc-fix-blink .5s steps(1, end) infinite; }
+/* ===== COMPOSITE map: a small photo of the selected aircraft (static/acphoto.js, Planespotters.net) ===== */
+.cs-photo { position: relative; display: block; margin: 5px 0 4px; overflow: hidden; border-radius: 6px; background: #000; }
+.cs-photo[hidden] { display: none; }
+.cs-photo img { display: block; width: 100%; height: auto; max-height: 150px; object-fit: cover; }
+.cs-photo span { position: absolute; right: 4px; bottom: 3px; max-width: calc(100% - 8px); overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; padding: 0 5px; border-radius: 3px; background: rgba(0, 0, 0, .55); color: #e8eef4; font: 10px/1.5 system-ui, sans-serif; }

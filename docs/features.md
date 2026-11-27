@@ -15,7 +15,7 @@
 - **SETTINGS › SDR SOURCES:** the sources dragged onto VFO A–D in the running RADIMCOM; APPLY restarts only the VFOs that
   change, a VFO keeps its settings with its source. See [SDR SOURCES](configuration.md#sdr-sources-assigning-sources-to-vfos).
 - **PROPAGATION tab (PROP key):** space weather (NOAA SWPC), the HF bands at the station for the next 24 h corrected by the
-  GIRO ionosondes and by what FT8 / WSPR hear, the Kiruna magnetogram, FT8 BAND TEST. See [Propagation](propagation.md).
+  GIRO ionosondes and by what FT8 / WSPR hear, the Kiruna magnetogram, the NOAA aurora oval, FT8 BAND TEST. See [Propagation](propagation.md).
 - **DX CLUSTER tab (DX key, group PROP):** the DX cluster spots of the last 30 minutes (HamQTH, no login) split into HF / VHF /
   UHF, with a filter; a click on a spot tunes the active VFO there with its mode, and the spots are marked in the spectrum.
   See [DX CLUSTER](propagation.md#dx-cluster).

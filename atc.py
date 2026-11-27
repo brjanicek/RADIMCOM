@@ -29,15 +29,14 @@ from flask import jsonify, request
 
 MODEL = "jacktol/whisper-medium.en-fine-tuned-for-ATC-faster-whisper"
 AIR_LO, AIR_HI = 117_975_000, 137_000_000      # the airband voice channels
-GAP_S = 0.6               # squelch closed this long: the transmission is over
+GAP_S = 0.4               # squelch closed this long: the transmission is over (shorter = the text sooner)
 MIN_S = 0.6               # shorter ones (a click of the squelch) are not transcribed
 MAX_S = 30.0              # a longer one is cut (an open squelch would never end)
 RATE = 16000              # Whisper wants 16 kHz mono
-HINTS_MAX = 60           # navpoint names in the prompt (5 letters ~ 2-3 tokens each; Whisper keeps ~220 tokens)
 TARGET_DBFS = -20.0     # the voice for Whisper at this RMS, whatever the volume / AGC of the VFO
 SILENCE_PEAK = 1         # as recorder.has_audio: a closed squelch gives exactly 0
 HISTORY = 100
-THREADS = 4               # CPU threads of the model (the receivers keep the rest)
+THREADS = 8               # CPU threads of the model (of 16; the receivers keep the rest); 8 vs 4: ~20 % faster
 AIRLINES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "openflights_airlines.dat")
 
 # what controllers and pilots say besides (or instead of) the official telephony
@@ -238,21 +237,7 @@ class AtcStt:
         self.q = queue.Queue(maxsize=8)
         self._buf, self._rate, self._hz, self._t0, self._quiet = [], 0, 0, 0.0, 0.0
         self.next_id = 1
-        self.hints = []                   # the names of the navpoints around (from the COMPOSITE map) for the prompt
         threading.Thread(target=self._worker, name="atc-stt", daemon=True).start()
-
-    def set_hints(self, names):
-        """The navpoints of the vector maps around the station (nearest first), given to Whisper as the prompt so that
-        it writes "direct ERGOM" and not some English word. At most HINTS_MAX (the prompt has ~220 tokens)."""
-        out = []
-        for n in names or []:
-            n = str(n).strip().upper()
-            if re.fullmatch(r"[A-Z]{3,6}", n) and n not in out:
-                out.append(n)
-        self.hints = out[:HINTS_MAX]
-
-    def _prompt(self):
-        return ("Air traffic control, Bratislava radar. Waypoints: " + " ".join(self.hints) + ".") if self.hints else None
 
     def status(self):
         return {"atc": self.enabled, "atc_state": self.state, "atc_error": self.error}
@@ -379,7 +364,7 @@ class AtcStt:
             t1 = time.time()
             try:
                 segs, _ = self.model.transcribe(self._to16k(pcm, rate), language="en", beam_size=5, vad_filter=False,
-                                                condition_on_previous_text=False, initial_prompt=self._prompt())
+                                                condition_on_previous_text=False)
                 text = " ".join(s.text.strip() for s in segs).strip()
             except Exception as e:
                 self.state, self.error = "error", f"transcription: {e}"
@@ -403,12 +388,8 @@ def register(app, stt, on_change):
 
     @app.route("/api/atc", methods=["POST"])
     def api_atc_set():
-        """{"on": bool}: ATC speech to text of this VFO on / off (kept in its config).
-        {"hints": [names]}: the navpoints around for the prompt (from the page, not kept)."""
+        """{"on": bool}: ATC speech to text of this VFO on / off (kept in its config)."""
         body = request.get_json(force=True) or {}
-        if "hints" in body:
-            stt.set_hints(body.get("hints"))
-            return jsonify(dict(stt.status(), hints=len(stt.hints)))
         on = bool(body.get("on"))
         stt.set_enabled(on)
         on_change(on)

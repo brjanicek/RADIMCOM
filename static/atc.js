@@ -55,12 +55,12 @@ function atcComFind(cs) {
     (typeof comFlight === "function" && atcNorm(comFlight(f)) === want)))) || null;
 }
 
-/** Selects the aircraft on the COMPOSITE map; the map moves only when it is out of the view (pan = always). */
+/** Selects the aircraft on the COMPOSITE map; the map does not move (pan = moves it there). */
 function atcComSelect(cs, pan) {
   const m = atcComFind(cs);
   if (!m) return false;
   comSel = m.id;
-  if (comMap && (pan || !comMap.getBounds().contains([m.lat, m.lon]))) comMap.panTo([m.lat, m.lon]);
+  if (comMap && pan) comMap.panTo([m.lat, m.lon]);
   renderComMap();
   return true;
 }
@@ -168,7 +168,6 @@ function atcText(d) {
   d.onMap = calls.map((c) => c.cs).filter((cs) => atcComFind(cs));
   if (d.onMap.length) atcComSelect(d.onMap[0], false);
   atcLast = d;
-  atcFixHeard(d);                  // a navpoint said ("direct ERGOM"): its icon blinks yellow on the map
 }
 
 /** The AD shows nothing of ATC (the key blinks while transcribing; the texts: GET /api/atc). */
@@ -176,165 +175,4 @@ function atcAdOn() {
   return false;
 }
 function atcAdRender() { /* nothing in the AD */ }
-
-// ----- Navpoints: a name of a waypoint / reporting point of the vector maps heard in a transmission ("ryanair 123
-// direct ERGOM") blinks yellow on the COMPOSITE map; while the aircraft of that transmission is selected, it stays yellow.
-// The names around the station are given to Whisper as its prompt (it writes them right more often). -----
-
-var ATC_FIX_KM = 350;              // navpoints this far from the station (or the map centre) are looked for
-var ATC_FIX_BLINK_MS = 6000;       // the blinking after it was heard
-var ATC_FIX_KEEP_S = 1800;         // a navpoint stays tied to its aircraft this long
-var ATC_HINT_KM = 200, ATC_HINT_MAX = 60;   // the names for the prompt: the nearest, within this distance
-var atcFixes = [];                 // [{name, ll, t (ms), ids: [aircraft ids of the transmission]}]
-var atcFixLay = null;
-// words a navpoint name must not be taken for (the phraseology, numbers, the spelling alphabet, units)
-var ATC_FIX_STOP = new Set(("radar radio tower approach ground contact climb climbing descend descending maintain level flight " +
-  "heading direct proceed cleared cross crossing report squawk runway turn right left hello good morning evening day night " +
-  "thank thanks bye roger wilco affirm negative correct confirm request standby information speed knots feet altitude " +
-  "decimal point hundred thousand ready continue expect traffic when able inbound outbound via after before until then " +
-  "zero one two three four five six seven eight nine niner alfa alpha bravo charlie delta echo foxtrot golf hotel india " +
-  "juliett juliet kilo lima mike november oscar papa quebec romeo sierra tango uniform victor whiskey xray yankee zulu " +
-  "bratislava praha prague wien vienna budapest krakow warsaw ruzyne").split(" "));
-
-/** The navpoints of the vector maps on the COMPOSITE map near the station: [{name, ll, km}], nearest first. */
-function atcFixPoints(maxKm) {
-  const st = typeof comMap !== "undefined" && comMap && comMap._vm;
-  if (!st || !st.pts) return [];
-  const mc = comMap.getCenter(), c = typeof mapQthV !== "undefined" && mapQthV ? mapQthV : { lat: mc.lat, lon: mc.lng };
-  const out = new Map();
-  for (const ob of st.pts) {
-    const p = ob.p || {};
-    if (p.kind !== "wpt" && p.kind !== "point") continue;
-    const name = String(p.name || "").trim().toUpperCase();
-    if (!/^[A-Z]{3,6}$/.test(name)) continue;
-    const km = mapAzDist(c, { lat: ob.ll[0], lon: ob.ll[1] })[1];
-    if (km <= maxKm && (!out.has(name) || km < out.get(name).km)) out.set(name, { name, ll: ob.ll, km });
-  }
-  return [...out.values()].sort((a, b) => a.km - b.km);
-}
-
-/** The navpoints said in a transcript (not inside a callsign): exact, or one letter off for 5+ letters; after
- *  "direct / proceed / to / via / cross" also two off or a cut end ("pepi" of PEPIK). */
-function atcFixFind(d) {
-  const pts = atcFixPoints(ATC_FIX_KM);
-  if (!pts.length || !d.text) return [];
-  const taken = (d.calls || []).map((c) => [c.start, c.end]);
-  const words = [...d.text.matchAll(/[A-Za-z]+/g)].map((m) => ({ w: m[0].toLowerCase(), s: m.index, e: m.index + m[0].length }))
-    .filter((x) => !taken.some(([a, b]) => x.s >= a && x.s < b));
-  const found = new Map();
-  words.forEach((x, i) => {
-    const prev = i ? words[i - 1].w : "", after = ["direct", "proceed", "to", "via", "cross", "crossing", "over", "after"].includes(prev);
-    // the word alone, and joined with the next one ("ar nix" = ARNIX)
-    for (const cand of [x.w, i + 1 < words.length ? x.w + words[i + 1].w : ""]) {
-      if (cand.length < 3 || cand.length > 7 || ATC_FIX_STOP.has(cand)) continue;
-      let best = null;
-      for (const p of pts) {
-        const n = p.name.toLowerCase();
-        let d0 = n === cand ? 0 : cand.length >= 5 || n.length >= 5 ? atcLev(cand, n) : 9;
-        if (after && cand.length >= 4 && n.startsWith(cand)) d0 = Math.min(d0, 1);
-        const lim = n === cand ? 0 : after ? 2 : 1;
-        if (d0 <= lim && n.length >= 4 && (!best || d0 < best.d)) best = { p, d: d0 };
-      }
-      if (best) { found.set(best.p.name, best.p); break; }
-    }
-  });
-  return [...found.values()];
-}
-
-var ATC_FIX_AHEAD = 30;            // a navpoint more than this off the track of its aircraft is not shown (not where it flies)
-/** Is the navpoint ahead of the aircraft (within ATC_FIX_AHEAD° of its track)? Unknown track: yes. */
-function atcFixAhead(m, ll) {
-  const a = m && m.air;
-  const trk = m && (m.track ?? (typeof comHeading === "function" ? comHeading(m) : null) ?? (a && a.track));
-  if (!m || trk == null || (a && a.ground)) return true;
-  const brg = mapAzDist({ lat: m.lat, lon: m.lon }, { lat: ll[0], lon: ll[1] })[0];
-  return Math.abs(((brg - trk + 540) % 360) - 180) <= ATC_FIX_AHEAD;
-}
-const atcMapById = (id) => (typeof comMerged !== "undefined" && comMerged.find((y) => y.id === id)) || null;
-
-/** A transmission: its navpoints blink and are tied to its aircraft (the one selected stays yellow); a navpoint
- *  off the track of all its aircraft (more than ATC_FIX_AHEAD°) is not taken. */
-function atcFixHeard(d) {
-  const fx = atcFixFind(d);
-  if (!fx.length) return;
-  const all = (d.onMap || []).map((cs) => { const m = atcComFind(cs); return m && m.id; }).filter(Boolean);
-  const now = Date.now();
-  for (const f of fx) {
-    const ids = all.filter((id) => atcFixAhead(atcMapById(id), f.ll));
-    if (all.length && !ids.length) continue;   // behind the aircraft: not where it flies
-    atcFixes = atcFixes.filter((x) => !(x.name === f.name && x.ids.join() === ids.join()));
-    atcFixes.push({ name: f.name, ll: f.ll, t: now, ids });
-  }
-  d.fixes = fx.map((f) => f.name);
-  atcFixDraw();
-}
-
-/** The yellow marks: blinking while fresh, steady for the selected aircraft's navpoints. */
-function atcFixDraw() {
-  if (typeof comMap === "undefined" || !comMap) return;
-  if (!atcFixLay) {
-    if (!comMap.getPane("atcFix")) comMap.createPane("atcFix").style.zIndex = 590;   // over the vector maps, under the aircraft
-    atcFixLay = L.layerGroup().addTo(comMap);
-  }
-  const now = Date.now(), sel = typeof comSel !== "undefined" ? comSel : null;
-  atcFixes = atcFixes.filter((x) => now - x.t < ATC_FIX_KEEP_S * 1000);
-  const show = new Map();
-  for (const x of atcFixes) {
-    // steady only while the selected aircraft flies towards it (more than ATC_FIX_AHEAD° off its track: not shown)
-    const blink = now - x.t < ATC_FIX_BLINK_MS, on = !!sel && x.ids.includes(sel) && atcFixAhead(atcMapById(sel), x.ll);
-    if (!blink && !on) continue;
-    const k = x.name, had = show.get(k);
-    show.set(k, { ...x, blink: (had && had.blink) || blink });
-  }
-  atcRouteDraw(now, sel);
-  const sig = [...show.values()].map((x) => `${x.name}${x.blink ? "*" : ""}`).sort().join(",");
-  if (sig === atcFixLay._sig) return;
-  atcFixLay._sig = sig;
-  atcFixLay.clearLayers();
-  for (const x of show.values()) {
-    L.marker(x.ll, { pane: "atcFix", interactive: false, keyboard: false,
-      icon: L.divIcon({ className: `atc-fix${x.blink ? " blink" : ""}`, html: `<i></i><b>${escHtml(x.name)}</b>`, iconSize: [22, 22], iconAnchor: [11, 11] }) }).addTo(atcFixLay);
-  }
-}
-setInterval(atcFixDraw, 500);      // the blinking ends, the selection changes
-
-var atcRouteLay = null;
-/** Where the aircraft was told to fly: a red dashed line from the aircraft (where it is now) to the navpoint heard
- *  with it; blinking while fresh, steady while that aircraft is selected. */
-function atcRouteDraw(now, sel) {
-  if (!atcRouteLay) atcRouteLay = L.layerGroup().addTo(comMap);
-  const lines = [];
-  for (const x of atcFixes) {
-    const blink = now - x.t < ATC_FIX_BLINK_MS;
-    for (const id of x.ids) {
-      if (!blink && id !== sel) continue;
-      const m = atcMapById(id);
-      if (m && atcFixAhead(m, x.ll)) lines.push({ a: [m.lat, m.lon], b: x.ll, blink });
-    }
-  }
-  const sig = lines.map((l) => `${l.a[0].toFixed(4)},${l.a[1].toFixed(4)}>${l.b}${l.blink ? "*" : ""}`).join("|");
-  if (sig === atcRouteLay._sig) return;
-  atcRouteLay._sig = sig;
-  atcRouteLay.clearLayers();
-  for (const l of lines) {
-    L.polyline([l.a, l.b], { pane: "atcFix", color: "#ff3b3b", weight: 2, opacity: 0.9, dashArray: "8 6", interactive: false,
-      className: l.blink ? "atc-route blink" : "atc-route" }).addTo(atcRouteLay);
-  }
-}
-
-/** The names around for Whisper's prompt: sent to the VFO when ATC is on there and the list changed. */
-var atcHintSig = "", atcHintTo = "", atcHintAt = 0;
-function atcHintSend() {
-  if (!st || !st.atc || !atcHere(st)) return;
-  const names = atcFixPoints(ATC_HINT_KM).slice(0, ATC_HINT_MAX).map((p) => p.name);
-  const sig = names.join(" ");
-  // again when the list or the VFO changed, and every 5 min (a restarted server has none)
-  if (!names.length || (sig === atcHintSig && vbase === atcHintTo && Date.now() - atcHintAt < 300000)) return;
-  atcHintSig = sig;
-  atcHintTo = vbase;
-  atcHintAt = Date.now();
-  fetch(vbase + "/api/atc", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hints: names }) })
-    .catch(() => { atcHintSig = ""; });
-}
-setInterval(atcHintSend, 10000);   // (the vector maps load with the COMPOSITE map; a new VFO / restart gets them again)
 

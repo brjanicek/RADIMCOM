@@ -18,6 +18,15 @@ All parts are blocks in the style of SETTINGS › STATION:
 - **Charts:** Kp for 3 days with the forecast (paler bars, a line at *now*), X-ray flux for 6 hours (log scale, classes
   A–X) and the **magnetogram of Kiruna** (X, Y, Z as the deviation from the 24 h median in nT; ΔX over the last 3 hours:
   under 150 nT quiet, 150–400 active, over 400 disturbed).
+- **Kp bars:** observed 3-hour values in full colour. NOAA marks the intervals of today as *estimated*, but they are its
+  forecast, so they are pale like the rest of the forecast. An interval that has begun and is not observed yet shows the
+  highest 1-minute estimated Kp measured in it so far; a dashed line over the bar marks what NOAA forecast for it (also in
+  the tooltip and in the line under the head: *this 3 h max … , NOAA forecast …*).
+- **AURORA · OVATION · NORTH** (at the right, over the blocks and the charts): the aurora forecast map of NOAA for the
+  northern hemisphere (OVATION model, about 30–90 minutes ahead) as NOAA draws it; a click opens it in full size. Above
+  it, from the OVATION grid: the nearest place of the oval (10 % probability or more) with its distance and beam heading
+  from the station (aurora scatter on 6 m / 2 m works with the antenna towards it), the probability over the station, the
+  highest probability and the time of the forecast. The border is red with the oval up to 1000 km away, amber up to 1600 km.
 - **HF BANDS · ESTIMATE NEXT 24 H:** a grid of the bands 160–6 m (with their MHz) against the next 24 hours in UTC, rows
   SUN (day / night) and MUF in MHz, the column NOW first. GOOD = the band under 85 % of the MUF, FAIR up to 105 %, else POOR.
   A corner mark in the NOW cell says that FT8 heard the band open (FT8) or that it is sporadic E (Es).
@@ -54,6 +63,7 @@ Downloaded by the running program only, refreshed when older than their interval
 | Source | What | Interval |
 |---|---|---|
 | NOAA SWPC (<https://www.swpc.noaa.gov>, public domain) | Kp, F10.7, daily indexes, GOES X-ray, solar wind, scales, alerts | 5–60 min |
+| NOAA SWPC OVATION | the aurora grid (only the cells north of 30° N are kept, `aur.json`) and the aurora map of the northern hemisphere (`aurora_north.jpg`, served to the page as `/api/spacewx/aurora.jpg`) | 10 min |
 | GIRO ionosondes via KC2G (<https://prop.kc2g.com>, GIRO data CC BY-NC-SA 4.0, Reinisch & Galkin 2011) | MUF, foF2, foEs of the stations up to 1500 km | 15 min (the stations themselves report every 5–15 min, some lag hours) |
 | IRF Kiruna (<https://www2.irf.se/maggraphs/>) | 1-minute magnetometer X, Y, Z; the last 24 hours are kept in `data\spacewx\kir.json` | 5 min |
 

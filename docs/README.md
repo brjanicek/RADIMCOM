@@ -9,7 +9,7 @@
 | [Shortwave (HF) with an upconverter](hf-upconverter.md) | LO of common upconverters, CONV / BYPASS, setup |
 | [Controls](controls.md) | tuning, VFO window, frequency display, function keys, SETTINGS, MEM |
 | [Configuration](configuration.md) | `vfos.json`, SDR SOURCES, network sources (rtl_tcp, SpyServer), VFO chaining, `setup_sdr.py`, TX with LimeSDR, `eeprom_tool.py`, import from SDR#, HTTP API |
-| [Propagation (PROP)](propagation.md) | space weather, HF bands at the station for the next 24 h, ionosondes, magnetogram, FT8 BAND TEST |
+| [Propagation (PROP)](propagation.md) | space weather, HF bands at the station for the next 24 h, ionosondes, magnetogram, aurora oval, FT8 BAND TEST |
 | [Satellite tracking](satellites.md) | passes, map, Doppler correction, K3NG rotor, rotor control map (RCTRL) |
 | [Development](development.md) | block diagram, files, the `data\` folder, backup and upgrade |
 

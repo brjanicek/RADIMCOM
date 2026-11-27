@@ -4,6 +4,41 @@
 
 Test beta (GitHub branch `1.2beta5`; continues 1.2beta4).
 
+### Changes
+
+#### PROPAGATION
+
+- **AURORA** block: the NOAA aurora forecast map of the northern hemisphere (OVATION), and from its grid the nearest part
+  of the oval with its distance and beam heading from the station (aurora scatter on 6 m / 2 m), the probability over the
+  station; the border amber / red with the oval up to 1600 / 1000 km. A click opens the map in full size.
+- New layout of the top: the blocks over the charts at the left, the aurora map at the right over both rows.
+
+#### COMPOSITE map
+
+- **Photo of the selected aircraft** in its detail, from Planespotters.net (by the ICAO address or registration, with the
+  photographer's name, a click opens it there; remembered in the browser for a week).
+- A click on a row of the list selects the object without moving the map; a callsign heard by ATC speech to text selects
+  its aircraft without moving the map either.
+- STCA: the prediction line of an aircraft in conflict is 2 minutes long (was 3).
+- The detail: the sources line cut with … (whole in the tooltip), the adsb.fi / adsb.lol links always whole; the
+  identifiers in SOURCES wrap instead of being cut.
+
+#### ATC speech to text
+
+- **AI · ATC** block in SETTINGS › STATION under AUDIO (the voice after the demodulator → Whisper → the COMPOSITE map).
+- The text comes sooner: a transmission ends after 0.4 s of closed squelch (was 0.6 s); the model uses 8 CPU threads
+  (about 20 % faster).
+
+#### General
+
+- Tooltips stay open when the element under the mouse is drawn again (panels refreshed every few seconds).
+
+### Fixes
+
+- PROPAGATION, Kp chart: the intervals of today were drawn as measured although they are NOAA's forecast (a red Kp 5
+  bar with Kp 0 measured). The forecast is now pale; a begun interval shows the highest 1-minute Kp measured in it, with
+  a dashed line at what NOAA forecast.
+
 ## Ver. 1.2beta4
 
 Test beta (GitHub branch `1.2beta4`; continues 1.2beta3).

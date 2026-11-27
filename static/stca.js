@@ -100,7 +100,7 @@ function stcaLabel(layer, ll, html, cls, c) {
     interactive: false, keyboard: false, zIndexOffset: 1500, ...(map ? { pane: "stcaTop" } : {}) }).addTo(layer);
 }
 
-const STCA_PRED_MIN = 3;   // the prediction of an aircraft in conflict: minutes ahead (a tick each minute)
+const STCA_PRED_MIN = 2;   // the prediction of an aircraft in conflict: minutes ahead (a tick each minute)
 /** The straight-ahead line of an aircraft for STCA_PRED_MIN minutes (track and ground speed now), in the alert colour. */
 function stcaPred(layer, m, color) {
   const a = m.air;

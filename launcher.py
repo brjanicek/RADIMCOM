@@ -105,6 +105,13 @@ def main():
         q = location.load()
         return jsonify(spacewx.summary(q.get("lat"), q.get("lon")))
 
+    @app.route("/api/spacewx/aurora.jpg")
+    def api_spacewx_aurora():
+        """The NOAA aurora map of the northern hemisphere for PROP › AURORA (spacewx.py, cached in data/spacewx)."""
+        import spacewx
+        b = spacewx.aurora_image()
+        return (b, 200, {"Content-Type": "image/jpeg", "Cache-Control": "no-cache"}) if b else ("not available", 503)
+
     @app.route("/api/clock", methods=["GET", "POST"])
     def api_clock():
         """PC clock against NTP for FT8 / WSPR (clocksync.py): GET = the offset (cached 10 min, ?force=1 measures now),

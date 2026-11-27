@@ -88,7 +88,8 @@ that release, for at least three years after it was published. The source packag
 - The orbital elements for pass prediction (TLE, amateur group) come from CelesTrak (<https://celestrak.org/>), downloaded by the running program once a day into `data\sat_tle.txt`; they are not in the repository or the release packages.
 - The list of satellite transmitters (SATELLITES tab, TRACK) comes from SatNOGS DB (<https://db.satnogs.org/>, Libre Space Foundation; data under CC BY-SA 4.0), downloaded by the running program once a week into `data\sat_transmitters.json`; it is not in the repository or the release packages.
 - The PROPAGATION tab (PROP key) shows space weather from the NOAA Space Weather Prediction Center
-  (<https://www.swpc.noaa.gov>, public domain), downloaded by the running program into `data\spacewx`.
+  (<https://www.swpc.noaa.gov>, public domain), downloaded by the running program into `data\spacewx`, including the
+  OVATION aurora forecast and its map of the northern hemisphere, shown as NOAA draws it.
 - The same tab shows the newest values of the ionosondes near the station from GIRO, the Global Ionospheric Radio
   Observatory (Lowell DIDBase, <https://giro.uml.edu>, CC BY-NC-SA 4.0; B. W. Reinisch and I. A. Galkin, Global Ionospheric
   Radio Observatory (GIRO), Earth, Planets and Space 63, 377–381, 2011, doi:10.5047/eps.2011.03.001), as collected by KC2G
@@ -100,6 +101,10 @@ that release, for at least three years after it was published. The source packag
 - The magnetogram in the same tab shows the 1-minute values of the magnetometer of the Kiruna geophysical observatory of the
   Swedish Institute of Space Physics (IRF, <https://www2.irf.se/maggraphs/>), downloaded by the running program into
   `data\spacewx` for its own use only; they are not in the repository or the release packages.
+- The detail of an aircraft on the COMPOSITE map shows a small photo from Planespotters.net (<https://www.planespotters.net>),
+  asked for by the browser through its public photo API by the ICAO address or registration, shown as Planespotters.net asks:
+  linked to its page there with the photographer's name. The photos stay with Planespotters.net and their photographers;
+  only the answer (the link) is remembered in the browser for a week. None are in the repository or the release packages.
 - The DIRECTORY list in SETTINGS › SDR SOURCES shows the public SpyServers of the Airspy receiver directory
   (<https://airspy.com/directory/>), downloaded by the running program only while that list is used (at most every 5 minutes)
   and kept in memory only; the owners' e-mail addresses are not shown. Nothing of it is in the repository or the release packages.

@@ -1135,6 +1135,14 @@ def api_spacewx():
     return jsonify(spacewx.summary(q.get("lat"), q.get("lon")))
 
 
+@app.route("/api/spacewx/aurora.jpg")
+def api_spacewx_aurora():
+    """The NOAA aurora map of the northern hemisphere for PROP › AURORA (spacewx.py, cached in data/spacewx)."""
+    import spacewx
+    b = spacewx.aurora_image()
+    return (b, 200, {"Content-Type": "image/jpeg", "Cache-Control": "no-cache"}) if b else ("not available", 503)
+
+
 import dxcluster  # noqa: E402
 dxcluster.register(app)     # /api/dxcluster for a receiver without the launcher (the launcher has its own)
 import sunnoise  # noqa: E402
