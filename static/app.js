@@ -9305,6 +9305,7 @@ function renderIsm(s) {
     : noRtlDongle(s) ? `ISM is not supported on ${DEVICE_NAMES[s.driver]} (RTL-SDR only)` : ISM_TITLE;
   for (const b of $("ismBands").children) b.classList.toggle("active", Number(b.dataset.f) === s.center_hz);
   $("ismRaw").checked = !!s.ism_raw;
+  if (document.activeElement !== $("ismMinLevel")) ismMinLevelShow(s.ism_minlevel ?? -12);
   renderIsmInfo({ enabled: on, error: s.ism_error });
 }
 
@@ -9333,6 +9334,16 @@ $("ismBands").addEventListener("click", (e) => {
   if (b && st) send({ ism_hz: Number(b.dataset.f) });
 });
 $("ismRaw").addEventListener("change", (e) => { if (st) { st.ism_raw = e.target.checked; send({ ism_raw: st.ism_raw }); } });
+// ISM MIN LEVEL: the value while dragging, rtl_433 restarts only on release (change); double click = default
+function ismMinLevelShow(db) {
+  $("ismMinLevel").value = db;
+  $("ismMinLevelText").textContent = `${String(db).replace("-", "−")} dB`;
+  $("ismMinLevelText").classList.toggle("off", Number(db) === -12);
+}
+function ismMinLevelSend(db) { if (st) { st.ism_minlevel = Number(db); send({ ism_minlevel: st.ism_minlevel }); } }
+$("ismMinLevel").addEventListener("input", (e) => ismMinLevelShow(e.target.value));
+$("ismMinLevel").addEventListener("change", (e) => { ismMinLevelSend(e.target.value); e.target.blur(); });
+$("ismMinLevel").addEventListener("dblclick", () => { ismMinLevelShow(-12); ismMinLevelSend(-12); });
 $("ismClear").addEventListener("click", () => {
   fetch(vbase + "/api/ism", { method: "POST", headers: { "Content-Type": "application/json" }, body: '{"action":"clear"}' });
   ismReset();

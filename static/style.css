@@ -1356,6 +1356,10 @@ body.map-only .ft8-map.map-only-box { flex-direction: column; }
 .ism-chip.on { opacity: 1; color: var(--text, #e6e9ee); border-color: color-mix(in srgb, var(--yellow) 55%, transparent);
   background: color-mix(in srgb, var(--yellow) 12%, transparent); }
 .ism-chip b { font-variant-numeric: tabular-nums; color: var(--yellow); margin-left: 2px; }
+/* ISM MIN LEVEL slider in the top row: fixed widths, the text does not move it; amber when not the default */
+.ism-minlvl input[type="range"] { width: 90px; margin: 0; }
+.ism-minlvl .value { display: inline-block; width: 6ch; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--amber); }
+.ism-minlvl .value.off { color: var(--muted); }
 .ism-stats { display: flex; align-items: center; gap: 8px; margin-left: auto; color: var(--muted); }
 .ism-stats b { color: var(--yellow); font-variant-numeric: tabular-nums; }
 #ismRate { width: 120px; height: 22px; color: var(--yellow); border-bottom: 1px solid var(--line2); }

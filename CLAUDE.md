@@ -52,6 +52,11 @@ To avoid the most common conflicts, a pull request must not edit these:
 ## Project conventions
 
 - Code, comments and documentation in English.
+- Every new feature is built with the least CPU and memory it can do with: the cheapest algorithm that is good enough,
+  work done once and shared (not per channel / per client), nothing running while the feature is off. Some features
+  cannot be cheap (e.g. Whisper speech to text); then make them switchable. Before building a feature, always state its
+  estimated CPU (% of one core) and memory impact, and after building it, measure it (SETTINGS profiler, CPU / MEM
+  indicator) and write the measured cost in its changelog / docs entry.
 - UI text must never overflow its box (panels, blocks, table cells, bars). Check widths, inherited `white-space`,
   `table-layout` and ellipsis. When something does not fit, ask the maintainer what to leave out of the text; until then,
   or when it has to stay, cut it with `…` and put the whole text in a tooltip (`title="…"`, shown by `static/tooltip.js`).

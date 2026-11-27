@@ -51,6 +51,8 @@ CH_GAIN = 1.0                 # the channel back to u8 bytes, same scale as the 
 # 433: OOK; autolevel lost messages there. 868: FSK; autolevel found the weaker devices.
 CHANNELS = {433920000: ((0, CH_RATE, False), (-500000, CH_RATE, False), (500000, CH_RATE, False)),   # 433.92, 433.42, 434.42
             868300000: ((0, CH_RATE, True), (650000, CH_RATE, True))}   # 868.30 sensors, 868.95 wM-Bus meters
+MINLEVEL_DEF = -12            # rtl_433's own minimum pulse level (dBFS, -12.1); here nothing is passed (868: autolevel stays)
+MINLEVEL_MIN = -40            # lowest MIN LEVEL offered; below it a u8 dongle is in its own noise
 RAW_MIN_PULSES = 20           # smaller undecoded packages are noise
 RAW_MERGE_S = 10.0            # RAW packages of one kind near one frequency within this time = one row with a count
 RAW_MERGE_HZ = 15000
@@ -227,11 +229,12 @@ def _load_known():
 class Channel:
     """One rtl_433 with its rtl_tcp server, fed by a narrow channel cut from the dongle samples (or by all of them)."""
 
-    def __init__(self, dec, fs, center_hz, offset_hz, raw, rate=CH_RATE, autolevel=False):
+    def __init__(self, dec, fs, center_hz, offset_hz, raw, rate=CH_RATE, autolevel=False, minlevel=MINLEVEL_DEF):
         self.dec = dec
         self.offset = offset_hz
         self.fs_in = fs
         self.autolevel = autolevel
+        self.minlevel = minlevel
         self.down = fs // rate if fs % rate == 0 and fs > rate else 1
         self.fs = fs // self.down
         self.start_hz = center_hz + offset_hz          # what rtl_433 is told
@@ -290,7 +293,9 @@ class Channel:
     def command(self, port):
         cmd = [EXE, "-c", "0", "-d", f"rtl_tcp:127.0.0.1:{port}", "-f", str(int(self.start_hz)), "-s", str(self.fs),
                "-F", "json", "-F", "log", "-C", "si", "-M", "time:off", "-M", "level", "-M", "protocol"]
-        if self.autolevel:
+        if self.minlevel < MINLEVEL_DEF:             # MIN LEVEL set lower: a fixed level (autolevel would move it again)
+            cmd += ["-Y", f"minlevel={self.minlevel}"]
+        elif self.autolevel:
             cmd += ["-Y", "autolevel"]
         return cmd + ["-A"] if self.raw else cmd
 
@@ -458,6 +463,7 @@ class IsmDecoder:
         self.on_state = on_state
         self.enabled = False
         self.raw = False              # RAW rows for packages no decoder read (rtl_433 -A)
+        self.minlevel = MINLEVEL_DEF  # MIN LEVEL: minimum pulse level for rtl_433 (dBFS)
         self.error = None
         self.count = 0                # all messages, also repeated ones
         self.raw_count = 0
@@ -498,9 +504,24 @@ class IsmDecoder:
             self.not_before = 0.0
         self._emit_state()
 
+    def set_minlevel(self, db):
+        """MIN LEVEL (dBFS, MINLEVEL_MIN .. MINLEVEL_DEF): rtl_433 starts again with it."""
+        try:
+            db = int(round(float(db)))
+        except (TypeError, ValueError):
+            db = MINLEVEL_DEF
+        db = max(MINLEVEL_MIN, min(MINLEVEL_DEF, db))
+        if db == self.minlevel:
+            return
+        with self.lock:
+            self.minlevel = db
+            self._stop()                     # the next samples start the channels again
+            self.not_before = 0.0
+        self._emit_state()
+
     def info(self):
         return {"enabled": self.enabled, "error": self.error, "count": self.count, "dropped": self.dropped,
-                "raw": self.raw, "raw_count": self.raw_count,
+                "raw": self.raw, "raw_count": self.raw_count, "minlevel": self.minlevel,
                 "running": bool(self.chans) and all(c.conn is not None for c in self.chans),
                 "channels": [round(c.start_hz + self.center_hz - self.start_hz) for c in self.chans],
                 "channel_rates": [c.fs for c in self.chans], "rate": self._rate_list(),
@@ -658,7 +679,7 @@ class IsmDecoder:
         chans = []
         try:
             for off, rate, autolevel in self._offsets(fs, center_hz):
-                c = Channel(self, fs, center_hz, off, self.raw, rate, autolevel)
+                c = Channel(self, fs, center_hz, off, self.raw, rate, autolevel, self.minlevel)
                 chans.append(c)
                 c.start()
         except (OSError, ImportError, ValueError) as e:
