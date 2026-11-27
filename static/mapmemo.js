@@ -95,7 +95,7 @@ function mapMemoRecall(i) {
 /** The keys of the Maps bar. */
 function mapMemoBarHtml() {
   return mapMemos().map((m, i) => `<button type="button" data-tb="mm" data-mm="${i}"${m ? "" : " disabled"} ` +
-    `title="${m ? `Recall ${escHtml(mapMemoName(m, i))} (stored ${new Date(m.at || 0).toLocaleString()})` : "Empty: Save actual stores the maps shown now"}">${escHtml(mapMemoName(m, i))}</button>`).join("") +
+    `title="${m ? `Recall ${escHtml(mapMemoName(m, i))} (stored ${new Date(m.at || 0).toLocaleString()}); right click: rename / delete` : "Empty: Save actual stores the maps shown now"}">${escHtml(mapMemoName(m, i))}</button>`).join("") +
     `<button type="button" data-tb="mminfo" class="mm-info${vmInfoOn() ? " on" : ""}" title="The info of a point or area of the vector maps under the mouse (on / off)">Map info ${vmInfoOn() ? "ON" : "OFF"}</button>` +
     `<button type="button" data-tb="mmedit" class="mm-edit${vmEditOn() ? " on" : ""}" title="The right click card of a point or area of the vector maps: own name, note, hide (on / off)">Map edit ${vmEditOn() ? "ON" : "OFF"}</button>` +
     `<button type="button" data-tb="mmsave" title="Store the maps shown now (vector maps, base map, A/D map, ADS-B range) into a memory">Save actual</button>` +
@@ -267,6 +267,54 @@ function mapMemoDialog(btn) {
   name.focus();
   name.select();
 }
+
+/** Right click on a used memory key: a small window to rename the memory or delete it (asked first; an emptied memory
+ *  gets its default name back). */
+function mapMemoDelete(btn, ev) {
+  const i = +btn.dataset.mm, m = mapMemos()[i];
+  if (!m) return;
+  const dlg = mapMemoWin(btn, `mem${i}`, `<div class="mm-dlg-h">Memory ${i + 1} <button type="button" class="mm-x" data-mmd="x" title="Close">✕</button></div>` +
+    `<label>Name <input type="text" data-mmd="name" maxlength="30" value="${escHtml(mapMemoName(m, i))}"></label>` +
+    `<div class="mm-dlg-ask" hidden></div>` +
+    `<div class="mm-dlg-act"><button type="button" data-mmd="ren">Rename</button><button type="button" data-mmd="del">Delete</button><button type="button" data-mmd="x">Cancel</button></div>`);
+  if (!dlg) return;
+  const box = dlg.parentElement, br = box.getBoundingClientRect(), k = br.width / (box.offsetWidth || br.width) || 1;   // k: a scaled page
+  const x = ((ev ? ev.clientX : btn.getBoundingClientRect().left) - br.left) / k;   // at the mouse, above the bars, inside the map
+  dlg.style.left = `${Math.max(4, Math.min(box.offsetWidth - dlg.offsetWidth - 4, x - 20))}px`;
+  const name = dlg.querySelector('[data-mmd="name"]'), ask = dlg.querySelector(".mm-dlg-ask"), act = dlg.querySelector(".mm-dlg-act");
+  const store = (f) => {
+    const list = mapMemos();
+    list[i] = f(list[i]);
+    try { localStorage.setItem(MAP_MEMO_KEY, JSON.stringify(list)); } catch { /* no storage */ }
+    dlg.remove();
+    mapMemoRedraw();
+  };
+  const rename = () => store((x) => (x ? { ...x, name: name.value.trim().slice(0, 30) || `MapMemo ${i + 1}` } : x));
+  name.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); rename(); } });
+  dlg.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const a = e.target.closest("button[data-mmd]");
+    if (!a) return;
+    const k = a.dataset.mmd;
+    if (k === "x") dlg.remove();
+    else if (k === "ren") rename();
+    else if (k === "del") {   // asked first: it cannot be undone
+      ask.innerHTML = `Delete ${escHtml(mapMemoName(m, i))}? <button type="button" data-mmd="yes">Delete</button><button type="button" data-mmd="no">No</button>`;
+      ask.hidden = false;
+      act.hidden = true;
+    } else if (k === "yes") store(() => null);
+    else if (k === "no") { ask.hidden = true; act.hidden = false; }
+  });
+  name.focus();
+  name.select();
+}
+// capture: the bars stop the right click from reaching the map (and the page) in the bubble phase
+document.addEventListener("contextmenu", (e) => {
+  const b = e.target.closest && e.target.closest('.com-bars button[data-tb="mm"]');
+  if (!b) return;
+  e.preventDefault();
+  mapMemoDelete(b, e);
+}, true);
 
 // another tab or window stored a memory: its keys show it
 window.addEventListener("storage", (e) => {
